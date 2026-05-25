@@ -232,10 +232,13 @@ struct InviteAthleteSheet: View {
         Task {
             do {
                 guard let coachID = authManager.userID,
-                      let coachEmail = authManager.userEmail,
-                      let coachName = authManager.currentFirebaseUser?.displayName ?? authManager.userEmail else {
+                      let coachEmail = authManager.userEmail else {
                     throw InvitationError.missingCoachInfo
                 }
+                // Fall back through display name → email → "Coach" so coaches
+                // without a display name don't show their email as their name
+                // in the athlete's invitation row.
+                let coachName = authManager.userDisplayName ?? authManager.userEmail ?? "Coach"
 
                 // Prevent self-invitation
                 if athleteEmail.lowercased() == coachEmail.lowercased() {
@@ -243,14 +246,18 @@ struct InviteAthleteSheet: View {
                                   userInfo: [NSLocalizedDescriptionKey: "You cannot send an invitation to yourself."])
                 }
 
-                // Enforce coach athlete limit before sending (centralized check)
-                let atLimit = await SubscriptionGate.isAtAthleteLimit(
+                // Strict gate: block writes when the server-side count can't
+                // be confirmed (offline coach at the edge could otherwise sneak
+                // past). Server CF will reject overflow too, but this gives the
+                // coach a clear retry path locally instead of a Cloud Function
+                // permission error.
+                let decision = await SubscriptionGate.writeGateDecision(
                     coachID: coachID,
                     authManager: authManager,
                     includingPending: true
                 )
-                if atLimit {
-                    throw InvitationError.athleteLimitReached(limit: authManager.coachAthleteLimit)
+                if case .block(let reason) = decision {
+                    throw InvitationError.gateBlocked(SubscriptionGate.message(for: reason))
                 }
 
                 // Create invitation in Firestore
@@ -282,6 +289,8 @@ struct InviteAthleteSheet: View {
 enum InvitationError: LocalizedError {
     case missingCoachInfo
     case athleteLimitReached(limit: Int)
+    /// Subscription gate refused this write — message comes from the gate.
+    case gateBlocked(String)
 
     var errorDescription: String? {
         switch self {
@@ -289,6 +298,8 @@ enum InvitationError: LocalizedError {
             return "Could not retrieve your coach information. Please try signing out and back in."
         case .athleteLimitReached(let limit):
             return "You've reached your athlete limit (\(limit)). Upgrade your coaching plan to invite more athletes."
+        case .gateBlocked(let msg):
+            return msg
         }
     }
 }

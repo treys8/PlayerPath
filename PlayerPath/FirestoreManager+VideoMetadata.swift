@@ -505,6 +505,11 @@ extension FirestoreManager {
     /// or an empty string to delete the note. Folder coaches can call this on any
     /// video in a folder they have access to; rules clamp the writable field set
     /// to the coachNote family.
+    ///
+    /// When saving (non-empty text), this also implicitly marks the clip reviewed
+    /// for the author via a separate `markVideoReviewedByCoach` write. The two
+    /// writes are split because the rule branches enforce per-write field sets
+    /// (coachNote* vs reviewedBy) and per-caller authorship of each.
     func setCoachNote(
         videoID: String,
         text: String?,
@@ -523,9 +528,6 @@ extension FirestoreManager {
             updateData["coachNoteAuthorID"] = authorID
             updateData["coachNoteAuthorName"] = authorName
             updateData["coachNoteUpdatedAt"] = FieldValue.serverTimestamp()
-            // Saving a coach note implicitly marks the clip reviewed for this coach.
-            // Once reviewed, stay reviewed — clearing the note does NOT undo this.
-            updateData["reviewedBy.\(authorID)"] = FieldValue.serverTimestamp()
         } else {
             updateData["coachNote"] = FieldValue.delete()
             updateData["coachNoteAuthorID"] = FieldValue.delete()
@@ -534,6 +536,12 @@ extension FirestoreManager {
         }
 
         try await videoRef.updateData(updateData)
+
+        // Saving a note implicitly marks the clip reviewed for this coach.
+        // Once reviewed, stay reviewed — clearing the note does NOT undo this.
+        if let trimmed, !trimmed.isEmpty {
+            try await markVideoReviewedByCoach(videoID: videoID, coachID: authorID)
+        }
     }
 
     /// Marks a video as reviewed by the given coach. Idempotent — calling

@@ -17,6 +17,7 @@ struct VideoClipCard: View {
     let onPlay: () -> Void
     let onDelete: () -> Void
     var onToggleSelection: (() -> Void)? = nil
+    var onContextMenuOpened: (() -> Void)? = nil
     @Environment(\.modelContext) private var modelContext
     @State private var errorMessage: String?
     @State private var showingError = false
@@ -162,7 +163,10 @@ struct VideoClipCard: View {
         .buttonStyle(PressableCardButtonStyle())
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isSelected)
         .contextMenu {
-            if !isSelectionMode { videoMenuItems }
+            if !isSelectionMode {
+                videoMenuItems
+                    .onAppear { onContextMenuOpened?() }
+            }
         }
         .sheet(isPresented: $showingShareToFolder) {
             ShareToCoachFolderView(clip: video)

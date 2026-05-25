@@ -440,25 +440,56 @@ class SharedFolderManager {
         // Refresh coach folders so the new folder appears in the UI. The athlete
         // is notified by the server-side onInvitationAccepted CF which fires on the
         // invitation status transition to accepted and writes the in-app + FCM.
-        try? await loadCoachFolders(coachID: coachID)
+        // Surface a refresh failure so the coach knows the new folder may not yet
+        // be visible — otherwise they're left wondering where the share went.
+        do {
+            try await loadCoachFolders(coachID: coachID)
+        } catch {
+            ErrorHandlerService.shared.handle(error,
+                                              context: "SharedFolderManager.acceptInvitation.refresh",
+                                              showAlert: false)
+        }
     }
-    
-    /// Declines an invitation
+
+    /// Declines an invitation. Idempotent: a second decline after the first
+    /// succeeded is treated as success (Firestore reports notFound or
+    /// permissionDenied once the invitation transitioned to declined/cancelled).
     func declineInvitation(_ invitation: CoachInvitation) async throws {
         guard let invitationID = invitation.id else {
             throw SharedFolderError.folderNotFound
         }
-        try await firestore.declineInvitation(invitationID: invitationID)
+        do {
+            try await firestore.declineInvitation(invitationID: invitationID)
+        } catch {
+            if isIdempotentFolderError(error) { return }
+            throw error
+        }
     }
-    
+
     /// Allows a coach to voluntarily leave a shared folder they have access to.
     /// Removes the coach from the folder's sharedWithCoachIDs and permissions,
-    /// then removes the folder from the local coachFolders cache.
+    /// then removes the folder from the local coachFolders cache. Idempotent —
+    /// a second leave after the first succeeded still drops the local cache entry.
     func leaveFolder(folderID: String, coachID: String) async throws {
         // End any active recording sessions for this folder before leaving
         await CoachSessionManager.shared.endSessionIfActive(forFolderID: folderID)
-        try await firestore.removeCoachFromFolder(folderID: folderID, coachID: coachID)
+        do {
+            try await firestore.removeCoachFromFolder(folderID: folderID, coachID: coachID)
+        } catch {
+            if !isIdempotentFolderError(error) {
+                throw error
+            }
+        }
         coachFolders.removeAll { $0.id == folderID }
+    }
+
+    /// Returns true for errors that indicate the operation already completed
+    /// — e.g. the doc/field is gone or the rule denies because preconditions
+    /// no longer hold. Used by decline/leave for double-tap tolerance.
+    private func isIdempotentFolderError(_ error: Error) -> Bool {
+        let ns = error as NSError
+        // FirestoreErrorDomain codes: 5=notFound, 7=permissionDenied.
+        return ns.code == 5 || ns.code == 7
     }
 
     // MARK: - Video Management

@@ -13,14 +13,19 @@ struct CoachMultiAthleteView: View {
     private var archiveManager: CoachFolderArchiveManager { .shared }
     @Environment(\.dismiss) private var dismiss
 
-    private var athleteGroups: [AthleteComparisonData] {
+    /// Cached athlete groups. Recomputed only when `coachFolders` or the
+    /// archived-folder set changes — previously this was a body-computed
+    /// property that re-ran a Dictionary(grouping:) + sort on every render.
+    @State private var athleteGroups: [AthleteComparisonData] = []
+
+    private func recomputeAthleteGroups() {
         // Group per athlete (UUID where present, account UID for legacy folders) so multi-athlete
         // parent accounts surface as separate rows.
         let grouped = Dictionary(grouping: sharedFolderManager.coachFolders.filter {
             !archiveManager.isArchived($0.id ?? "")
         }) { $0.athleteUUID ?? $0.ownerAthleteID }
 
-        return grouped.map { athleteID, folders in
+        athleteGroups = grouped.map { athleteID, folders in
             AthleteComparisonData(
                 athleteID: athleteID,
                 athleteName: folders.first?.ownerAthleteName ?? "Unknown",
@@ -56,6 +61,9 @@ struct CoachMultiAthleteView: View {
         }
         .navigationTitle("Athletes Overview")
         .navigationBarTitleDisplayMode(.inline)
+        .task { recomputeAthleteGroups() }
+        .onChange(of: sharedFolderManager.coachFolders) { _, _ in recomputeAthleteGroups() }
+        .onChange(of: archiveManager.archivedFolderIDs) { _, _ in recomputeAthleteGroups() }
     }
 }
 

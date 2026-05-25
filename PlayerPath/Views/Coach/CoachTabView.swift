@@ -196,30 +196,32 @@ struct CoachTabView: View {
     private func setupNotificationObservers() {
         notificationManager.cleanup()
 
+        // Hop to the main actor via Task instead of MainActor.assumeIsolated —
+        // some posters (PushNotificationService) can fire from non-main threads
+        // and assumeIsolated would trap.
         notificationManager.observe(name: .navigateToCoachFolder) { note in
-            MainActor.assumeIsolated {
-                if let folderID = note.object as? String {
-                    let videoID = note.userInfo?["videoID"] as? String
-                    coordinator.navigateToFolder(folderID, folders: sharedFolderManager.coachFolders, targetVideoID: videoID)
-                }
+            let folderID = note.object as? String
+            let videoID = note.userInfo?["videoID"] as? String
+            Task { @MainActor in
+                guard let folderID else { return }
+                coordinator.navigateToFolder(folderID, folders: sharedFolderManager.coachFolders, targetVideoID: videoID)
             }
         }
 
         notificationManager.observe(name: .openCoachInvitations) { _ in
-            MainActor.assumeIsolated {
+            Task { @MainActor in
                 coordinator.navigateToInvitations()
             }
         }
 
         notificationManager.observe(name: .switchCoachTab) { note in
-            MainActor.assumeIsolated {
-                if let rawValue = note.object as? Int,
-                   let tab = CoachTab(rawValue: rawValue) {
+            let rawValue = note.object as? Int
+            Task { @MainActor in
+                if let rawValue, let tab = CoachTab(rawValue: rawValue) {
                     coordinator.selectedTab = tab
                     Haptics.light()
                 }
             }
         }
-
     }
 }

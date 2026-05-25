@@ -20,6 +20,7 @@ private struct HeroWidthPreferenceKey: PreferenceKey {
 struct PhotoHeroCell: View {
     @Bindable var photo: Photo
     let onDelete: () -> Void
+    var onContextMenuOpened: (() -> Void)? = nil
 
     @State private var thumbnail: UIImage?
     @State private var imageAspectRatio: CGFloat?
@@ -76,30 +77,33 @@ struct PhotoHeroCell: View {
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .shadow(color: .black.opacity(0.12), radius: 10, x: 0, y: 4)
         .contextMenu {
-            if photo.isAvailableOffline, let url = photo.fileURL {
-                ShareLink(
-                    item: url,
-                    preview: SharePreview(
-                        photo.caption ?? "Photo",
-                        image: thumbnail.map { Image(uiImage: $0) } ?? Image(systemName: "photo")
-                    )
-                ) {
-                    Label("Share Photo", systemImage: "square.and.arrow.up")
+            Group {
+                if photo.isAvailableOffline, let url = photo.fileURL {
+                    ShareLink(
+                        item: url,
+                        preview: SharePreview(
+                            photo.caption ?? "Photo",
+                            image: thumbnail.map { Image(uiImage: $0) } ?? Image(systemName: "photo")
+                        )
+                    ) {
+                        Label("Share Photo", systemImage: "square.and.arrow.up")
+                    }
+                }
+                Button { showingTagSheet = true } label: {
+                    Label("Tag to Game/Practice", systemImage: "tag")
+                }
+                Button {
+                    captionText = photo.caption ?? ""
+                    showingCaptionSheet = true
+                } label: {
+                    Label(photo.caption != nil ? "Edit Caption" : "Add Caption", systemImage: "text.bubble")
+                }
+                Divider()
+                Button(role: .destructive) { onDelete() } label: {
+                    Label("Delete Photo", systemImage: "trash")
                 }
             }
-            Button { showingTagSheet = true } label: {
-                Label("Tag to Game/Practice", systemImage: "tag")
-            }
-            Button {
-                captionText = photo.caption ?? ""
-                showingCaptionSheet = true
-            } label: {
-                Label(photo.caption != nil ? "Edit Caption" : "Add Caption", systemImage: "text.bubble")
-            }
-            Divider()
-            Button(role: .destructive) { onDelete() } label: {
-                Label("Delete Photo", systemImage: "trash")
-            }
+            .onAppear { onContextMenuOpened?() }
         }
         .sheet(isPresented: $showingTagSheet) {
             PhotoTagSheet(photo: photo)

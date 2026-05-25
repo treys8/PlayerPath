@@ -12,9 +12,10 @@ import AVFoundation
 import FirebaseAuth
 
 /// Context for coach session recording mode
-struct CoachSessionContext {
+struct CoachSessionContext: Identifiable {
     let sessionID: String
     let session: CoachSession
+    var id: String { sessionID }
 }
 
 /// Streamlined video recorder that opens camera immediately
@@ -478,7 +479,8 @@ struct DirectCameraRecorderView: View {
         // Remember for next clip's athlete picker pre-selection
         lastSelectedAthleteID = athleteID
 
-        // Enqueue unconditionally — UploadQueueManager handles retry with exponential backoff.
+        // Enqueue unconditionally — UploadQueueManager handles retry with exponential
+        // backoff (up to 10 retries; not 3 as a prior comment claimed).
         let coachID = currentUser.uid
         let coachName = currentUser.displayName ?? currentUser.email ?? "Coach"
 
@@ -487,10 +489,9 @@ struct DirectCameraRecorderView: View {
             VideoFileManager.cleanup(url: original)
         }
 
-        Haptics.success()
-        dismiss()
-
-        // Fire-and-forget upload in background (manager retries up to 3 times)
+        // Await the enqueue call before reporting success — uploadClip routes
+        // permission-denied clips to coach_failed_uploads, and we don't want
+        // a success haptic on a clip that didn't actually queue.
         Task {
             await CoachSessionManager.shared.uploadClip(
                 videoURL: videoURL,
@@ -499,6 +500,10 @@ struct DirectCameraRecorderView: View {
                 coachID: coachID,
                 coachName: coachName
             )
+            await MainActor.run {
+                Haptics.success()
+                dismiss()
+            }
         }
     }
 

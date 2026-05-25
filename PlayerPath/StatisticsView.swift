@@ -345,17 +345,12 @@ struct StatisticsView: View {
         } else {
             EmptyStatisticsView(
                 isQuickEntryEnabled: hasLiveGame,
+                hasGames: !(athlete?.games ?? []).isEmpty,
                 showQuickEntry: {
                     if let game = currentLiveGame { activeSheet = .quickEntry(game) }
                 },
                 showGameSelection: { activeSheet = .gameSelection }
             )
-            .task {
-                EmptyStatsTip.hasGames = !(athlete?.games ?? []).isEmpty
-            }
-            .onChange(of: athlete?.games?.count) { _, _ in
-                EmptyStatsTip.hasGames = !(athlete?.games ?? []).isEmpty
-            }
         }
     }
 

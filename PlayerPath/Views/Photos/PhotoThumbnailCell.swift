@@ -19,6 +19,7 @@ struct PhotoThumbnailCell: View {
     @Bindable var photo: Photo
     var style: Style = .card
     let onDelete: () -> Void
+    var onContextMenuOpened: (() -> Void)? = nil
 
     @State private var thumbnail: UIImage?
     @State private var loadFailed = false
@@ -92,38 +93,41 @@ struct PhotoThumbnailCell: View {
         .shadow(color: .black.opacity(style == .card ? 0.08 : 0), radius: 8, x: 0, y: 3)
         .shadow(color: .black.opacity(style == .card ? 0.04 : 0), radius: 2, x: 0, y: 1)
         .contextMenu {
-            if photo.isAvailableOffline, let url = photo.fileURL {
-                ShareLink(
-                    item: url,
-                    preview: SharePreview(
-                        photo.caption ?? "Photo",
-                        image: thumbnail.map { Image(uiImage: $0) } ?? Image(systemName: "photo")
-                    )
-                ) {
-                    Label("Share Photo", systemImage: "square.and.arrow.up")
+            Group {
+                if photo.isAvailableOffline, let url = photo.fileURL {
+                    ShareLink(
+                        item: url,
+                        preview: SharePreview(
+                            photo.caption ?? "Photo",
+                            image: thumbnail.map { Image(uiImage: $0) } ?? Image(systemName: "photo")
+                        )
+                    ) {
+                        Label("Share Photo", systemImage: "square.and.arrow.up")
+                    }
+                }
+
+                Button {
+                    showingTagSheet = true
+                } label: {
+                    Label("Tag to Game/Practice", systemImage: "tag")
+                }
+
+                Button {
+                    captionText = photo.caption ?? ""
+                    showingCaptionSheet = true
+                } label: {
+                    Label(photo.caption != nil ? "Edit Caption" : "Add Caption", systemImage: "text.bubble")
+                }
+
+                Divider()
+
+                Button(role: .destructive) {
+                    onDelete()
+                } label: {
+                    Label("Delete Photo", systemImage: "trash")
                 }
             }
-
-            Button {
-                showingTagSheet = true
-            } label: {
-                Label("Tag to Game/Practice", systemImage: "tag")
-            }
-
-            Button {
-                captionText = photo.caption ?? ""
-                showingCaptionSheet = true
-            } label: {
-                Label(photo.caption != nil ? "Edit Caption" : "Add Caption", systemImage: "text.bubble")
-            }
-
-            Divider()
-
-            Button(role: .destructive) {
-                onDelete()
-            } label: {
-                Label("Delete Photo", systemImage: "trash")
-            }
+            .onAppear { onContextMenuOpened?() }
         }
         .sheet(isPresented: $showingTagSheet) {
             PhotoTagSheet(photo: photo)

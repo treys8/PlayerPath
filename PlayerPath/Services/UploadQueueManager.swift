@@ -488,6 +488,27 @@ final class UploadQueueManager {
 
     }
 
+    /// Manually retry a stuck or failed upload by its deterministic clipId.
+    /// Resets the retry counter so the next scheduled tick picks it up
+    /// immediately rather than waiting out the exponential backoff. No-op
+    /// when the clipId is unknown.
+    func retry(clipId: UUID) {
+        if let upload = failedUploads.first(where: { $0.clipId == clipId }) {
+            retryFailed(upload)
+            if !isProcessing { startProcessing() }
+            return
+        }
+        if let idx = pendingUploads.firstIndex(where: { $0.clipId == clipId }) {
+            var upload = pendingUploads.remove(at: idx)
+            upload.retryCount = 0
+            upload.lastAttempt = nil
+            pendingUploads.append(upload)
+            pendingUploads.sort { $0.priority.rawValue > $1.priority.rawValue }
+            queueIsDirty = true
+            if !isProcessing { startProcessing() }
+        }
+    }
+
     /// Cancels a pending upload
     func cancel(_ clipId: UUID) {
         pendingUploads.removeAll { $0.clipId == clipId }

@@ -167,11 +167,12 @@ struct PhotosView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         toggleLayoutMode()
+                        Task { await layoutModeTip.invalidate(reason: .actionPerformed) }
                     } label: {
                         Image(systemName: layoutMode == .card ? "square.grid.3x3.fill" : "square.grid.2x2")
                     }
                     .accessibilityLabel(layoutMode == .card ? "Switch to dense grid" : "Switch to card grid")
-                    .popoverTip(layoutModeTip, arrowEdge: .top)
+                    .onboardingTip(layoutModeTip, arrowEdge: .top, also: !cachedPhotos.isEmpty)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
@@ -314,9 +315,13 @@ struct PhotosView: View {
                             deletePhoto(hero)
                         }
                     } label: {
-                        PhotoHeroCell(photo: hero) {
-                            deletePhoto(hero)
-                        }
+                        PhotoHeroCell(
+                            photo: hero,
+                            onDelete: { deletePhoto(hero) },
+                            onContextMenuOpened: {
+                                Task { await photoOptionsTip.invalidate(reason: .actionPerformed) }
+                            }
+                        )
                     }
                     .buttonStyle(.plain)
                     .padding(.horizontal, 10)
@@ -346,9 +351,14 @@ struct PhotosView: View {
                                         deletePhoto(photo)
                                     }
                                 } label: {
-                                    PhotoThumbnailCell(photo: photo, style: cellStyle) {
-                                        deletePhoto(photo)
-                                    }
+                                    PhotoThumbnailCell(
+                                        photo: photo,
+                                        style: cellStyle,
+                                        onDelete: { deletePhoto(photo) },
+                                        onContextMenuOpened: {
+                                            Task { await photoOptionsTip.invalidate(reason: .actionPerformed) }
+                                        }
+                                    )
                                 }
                                 .buttonStyle(.plain)
                                 .onboardingTip(photoOptionsTip, arrowEdge: .top, also: !shouldShowHero && photo.id == cachedPhotos.first?.id)

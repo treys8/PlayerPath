@@ -29,6 +29,13 @@ service cloud.firestore {
     // Checks if the requesting user is a coach with a valid subscription tier.
     // Requires role == 'coach' to prevent athletes from impersonating coaches.
     // Whitelist prevents arbitrary strings from granting access.
+    //
+    // NOTE: this is a role/tier identity check, NOT an athlete-limit enforcer.
+    // The authoritative coach-athlete-limit check lives in the Cloud Function
+    // invitation-accept transactions (acceptAthleteToCoachInvitation,
+    // acceptCoachToAthleteInvitation, enforceCoachAthleteLimit). Adding
+    // limit logic here would require listing/counting and rules can't
+    // safely do that.
     function hasCoachTier() {
       let user = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
       return user != null && user.role == 'coach'
@@ -45,8 +52,17 @@ service cloud.firestore {
 
     function canAccessFolder(folderID) {
       let folder = get(/databases/$(database)/documents/sharedFolders/$(folderID)).data;
+      // Coach access is denied if a revocation doc exists for (folderID, coachID).
+      // Cloud Functions delete this doc when a coach is re-invited and re-accepts,
+      // so the deny survives until the legitimate re-add path runs.
+      // Revocation IDs are deterministic: "<folderID>_<coachID>".
       return request.auth.uid == folder.ownerAthleteID
-          || request.auth.uid in folder.sharedWithCoachIDs;
+          || (request.auth.uid in folder.sharedWithCoachIDs
+              && !isCoachRevokedFromFolder(folderID, request.auth.uid));
+    }
+
+    function isCoachRevokedFromFolder(folderID, coachID) {
+      return exists(/databases/$(database)/documents/coach_access_revocations/$(folderID + "_" + coachID));
     }
 
     function hasPermission(folderID, permission) {
@@ -125,11 +141,18 @@ service cloud.firestore {
       // subscriptionTier must be "free" on creation — upgrades go through
       // the syncSubscriptionTier Cloud Function after receipt validation.
       // coachSubscriptionTier must be absent (athletes) or "coach_free" (coaches).
+      // Defense in depth on recreate: forbid pre-populating any CF-managed
+      // field. If a profile is deleted and recreated (rare race), it cannot
+      // start with elevated state.
       allow create: if isAuthenticated()
                     && isOwner(userID)
                     && request.resource.data.subscriptionTier == "free"
                     && (!('coachSubscriptionTier' in request.resource.data)
-                        || request.resource.data.coachSubscriptionTier == "coach_free");
+                        || request.resource.data.coachSubscriptionTier == "coach_free")
+                    && (!('coachAthleteCount' in request.resource.data)
+                        || request.resource.data.coachAthleteCount == 0)
+                    && !('athleteTierSource' in request.resource.data)
+                    && !('coachAthleteLimit' in request.resource.data);
 
       // Users can update their own profile, but cannot change their role,
       // subscription tiers, tier source, or coach athlete count. These fields
@@ -242,15 +265,26 @@ service cloud.firestore {
                     && hasProTier()
                     && request.resource.data.ownerAthleteID == request.auth.uid;
 
-      // Folder owner can update anything. A coach can also update the folder
-      // when leaving a folder (removing themselves during downgrade), or
-      // when updating video count after upload/delete.
-      // Note: coach folder joining is handled by Cloud Functions (Admin SDK),
-      // not client-side writes, so no rule is needed for that path.
+      // Folder owner can rename and remove coaches; coaches can also self-revoke
+      // (leaving a folder during downgrade) or bump videoCount after upload/delete.
+      // Coach JOIN is handled exclusively by Cloud Functions (Admin SDK), which
+      // enforces the coach's athlete-limit transaction. Owner-side rule below
+      // explicitly forbids ADDING to sharedWithCoachIDs (subset-only) so the
+      // CF gate can't be bypassed by a direct client write.
       allow update: if isAuthenticated()
-                    && (resource.data.ownerAthleteID == request.auth.uid
-                        || isCoachLeavingFolder()
-                        || isCoachUpdatingVideoCount());
+                    && (
+                      (resource.data.ownerAthleteID == request.auth.uid
+                       && request.resource.data.ownerAthleteID == resource.data.ownerAthleteID
+                       && request.resource.data.diff(resource.data).affectedKeys()
+                            .hasOnly(['name', 'sharedWithCoachIDs', 'sharedWithCoachNames',
+                                      'permissions', 'updatedAt'])
+                       && (!('sharedWithCoachIDs' in request.resource.data.diff(resource.data).affectedKeys())
+                           || ('sharedWithCoachIDs' in request.resource.data
+                               && request.resource.data.sharedWithCoachIDs
+                                    .removeAll(resource.data.sharedWithCoachIDs).size() == 0)))
+                      || isCoachLeavingFolder()
+                      || isCoachUpdatingVideoCount()
+                    );
       allow delete: if isAuthenticated()
                     && resource.data.ownerAthleteID == request.auth.uid;
     }
@@ -291,21 +325,47 @@ service cloud.firestore {
                     && (!('sharedFolderID' in resource.data) || request.resource.data.sharedFolderID == resource.data.sharedFolderID)
                     && (!('sharedFolderID' in resource.data) || canAccessFolder(resource.data.sharedFolderID));
 
-      // Folder coaches with an active coach tier can write a plain coach note
-      // and/or mark a clip reviewed on any video in a folder they belong to
-      // (e.g. an athlete-uploaded game clip). The hasOnly() clamp prevents
-      // touching any other field. Both setCoachNote (which writes coachNote*
-      // + reviewedBy in one update) and markVideoReviewedByCoach (which writes
-      // only reviewedBy) flow through this branch. Dot-path updates like
-      // `reviewedBy.{uid}` show up in affectedKeys() as just `reviewedBy`.
+      // Folder coaches with an active coach tier can write a plain coach note,
+      // mark a clip reviewed for themselves, or bump annotation/drawing counters
+      // on any video in a folder they belong to (e.g. an athlete-uploaded game
+      // clip). Three narrow branches enforce per-write field sets and per-caller
+      // authorship — preventing one coach from impersonating another.
+
+      // setCoachNote: only the coachNote family. coachNoteAuthorID (when present)
+      // must equal the caller's UID so Coach A can't attribute a note to Coach B.
       allow update: if isAuthenticated()
                     && hasCoachTier()
                     && 'sharedFolderID' in resource.data
                     && canAccessFolder(resource.data.sharedFolderID)
                     && request.resource.data.diff(resource.data).affectedKeys()
                          .hasOnly(['coachNote', 'coachNoteAuthorID', 'coachNoteAuthorName',
-                                   'coachNoteUpdatedAt', 'reviewedBy', 'annotationCount',
-                                   'drawingCount', 'updatedAt'])
+                                   'coachNoteUpdatedAt', 'updatedAt'])
+                    && (!('coachNoteAuthorID' in request.resource.data)
+                        || request.resource.data.coachNoteAuthorID == request.auth.uid);
+
+      // markVideoReviewedByCoach: only the reviewedBy map, and the only
+      // diff against the prior map must be the caller's own UID. Dot-path
+      // writes like `reviewedBy.{uid}` collapse to `reviewedBy` in
+      // affectedKeys(), so we inspect the map's own diff for the per-key check.
+      allow update: if isAuthenticated()
+                    && hasCoachTier()
+                    && 'sharedFolderID' in resource.data
+                    && canAccessFolder(resource.data.sharedFolderID)
+                    && request.resource.data.diff(resource.data).affectedKeys()
+                         .hasOnly(['reviewedBy', 'updatedAt'])
+                    && request.resource.data.reviewedBy
+                         .diff(resource.data.get('reviewedBy', {}))
+                         .affectedKeys().hasOnly([request.auth.uid]);
+
+      // Annotation/drawing counter bumps: clamped to ±10 per write to bound
+      // abuse. Counters are managed by add/deleteAnnotation transactions in
+      // FirestoreManager+Annotations.swift.
+      allow update: if isAuthenticated()
+                    && hasCoachTier()
+                    && 'sharedFolderID' in resource.data
+                    && canAccessFolder(resource.data.sharedFolderID)
+                    && request.resource.data.diff(resource.data).affectedKeys()
+                         .hasOnly(['annotationCount', 'drawingCount', 'updatedAt'])
                     && (!('annotationCount' in request.resource.data.diff(resource.data).affectedKeys())
                         || (request.resource.data.annotationCount is int
                             && request.resource.data.annotationCount >= 0
@@ -506,8 +566,15 @@ service cloud.firestore {
                         && canAccessFolder(request.resource.data.folderID))
                     );
 
-      // Immutable after creation (email tracking is server-side)
-      allow update: if false;
+      // Original parties may refresh their own revocation (idempotent re-revoke
+      // after a coach was re-invited and revoked again). Doc ID is deterministic
+      // (<folderID>_<coachID>) so the same doc is updated rather than a new one.
+      allow update: if isAuthenticated()
+                    && (resource.data.athleteID == request.auth.uid
+                        || resource.data.coachID == request.auth.uid)
+                    && request.resource.data.folderID == resource.data.folderID
+                    && request.resource.data.coachID == resource.data.coachID
+                    && request.resource.data.athleteID == resource.data.athleteID;
 
       // The creating party (athlete or coach) can delete their own revocation
       allow delete: if isAuthenticated()
@@ -637,6 +704,13 @@ service cloud.firestore {
                     && request.resource.data.status == 'pending'
                     && isInvitationNotExpired(request.resource.data.expiresAt)
                     && isExpirationInRange(request.resource.data.expiresAt)
+                    // Email fields must be lowercased. Client-side normalization
+                    // happens in normalizeInvitationEmail; this rule prevents a
+                    // mixed-case write from silently orphaning the invitation
+                    // (recipient lookup keys on lowercased profile email).
+                    && request.resource.data.coachEmail == request.resource.data.coachEmail.lower()
+                    && (!('athleteEmail' in request.resource.data)
+                        || request.resource.data.athleteEmail == request.resource.data.athleteEmail.lower())
                     && (
                       // Athlete-to-coach: athlete is the sender, validate sender identity
                       // folderID/folderName are optional — folders are created server-side on acceptance

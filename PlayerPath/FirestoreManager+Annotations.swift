@@ -165,88 +165,89 @@ extension FirestoreManager {
             }
     }
 
-    /// Deletes an annotation and its mirrored comment (user can only delete their own)
+    /// Deletes an annotation and decrements the parent video's counters atomically.
+    /// One transaction: read annotation, delete annotation, decrement annotationCount
+    /// (and drawingCount when applicable, floored at 0). A crash between the read and
+    /// decrement no longer leaves the counter stale — the prior split implementation
+    /// could drift the counter upward forever.
+    /// Mirror-comment cleanup remains a best-effort follow-up after commit (legacy
+    /// fallback for annotations missing `mirrorCommentID`).
     func deleteAnnotation(videoID: String, annotationID: String) async throws {
+        let annotationRef = db.collection(FC.videos)
+            .document(videoID)
+            .collection(FC.annotations)
+            .document(annotationID)
+        let videoRef = db.collection(FC.videos).document(videoID)
+
+        var mirrorCommentID: String?
+        var mirrorFallbackUserID: String?
+        var mirrorFallbackText: String?
+
         do {
-            // Read the annotation before deleting so we can find its mirrored comment
-            let annotationDoc = try await db.collection(FC.videos)
-                .document(videoID)
-                .collection(FC.annotations)
-                .document(annotationID)
-                .getDocument()
-            let annotationData = annotationDoc.data()
-
-            // Delete the annotation
-            try await db.collection(FC.videos)
-                .document(videoID)
-                .collection(FC.annotations)
-                .document(annotationID)
-                .delete()
-
-            // Best-effort: delete the mirrored comment in comments/ subcollection.
-            // Prefer the explicit mirrorCommentID written at creation time. Fall
-            // back to a userID+text query for legacy annotations missing the ID
-            // — accepting the known ambiguity for duplicate-text cases rather
-            // than stranding old mirrors.
-            if let mirrorCommentID = annotationData?["mirrorCommentID"] as? String,
-               !mirrorCommentID.isEmpty {
+            _ = try await db.runTransaction { transaction, errorPointer in
+                let annotationSnap: DocumentSnapshot
+                let videoSnap: DocumentSnapshot
                 do {
-                    try await db.collection(FC.videos)
-                        .document(videoID)
-                        .collection("comments")
-                        .document(mirrorCommentID)
-                        .delete()
-                } catch {
-                    firestoreLog.warning("Failed to delete mirrored comment \(mirrorCommentID) for annotation \(annotationID): \(error.localizedDescription)")
-                }
-            } else if let userID = annotationData?["userID"] as? String,
-                      let text = annotationData?["text"] as? String {
-                do {
-                    let commentsQuery = db.collection(FC.videos)
-                        .document(videoID)
-                        .collection("comments")
-                        .whereField("authorId", isEqualTo: userID)
-                        .whereField("text", isEqualTo: text)
-                        .limit(to: 1)
-                    let commentsSnap = try await commentsQuery.getDocuments()
-                    for doc in commentsSnap.documents {
-                        try await doc.reference.delete()
-                    }
-                } catch {
-                    firestoreLog.warning("Failed to delete mirrored comment for annotation \(annotationID): \(error.localizedDescription)")
-                }
-            }
-
-            // Decrement annotationCount — and drawingCount if the deleted
-            // annotation was a drawing — floored at 0 in a single transaction.
-            let wasDrawing = (annotationData?["type"] as? String) == "drawing"
-            let videoRef = db.collection(FC.videos).document(videoID)
-            do {
-                _ = try await db.runTransaction { transaction, errorPointer in
-                    do {
-                        let doc = try transaction.getDocument(videoRef)
-                        let currentAC = doc.data()?["annotationCount"] as? Int64 ?? 0
-                        var updates: [String: Any] = [
-                            "annotationCount": max(Int64(0), currentAC - 1)
-                        ]
-                        if wasDrawing {
-                            let currentDC = doc.data()?["drawingCount"] as? Int64 ?? 0
-                            updates["drawingCount"] = max(Int64(0), currentDC - 1)
-                        }
-                        transaction.updateData(updates, forDocument: videoRef)
-                    } catch let fetchError as NSError {
-                        errorPointer?.pointee = fetchError
-                    }
+                    annotationSnap = try transaction.getDocument(annotationRef)
+                    videoSnap = try transaction.getDocument(videoRef)
+                } catch let fetchError as NSError {
+                    errorPointer?.pointee = fetchError
                     return nil
                 }
-            } catch {
-                firestoreLog.warning("Failed to decrement annotationCount for video \(videoID): \(error.localizedDescription)")
-            }
+                let annotationData = annotationSnap.data()
+                mirrorCommentID = annotationData?["mirrorCommentID"] as? String
+                mirrorFallbackUserID = annotationData?["userID"] as? String
+                mirrorFallbackText = annotationData?["text"] as? String
 
+                let wasDrawing = (annotationData?["type"] as? String) == "drawing"
+                let currentAC = videoSnap.data()?["annotationCount"] as? Int64 ?? 0
+                var updates: [String: Any] = [
+                    "annotationCount": max(Int64(0), currentAC - 1)
+                ]
+                if wasDrawing {
+                    let currentDC = videoSnap.data()?["drawingCount"] as? Int64 ?? 0
+                    updates["drawingCount"] = max(Int64(0), currentDC - 1)
+                }
+
+                transaction.deleteDocument(annotationRef)
+                transaction.updateData(updates, forDocument: videoRef)
+                return nil
+            }
         } catch {
-            firestoreLog.error("Failed to delete comment: \(error.localizedDescription)")
+            firestoreLog.error("Failed to delete annotation \(annotationID): \(error.localizedDescription)")
             errorMessage = "Failed to delete comment."
             throw error
+        }
+
+        // Best-effort mirror-comment cleanup AFTER atomic delete commits.
+        // Prefer mirrorCommentID; fall back to (userID + text) query for legacy
+        // annotations missing the ID — accepting the duplicate-text ambiguity
+        // rather than stranding old mirrors.
+        if let mirrorCommentID, !mirrorCommentID.isEmpty {
+            do {
+                try await db.collection(FC.videos)
+                    .document(videoID)
+                    .collection("comments")
+                    .document(mirrorCommentID)
+                    .delete()
+            } catch {
+                firestoreLog.warning("Failed to delete mirrored comment \(mirrorCommentID) for annotation \(annotationID): \(error.localizedDescription)")
+            }
+        } else if let userID = mirrorFallbackUserID, let text = mirrorFallbackText {
+            do {
+                let commentsQuery = db.collection(FC.videos)
+                    .document(videoID)
+                    .collection("comments")
+                    .whereField("authorId", isEqualTo: userID)
+                    .whereField("text", isEqualTo: text)
+                    .limit(to: 1)
+                let commentsSnap = try await commentsQuery.getDocuments()
+                for doc in commentsSnap.documents {
+                    try await doc.reference.delete()
+                }
+            } catch {
+                firestoreLog.warning("Failed to delete mirrored comment for annotation \(annotationID): \(error.localizedDescription)")
+            }
         }
     }
 

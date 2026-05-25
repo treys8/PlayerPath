@@ -161,12 +161,31 @@ class StoreKitManager: ObservableObject {
     // MARK: - Entitlement Resolution
 
     /// Re-evaluate all current entitlements and update tier.
+    /// For each tier, the LATEST expirationDate across all matching verified
+    /// transactions wins — the prior implementation picked the first match per
+    /// tier, so a coach who upgraded mid-cycle could see the older transaction's
+    /// expiration date even though a newer one was active.
     func updateEntitlements() async {
         var resolvedTier: SubscriptionTier = .free
         var resolvedTierExpiration: Date?
         var resolvedCoachTier: CoachSubscriptionTier = .free
         var resolvedCoachTierExpiration: Date?
         var newPurchasedIDs = Set<String>()
+
+        // Per-tier latest expiration, accumulated across all matching transactions.
+        var latestPlus: Date?
+        var latestPro: Date?
+        var latestInstructor: Date?
+        var latestProInstructor: Date?
+
+        func keepNewer(_ existing: inout Date?, _ candidate: Date?) {
+            guard let candidate else { return }
+            if let existing0 = existing {
+                if candidate > existing0 { existing = candidate }
+            } else {
+                existing = candidate
+            }
+        }
 
         for await result in Transaction.currentEntitlements {
             guard case .verified(let transaction) = result else { continue }
@@ -177,26 +196,30 @@ class StoreKitManager: ObservableObject {
             newPurchasedIDs.insert(id)
 
             if SubscriptionTier.plusProductIDs.contains(id) {
-                if resolvedTier < .plus {
-                    resolvedTier = .plus
-                    resolvedTierExpiration = transaction.expirationDate
-                }
+                if resolvedTier < .plus { resolvedTier = .plus }
+                keepNewer(&latestPlus, transaction.expirationDate)
             } else if SubscriptionTier.proProductIDs.contains(id) {
-                if resolvedTier < .pro {
-                    resolvedTier = .pro
-                    resolvedTierExpiration = transaction.expirationDate
-                }
+                if resolvedTier < .pro { resolvedTier = .pro }
+                keepNewer(&latestPro, transaction.expirationDate)
             } else if CoachSubscriptionTier.instructorProductIDs.contains(id) {
-                if resolvedCoachTier < .instructor {
-                    resolvedCoachTier = .instructor
-                    resolvedCoachTierExpiration = transaction.expirationDate
-                }
+                if resolvedCoachTier < .instructor { resolvedCoachTier = .instructor }
+                keepNewer(&latestInstructor, transaction.expirationDate)
             } else if CoachSubscriptionTier.proInstructorProductIDs.contains(id) {
-                if resolvedCoachTier < .proInstructor {
-                    resolvedCoachTier = .proInstructor
-                    resolvedCoachTierExpiration = transaction.expirationDate
-                }
+                if resolvedCoachTier < .proInstructor { resolvedCoachTier = .proInstructor }
+                keepNewer(&latestProInstructor, transaction.expirationDate)
             }
+        }
+
+        // Pick the expiration that matches the resolved tier.
+        switch resolvedTier {
+        case .pro: resolvedTierExpiration = latestPro
+        case .plus: resolvedTierExpiration = latestPlus
+        case .free: resolvedTierExpiration = nil
+        }
+        switch resolvedCoachTier {
+        case .proInstructor: resolvedCoachTierExpiration = latestProInstructor
+        case .instructor: resolvedCoachTierExpiration = latestInstructor
+        case .free, .academy: resolvedCoachTierExpiration = nil
         }
 
         // Check billing retry BEFORE applying expiration downgrade.

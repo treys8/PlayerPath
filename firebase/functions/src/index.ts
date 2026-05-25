@@ -1981,7 +1981,12 @@ export const acceptAthleteToCoachInvitation = functions.https.onCall(async (data
   const foldersSnap = await db.collection('sharedFolders')
     .where('sharedWithCoachIDs', 'array-contains', coachID)
     .get();
-  const connectedAthletes = new Set(foldersSnap.docs.map(d => d.data().ownerAthleteID));
+  // Key by athleteUUID when present, falling back to ownerAthleteID. Matches the
+  // client's SubscriptionGate.fullConnectedAthleteCount so a parent account with
+  // multiple athlete profiles counts as N slots, not 1.
+  const connectedAthletes = new Set<string>(
+    foldersSnap.docs.map(d => (d.data().athleteUUID as string) || d.data().ownerAthleteID)
+  );
 
   const acceptedSnap = await db.collection('invitations')
     .where('type', '==', 'coach_to_athlete')
@@ -1989,16 +1994,17 @@ export const acceptAthleteToCoachInvitation = functions.https.onCall(async (data
     .where('status', '==', 'accepted')
     .get();
   for (const doc of acceptedSnap.docs) {
-    const uid = doc.data().athleteUserID;
-    if (uid) connectedAthletes.add(uid);
+    const key = (doc.data().athleteUUID as string) || doc.data().athleteUserID;
+    if (key) connectedAthletes.add(key);
   }
 
   // Read the invitation to find the athlete for the "already connected" check
   const preCheckSnap = await db.collection('invitations').doc(invitationID).get();
   const preCheckData = preCheckSnap.data();
-  const ownerAthleteID = preCheckData?.athleteID || preCheckData?.athleteUserID;
+  const connectionKey: string | undefined =
+    preCheckData?.athleteUUID || preCheckData?.athleteID || preCheckData?.athleteUserID;
 
-  if (ownerAthleteID && !connectedAthletes.has(ownerAthleteID) && connectedAthletes.size >= limit) {
+  if (connectionKey && !connectedAthletes.has(connectionKey) && connectedAthletes.size >= limit) {
     // Update invitation status before throwing so client UI shows "rejected" instead of "pending"
     await db.collection('invitations').doc(invitationID).update({
       status: 'rejected_limit',
@@ -2044,8 +2050,10 @@ export const acceptAthleteToCoachInvitation = functions.https.onCall(async (data
 
     // Atomic limit check inside transaction. coachAthleteCount is maintained by
     // acceptance/revocation functions. Falls back to pre-check count for migration.
-    const invAthleteID = inv.athleteID || inv.athleteUserID;
-    const isNewConnection = invAthleteID && !connectedAthletes.has(invAthleteID);
+    // Connection key prefers athleteUUID for parent-account-with-multiple-profiles cases.
+    const invConnectionKey: string | undefined =
+      inv.athleteUUID || inv.athleteID || inv.athleteUserID;
+    const isNewConnection = invConnectionKey && !connectedAthletes.has(invConnectionKey);
     if (isNewConnection) {
       const currentCount = coachSnap.data()?.coachAthleteCount ?? connectedAthletes.size;
       if (currentCount >= limit) {
@@ -2077,6 +2085,11 @@ export const acceptAthleteToCoachInvitation = functions.https.onCall(async (data
           [`permissions.${coachID}`]: permissions,
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
+        // Clear any prior revocation so canAccessFolder doesn't deny the re-added coach.
+        // Deterministic doc ID: "<folderID>_<coachID>".
+        const revocationRef = db.collection('coach_access_revocations')
+          .doc(`${inv.folderID}_${coachID}`);
+        transaction.delete(revocationRef);
       }
     }
 
@@ -2236,7 +2249,10 @@ export const acceptCoachToAthleteInvitation = functions.https.onCall(async (data
   const foldersSnap = await db.collection('sharedFolders')
     .where('sharedWithCoachIDs', 'array-contains', coachID)
     .get();
-  const connectedAthletes = new Set(foldersSnap.docs.map(d => d.data().ownerAthleteID));
+  // Key by athleteUUID when present, falling back to ownerAthleteID (matches client).
+  const connectedAthletes = new Set<string>(
+    foldersSnap.docs.map(d => (d.data().athleteUUID as string) || d.data().ownerAthleteID)
+  );
 
   const acceptedSnap = await db.collection('invitations')
     .where('type', '==', 'coach_to_athlete')
@@ -2244,11 +2260,15 @@ export const acceptCoachToAthleteInvitation = functions.https.onCall(async (data
     .where('status', '==', 'accepted')
     .get();
   for (const doc of acceptedSnap.docs) {
-    const uid = doc.data().athleteUserID;
-    if (uid) connectedAthletes.add(uid);
+    const key = (doc.data().athleteUUID as string) || doc.data().athleteUserID;
+    if (key) connectedAthletes.add(key);
   }
 
-  if (!connectedAthletes.has(athleteUserID) && connectedAthletes.size >= limit) {
+  // For this flow the incoming connection key is the resolved athleteUUID
+  // (validated above). Falls back to athleteUserID for safety.
+  const incomingKey = athleteUUID || athleteUserID;
+
+  if (!connectedAthletes.has(incomingKey) && connectedAthletes.size >= limit) {
     await db.collection('invitations').doc(invitationID).update({
       status: 'rejected_limit',
       rejectedReason: 'Coach athlete limit reached',
@@ -2321,7 +2341,7 @@ export const acceptCoachToAthleteInvitation = functions.https.onCall(async (data
 
     // Atomic limit check inside transaction. coachAthleteCount is maintained by
     // acceptance/revocation functions. Falls back to pre-check count for migration.
-    const isNewConnection = !connectedAthletes.has(athleteUserID);
+    const isNewConnection = !connectedAthletes.has(incomingKey);
     if (isNewConnection) {
       const currentCount = coachSnap.data()?.coachAthleteCount ?? connectedAthletes.size;
       if (currentCount >= limit) {
@@ -3090,11 +3110,15 @@ export const enforceCoachAthleteLimit = functions.firestore
       const coachTier = coachDoc.data()?.coachSubscriptionTier || 'coach_free';
       const limit = getCoachAthleteLimit(coachTier);
 
-      // Count unique athletes from shared folders
+      // Count unique athletes from shared folders. Keyed by athleteUUID when
+      // present, falling back to ownerAthleteID — matches client SubscriptionGate
+      // so a parent account with multiple athlete profiles counts as N slots.
       const foldersSnap = await db.collection('sharedFolders')
         .where('sharedWithCoachIDs', 'array-contains', coachID)
         .get();
-      const folderAthletes = new Set(foldersSnap.docs.map(d => d.data().ownerAthleteID));
+      const folderAthletes = new Set<string>(
+        foldersSnap.docs.map(d => (d.data().athleteUUID as string) || d.data().ownerAthleteID)
+      );
 
       // Count pending outbound invitations (exclude the one that just triggered)
       const pendingSnap = await db.collection('invitations')
@@ -3111,7 +3135,7 @@ export const enforceCoachAthleteLimit = functions.firestore
         .where('status', '==', 'accepted')
         .get();
       for (const doc of acceptedSnap.docs) {
-        const athleteUID = doc.data().athleteUserID;
+        const athleteUID = (doc.data().athleteUUID as string) || doc.data().athleteUserID;
         if (athleteUID) folderAthletes.add(athleteUID);
       }
 
@@ -3351,3 +3375,177 @@ export const dailyStorageCleanup = functions.pubsub
 
     return null;
   });
+
+// ============================================================================
+// ONE-SHOT MIGRATIONS — PR 1 lockdown
+// ============================================================================
+
+/**
+ * One-shot: backfills `athleteUUID` on legacy sharedFolders. Resolves each
+ * folder's UUID from the originating invitation matched by
+ * (folderID|ownerAthleteID|coachID). Logs unresolvable folders rather than
+ * guessing — required for parent accounts hosting multiple athlete profiles.
+ *
+ * Invocation: callable, restricted to caller UID in ALLOWED_ADMIN_UIDS.
+ * Pass { dryRun: true } first to see counts before writing.
+ */
+const ALLOWED_ADMIN_UIDS: string[] = [
+  // Populate before invocation.
+];
+
+export const backfillFolderAthleteUUID = functions.https.onCall(async (data, context) => {
+  if (!context.auth || !ALLOWED_ADMIN_UIDS.includes(context.auth.uid)) {
+    throw new functions.https.HttpsError('permission-denied', 'Admin only');
+  }
+  const dryRun = data?.dryRun !== false;
+  const db = admin.firestore();
+
+  const foldersSnap = await db.collection('sharedFolders').get();
+  let scanned = 0;
+  let alreadySet = 0;
+  let resolved = 0;
+  let unresolvable = 0;
+  const writes: Array<{ ref: FirebaseFirestore.DocumentReference; uuid: string }> = [];
+
+  for (const folderDoc of foldersSnap.docs) {
+    scanned++;
+    const folder = folderDoc.data();
+    if (typeof folder.athleteUUID === 'string' && folder.athleteUUID.length > 0) {
+      alreadySet++;
+      continue;
+    }
+    const ownerAthleteID = folder.ownerAthleteID as string | undefined;
+    if (!ownerAthleteID) {
+      unresolvable++;
+      console.warn(`backfill: folder ${folderDoc.id} missing ownerAthleteID`);
+      continue;
+    }
+
+    // Look for the originating invitation. Prefer ones referencing this folderID.
+    const a2cInvs = await db.collection('invitations')
+      .where('athleteID', '==', ownerAthleteID)
+      .where('status', '==', 'accepted')
+      .limit(20)
+      .get();
+    let matched: string | null = null;
+    for (const invDoc of a2cInvs.docs) {
+      const inv = invDoc.data();
+      if (inv.folderID === folderDoc.id && typeof inv.athleteUUID === 'string' && inv.athleteUUID) {
+        matched = inv.athleteUUID;
+        break;
+      }
+    }
+    if (!matched) {
+      const c2aInvs = await db.collection('invitations')
+        .where('athleteUserID', '==', ownerAthleteID)
+        .where('status', '==', 'accepted')
+        .limit(20)
+        .get();
+      for (const invDoc of c2aInvs.docs) {
+        const inv = invDoc.data();
+        if (inv.folderID === folderDoc.id && typeof inv.athleteUUID === 'string' && inv.athleteUUID) {
+          matched = inv.athleteUUID;
+          break;
+        }
+      }
+    }
+
+    if (matched) {
+      resolved++;
+      writes.push({ ref: folderDoc.ref, uuid: matched });
+    } else {
+      unresolvable++;
+      console.warn(`backfill: folder ${folderDoc.id} (owner ${ownerAthleteID}) — no matching invitation`);
+    }
+  }
+
+  if (!dryRun) {
+    const batchSize = 400;
+    for (let i = 0; i < writes.length; i += batchSize) {
+      const batch = db.batch();
+      for (const w of writes.slice(i, i + batchSize)) {
+        batch.update(w.ref, { athleteUUID: w.uuid });
+      }
+      await batch.commit();
+    }
+  }
+
+  return { scanned, alreadySet, resolved, unresolvable, dryRun };
+});
+
+/**
+ * One-shot: rewrites legacy random-ID `coach_access_revocations` docs as
+ * deterministic `<folderID>_<coachID>` IDs. Keeps the latest by `revokedAt`
+ * when duplicates collapse. Required before the canAccessFolder rule starts
+ * honoring revocation docs.
+ */
+export const migrateRevocationDocIDsToDeterministic = functions.https.onCall(async (data, context) => {
+  if (!context.auth || !ALLOWED_ADMIN_UIDS.includes(context.auth.uid)) {
+    throw new functions.https.HttpsError('permission-denied', 'Admin only');
+  }
+  const dryRun = data?.dryRun !== false;
+  const db = admin.firestore();
+
+  const allSnap = await db.collection('coach_access_revocations').get();
+  type RevDoc = { id: string; folderID: string; coachID: string; revokedAt: admin.firestore.Timestamp };
+  const groups = new Map<string, RevDoc[]>();
+
+  for (const doc of allSnap.docs) {
+    const d = doc.data();
+    const folderID = d.folderID as string | undefined;
+    const coachID = d.coachID as string | undefined;
+    if (!folderID || !coachID) continue;
+    const key = `${folderID}_${coachID}`;
+    const entry: RevDoc = {
+      id: doc.id,
+      folderID,
+      coachID,
+      revokedAt: d.revokedAt as admin.firestore.Timestamp,
+    };
+    const list = groups.get(key) ?? [];
+    list.push(entry);
+    groups.set(key, list);
+  }
+
+  let migrated = 0;
+  let alreadyDeterministic = 0;
+  let removedDuplicates = 0;
+
+  for (const [key, entries] of groups) {
+    entries.sort((a, b) => (b.revokedAt?.toMillis?.() ?? 0) - (a.revokedAt?.toMillis?.() ?? 0));
+    const latest = entries[0];
+    const targetRef = db.collection('coach_access_revocations').doc(key);
+
+    if (latest.id === key) {
+      alreadyDeterministic++;
+    } else {
+      if (!dryRun) {
+        const srcRef = db.collection('coach_access_revocations').doc(latest.id);
+        const snap = await srcRef.get();
+        if (snap.exists) {
+          await targetRef.set(snap.data()!, { merge: true });
+          await srcRef.delete();
+        }
+      }
+      migrated++;
+    }
+
+    // Drop older duplicates
+    for (const dup of entries.slice(1)) {
+      if (dup.id !== key) {
+        if (!dryRun) {
+          await db.collection('coach_access_revocations').doc(dup.id).delete();
+        }
+        removedDuplicates++;
+      }
+    }
+  }
+
+  return {
+    totalGroups: groups.size,
+    migrated,
+    alreadyDeterministic,
+    removedDuplicates,
+    dryRun,
+  };
+});

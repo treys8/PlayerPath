@@ -178,9 +178,26 @@ extension FirestoreManager {
         let folderRef = db.collection(FC.sharedFolders).document(folderID)
 
         do {
-            // Resolve folderName + athleteID — skip fetch if caller supplied them
+            // Fire any required fetches in parallel — the prior implementation
+            // ran them sequentially, adding ~2-3 round trips on cellular.
+            // Folder fetch runs only when (folderName, athleteID) aren't both
+            // supplied; coach-email fetch runs only when coachEmail is absent;
+            // athlete-name fetch always runs (no call site supplies it).
+            //
+            // Resolve athleteID first because the athlete-name fetch depends on it.
             let resolvedFolderName: String
             let resolvedAthleteID: String
+
+            async let coachEmailTask: String = {
+                if let ce = coachEmail { return ce }
+                let snap = try await db.collection(FC.users).document(coachID).getDocument()
+                guard let ce = snap.data()?["email"] as? String else {
+                    throw NSError(domain: "FirestoreManager", code: -1,
+                                  userInfo: [NSLocalizedDescriptionKey: "Failed to fetch coach email"])
+                }
+                return ce
+            }()
+
             if let fn = folderName, let aid = athleteID {
                 resolvedFolderName = fn
                 resolvedAthleteID = aid
@@ -196,23 +213,13 @@ extension FirestoreManager {
                 resolvedAthleteID = aid
             }
 
-            // Resolve coachEmail — skip fetch if caller supplied it
-            let resolvedCoachEmail: String
-            if let ce = coachEmail {
-                resolvedCoachEmail = ce
-            } else {
-                let coachSnapshot = try await db.collection(FC.users).document(coachID).getDocument()
-                guard let coachData = coachSnapshot.data(),
-                      let ce = coachData["email"] as? String else {
-                    throw NSError(domain: "FirestoreManager", code: -1,
-                                  userInfo: [NSLocalizedDescriptionKey: "Failed to fetch coach email"])
-                }
-                resolvedCoachEmail = ce
-            }
+            async let athleteNameTask: String = {
+                let snap = try await db.collection(FC.users).document(resolvedAthleteID).getDocument()
+                return snap.data()?["displayName"] as? String ?? "An athlete"
+            }()
 
-            // Athlete display name still requires a fetch — not available from any call site
-            let athleteSnapshot = try await db.collection(FC.users).document(resolvedAthleteID).getDocument()
-            let athleteName = athleteSnapshot.data()?["displayName"] as? String ?? "An athlete"
+            let resolvedCoachEmail = try await coachEmailTask
+            let athleteName = try await athleteNameTask
 
             // Batch: remove coach from folder + create revocation doc atomically
             let batch = db.batch()
@@ -224,7 +231,11 @@ extension FirestoreManager {
                 "updatedAt": FieldValue.serverTimestamp()
             ], forDocument: folderRef)
 
-            let revocationRef = db.collection(FC.coachAccessRevocations).document()
+            // Deterministic doc ID so security rules can exists()-check the
+            // revocation by composing (folderID, coachID). Re-revokes overwrite
+            // the same doc, refreshing revokedAt.
+            let revocationRef = db.collection(FC.coachAccessRevocations)
+                .document("\(folderID)_\(coachID)")
             batch.setData([
                 "folderID": folderID,
                 "folderName": resolvedFolderName,
@@ -234,7 +245,7 @@ extension FirestoreManager {
                 "athleteName": athleteName,
                 "revokedAt": FieldValue.serverTimestamp(),
                 "emailSent": false
-            ], forDocument: revocationRef)
+            ], forDocument: revocationRef, merge: true)
 
             try await batch.commit()
 
@@ -391,7 +402,8 @@ extension FirestoreManager {
                         "updatedAt": FieldValue.serverTimestamp()
                     ], forDocument: folderRef)
 
-                    let revocationRef = db.collection(FC.coachAccessRevocations).document()
+                    let revocationRef = db.collection(FC.coachAccessRevocations)
+                        .document("\(folderID)_\(coachID)")
                     batch.setData([
                         "folderID": folderID,
                         "folderName": folder.name,
@@ -402,7 +414,7 @@ extension FirestoreManager {
                         "revokedAt": FieldValue.serverTimestamp(),
                         "emailSent": false,
                         "reason": "downgrade"
-                    ], forDocument: revocationRef)
+                    ], forDocument: revocationRef, merge: true)
                 }
 
                 do {

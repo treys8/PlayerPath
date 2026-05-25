@@ -75,16 +75,18 @@ struct CoachAthletesTab: View {
                             .foregroundColor(.brandNavy)
                     }
 
-                    NavigationLink(destination: CoachMultiAthleteView()) {
-                        Image(systemName: "chart.bar.xaxis")
-                            .foregroundColor(.brandNavy)
-                    }
-
-                    Button {
-                        Haptics.light()
-                        showingInviteAthlete = true
+                    Menu {
+                        NavigationLink(destination: CoachMultiAthleteView()) {
+                            Label("Multi-Athlete Stats", systemImage: "chart.bar.xaxis")
+                        }
+                        Button {
+                            Haptics.light()
+                            showingInviteAthlete = true
+                        } label: {
+                            Label("Invite Athlete", systemImage: "person.badge.plus")
+                        }
                     } label: {
-                        Image(systemName: "person.badge.plus")
+                        Image(systemName: "ellipsis.circle")
                             .foregroundColor(.brandNavy)
                     }
                 }
@@ -94,7 +96,10 @@ struct CoachAthletesTab: View {
         .refreshable {
             await reloadData()
         }
-        .task { updateFolderGroups() }
+        // Re-run only when the signed-in coach changes — not on every appear
+        // — so the initial folder group computation is stable across sheet
+        // dismissals re-rendering this tab.
+        .task(id: authManager.userID) { updateFolderGroups() }
         .onChange(of: searchText) { _, _ in
             debouncedFolderGroupUpdate()
         }

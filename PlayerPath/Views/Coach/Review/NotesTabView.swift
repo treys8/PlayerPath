@@ -2,8 +2,9 @@
 //  NotesTabView.swift
 //  PlayerPath
 //
-//  Feedback tab inside CoachVideoPlayerView — list of timestamped notes
-//  with an "Add Feedback" entry point.
+//  Drawings tab inside CoachVideoPlayerView — list of telestration drawings
+//  (frame-specific annotations). Free-form text notes live on the coach-note
+//  card above; this tab is for frame-specific drawings only.
 //
 
 import SwiftUI
@@ -12,31 +13,16 @@ struct NotesTabView: View {
     let notes: [VideoAnnotation]
     let isLoading: Bool
     var errorMessage: String? = nil
-    let onAddNote: () -> Void
     let onDeleteNote: (VideoAnnotation) -> Void
     let onSeekToTimestamp: (Double) -> Void
     var onShowDrawing: ((VideoAnnotation) -> Void)?
-    let canComment: Bool
 
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
 
     var body: some View {
         VStack(spacing: 0) {
-            if canComment {
-                Button(action: onAddNote) {
-                    Label("Add Feedback", systemImage: "plus.circle.fill")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.brandNavy.opacity(0.1))
-                        .foregroundColor(.brandNavy)
-                }
-            }
-
-            Divider()
-
             if isLoading {
-                ProgressView("Loading feedback...")
+                ProgressView("Loading drawings...")
                     .frame(maxHeight: .infinity)
             } else if let error = errorMessage, notes.isEmpty {
                 VStack(spacing: 16) {
@@ -44,7 +30,7 @@ struct NotesTabView: View {
                         .font(.system(size: 50))
                         .foregroundColor(.orange.opacity(0.7))
 
-                    Text("Failed to Load Feedback")
+                    Text("Failed to Load Drawings")
                         .font(.headline)
 
                     Text(error)
@@ -56,14 +42,14 @@ struct NotesTabView: View {
                 .frame(maxHeight: .infinity)
             } else if notes.isEmpty {
                 VStack(spacing: 16) {
-                    Image(systemName: "note.text")
+                    Image(systemName: "pencil.tip")
                         .font(.system(size: 50))
                         .foregroundColor(.gray.opacity(0.5))
 
-                    Text("No feedback yet")
+                    Text("No drawings yet")
                         .font(.headline)
 
-                    Text("Add timestamped feedback markers for this video.")
+                    Text("Use the pencil tool to draw on a frame.")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)

@@ -7,11 +7,13 @@
 
 import SwiftUI
 import SwiftData
+import TipKit
 
 struct UserPreferencesView: View {
     @Environment(\.modelContext) private var modelContext
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @State private var viewModel = UserPreferencesViewModel()
+    @State private var showingResetTipsConfirm = false
 
     // Haptics.swift and ThemeManager read these UserDefaults keys directly, so
     // the view writes to them directly too — no SwiftData mirroring.
@@ -126,8 +128,28 @@ struct UserPreferencesView: View {
                 get: { viewModel.preferences?.showOnboardingTips ?? false },
                 set: { viewModel.update(\.showOnboardingTips, to: $0) }
             ))
+
+            Button("Reset Onboarding Tips") {
+                showingResetTipsConfirm = true
+            }
         } header: {
             Text("Interface")
+        }
+        .confirmationDialog(
+            "Reset onboarding tips?",
+            isPresented: $showingResetTipsConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Reset", role: .destructive) {
+                do {
+                    try Tips.resetDatastore()
+                } catch {
+                    ErrorHandlerService.shared.handle(error, context: "Tips.resetDatastore", showAlert: false)
+                }
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Hints you've already dismissed will show again the next time you visit each tab.")
         }
     }
 

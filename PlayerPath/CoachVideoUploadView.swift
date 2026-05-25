@@ -122,7 +122,16 @@ struct CoachVideoUploadView: View {
                                     .font(.caption)
 
                                 Button {
-                                    Task { await uploadVideo() }
+                                    if viewModel.monitoredClipId != nil {
+                                        // Upload was queued but stalled or failed
+                                        // — re-queue the existing clipId so the
+                                        // deterministic-UUID dedup doesn't no-op.
+                                        viewModel.retryStuckUpload()
+                                    } else {
+                                        // No queued upload yet (e.g. file copy
+                                        // failed before enqueue) — start fresh.
+                                        Task { await uploadVideo() }
+                                    }
                                 } label: {
                                     Label("Try Again", systemImage: "arrow.clockwise")
                                         .font(.subheadline)
@@ -131,6 +140,24 @@ struct CoachVideoUploadView: View {
                                 }
                                 .buttonStyle(.borderedProminent)
                                 .tint(Color.brandNavy)
+                            }
+                        }
+                    } else if viewModel.isUploadStuck {
+                        Section {
+                            VStack(alignment: .leading, spacing: 10) {
+                                Label("Upload is taking longer than usual.", systemImage: "exclamationmark.triangle")
+                                    .foregroundColor(.orange)
+                                    .font(.caption)
+                                Button {
+                                    viewModel.retryStuckUpload()
+                                } label: {
+                                    Label("Retry Now", systemImage: "arrow.clockwise")
+                                        .font(.subheadline)
+                                        .fontWeight(.medium)
+                                        .frame(maxWidth: .infinity)
+                                }
+                                .buttonStyle(.bordered)
+                                .tint(Color.orange)
                             }
                         }
                     }
@@ -255,6 +282,11 @@ struct CoachVideoUploadView: View {
                 }
             }
             .interactiveDismissDisabled(hasUnsavedChanges)
+            .onDisappear {
+                // Stop the progress poll so a dismissed view doesn't keep
+                // ticking at 4Hz against the queue.
+                viewModel.cancelProgressMonitor()
+            }
             .confirmationDialog("Discard video?", isPresented: $showingDiscardConfirmation, titleVisibility: .visible) {
                 Button("Discard", role: .destructive) {
                     // Tear down temp files before dismissing — otherwise raw
@@ -393,8 +425,24 @@ class CoachVideoUploadViewModel {
     /// `Task { while !Task.isCancelled }` loop polls every 250ms forever.
     @ObservationIgnored private var progressMonitorTask: Task<Void, Never>?
 
+    /// Surfaced when the progress poller hasn't seen a value change in
+    /// `stuckPendingThreshold` — gives the coach an explicit retry path
+    /// instead of staring at a frozen spinner.
+    var isUploadStuck: Bool = false
+
+    /// Last clipId being monitored (set by the upload flow, consumed by
+    /// the retry button in the view body).
+    @ObservationIgnored var monitoredClipId: UUID?
+
+    static let stuckPendingThreshold: TimeInterval = 180  // 3 minutes
+
     deinit {
         progressMonitorTask?.cancel()
+    }
+
+    func cancelProgressMonitor() {
+        progressMonitorTask?.cancel()
+        progressMonitorTask = nil
     }
 
     init(folder: SharedFolder, defaultContext: VideoContext = .instruction) {
@@ -541,13 +589,23 @@ class CoachVideoUploadViewModel {
 
         // Monitor queue progress — must match the deterministic UUID used by UploadQueueManager
         let clipId = UploadQueueManager.stableUUID(from: "\(folderID)|\(fileName)")
+        monitoredClipId = clipId
+        isUploadStuck = false
         progressMonitorTask?.cancel()
         progressMonitorTask = Task { @MainActor in
+            var lastProgress: Double = -1
+            var lastProgressChange = Date()
             while !Task.isCancelled {
                 if let progress = UploadQueueManager.shared.getProgress(for: clipId) {
+                    if progress != lastProgress {
+                        lastProgress = progress
+                        lastProgressChange = Date()
+                        isUploadStuck = false
+                    }
                     uploadProgress = progress
                 } else if UploadQueueManager.shared.failedUploads.contains(where: { $0.clipId == clipId }) {
-                    errorMessage = "Upload failed. It will be retried automatically."
+                    errorMessage = "Upload failed. Tap Retry to try again."
+                    isUploadStuck = true
                     isUploading = false
                     return
                 } else if !UploadQueueManager.shared.pendingUploads.contains(where: { $0.clipId == clipId })
@@ -559,9 +617,24 @@ class CoachVideoUploadViewModel {
                     isUploading = false
                     return
                 }
+                // Stuck-pending watchdog: 3 minutes without a progress change.
+                // The queue's full retry budget runs ~2 hours via exponential
+                // backoff — that's far too long to stare at a frozen UI.
+                if Date().timeIntervalSince(lastProgressChange) > Self.stuckPendingThreshold {
+                    isUploadStuck = true
+                }
                 try? await Task.sleep(for: .milliseconds(250))
             }
         }
+    }
+
+    /// Re-queues a failed/stuck upload for another attempt.
+    func retryStuckUpload() {
+        guard let clipId = monitoredClipId else { return }
+        UploadQueueManager.shared.retry(clipId: clipId)
+        errorMessage = nil
+        isUploadStuck = false
+        isUploading = true
     }
     
     private func generateFileName() -> String {

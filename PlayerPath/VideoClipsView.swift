@@ -480,13 +480,7 @@ struct VideoClipsView: View {
                 showingRecorder = true
             }
         )
-        .onboardingTip(recordTip, arrowEdge: .top)
-        .task {
-            VideoClipsRecordTip.hasGames = !(athlete.games ?? []).isEmpty
-        }
-        .onChange(of: athlete.games?.count) { _, _ in
-            VideoClipsRecordTip.hasGames = !(athlete.games ?? []).isEmpty
-        }
+        .onboardingTip(recordTip, arrowEdge: .top, also: !(athlete.games ?? []).isEmpty)
     }
 
     private var uploadStatusFilterPicker: some View {
@@ -585,6 +579,9 @@ struct VideoClipsView: View {
                             },
                             onToggleSelection: {
                                 toggleSelection(for: video)
+                            },
+                            onContextMenuOpened: {
+                                Task { await videoClipOptionsTip.invalidate(reason: .actionPerformed) }
                             }
                         )
                         .onboardingTip(videoClipOptionsTip, arrowEdge: .top, also: video.id == viewModel.filteredVideos.first?.id)

@@ -19,7 +19,15 @@ struct CoachDashboardView: View {
     private var sessionManager: CoachSessionManager { .shared }
     @State private var showingStartSession = false
     @State private var showingInviteAthlete = false
-    @State private var showingCamera = false
+    /// Flag set when the StartSessionSheet is dismissing toward the invite
+    /// flow. Consumed by the start sheet's onDismiss callback to present the
+    /// next sheet without timer-based chaining.
+    @State private var pendingInviteAfterStartSession = false
+    /// Drives the recorder fullScreenCover. Non-nil iff the coach has a live
+    /// session and tapped Record; nil dismisses the cover. Replaced the prior
+    /// `showingCamera: Bool` + `Color.clear.onAppear { showingCamera = false }`
+    /// fallback that flipped the binding mid-present.
+    @State private var cameraContext: CoachSessionContext?
     @State private var isEndingSession = false
     @State private var isCompletingSession = false
     @State private var startingScheduledSessionID: String?
@@ -42,6 +50,7 @@ struct CoachDashboardView: View {
     }
 
     @State private var cachedRecentFolders: [SharedFolder] = []
+    @State private var cachedRecentAthleteCards: [RecentAthleteCard] = []
     @State private var cachedThisMonthSessionCount = 0
     @State private var cachedThisMonthDurationLabel = "0s"
     @State private var cachedThisMonthAvgClipsLabel = "0"
@@ -158,14 +167,19 @@ struct CoachDashboardView: View {
                 sessions: sessionManager.sessions.filter { $0.status == .completed }
             )
         }
-        .sheet(isPresented: $showingStartSession) {
+        .sheet(isPresented: $showingStartSession, onDismiss: {
+            // Chain: present the invite sheet after this one fully dismisses.
+            // iOS rejects concurrent sheet presentations; onDismiss fires AFTER
+            // the dismiss animation, so a fresh present is safe here. The prior
+            // implementation used a 0.35s timer to approximate this.
+            if pendingInviteAfterStartSession {
+                pendingInviteAfterStartSession = false
+                showingInviteAthlete = true
+            }
+        }) {
             StartSessionSheet(onInviteAthlete: {
-                // Dismiss then present invite sheet on next tick — iOS rejects two
-                // concurrent .sheet presentations.
+                pendingInviteAfterStartSession = true
                 showingStartSession = false
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                    showingInviteAthlete = true
-                }
             })
         }
         .alert("Session Unavailable", isPresented: .init(
@@ -189,21 +203,11 @@ struct CoachDashboardView: View {
                 )
             }
         }
-        .fullScreenCover(isPresented: $showingCamera) {
-            if let session = sessionManager.activeSession,
-               session.status == .live,
-               let sessionID = session.id,
-               !sessionID.isEmpty {
-                DirectCameraRecorderView(
-                    coachContext: CoachSessionContext(sessionID: sessionID, session: session)
-                )
-            } else {
-                // Session is no longer live, or its ID is missing — dismiss on next tick
-                Color.clear.onAppear { showingCamera = false }
-            }
+        .fullScreenCover(item: $cameraContext) { context in
+            DirectCameraRecorderView(coachContext: context)
         }
-        .onChange(of: showingCamera) { _, showing in
-            if !showing {
+        .onChange(of: cameraContext == nil) { _, becameNil in
+            if becameNil {
                 Task {
                     guard let coachID = authManager.userID else { return }
                     await sessionManager.fetchSessions(coachID: coachID)
@@ -212,9 +216,7 @@ struct CoachDashboardView: View {
         }
         .onChange(of: sessionManager.activeSession) { _, newValue in
             // Dismiss camera if session was ended/completed externally
-            if newValue == nil && showingCamera {
-                showingCamera = false
-            }
+            if newValue == nil { cameraContext = nil }
         }
         .task {
             updateCachedValues()
@@ -258,6 +260,11 @@ struct CoachDashboardView: View {
         .onChange(of: archiveManager.archivedFolderIDs) { _, _ in updateCachedValues() }
         .onChange(of: sessionManager.sessions) { _, _ in updateCachedValues() }
         .onChange(of: sessionManager.scheduledSessions) { _, _ in updateCachedValues() }
+        .onChange(of: activityNotifService.unreadCountByFolder) { _, _ in
+            // Unread badges feed into the recent-athlete cards; recompute when
+            // a new clip notification arrives without redoing the full cache.
+            recomputeRecentAthleteCards()
+        }
     }
 
     // MARK: - Live Session
@@ -300,10 +307,11 @@ struct CoachDashboardView: View {
                     onEnd: { endActiveSession(session) },
                     onEditNotes: { editingSessionNotes = session },
                     onRecord: session.status == .live ? {
-                        guard sessionManager.activeSession?.status == .live,
-                              let id = sessionManager.activeSession?.id,
+                        guard let active = sessionManager.activeSession,
+                              active.status == .live,
+                              let id = active.id,
                               !id.isEmpty else { return }
-                        showingCamera = true
+                        cameraContext = CoachSessionContext(sessionID: id, session: active)
                     } : nil
                 )
                 .contentShape(Rectangle())
@@ -511,14 +519,14 @@ struct CoachDashboardView: View {
 
             if isRegularWidth {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 140, maximum: 180), spacing: 12)], spacing: 12) {
-                    ForEach(recentAthleteCards.prefix(5), id: \.athleteID) { card in
+                    ForEach(cachedRecentAthleteCards.prefix(5), id: \.athleteID) { card in
                         recentAthleteCardView(card, fixedWidth: false)
                     }
                 }
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 12) {
-                        ForEach(recentAthleteCards.prefix(5), id: \.athleteID) { card in
+                        ForEach(cachedRecentAthleteCards.prefix(5), id: \.athleteID) { card in
                             recentAthleteCardView(card, fixedWidth: true)
                         }
                     }
@@ -588,11 +596,13 @@ struct CoachDashboardView: View {
         let primaryFolderID: String?
     }
 
-    private var recentAthleteCards: [RecentAthleteCard] {
-        // Group by per-athlete UUID when present (multi-athlete accounts), falling back to
-        // the account-level ownerAthleteID for legacy folders so coaches still see one card per athlete.
+    /// Recomputes the recent-athlete cards from `cachedRecentFolders` + the
+    /// activity-notification unread map. Called by `updateCachedValues()` and
+    /// any change observer that affects the inputs. The result is cached so
+    /// the body doesn't iterate + Dictionary(grouping:) + sort every render.
+    private func recomputeRecentAthleteCards() {
         let grouped = Dictionary(grouping: cachedRecentFolders) { $0.athleteUUID ?? $0.ownerAthleteID }
-        return grouped.map { athleteID, folders in
+        cachedRecentAthleteCards = grouped.map { athleteID, folders in
             let name = folders.first?.ownerAthleteName ?? "Athlete"
             let videos = folders.reduce(0) { $0 + ($1.videoCount ?? 0) }
             let unread = folders.reduce(0) { total, folder in
@@ -742,6 +752,7 @@ struct CoachDashboardView: View {
         cachedRecentFolders = sharedFolderManager.coachFolders
             .filter { !archiveManager.isArchived($0.id ?? "") }
             .sorted { ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast) }
+        recomputeRecentAthleteCards()
 
         let monthAgo = Calendar.current.date(byAdding: .day, value: -30, to: Date()) ?? Date()
         let monthSessions = sessionManager.sessions.filter {
@@ -795,7 +806,11 @@ struct CoachDashboardView: View {
                 guard let sessionID = fresh.id else { return }
                 do {
                     try await sessionManager.resumeReviewingSession(sessionID: sessionID)
-                    showingCamera = true
+                    // resumeReviewingSession transitions the session to live; use
+                    // the freshly mutated activeSession (not `fresh`, which is stale).
+                    if let active = sessionManager.activeSession, active.status == .live, let id = active.id {
+                        cameraContext = CoachSessionContext(sessionID: id, session: active)
+                    }
                 } catch {
                     ErrorHandlerService.shared.handle(error, context: "CoachDashboard.resumeReviewingSession", showAlert: false)
                     resumeWarning = "Couldn't resume this session. Try again."

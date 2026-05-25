@@ -139,6 +139,12 @@ Product IDs and feature gates are in `SubscriptionModels.swift`. StoreKit config
 - **Cloud Functions:** `firebase/functions/src/index.ts` (Node.js) — email notifications via SendGrid, signed URL generation
 - **Config:** `GoogleService-Info.plist`
 
+**Authorization model invariants:**
+- `hasCoachTier()` in `firestore.rules` is a role/tier identity check only — it does NOT enforce the coach's athlete limit. The authoritative limit enforcement lives in the Cloud Function transactions `acceptAthleteToCoachInvitation`, `acceptCoachToAthleteInvitation`, and the `enforceCoachAthleteLimit` trigger. Rules cannot safely count via a list query.
+- Coach addition to `sharedFolders.sharedWithCoachIDs` happens exclusively via Cloud Functions (Admin SDK). The owner-update branch of the sharedFolders rule allows REMOVALS only (subset check), so a direct client write cannot bypass the CF athlete-limit transaction.
+- `coach_access_revocations` uses deterministic doc IDs `<folderID>_<coachID>`. `canAccessFolder()` reads this collection to deny re-added-but-since-revoked coaches. CFs delete the doc on legitimate re-accept.
+- Athlete-count keying: server and client both prefer `athleteUUID` over `ownerAthleteID`. Parent accounts hosting multiple athlete profiles count as N slots, not 1.
+
 ## View Organization
 
 Views are organized by feature in `PlayerPath/Views/`:

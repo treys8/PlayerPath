@@ -29,9 +29,6 @@ final class CoachSessionManager {
     private var listeningCoachID: String?
     private var latestLive: CoachSession?
     private var latestReviewing: CoachSession?
-    /// Guards against duplicate uploads when `uploadClip` is invoked twice for the
-    /// same source URL (UI race conditions, double-taps).
-    private var inflightUploadSources: Set<URL> = []
     private init() {}
 
     // MARK: - Helpers
@@ -47,12 +44,21 @@ final class CoachSessionManager {
     }
 
     /// Validates the coach hasn't exceeded their tier's athlete limit.
+    /// Uses the strict write-gate decision: an unconfirmed server count is
+    /// treated as block-and-retry rather than passing through on local data.
     private func enforceAthleteLimit(coachID: String, authManager: ComprehensiveAuthManager) async throws {
-        let limit = authManager.coachAthleteLimit
-        guard limit != Int.max else { return }
-        let connectedCount = await SubscriptionGate.fullConnectedAthleteCount(coachID: coachID)
-        if connectedCount > limit {
+        let decision = await SubscriptionGate.writeGateDecision(
+            coachID: coachID,
+            authManager: authManager,
+            includingPending: false
+        )
+        switch decision {
+        case .allow:
+            return
+        case .block(.atOrOverLimit(_, let limit)):
             throw CoachSessionError.athleteLimitExceeded(limit: limit)
+        case .block(.unconfirmed):
+            throw CoachSessionError.athleteLimitExceeded(limit: authManager.coachAthleteLimit)
         }
     }
 
@@ -450,6 +456,11 @@ final class CoachSessionManager {
         latestLive = nil
         latestReviewing = nil
         listeningCoachID = nil
+        // Clear published state too. Without this, a coachID change would
+        // briefly leak the previous coach's active session + session list
+        // into the new coach's dashboard until the new listener fired.
+        activeSession = nil
+        sessions = []
     }
 
     // MARK: - Clip Upload
@@ -470,13 +481,11 @@ final class CoachSessionManager {
         coachID: String,
         coachName: String
     ) async {
-        // Dedup — prevents duplicate uploads from a UI race
-        guard !inflightUploadSources.contains(videoURL) else {
-            sessionLog.warning("Duplicate uploadClip call for \(videoURL.lastPathComponent, privacy: .public) — ignoring")
-            return
-        }
-        inflightUploadSources.insert(videoURL)
-        defer { inflightUploadSources.remove(videoURL) }
+        // Dedup is owned by UploadQueueManager via the deterministic
+        // `<folderID>_<fileName>` clipId — calling enqueueCoachUpload twice
+        // for the same effective clip is a no-op. The prior in-memory set
+        // here only protected the few milliseconds of file-copy + enqueue
+        // and was released by `defer` before the upload actually ran.
 
         // Permission pre-check — avoid silent loss when access was revoked.
         let hasUploadAccess = await canUploadToFolder(folderID: folderID, coachID: coachID)

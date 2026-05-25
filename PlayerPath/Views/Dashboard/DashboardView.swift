@@ -125,6 +125,7 @@ struct DashboardView: View {
                                 object: ath
                             )
                             Haptics.light()
+                            Task { await athletePickerTip.invalidate(reason: .actionPerformed) }
                         } label: {
                             HStack {
                                 Text(ath.name)
@@ -146,7 +147,7 @@ struct DashboardView: View {
                 } label: {
                     AthletePickerLabel(name: athlete.name, initials: athleteInitials)
                 }
-                .onboardingTip(athletePickerTip, arrowEdge: .top)
+                .onboardingTip(athletePickerTip, arrowEdge: .top, also: (user.athletes?.count ?? 0) > 1)
             }
 
             ToolbarItem(placement: .navigationBarTrailing) {

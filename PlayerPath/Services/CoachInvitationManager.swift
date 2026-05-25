@@ -26,6 +26,7 @@ class CoachInvitationManager {
 
     private var listener: ListenerRegistration?
     private var listeningEmail: String?
+    private var pendingCheckTask: Task<Void, Never>?
 
     private init() {}
 
@@ -47,18 +48,34 @@ class CoachInvitationManager {
         listener?.remove()
         listener = nil
         listeningEmail = nil
+        // Cancel any in-flight one-shot check so a stale completion doesn't
+        // clobber the next coach's state after a role switch.
+        pendingCheckTask?.cancel()
+        pendingCheckTask = nil
         // Clear cached invitations so a subsequent role switch or login on the
         // same device doesn't briefly render the previous session's data.
         pendingInvitations = []
     }
 
     func checkPendingInvitations(forCoachEmail email: String) async {
-        do {
-            pendingInvitations = try await FirestoreManager.shared.fetchPendingInvitations(forEmail: email)
-        } catch {
-            invitationLog.error("Failed to check pending invitations: \(error.localizedDescription)")
-            // Keep existing cached data on transient failures; the real-time
-            // listener will converge when the network recovers.
+        // Cancel any prior in-flight check so two rapid invocations don't
+        // race for the published `pendingInvitations` slot. The later result
+        // is the one we want.
+        pendingCheckTask?.cancel()
+        let task = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let result = try await FirestoreManager.shared.fetchPendingInvitations(forEmail: email)
+                if Task.isCancelled { return }
+                self.pendingInvitations = result
+            } catch {
+                if Task.isCancelled { return }
+                invitationLog.error("Failed to check pending invitations: \(error.localizedDescription)")
+                // Keep existing cached data on transient failures; the real-time
+                // listener will converge when the network recovers.
+            }
         }
+        pendingCheckTask = task
+        await task.value
     }
 }

@@ -18,9 +18,13 @@ struct CoachProfileView: View {
     @State private var showingSignOutAlert = false
     @State private var isSigningOut = false
     @State private var showingPaywall = false
-    @State private var showingInvitations = false
     @State private var showingEditProfile = false
     @State private var coachToAthleteConnectedIDs: Set<String> = []
+    @State private var lastConnectedIDsFetch: Date?
+
+    private enum ProfileRoute: Hashable {
+        case invitations
+    }
     
     var body: some View {
             List {
@@ -171,10 +175,7 @@ struct CoachProfileView: View {
 
                 // Invitations Section
                 Section("Invitations") {
-                    Button(action: {
-                        Haptics.light()
-                        showingInvitations = true
-                    }) {
+                    NavigationLink(value: ProfileRoute.invitations) {
                         HStack {
                             Label("Pending Invitations", systemImage: "envelope.badge.fill")
                             Spacer()
@@ -294,17 +295,28 @@ struct CoachProfileView: View {
                 CoachPaywallView()
                     .environmentObject(authManager)
             }
-            .navigationDestination(isPresented: $showingInvitations) {
-                CoachInvitationsView()
-                    .environmentObject(authManager)
-                    .onDisappear {
-                        Task {
-                            guard let coachID = authManager.userID else { return }
-                            if let ids = try? await FirestoreManager.shared.fetchAcceptedCoachToAthleteAthleteIDs(coachID: coachID) {
-                                coachToAthleteConnectedIDs = ids
+            .navigationDestination(for: ProfileRoute.self) { route in
+                switch route {
+                case .invitations:
+                    CoachInvitationsView()
+                        .environmentObject(authManager)
+                        .onDisappear {
+                            // Re-fetch only when the cached value is stale (>60s).
+                            // The prior implementation refetched on every back-tap
+                            // regardless of whether anything had changed.
+                            let now = Date()
+                            if let last = lastConnectedIDsFetch, now.timeIntervalSince(last) < 60 {
+                                return
+                            }
+                            Task {
+                                guard let coachID = authManager.userID else { return }
+                                if let ids = try? await FirestoreManager.shared.fetchAcceptedCoachToAthleteAthleteIDs(coachID: coachID) {
+                                    coachToAthleteConnectedIDs = ids
+                                    lastConnectedIDsFetch = Date()
+                                }
                             }
                         }
-                    }
+                }
             }
             .sheet(isPresented: $showingEditProfile) {
                 EditCoachProfileView()

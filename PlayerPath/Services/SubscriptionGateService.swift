@@ -74,4 +74,54 @@ enum SubscriptionGate {
         return count >= limit
     }
 
+    /// Strict version for write paths (accept invitation, start session, send invite).
+    /// Returns `.block(reason:)` when the write should be refused, `.allow` when
+    /// it should proceed. Treats an unconfirmed server count as "block + retry"
+    /// rather than silently letting the write through on local-only data — the
+    /// stricter posture prevents an offline coach at the limit from sneaking
+    /// extras through that the server CF would later reject.
+    enum WriteGateDecision: Equatable {
+        case allow
+        case block(reason: BlockReason)
+    }
+
+    enum BlockReason: Equatable {
+        case atOrOverLimit(current: Int, limit: Int)
+        case unconfirmed
+    }
+
+    @MainActor
+    static func writeGateDecision(coachID: String,
+                                  authManager: ComprehensiveAuthManager,
+                                  includingPending: Bool = false) async -> WriteGateDecision {
+        let limit = authManager.coachAthleteLimit
+        guard limit != Int.max else { return .allow }
+
+        let result = await fullConnectedAthleteCountResult(coachID: coachID)
+        if !result.isConfirmed { return .block(reason: .unconfirmed) }
+
+        var count = result.count
+        if includingPending {
+            do {
+                count += try await FirestoreManager.shared.countPendingCoachToAthleteInvitations(coachID: coachID)
+            } catch {
+                ErrorHandlerService.shared.handle(error, context: "SubscriptionGate.writeGateDecision", showAlert: false)
+                return .block(reason: .unconfirmed)
+            }
+        }
+        if count >= limit {
+            return .block(reason: .atOrOverLimit(current: count, limit: limit))
+        }
+        return .allow
+    }
+
+    /// User-facing message for a block decision.
+    static func message(for reason: BlockReason) -> String {
+        switch reason {
+        case .atOrOverLimit:
+            return "You've reached your athlete limit. Upgrade your plan to invite more athletes."
+        case .unconfirmed:
+            return "Couldn't verify your limit. Check your connection and try again."
+        }
+    }
 }

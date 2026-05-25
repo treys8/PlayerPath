@@ -51,12 +51,14 @@ class CoachNavigationCoordinator {
         pendingFolderTab = initialTab.map { (folderID: folderID, tab: $0) }
         pendingFolderVideoID = targetVideoID.map { (folderID: folderID, videoID: $0) }
         if let folder = folders.first(where: { $0.id == folderID }) {
+            // Apply tab switch, path reset, and folder push in one synchronous
+            // hop. The prior implementation deferred the append via a separate
+            // Task hop — two rapid taps (or a push notification firing while
+            // the user was mid-tap) could interleave and push the same folder
+            // twice into the stack.
             selectedTab = .athletes
-            // Reset path then push folder on next tick so tab switch completes first
             athletesPath = NavigationPath()
-            Task { @MainActor in
-                athletesPath.append(folder)
-            }
+            athletesPath.append(folder)
         } else {
             // Folder not loaded yet — stash for later
             pendingFolderID = folderID

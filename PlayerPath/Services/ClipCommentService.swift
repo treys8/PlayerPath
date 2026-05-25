@@ -135,6 +135,11 @@ final class ClipCommentService {
     /// Attaches a Firestore snapshot listener for live updates. Returns the
     /// registration so the caller can detach on disappear. `onUpdate` is
     /// invoked on the main actor.
+    ///
+    /// Ownership: the CALLER owns the returned `ListenerRegistration` and
+    /// MUST call `.remove()` on view disappear (or coach sign-out). The
+    /// service does not retain it — multiple concurrent listeners on the
+    /// same clip will each fire independently.
     func listenToComments(
         clipId: String,
         onUpdate: @escaping @MainActor ([ClipComment]) -> Void

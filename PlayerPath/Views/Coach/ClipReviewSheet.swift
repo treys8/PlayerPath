@@ -419,10 +419,10 @@ struct ClipReviewSheet: View {
     @MainActor
     private func showDrawing(for annotation: VideoAnnotation) {
         guard let data = annotation.drawingPKData else { return }
-        let cmTime = CMTime(
-            seconds: annotation.timestamp,
-            preferredTimescale: CMTimeScale(NSEC_PER_SEC)
-        )
+        // 600 is the codebase convention for video timescales; CMTimeScale is
+        // Int32 and NSEC_PER_SEC (1e9) silently inflates math precision in
+        // ways AVFoundation isn't expecting.
+        let cmTime = CMTimeMakeWithSeconds(annotation.timestamp, preferredTimescale: 600)
         player?.pause()
         player?.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
         let size: CGSize? = {

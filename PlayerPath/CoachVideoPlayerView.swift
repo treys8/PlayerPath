@@ -17,11 +17,9 @@ struct CoachVideoPlayerView: View {
     
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @State private var viewModel: CoachVideoPlayerViewModel
-    @State private var showingAddNote = false
     @State private var showingCoachNoteEditor = false
-    @State private var selectedTab: VideoTab = .feedback
+    @State private var selectedTab: VideoTab = .drawings
     @State private var showingSpeedPicker = false
-    @State private var showingQuickCueManager = false
     @State private var showingDrillCardEditor = false
     @State private var isMarkingReviewed = false
     @State private var markReviewedError: String?
@@ -52,13 +50,13 @@ struct CoachVideoPlayerView: View {
     }
     
     enum VideoTab: String, CaseIterable {
-        case feedback = "Feedback"
+        case drawings = "Drawings"
         case drillCard = "Drill Card"
         case info = "Info"
 
         var icon: String {
             switch self {
-            case .feedback: return "bubble.left.fill"
+            case .drawings: return "pencil.tip"
             case .drillCard: return "clipboard.fill"
             case .info: return "info.circle.fill"
             }
@@ -200,17 +198,6 @@ struct CoachVideoPlayerView: View {
             }
             Button("Cancel", role: .cancel) {}
         }
-        .sheet(isPresented: $showingAddNote) {
-            EnhancedAddNoteView(
-                currentTime: viewModel.currentPlaybackTime,
-                quickCues: templateService.quickCues,
-                onSave: { noteText, timestamp, category in
-                    Task {
-                        await addNote(text: noteText, timestamp: timestamp, category: category)
-                    }
-                }
-            )
-        }
         .sheet(isPresented: $showingCoachNoteEditor) {
             CoachNoteEditorSheet(
                 initialText: viewModel.coachNoteText ?? ""
@@ -218,11 +205,6 @@ struct CoachVideoPlayerView: View {
                 guard let userID = authManager.userID else { return }
                 let userName = authManager.userDisplayName ?? authManager.userEmail ?? "Coach"
                 try await viewModel.updateCoachNote(text: newText, authorID: userID, authorName: userName)
-            }
-        }
-        .sheet(isPresented: $showingQuickCueManager) {
-            if let coachID = authManager.userID {
-                QuickCueManager(coachID: coachID)
             }
         }
         .sheet(isPresented: $showingDrillCardEditor) {
@@ -252,7 +234,6 @@ struct CoachVideoPlayerView: View {
                 ErrorHandlerService.shared.handle(error, context: "CoachVideoPlayer.loadDrillCards", showAlert: false)
             }
             if let coachID = authManager.userID {
-                await templateService.loadQuickCues(coachID: coachID)
                 await templateService.loadDrillTemplates(coachID: coachID)
             }
 
@@ -269,6 +250,13 @@ struct CoachVideoPlayerView: View {
         }
         .onChange(of: scenePhase) { oldPhase, newPhase in
             handleScenePhaseChange(old: oldPhase, new: newPhase)
+        }
+        .onDisappear {
+            // Detach AVPlayer observers at the OUTER view level instead of the
+            // inner VideoPlayer's .onDisappear so toggling the telestration
+            // overlay doesn't accidentally tear them down mid-session.
+            viewModel.stopTimeObserver()
+            viewModel.stopFilmstripTimeObserver()
         }
     }
 
@@ -341,13 +329,6 @@ struct CoachVideoPlayerView: View {
                 .frame(height: playerHeight)
             athleteNoteCard
             coachNoteCard
-            if canComment && !templateService.quickCues.isEmpty {
-                QuickCueBar(
-                    cues: templateService.quickCues,
-                    onTap: { cue in quickCueTapped(cue) },
-                    onManage: { showingQuickCueManager = true }
-                )
-            }
             annotationPanel
         }
     }
@@ -358,14 +339,6 @@ struct CoachVideoPlayerView: View {
             VStack(spacing: 0) {
                 playerContent
                 filmstripSection
-                // On iPhone landscape, quick cues stay below the video
-                if !isIPad, canComment, !templateService.quickCues.isEmpty {
-                    QuickCueBar(
-                        cues: templateService.quickCues,
-                        onTap: { cue in quickCueTapped(cue) },
-                        onManage: { showingQuickCueManager = true }
-                    )
-                }
             }
             Divider()
             // Sidebar
@@ -375,16 +348,6 @@ struct CoachVideoPlayerView: View {
                 onRateChanged: { viewModel.setPlaybackRate($0) },
                 athleteNote: { athleteNoteCard },
                 coachNote: { coachNoteCard },
-                quickCues: {
-                    // On iPad, quick cues move into the sidebar
-                    if isIPad, canComment, !templateService.quickCues.isEmpty {
-                        QuickCueBar(
-                            cues: templateService.quickCues,
-                            onTap: { cue in quickCueTapped(cue) },
-                            onManage: { showingQuickCueManager = true }
-                        )
-                    }
-                },
                 annotationPanel: { annotationPanel }
             )
             .frame(width: isIPad ? 360 : 320)
@@ -411,9 +374,10 @@ struct CoachVideoPlayerView: View {
                         markViewedIfFolderOwnerAthlete()
                     }
                     .onDisappear {
+                        // Pause only — observer teardown lives on the outer
+                        // body's .onDisappear so toggling telestration over
+                        // the player doesn't drop time observers mid-session.
                         player.pause()
-                        viewModel.stopTimeObserver()
-                        viewModel.stopFilmstripTimeObserver()
                     }
 
                 // Annotation markers overlay (shared with VideoPlayerView).
@@ -520,12 +484,11 @@ struct CoachVideoPlayerView: View {
 
             Group {
                 switch selectedTab {
-                case .feedback:
+                case .drawings:
                     NotesTabView(
-                        notes: viewModel.annotations,
+                        notes: viewModel.annotations.filter { $0.isDrawing },
                         isLoading: viewModel.isLoadingAnnotations,
                         errorMessage: viewModel.errorMessage,
-                        onAddNote: { showingAddNote = true },
                         onDeleteNote: { note in
                             Task { await viewModel.deleteAnnotation(note) }
                         },
@@ -534,8 +497,7 @@ struct CoachVideoPlayerView: View {
                         },
                         onShowDrawing: { annotation in
                             viewModel.showDrawingOverlay(for: annotation)
-                        },
-                        canComment: canComment
+                        }
                     )
                 case .drillCard:
                     DrillCardTabView(
@@ -620,14 +582,12 @@ struct CoachVideoPlayerView: View {
     }
     
     /// Re-verifies the current coach still has comment permission on this
-    /// folder, then opens the telestration overlay. Mirrors the recheck
-    /// performed in `addNote` before annotation writes.
+    /// folder, then opens the telestration overlay.
     private func openTelestration() {
         guard let userID = authManager.userID else { return }
         viewModel.player?.pause()
 
-        // Skip the network check for the folder owner (athlete) or pre-id
-        // folders — same shape as the `addNote` recheck.
+        // Skip the network check for the folder owner (athlete) or pre-id folders.
         guard userID != folder.ownerAthleteID, let folderID = folder.id else {
             showingTelestration = true
             return
@@ -681,52 +641,6 @@ struct CoachVideoPlayerView: View {
         }
     }
 
-    private func addNote(text: String, timestamp: Double, category: AnnotationCategory? = nil) async {
-        guard let userID = authManager.userID,
-              let userName = authManager.userDisplayName ?? authManager.userEmail else {
-            return
-        }
-
-        // Re-verify comment permission before submitting (folder permissions may have changed)
-        if userID != folder.ownerAthleteID, let folderID = folder.id {
-            do {
-                let latest = try await SharedFolderManager.shared.verifyFolderAccess(folderID: folderID, coachID: userID)
-                guard latest.getPermissions(for: userID)?.canComment ?? false else {
-                    viewModel.errorMessage = "You no longer have permission to comment on this folder."
-                    return
-                }
-            } catch {
-                viewModel.errorMessage = "Unable to verify permissions. Please try again."
-                return
-            }
-        }
-
-        let isCoach = authManager.userRole == .coach
-
-        await viewModel.addAnnotation(
-            text: text,
-            timestamp: timestamp,
-            userID: userID,
-            userName: userName,
-            isCoachComment: isCoach,
-            category: category?.rawValue
-        )
-    }
-
-    private func quickCueTapped(_ cue: QuickCue) {
-        guard let coachID = authManager.userID else { return }
-        Haptics.light()
-        Task {
-            await addNote(
-                text: cue.text,
-                timestamp: viewModel.currentPlaybackTime,
-                category: cue.annotationCategory
-            )
-            if let cueID = cue.id {
-                await templateService.incrementUsage(coachID: coachID, cueID: cueID)
-            }
-        }
-    }
 }
 
 // MARK: - Video Info Tab View

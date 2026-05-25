@@ -22,10 +22,17 @@ struct StartSessionSheet: View {
     @State private var scheduledDate = Date().addingTimeInterval(3600)
     @State private var sessionNotes = ""
 
-    /// Deduplicated athletes the coach can upload to, preferring "lessons" folders
-    /// when both a games and lessons folder exist for the same athlete.
-    private var availableAthletes: [(athleteID: String, athleteName: String, folderID: String)] {
-        guard let coachID = authManager.userID else { return [] }
+    /// Cached deduplicated athletes the coach can upload to. Refreshed when
+    /// coachFolders changes (via .onChange below) and on initial appear. Was
+    /// previously a body-computed property — re-ran filter+dedup on every
+    /// SwiftUI invalidation (date picker tick, toggle, etc.).
+    @State private var availableAthletes: [(athleteID: String, athleteName: String, folderID: String)] = []
+
+    private func recomputeAvailableAthletes() {
+        guard let coachID = authManager.userID else {
+            availableAthletes = []
+            return
+        }
         let uploadableFolders = SharedFolderManager.shared.coachFolders.filter { folder in
             folder.getPermissions(for: coachID)?.canUpload == true
         }
@@ -44,7 +51,7 @@ struct StartSessionSheet: View {
             }
         }
 
-        return athleteFolders.compactMap { key, folder in
+        availableAthletes = athleteFolders.compactMap { key, folder in
             guard let folderID = folder.id else { return nil }
             return (athleteID: key, athleteName: folder.ownerAthleteName ?? "Athlete", folderID: folderID)
         }
@@ -61,6 +68,10 @@ struct StartSessionSheet: View {
             }
             .navigationTitle("New Session")
             .navigationBarTitleDisplayMode(.inline)
+            .task { recomputeAvailableAthletes() }
+            .onChange(of: SharedFolderManager.shared.coachFolders) { _, _ in
+                recomputeAvailableAthletes()
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }

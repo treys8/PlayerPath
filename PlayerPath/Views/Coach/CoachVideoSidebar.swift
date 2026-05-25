@@ -3,8 +3,8 @@
 //  PlayerPath
 //
 //  Persistent sidebar for the coach video player on wide layouts
-//  (iPad any orientation, iPhone landscape). Wraps the annotation
-//  panel, notes, and quick cues in a scrollable container.
+//  (iPad any orientation, iPhone landscape). Wraps the athlete and
+//  coach notes plus the annotation panel in a scrollable container.
 //
 
 import SwiftUI
@@ -12,7 +12,6 @@ import SwiftUI
 struct CoachVideoSidebar<
     AthleteNote: View,
     CoachNote: View,
-    QuickCues: View,
     AnnotationPanel: View
 >: View {
     let showSpeedControl: Bool
@@ -20,7 +19,6 @@ struct CoachVideoSidebar<
     let onRateChanged: (Double) -> Void
     @ViewBuilder let athleteNote: AthleteNote
     @ViewBuilder let coachNote: CoachNote
-    @ViewBuilder let quickCues: QuickCues
     @ViewBuilder let annotationPanel: AnnotationPanel
 
     var body: some View {
@@ -36,7 +34,6 @@ struct CoachVideoSidebar<
                     VStack(spacing: 0) {
                         athleteNote
                         coachNote
-                        quickCues
                     }
                 }
                 .frame(maxHeight: 220)
@@ -45,7 +42,6 @@ struct CoachVideoSidebar<
                 // (no scroll wrapper — preserves original spacing)
                 athleteNote
                 coachNote
-                quickCues
             }
 
             // Annotation panel fills remaining space (has its own internal scroll)

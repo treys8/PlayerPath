@@ -10,6 +10,7 @@ import TipKit
 
 struct EmptyStatisticsView: View {
     let isQuickEntryEnabled: Bool
+    let hasGames: Bool
     let showQuickEntry: () -> Void
     let showGameSelection: () -> Void
     @Environment(\.dismiss) private var dismiss
@@ -169,7 +170,7 @@ struct EmptyStatisticsView: View {
                 }
                 .opacity(isAnimating ? 1.0 : 0.0)
                 .offset(y: isAnimating ? 0 : 20)
-                .onboardingTip(tip, arrowEdge: .top)
+                .onboardingTip(tip, arrowEdge: .top, also: hasGames)
             }
             .padding(.horizontal, 40)
         }

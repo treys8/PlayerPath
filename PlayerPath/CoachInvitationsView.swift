@@ -49,6 +49,12 @@ struct CoachInvitationsView: View {
             if let coachID = authManager.userID {
                 await ActivityNotificationService.shared.markInvitationNotificationsRead(forUserID: coachID)
             }
+            // Always refresh the athlete-limit gate on appear — the invitation
+            // list is cached for 60s but the limit/upgrade state must reflect
+            // the latest StoreKit + folder state every time the user lands here.
+            if let coachID = authManager.userID {
+                await viewModel.updateAthleteLimit(coachID: coachID, authManager: authManager)
+            }
             if let lastFetch = lastFetchDate, Date().timeIntervalSince(lastFetch) < 60 { return }
             await loadInvitations()
             lastFetchDate = Date()
