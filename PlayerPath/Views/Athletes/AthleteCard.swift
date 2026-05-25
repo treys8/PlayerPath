@@ -25,7 +25,7 @@ struct AthleteCard: View {
         let set = Set((athlete.seasons ?? []).map(\.sport))
         let sorted = set.sorted { $0.rawValue < $1.rawValue }
         if !sorted.isEmpty { return sorted }
-        if let hint = Season.SportType(rawValue: athlete.sport.rawValue.capitalized) {
+        if let hint = Season.SportType(rawValue: (athlete.sport ?? .baseball).rawValue.capitalized) {
             return [hint]
         }
         return [.baseball]

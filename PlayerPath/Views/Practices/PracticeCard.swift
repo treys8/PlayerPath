@@ -90,12 +90,16 @@ struct PracticeCard: View {
 }
 
 struct EmptyPracticesView: View {
+    /// When non-nil, the title becomes "No <sportTitle> Practice Sessions Yet".
+    /// Pass `activeSport.displayName` from a multi-sport context; pass nil for
+    /// single-sport athletes to keep the original generic wording.
+    var sportTitle: String? = nil
     let onAddPractice: () -> Void
 
     var body: some View {
         EmptyStateView(
             systemImage: "figure.baseball",
-            title: "No Practice Sessions Yet",
+            title: sportTitle.map { "No \($0) Practice Sessions Yet" } ?? "No Practice Sessions Yet",
             message: "Create your first practice to track training",
             actionTitle: "Add Practice",
             action: onAddPractice

@@ -60,7 +60,7 @@ struct MainTabView: View {
         let set = Set((selectedAthlete.seasons ?? []).map(\.sport))
         let sorted = set.sorted { $0.rawValue < $1.rawValue }
         if !sorted.isEmpty { return sorted }
-        if let hint = Season.SportType(rawValue: selectedAthlete.sport.rawValue.capitalized) {
+        if let hint = Season.SportType(rawValue: (selectedAthlete.sport ?? .baseball).rawValue.capitalized) {
             return [hint]
         }
         return [.baseball]

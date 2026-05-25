@@ -13,6 +13,7 @@ struct VideoClipsView: View {
     let athlete: Athlete
     @Environment(\.modelContext) private var modelContext
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.activeSport) private var activeSport
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     private let uploadManager = UploadQueueManager.shared
     @State private var showingRecorder = false
@@ -57,6 +58,23 @@ struct VideoClipsView: View {
         !(athlete.videoClips?.isEmpty ?? true)
     }
 
+    /// True when this athlete has seasons in more than one sport. Used to gate
+    /// sport-aware empty-state copy ("No Golf Videos Yet") so single-sport
+    /// athletes see the original "No Videos Yet" wording.
+    private var isMultiSport: Bool {
+        Set((athlete.seasons ?? []).map(\.sport)).count > 1
+    }
+
+    /// Clips that belong to the active sport, plus seasonless clips. Seasonless
+    /// items (untagged imports, coach-recorded sessions, ad-hoc captures) are
+    /// shown under both sports so they aren't hidden from a user mid-toggle.
+    private var videosForActiveSport: [VideoClip] {
+        (athlete.videoClips ?? []).filter { clip in
+            guard let season = clip.season else { return true }
+            return season.sport == activeSport
+        }
+    }
+
     private var filterDescription: String {
         var parts: [String] = []
 
@@ -96,7 +114,7 @@ struct VideoClipsView: View {
             viewModel.selectedFilter = .all
             viewModel.searchText = ""
         }
-        viewModel.update(videos: athlete.videoClips ?? [])
+        viewModel.update(videos: videosForActiveSport)
     }
     
     @ToolbarContentBuilder
@@ -155,17 +173,17 @@ struct VideoClipsView: View {
                 .accessibilityLabel("Record video")
             }
 
-            if !(athlete.videoClips?.isEmpty ?? true) {
+            if !videosForActiveSport.isEmpty {
                 ToolbarItem(placement: .topBarLeading) {
                     SeasonFilterMenu(
                         selectedSeasonID: $viewModel.selectedSeasonFilter,
                         availableSeasons: viewModel.availableSeasons,
-                        showNoSeasonOption: (athlete.videoClips ?? []).contains(where: { $0.season == nil })
+                        showNoSeasonOption: videosForActiveSport.contains(where: { $0.season == nil })
                     )
                 }
             }
 
-            if !(athlete.videoClips?.isEmpty ?? true) {
+            if !videosForActiveSport.isEmpty {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         Haptics.light()
@@ -186,7 +204,7 @@ struct VideoClipsView: View {
                         Label("Upload Video", systemImage: "square.and.arrow.down.on.square")
                     }
 
-                    if !(athlete.videoClips?.isEmpty ?? true) {
+                    if !videosForActiveSport.isEmpty {
                         Button {
                             Haptics.light()
                             showingStatistics = true
@@ -231,7 +249,7 @@ struct VideoClipsView: View {
     }
 
     private var untaggedCount: Int {
-        (athlete.videoClips ?? []).filter { $0.playResult == nil && !$0.isDeletedRemotely }.count
+        videosForActiveSport.filter { $0.playResult == nil && !$0.isDeletedRemotely }.count
     }
 
     var body: some View {
@@ -265,7 +283,7 @@ struct VideoClipsView: View {
             }
         }
         .task {
-            viewModel.update(videos: athlete.videoClips ?? [])
+            viewModel.update(videos: videosForActiveSport)
         }
         .onAppear {
             // Tell MainTabView that Videos manages its own controls
@@ -286,7 +304,17 @@ struct VideoClipsView: View {
             viewModel.refilter()
         }
         .onChange(of: videoClipsChangeKey) { _, _ in
-            viewModel.update(videos: athlete.videoClips ?? [])
+            viewModel.update(videos: videosForActiveSport)
+        }
+        .onChange(of: activeSport) { _, _ in
+            // Sport toggle changes the visible clip set — refresh VM and bail
+            // out of selection mode so users don't have stale cross-sport
+            // selections that no longer appear in the grid.
+            if isSelectionMode {
+                isSelectionMode = false
+                selectedVideos.removeAll()
+            }
+            viewModel.update(videos: videosForActiveSport)
         }
         .alert("Unable to Load Videos", isPresented: $showingError) {
             Button("OK", role: .cancel) { }
@@ -350,7 +378,7 @@ struct VideoClipsView: View {
                 if let athlete = videoAthlete {
                     try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext)
                 }
-                viewModel.update(videos: athlete.videoClips ?? [])
+                viewModel.update(videos: videosForActiveSport)
                 isDeleting = false
             } catch {
                 isDeleting = false
@@ -378,7 +406,7 @@ struct VideoClipsView: View {
         isDeleting = true
         Haptics.medium()
 
-        let videosToDelete = (athlete.videoClips ?? []).filter { selectedVideos.contains($0.id) }
+        let videosToDelete = videosForActiveSport.filter { selectedVideos.contains($0.id) }
 
         // Capture IDs and affected games before deletion — accessing SwiftData object properties
         // after context.delete() is undefined behavior.
@@ -401,7 +429,7 @@ struct VideoClipsView: View {
                 }
                 try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext)
 
-                viewModel.update(videos: athlete.videoClips ?? [])
+                viewModel.update(videos: videosForActiveSport)
                 Haptics.success()
             } catch {
                 errorMessage = "Could not delete the selected videos. Please try again or restart the app if the problem continues."
@@ -415,7 +443,7 @@ struct VideoClipsView: View {
     }
 
     private func bulkUploadSelected() {
-        let videosToUpload = (athlete.videoClips ?? []).filter { selectedVideos.contains($0.id) }
+        let videosToUpload = videosForActiveSport.filter { selectedVideos.contains($0.id) }
         var queuedCount = 0
 
         for video in videosToUpload {
@@ -434,7 +462,7 @@ struct VideoClipsView: View {
     }
 
     private func bulkMarkAsHighlight() {
-        let videosToMark = (athlete.videoClips ?? []).filter { selectedVideos.contains($0.id) }
+        let videosToMark = videosForActiveSport.filter { selectedVideos.contains($0.id) }
 
         for video in videosToMark {
             video.isHighlight = true
@@ -472,7 +500,7 @@ struct VideoClipsView: View {
     private var emptyStateView: some View {
         EmptyStateView(
             systemImage: "video.slash",
-            title: "No Videos Yet",
+            title: isMultiSport ? "No \(activeSport.displayName) Videos Yet" : "No Videos Yet",
             message: "Record your first video to build your highlight reel",
             actionTitle: "Record Video",
             action: {
@@ -581,7 +609,7 @@ struct VideoClipsView: View {
                                 toggleSelection(for: video)
                             },
                             onContextMenuOpened: {
-                                Task { await videoClipOptionsTip.invalidate(reason: .actionPerformed) }
+                                videoClipOptionsTip.invalidate(reason: .actionPerformed)
                             }
                         )
                         .onboardingTip(videoClipOptionsTip, arrowEdge: .top, also: video.id == viewModel.filteredVideos.first?.id)
@@ -612,7 +640,7 @@ struct VideoClipsView: View {
                 ErrorHandlerService.shared.handle(error, context: "VideoClipsView.refreshable", showAlert: false)
             }
         }
-        viewModel.update(videos: athlete.videoClips ?? [])
+        viewModel.update(videos: videosForActiveSport)
     }
 
     /// Composite key for `.onChange` that reacts to property mutations the

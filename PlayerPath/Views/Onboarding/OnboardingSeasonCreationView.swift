@@ -232,7 +232,7 @@ struct OnboardingSeasonCreationView: View {
                 // (Athlete.sport — set in AddAthleteView). User can still change it.
                 guard !didSeedSport else { return }
                 didSeedSport = true
-                if let hint = Season.SportType(rawValue: athlete.sport.rawValue.capitalized) {
+                if let hint = Season.SportType(rawValue: (athlete.sport ?? .baseball).rawValue.capitalized) {
                     selectedSport = hint
                 }
             }

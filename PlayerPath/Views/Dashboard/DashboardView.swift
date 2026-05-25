@@ -150,7 +150,7 @@ struct DashboardView: View {
                                 object: ath
                             )
                             Haptics.light()
-                            Task { await athletePickerTip.invalidate(reason: .actionPerformed) }
+                            athletePickerTip.invalidate(reason: .actionPerformed)
                         } label: {
                             HStack {
                                 Text(ath.name)
@@ -180,6 +180,7 @@ struct DashboardView: View {
             }
         }
         .task {
+            viewModel.activeSport = activeSport
             await viewModel.refresh()
         }
         .onAppear {
@@ -198,6 +199,13 @@ struct DashboardView: View {
             updateCachedStats()
         }
         .onChange(of: athlete.photos?.count) { _, _ in
+            updateCachedStats()
+        }
+        .onChange(of: activeSport) { _, newSport in
+            // Sport toggle: rescope dashboard totals + cached counts so the
+            // management cards reflect the same filtered set the user lands on.
+            viewModel.activeSport = newSport
+            Task { await viewModel.refresh() }
             updateCachedStats()
         }
         .sheet(isPresented: $showingSeasons) {
@@ -478,9 +486,19 @@ struct DashboardView: View {
             cachedSLG = ".000"
             cachedHits = "0"
         }
-        cachedSeasonCount = (athlete.seasons ?? []).count
-        cachedPracticeCount = (athlete.practices ?? []).count
-        cachedPhotoCount = (athlete.photos ?? []).count
+        // Sport-scope cached counts so management card subtitles match the
+        // sport-filtered lists the user lands on. Seasons are filtered strictly
+        // by sport (a season has exactly one sport). Practices and photos pass
+        // seasonless items through under both sports — same rule as the lists.
+        cachedSeasonCount = (athlete.seasons ?? []).filter { $0.sport == activeSport }.count
+        cachedPracticeCount = (athlete.practices ?? []).filter { practice in
+            guard let season = practice.season else { return true }
+            return season.sport == activeSport
+        }.count
+        cachedPhotoCount = (athlete.photos ?? []).filter { photo in
+            guard let season = photo.season else { return true }
+            return season.sport == activeSport
+        }.count
     }
 
 }

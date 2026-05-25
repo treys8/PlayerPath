@@ -73,7 +73,7 @@ enum ActiveSportStore {
         if let mostRecent = seasons.first?.sport, available.contains(mostRecent) {
             return mostRecent
         }
-        if let primary = Season.SportType(rawValue: athlete.sport.rawValue.capitalized) {
+        if let primary = Season.SportType(rawValue: (athlete.sport ?? .baseball).rawValue.capitalized) {
             return primary
         }
         return .baseball

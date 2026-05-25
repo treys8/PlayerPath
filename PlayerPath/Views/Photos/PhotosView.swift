@@ -136,6 +136,7 @@ struct PhotosView: View {
         .onChange(of: selectedDateRange) { _, _ in updatePhotosCache() }
         .onChange(of: searchText) { _, _ in updatePhotosCache() }
         .onChange(of: allPhotos) { _, _ in updatePhotosCache() }
+        .onChange(of: activeSport) { _, _ in updatePhotosCache() }
         .navigationTitle("Photos")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -175,7 +176,7 @@ struct PhotosView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         toggleLayoutMode()
-                        Task { await layoutModeTip.invalidate(reason: .actionPerformed) }
+                        layoutModeTip.invalidate(reason: .actionPerformed)
                     } label: {
                         Image(systemName: layoutMode == .card ? "square.grid.3x3.fill" : "square.grid.2x2")
                     }
@@ -327,7 +328,7 @@ struct PhotosView: View {
                             photo: hero,
                             onDelete: { deletePhoto(hero) },
                             onContextMenuOpened: {
-                                Task { await photoOptionsTip.invalidate(reason: .actionPerformed) }
+                                photoOptionsTip.invalidate(reason: .actionPerformed)
                             }
                         )
                     }
@@ -364,7 +365,7 @@ struct PhotosView: View {
                                         style: cellStyle,
                                         onDelete: { deletePhoto(photo) },
                                         onContextMenuOpened: {
-                                            Task { await photoOptionsTip.invalidate(reason: .actionPerformed) }
+                                            photoOptionsTip.invalidate(reason: .actionPerformed)
                                         }
                                     )
                                 }
@@ -390,10 +391,14 @@ struct PhotosView: View {
 
     // MARK: - Empty State
 
+    private var isMultiSport: Bool {
+        Set((athlete.seasons ?? []).map(\.sport)).count > 1
+    }
+
     private var emptyState: some View {
         EmptyStateView(
             systemImage: "photo.on.rectangle.angled",
-            title: "No Photos Yet",
+            title: isMultiSport ? "No \(activeSport.displayName) Photos Yet" : "No Photos Yet",
             message: "Tap + to take a photo or choose from your library",
             actionTitle: "Add Photo",
             action: { showingSourcePicker = true }
@@ -415,7 +420,9 @@ struct PhotosView: View {
                     .pickerStyle(.inline)
                 }
 
-                let seasons = athlete.seasons ?? []
+                // Scope the season dropdown to the active sport so a golf-mode
+                // filter sheet doesn't list baseball seasons (and vice versa).
+                let seasons = (athlete.seasons ?? []).filter { $0.sport == activeSport }
                 if !seasons.isEmpty {
                     Section("Season") {
                         Picker("Season", selection: $selectedSeasonFilter) {
@@ -467,6 +474,14 @@ struct PhotosView: View {
             filtered = filtered.filter { $0.game != nil }
         case .practice:
             filtered = filtered.filter { $0.practice != nil }
+        }
+
+        // Sport filter — hide photos belonging to seasons of the other sport.
+        // Seasonless photos (headshots, trophies, no-season imports) pass through
+        // under both sports so toggling doesn't make them disappear.
+        filtered = filtered.filter { photo in
+            guard let season = photo.season else { return true }
+            return season.sport == activeSport
         }
 
         // Season filter

@@ -54,7 +54,11 @@ final class Athlete {
     /// Primary sport hint. Defaults the first season's sport and drives the
     /// athlete card icon. Source of truth for a given game's sport is
     /// `game.season?.sport` — an athlete may have seasons in multiple sports.
-    var sport: Sport = Sport.baseball
+    ///
+    /// Optional because athletes created before SchemaV21 have NULL in storage.
+    /// Reading a non-Optional Sport from NULL trips SwiftData's KVC cast and
+    /// hangs `modelContext.save()`. Readers must fall back to `?? .baseball`.
+    var sport: Sport? = Sport.baseball
     @Relationship(inverse: \Season.athlete) var seasons: [Season]?
     @Relationship(inverse: \Game.athlete) var games: [Game]?
     @Relationship(inverse: \Practice.athlete) var practices: [Practice]?
@@ -170,7 +174,7 @@ final class Athlete {
             "name": name,
             "userId": user?.id.uuidString ?? "",
             "primaryRole": primaryRole.rawValue,
-            "sport": sport.rawValue,
+            "sport": (sport ?? .baseball).rawValue,
             "trackStatsEnabled": trackStatsEnabled,
             "createdAt": createdAt ?? Date(),
             "updatedAt": Date(),

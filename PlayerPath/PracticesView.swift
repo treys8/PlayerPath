@@ -37,9 +37,17 @@ extension Practice {
 struct PracticesView: View {
     let athlete: Athlete?
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.activeSport) private var activeSport
     @State private var viewModel = PracticesViewModel()
     @State private var navigateToPractice: Practice?
     @State private var showingAddPractice = false
+
+    /// True when this athlete has seasons in more than one sport. Drives
+    /// sport-aware empty-state copy ("No Golf Practices Yet") so single-sport
+    /// athletes keep the original wording.
+    private var isMultiSport: Bool {
+        Set((athlete?.seasons ?? []).map(\.sport)).count > 1
+    }
 
     // Check if filters are active
     private var hasActiveFilters: Bool {
@@ -50,6 +58,15 @@ struct PracticesView: View {
     // Check if we have any practices at all (before filtering)
     private var hasAnyPractices: Bool {
         !(athlete?.practices?.isEmpty ?? true)
+    }
+
+    /// Practices visible under the current sport context. Seasonless practices
+    /// pass through under both sports so they aren't hidden mid-toggle.
+    private var practicesForActiveSport: [Practice] {
+        (athlete?.practices ?? []).filter { practice in
+            guard let season = practice.season else { return true }
+            return season.sport == activeSport
+        }
     }
 
     private var filterDescription: String {
@@ -90,7 +107,9 @@ struct PracticesView: View {
                     onClearFilters: clearAllFilters
                 )
             } else {
-                EmptyPracticesView {
+                EmptyPracticesView(
+                    sportTitle: isMultiSport ? activeSport.displayName : nil
+                ) {
                     quickCreatePractice(type: .general)
                 }
             }
@@ -198,7 +217,7 @@ struct PracticesView: View {
                 SeasonFilterMenu(
                     selectedSeasonID: $viewModel.selectedSeasonFilter,
                     availableSeasons: viewModel.availableSeasons,
-                    showNoSeasonOption: (athlete?.practices ?? []).contains(where: { $0.season == nil })
+                    showNoSeasonOption: practicesForActiveSport.contains(where: { $0.season == nil })
                 )
             }
         }
@@ -222,6 +241,7 @@ struct PracticesView: View {
     var body: some View {
         practicesContent
         .task {
+            viewModel.activeSport = activeSport
             viewModel.update(practices: athlete?.practices ?? [])
         }
         .onAppear {
@@ -231,6 +251,12 @@ struct PracticesView: View {
         .onChange(of: viewModel.selectedSeasonFilter) { _, _ in viewModel.resetPagination(); viewModel.refilter() }
         .onChange(of: viewModel.sortOrder) { _, _ in viewModel.refilter() }
         .onChange(of: athlete?.practices?.count) { _, _ in viewModel.update(practices: athlete?.practices ?? []) }
+        .onChange(of: activeSport) { _, newValue in
+            // Sport toggle: re-scope the visible practices and the season dropdown.
+            viewModel.activeSport = newValue
+            viewModel.resetPagination()
+            viewModel.refilter()
+        }
         .navigationTitle("Practices")
         .navigationBarTitleDisplayMode(.large)
         .searchable(text: $viewModel.searchText, placement: .navigationBarDrawer(displayMode: .automatic))

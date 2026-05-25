@@ -16,6 +16,11 @@ final class PracticesViewModel {
     var selectedSeasonFilter: String?
     var sortOrder: SortOrder = .newestFirst
 
+    /// Sport context this view is rendering. Set by the view from
+    /// `@Environment(\.activeSport)`. Drives both the practice list filter and
+    /// the season-dropdown scoping so the user only sees their active sport.
+    var activeSport: Season.SportType = .baseball
+
     // MARK: - Loading & Pagination
     var isLoading = true
     var displayLimit = 50
@@ -57,6 +62,13 @@ final class PracticesViewModel {
             sorted = allPractices.sorted { ($0.videoClips?.count ?? 0) > ($1.videoClips?.count ?? 0) }
         case .mostNotes:
             sorted = allPractices.sorted { ($0.notes?.count ?? 0) > ($1.notes?.count ?? 0) }
+        }
+
+        // Sport filter — hide practices belonging to seasons of the other sport.
+        // Seasonless practices pass through under both sports.
+        sorted = sorted.filter { practice in
+            guard let season = practice.season else { return true }
+            return season.sport == activeSport
         }
 
         // Season filter
@@ -116,7 +128,11 @@ final class PracticesViewModel {
     }
 
     private func updateAvailableSeasons() {
-        let seasons = allPractices.compactMap { $0.season }
+        // Scope the season dropdown to the active sport so users in golf mode
+        // don't see baseball seasons in the filter menu (and vice versa).
+        let seasons = allPractices
+            .compactMap { $0.season }
+            .filter { $0.sport == activeSport }
         let uniqueSeasons = Array(Set(seasons))
         availableSeasons = uniqueSeasons.sorted { ($0.startDate ?? .distantPast) > ($1.startDate ?? .distantPast) }
     }
