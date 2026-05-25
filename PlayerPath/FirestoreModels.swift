@@ -126,6 +126,12 @@ struct FirestoreVideoMetadata: Codable, Identifiable {
     let practiceDate: Date?
     let notes: String? // Athlete-authored context attached at share time
 
+    // Golf club tag (Club enum rawValue, e.g. "7i", "Driver", "Putter").
+    // Set at recording time for clips in a golf season; nil for baseball/softball.
+    // Mirrors VideoClip.club in SchemaV23 — typed here so the coach pipeline
+    // doesn't drop the field on Codable round-trip.
+    var club: String? = nil
+
     // Coach-authored plain note (separate from athlete `notes`)
     var coachNote: String? = nil
     var coachNoteAuthorID: String? = nil

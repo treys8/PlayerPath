@@ -193,7 +193,15 @@ service cloud.firestore {
       match /seasons/{seasonID} {
         allow read:   if isAuthenticated() && isOwner(userID);
         allow create: if isAuthenticated() && isOwner(userID);
-        allow update: if isAuthenticated() && isOwner(userID);
+        // sport is set at create time and immutable thereafter. Without this
+        // check, pre-V21 clients that decode unknown sports (e.g. "Golf") as
+        // .baseball will round-trip and silently overwrite the server value.
+        allow update: if isAuthenticated() && isOwner(userID)
+                      && (
+                        !('sport' in request.resource.data)
+                        || !('sport' in resource.data)
+                        || request.resource.data.sport == resource.data.sport
+                      );
         allow delete: if isAuthenticated() && isOwner(userID);
       }
 

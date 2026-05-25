@@ -26,6 +26,7 @@ struct CoachVideoItem: Identifiable, Equatable {
     let gameDate: Date?
     let practiceDate: Date?
     let notes: String?
+    let club: String?
     let coachNote: String?
     let coachNoteAuthorID: String?
     let coachNoteAuthorName: String?
@@ -90,6 +91,7 @@ struct CoachVideoItem: Identifiable, Equatable {
         self.gameDate = metadata.gameDate
         self.practiceDate = metadata.practiceDate
         self.notes = metadata.notes
+        self.club = metadata.club
         self.coachNote = metadata.coachNote
         self.coachNoteAuthorID = metadata.coachNoteAuthorID
         self.coachNoteAuthorName = metadata.coachNoteAuthorName
