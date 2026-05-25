@@ -252,7 +252,7 @@ struct VideoThumbnailView: View {
             .shadow(color: .black.opacity(0.35), radius: 3, x: 0, y: 1)
             .padding(.top, 8)
             .padding(.trailing, 8)
-            .accessibilityLabel("Untagged — needs play result")
+            .accessibilityLabel("Untagged")
     }
 
     private var highlightIndicator: some View {
@@ -344,8 +344,8 @@ struct VideoThumbnailView: View {
         let secs = Int(seconds) % 60
         let timeLabel = String(format: "%d:%02d", mins, secs)
         let outcomeLabel: String? = {
-            guard showOutcomeWithDuration, let result = clip.playResult else { return nil }
-            return result.type.displayName
+            guard showOutcomeWithDuration else { return nil }
+            return clip.displayTagName
         }()
         let label = outcomeLabel.map { "\(timeLabel) · \($0)" } ?? timeLabel
         let a11yLabel = outcomeLabel.map { "\($0), \(mins) minutes \(secs) seconds" }

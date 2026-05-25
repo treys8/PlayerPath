@@ -306,13 +306,19 @@ struct VideoClipsView: View {
         .onChange(of: videoClipsChangeKey) { _, _ in
             viewModel.update(videos: videosForActiveSport)
         }
-        .onChange(of: activeSport) { _, _ in
+        .onChange(of: activeSport) { _, newSport in
             // Sport toggle changes the visible clip set — refresh VM and bail
             // out of selection mode so users don't have stale cross-sport
             // selections that no longer appear in the grid.
             if isSelectionMode {
                 isSelectionMode = false
                 selectedVideos.removeAll()
+            }
+            // Reset Batter/Pitcher filter when switching to golf — those pills
+            // are hidden and would otherwise leave the user staring at zero
+            // clips with no visible way to clear the filter.
+            if newSport == .golf, viewModel.selectedFilter == .batter || viewModel.selectedFilter == .pitcher {
+                viewModel.selectedFilter = .all
             }
             viewModel.update(videos: videosForActiveSport)
         }
@@ -511,10 +517,20 @@ struct VideoClipsView: View {
         .onboardingTip(recordTip, arrowEdge: .top, also: !(athlete.games ?? []).isEmpty)
     }
 
+    /// Filter pills shown above the video list. `.batter` / `.pitcher` are
+    /// baseball/softball-only — they're hidden for golf so the pill row
+    /// doesn't dangle useless filters that would always return zero.
+    private var visibleFilters: [VideoLibraryFilter] {
+        if activeSport == .golf {
+            return [.all, .untagged]
+        }
+        return VideoLibraryFilter.allCases
+    }
+
     private var uploadStatusFilterPicker: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 12) {
-                ForEach(VideoLibraryFilter.allCases, id: \.self) { filter in
+                ForEach(visibleFilters, id: \.self) { filter in
                     Button {
                         withAnimation {
                             viewModel.selectedFilter = filter

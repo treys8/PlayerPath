@@ -63,17 +63,18 @@ struct VideoPlayerView: View {
 
     @ViewBuilder
     private var playerMenuItems: some View {
-        if clip.playResult == nil {
+        let tagNoun = clip.season?.sport == .golf ? "Club" : "Play Result"
+        if !clip.isTagged {
             Button {
                 showingPlayResultEditor = true
             } label: {
-                Label("Tag Play Result", systemImage: "tag.fill")
+                Label("Tag \(tagNoun)", systemImage: "tag.fill")
             }
         } else {
             Button {
                 showingPlayResultEditor = true
             } label: {
-                Label("Edit Play Result", systemImage: AppIcon.edit)
+                Label("Edit \(tagNoun)", systemImage: AppIcon.edit)
             }
         }
 
@@ -533,7 +534,11 @@ struct VideoPlayerView: View {
             coachAnnotationsListener = nil
         }
         .sheet(isPresented: $showingPlayResultEditor) {
-            PlayResultEditorView(clip: clip, modelContext: modelContext)
+            if clip.season?.sport == .golf {
+                ClubPickerEditorView(clip: clip, modelContext: modelContext)
+            } else {
+                PlayResultEditorView(clip: clip, modelContext: modelContext)
+            }
         }
         .sheet(isPresented: $showingGameLinker) {
             GameLinkerView(clip: clip)
