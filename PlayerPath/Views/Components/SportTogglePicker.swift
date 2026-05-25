@@ -20,8 +20,6 @@ struct SportTogglePicker: View {
             }
         }
         .pickerStyle(.segmented)
-        .padding(.horizontal)
-        .padding(.vertical, 6)
         .accessibilityLabel("Active sport")
         .accessibilityHint("Switches the tab bar between this athlete's sports")
     }

@@ -133,8 +133,8 @@ struct GamesView: View {
     private var gameCreationSheet: some View {
         GameCreationView(
             athlete: athlete,
-            onSave: { opponent, date, isLive, season, golf in
-                createGame(opponent: opponent, date: date, isLive: isLive, season: season, golf: golf)
+            onSave: { opponent, date, isLive, season, golf, location in
+                createGame(opponent: opponent, date: date, isLive: isLive, season: season, golf: golf, location: location)
             }
         )
     }
@@ -628,13 +628,14 @@ struct GamesView: View {
         refreshGames()
     }
     
-    private func createGame(opponent: String, date: Date, isLive: Bool, season: Season? = nil, golf: GolfRoundDetails? = nil) {
+    private func createGame(opponent: String, date: Date, isLive: Bool, season: Season? = nil, golf: GolfRoundDetails? = nil, location: String? = nil) {
         viewModelHolder.viewModel?.create(
             opponent: opponent,
             date: date,
             isLive: isLive,
             season: season,
             golfDetails: golf,
+            location: location,
             onError: { errorMessage in
                 showError(errorMessage)
             }

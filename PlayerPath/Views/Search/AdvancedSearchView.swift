@@ -387,12 +387,14 @@ struct AdvancedSearchView: View {
                 // Game Filter (for videos)
                 if selectedContentType == .videos {
                     let games = athlete.games ?? []
+                    let isGolfAthlete = athlete.sport == .golf
                     if !games.isEmpty {
-                        Section("Game") {
-                            Picker("Game", selection: $selectedGame) {
-                                Text("All Games").tag(nil as Game?)
+                        Section(isGolfAthlete ? "Tournament" : "Game") {
+                            Picker(isGolfAthlete ? "Tournament" : "Game", selection: $selectedGame) {
+                                Text(isGolfAthlete ? "All Tournaments" : "All Games").tag(nil as Game?)
                                 ForEach(games.sorted(by: { ($0.date ?? Date.distantPast) > ($1.date ?? Date.distantPast) }).prefix(20)) { game in
-                                    Text("vs \(game.opponent)").tag(game as Game?)
+                                    let isGolfGame = game.season?.sport == .golf
+                                    Text("\(isGolfGame ? "at" : "vs") \(game.opponent)").tag(game as Game?)
                                 }
                             }
                         }

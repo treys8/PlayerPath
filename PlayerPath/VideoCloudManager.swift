@@ -32,6 +32,13 @@ class VideoCloudManager: ObservableObject {
     /// trim bumps clip.version and the player view re-requests the file).
     private var activeDownloads: [UUID: DownloadTaskBox] = [:]
 
+    /// In-flight photo downloads keyed by destination path. Two concurrent
+    /// callers requesting the same file (e.g. PhotoThumbnailLoader and
+    /// PhotoDetailView during a tap) share one Task instead of racing two
+    /// writes to the same path. Cleared from the task body once the download
+    /// completes; entries are short-lived.
+    var inFlightPhotoDownloads: [String: Task<Void, Error>] = [:]
+
     // Progress throttling to prevent excessive UI updates
     var lastProgressUpdate: [String: Date] = [:]
     let progressThrottleInterval: TimeInterval = 0.05 // 50ms

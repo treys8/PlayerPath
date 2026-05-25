@@ -355,7 +355,7 @@ struct DirectCameraRecorderView: View {
                     sport: clipSport,
                     clipOrientation: clipOrientation,
                     isSaving: $isSavingTaggedClip,
-                    onSave: { result, pitchSpeed, pitchType, role, club in
+                    onSave: { result, pitchSpeed, pitchType, role, club, markAsHighlight in
                         isSavingTaggedClip = true
                         saveVideoWithResult(
                             videoURL: finalVideoURL,
@@ -364,6 +364,7 @@ struct DirectCameraRecorderView: View {
                             pitchType: pitchType,
                             club: club,
                             role: role,
+                            markAsHighlight: markAsHighlight,
                             onError: { isSavingTaggedClip = false }
                         ) { dismiss() }
                     },
@@ -419,7 +420,7 @@ struct DirectCameraRecorderView: View {
         }
     }
 
-    private func saveVideoWithResult(videoURL: URL, playResult: PlayResultType?, pitchSpeed: Double? = nil, pitchType: String? = nil, club: Club? = nil, role: AthleteRole = .batter, note: String? = nil, onError: (() -> Void)? = nil, onComplete: @escaping () -> Void) {
+    private func saveVideoWithResult(videoURL: URL, playResult: PlayResultType?, pitchSpeed: Double? = nil, pitchType: String? = nil, club: Club? = nil, role: AthleteRole = .batter, note: String? = nil, markAsHighlight: Bool = false, onError: (() -> Void)? = nil, onComplete: @escaping () -> Void) {
         guard let athlete = athlete else {
             Haptics.error()
             showingSaveError = true
@@ -442,6 +443,7 @@ struct DirectCameraRecorderView: View {
                     club: club,
                     role: role,
                     note: note,
+                    markAsHighlight: markAsHighlight,
                     context: modelContext,
                     athlete: athlete,
                     game: game,

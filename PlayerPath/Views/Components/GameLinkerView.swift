@@ -24,6 +24,11 @@ struct GameLinkerView: View {
         return allGames.filter { $0.athlete?.id == athleteId }
     }
 
+    private var isGolfAthlete: Bool { clip.athlete?.sport == .golf }
+    private var unitNoun: String { isGolfAthlete ? "Tournament" : "Game" }
+    private var unitNounPlural: String { isGolfAthlete ? "Tournaments" : "Games" }
+    private var unitNounLower: String { isGolfAthlete ? "tournament" : "game" }
+
     var body: some View {
         NavigationStack {
             List {
@@ -34,7 +39,7 @@ struct GameLinkerView: View {
                         hasChanges = (clip.game != nil)
                     } label: {
                         HStack {
-                            Label("No Game", systemImage: "minus.circle")
+                            Label("No \(unitNoun)", systemImage: "minus.circle")
                                 .foregroundColor(.primary)
                             Spacer()
                             if selectedGame == nil && clip.game == nil {
@@ -47,25 +52,26 @@ struct GameLinkerView: View {
                         }
                     }
                 } footer: {
-                    Text("Video will not be associated with any game")
+                    Text("Video will not be associated with any \(unitNounLower)")
                 }
 
                 // Games list
                 if athleteGames.isEmpty {
                     Section {
-                        Text("No games found for this athlete")
+                        Text("No \(unitNounLower)s found for this athlete")
                             .foregroundColor(.secondary)
                     }
                 } else {
-                    Section("Games") {
+                    Section(unitNounPlural) {
                         ForEach(athleteGames) { game in
+                            let isGolfGame = game.season?.sport == .golf
                             Button {
                                 selectedGame = game
                                 hasChanges = (clip.game?.id != game.id)
                             } label: {
                                 HStack {
                                     VStack(alignment: .leading, spacing: 4) {
-                                        Text("vs \(game.opponent.isEmpty ? "Unknown" : game.opponent)")
+                                        Text("\(isGolfGame ? "at" : "vs") \(game.opponent.isEmpty ? "Unknown" : game.opponent)")
                                             .foregroundColor(.primary)
                                         if let date = game.date {
                                             Text(date, format: .dateTime.month(.abbreviated).day().year())
@@ -89,7 +95,7 @@ struct GameLinkerView: View {
                     }
                 }
             }
-            .navigationTitle("Link to Game")
+            .navigationTitle("Link to \(unitNoun)")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -147,7 +153,7 @@ struct GameLinkerView: View {
             clip.season = prevSeason
             clip.needsSync = prevNeedsSync
             ErrorHandlerService.shared.handle(error, context: "GameLinkerView.saveClipAssignment", showAlert: false)
-            errorMessage = "Could not save game assignment. Please try again."
+            errorMessage = "Could not save \(unitNounLower) assignment. Please try again."
             showingError = true
         }
     }

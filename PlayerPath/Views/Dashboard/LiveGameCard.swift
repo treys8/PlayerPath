@@ -16,6 +16,8 @@ struct LiveGameCard: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
 
+    private var isGolf: Bool { game.season?.sport == .golf }
+
     var body: some View {
         HStack(spacing: 14) {
             // Enhanced pulsing indicator with glow
@@ -36,7 +38,7 @@ struct LiveGameCard: View {
                     .frame(width: 36, height: 36)
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: isPulsing)
 
-                Image(systemName: "baseball.fill")
+                Image(systemName: isGolf ? "figure.golf" : "baseball.fill")
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundColor(.red)
                     .symbolRenderingMode(.hierarchical)
@@ -71,19 +73,34 @@ struct LiveGameCard: View {
                             .fill(Color.red.opacity(0.12))
                     )
 
-                    Text("GAME")
+                    Text(isGolf ? "TOURNAMENT" : "GAME")
                         .font(.labelSmall)
                         .foregroundColor(.secondary)
                 }
 
-                Text("vs \(game.opponent.isEmpty ? "Unknown" : game.opponent)")
+                Text("\(isGolf ? "at" : "vs") \(game.opponent.isEmpty ? "Unknown" : game.opponent)")
                     .font(.headingMedium)
                     .foregroundColor(.primary)
                     .lineLimit(1)
                     .truncationMode(.tail)
 
                 // Show stats if available
-                if let stats = game.gameStats, stats.atBats > 0 {
+                if isGolf, let score = game.totalScore {
+                    HStack(spacing: 4) {
+                        Image(systemName: "flag.fill")
+                            .font(.caption2)
+                        Text("\(score)")
+                            .font(.bodySmall)
+                            .monospacedDigit()
+                        if let par = game.par {
+                            let diff = score - par
+                            Text(diff == 0 ? "(E)" : (diff > 0 ? "(+\(diff))" : "(\(diff))"))
+                                .font(.bodySmall)
+                                .monospacedDigit()
+                        }
+                    }
+                    .foregroundColor(.secondary)
+                } else if !isGolf, let stats = game.gameStats, stats.atBats > 0 {
                     HStack(spacing: 4) {
                         Image(systemName: "chart.bar.fill")
                             .font(.caption2)

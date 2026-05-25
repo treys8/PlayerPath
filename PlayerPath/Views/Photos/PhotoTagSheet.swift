@@ -17,6 +17,9 @@ struct PhotoTagSheet: View {
     @Query private var games: [Game]
     @Query private var practices: [Practice]
 
+    private var isGolfAthlete: Bool { photo.athlete?.sport == .golf }
+    private var gamesSectionTitle: String { isGolfAthlete ? "Tournaments" : "Games" }
+
     init(photo: Photo) {
         self.photo = photo
         let id = photo.athlete?.id
@@ -38,7 +41,7 @@ struct PhotoTagSheet: View {
     var body: some View {
         NavigationStack {
             List {
-                Section("Games") {
+                Section(gamesSectionTitle) {
                     Button {
                         photo.game = nil
                         save()
@@ -55,6 +58,7 @@ struct PhotoTagSheet: View {
                     }
 
                     ForEach(games) { game in
+                        let isGolfGame = game.season?.sport == .golf
                         Button {
                             photo.game = game
                             photo.practice = nil
@@ -70,7 +74,7 @@ struct PhotoTagSheet: View {
                         } label: {
                             HStack {
                                 VStack(alignment: .leading) {
-                                    Text("vs \(game.opponent)")
+                                    Text("\(isGolfGame ? "at" : "vs") \(game.opponent)")
                                         .foregroundColor(.primary)
                                     if let date = game.date {
                                         Text(date, style: .date)

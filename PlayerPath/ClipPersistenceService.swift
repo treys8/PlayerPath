@@ -242,6 +242,7 @@ final class ClipPersistenceService {
         club: Club? = nil,
         role: AthleteRole = .batter,
         note: String? = nil,
+        markAsHighlight: Bool = false,
         context: ModelContext,
         athlete: Athlete,
         game: Game?,
@@ -332,17 +333,21 @@ final class ClipPersistenceService {
         videoClip.pitchType = pitchType
         videoClip.club = club
         videoClip.note = note
+        videoClip.isHighlight = markAsHighlight
 
         // Create and link PlayResult model if provided
         if let playResultType = playResult {
             let result = PlayResult(type: playResultType)
             videoClip.playResult = result
             context.insert(result)
-            // Auto-tag as highlight based on user-configured rules (Plus feature)
-            videoClip.isHighlight = AutoHighlightSettings.shared.shouldAutoHighlight(
-                playType: playResultType,
-                role: role
-            )
+            // Auto-tag as highlight based on user-configured rules (Plus feature).
+            // OR with the manual flag so an explicit highlight intent can't be
+            // demoted by a play type the rules don't cover.
+            videoClip.isHighlight = videoClip.isHighlight
+                || AutoHighlightSettings.shared.shouldAutoHighlight(
+                    playType: playResultType,
+                    role: role
+                )
 
             if let game = game {
                 // For game videos: Only update game statistics

@@ -289,10 +289,11 @@ struct HighlightsView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Section("Filter") {
+                        let isGolf = athlete?.sport == .golf
                         Picker("Type", selection: $viewModel.filter) {
                             Label("All", systemImage: "square.grid.2x2").tag(HighlightsViewModel.Filter.all)
-                            Label("Games", systemImage: "baseball.diamond.bases").tag(HighlightsViewModel.Filter.game)
-                            Label("Practice", systemImage: "figure.baseball").tag(HighlightsViewModel.Filter.practice)
+                            Label(isGolf ? "Tournaments" : "Games", systemImage: isGolf ? "figure.golf" : "baseball.diamond.bases").tag(HighlightsViewModel.Filter.game)
+                            Label("Practice", systemImage: "figure.run").tag(HighlightsViewModel.Filter.practice)
                         }
                     }
                     Section("Sort") {

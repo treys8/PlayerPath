@@ -16,7 +16,7 @@ struct PlayResultOverlayView: View {
     let practice: Practice?
     let sport: Season.SportType
     let clipOrientation: VideoOrientation
-    let onSave: (PlayResultType?, Double?, String?, AthleteRole, Club?) -> Void
+    let onSave: (PlayResultType?, Double?, String?, AthleteRole, Club?, Bool) -> Void
     let onCancel: () -> Void
     @Binding var isSaving: Bool
 
@@ -24,6 +24,10 @@ struct PlayResultOverlayView: View {
     @State private var selectedClub: Club?
     @State private var showingConfirmation = false
     @State private var recordingMode: AthleteRole
+    /// Golf-only: athlete's intent to mark this clip as a highlight at save
+    /// time. Surfaces through onSave so ClipPersistenceService can flip the
+    /// flag without a separate trip into the Videos grid.
+    @State private var markAsHighlight: Bool = false
 
     @State private var thumbnail: UIImage?
     @State private var videoMetadata: VideoMetadata?
@@ -45,7 +49,7 @@ struct PlayResultOverlayView: View {
         sport: Season.SportType = .baseball,
         clipOrientation: VideoOrientation,
         isSaving: Binding<Bool>,
-        onSave: @escaping (PlayResultType?, Double?, String?, AthleteRole, Club?) -> Void,
+        onSave: @escaping (PlayResultType?, Double?, String?, AthleteRole, Club?, Bool) -> Void,
         onCancel: @escaping () -> Void
     ) {
         self.videoURL = videoURL
@@ -239,11 +243,12 @@ struct PlayResultOverlayView: View {
             Button("Save", role: .none) {
                 if isGolf {
                     guard let club = selectedClub else { return }
-                    onSave(nil, nil, nil, recordingMode, club)
+                    onSave(nil, nil, nil, recordingMode, club, markAsHighlight)
                     selectedClub = nil
+                    markAsHighlight = false
                 } else {
                     guard let result = selectedResult else { return }
-                    onSave(result, parsedPitchSpeed, parsedPitchType, recordingMode, nil)
+                    onSave(result, parsedPitchSpeed, parsedPitchType, recordingMode, nil, markAsHighlight)
                     selectedResult = nil
                 }
             }
@@ -253,7 +258,8 @@ struct PlayResultOverlayView: View {
             }
         } message: {
             if isGolf {
-                Text("Save this clip as a \(selectedClub?.displayName ?? "club")?")
+                let club = selectedClub?.displayName ?? "club"
+                Text(markAsHighlight ? "Save this clip as a \(club) highlight?" : "Save this clip as a \(club)?")
             } else {
                 Text("Save this play as a \(selectedResult?.displayName ?? "play")?")
             }
@@ -312,6 +318,14 @@ struct PlayResultOverlayView: View {
             }
             .opacity(showContent ? 1 : 0)
             .offset(y: showContent ? 0 : 20)
+
+            // Highlight toggle — golf only. Athlete marks the shot in-flow so
+            // they don't need a separate trip into the Videos grid post-save.
+            if isGolf {
+                highlightToggleBar
+                    .opacity(showContent ? 1 : 0)
+                    .offset(y: showContent ? 0 : 20)
+            }
 
             // Recording Mode Picker — baseball/softball only
             if !isGolf {
@@ -406,7 +420,8 @@ struct PlayResultOverlayView: View {
                     icon: "checkmark",
                     style: .primary
                 ) {
-                    onSave(nil, parsedPitchSpeed, parsedPitchType, recordingMode, nil)
+                    onSave(nil, parsedPitchSpeed, parsedPitchType, recordingMode, nil, markAsHighlight)
+                    markAsHighlight = false
                 }
                 .disabled(isSaving)
                 .accessibilityLabel(practice != nil ? "Save Video Only" : "Skip and Save")
@@ -447,6 +462,56 @@ struct PlayResultOverlayView: View {
             return "Tap a club to tag this clip"
         }
         return practice != nil ? "Add a result to track statistics" : "Choose what happened on this play"
+    }
+
+    // MARK: - Golf Highlight Toggle
+
+    private var highlightToggleBar: some View {
+        Button {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                markAsHighlight.toggle()
+            }
+            Haptics.light()
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: markAsHighlight ? "star.fill" : "star")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(markAsHighlight ? .yellow : .white.opacity(0.8))
+                Text("Highlight")
+                    .font(.headingMedium)
+                    .foregroundColor(.white)
+                Spacer(minLength: 0)
+                if markAsHighlight {
+                    Text("ON")
+                        .font(.custom("Inter18pt-Bold", size: 11, relativeTo: .caption))
+                        .foregroundColor(.yellow)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Capsule().fill(Color.yellow.opacity(0.15)))
+                        .overlay(Capsule().strokeBorder(Color.yellow.opacity(0.5), lineWidth: 1))
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color.white.opacity(markAsHighlight ? 0.18 : 0.10))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(
+                        markAsHighlight ? Color.yellow.opacity(0.55) : Color.white.opacity(0.2),
+                        lineWidth: markAsHighlight ? 1.5 : 1
+                    )
+            )
+            .shadow(color: markAsHighlight ? Color.yellow.opacity(0.35) : .clear,
+                    radius: markAsHighlight ? 8 : 0)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Mark as highlight")
+        .accessibilityValue(markAsHighlight ? "On" : "Off")
+        .accessibilityHint("Tag this clip so it appears in your Highlights tab")
+        .accessibilityAddTraits(markAsHighlight ? .isSelected : [])
     }
 
     // MARK: - Golf Club Section
@@ -683,7 +748,7 @@ extension PlayResultOverlayView {
         practice: nil,
         clipOrientation: .portrait,
         isSaving: .constant(false),
-        onSave: { _, _, _, _, _ in },
+        onSave: { _, _, _, _, _, _ in },
         onCancel: { }
     )
 }

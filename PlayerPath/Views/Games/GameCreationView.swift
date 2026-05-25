@@ -20,7 +20,7 @@ struct GameCreationView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.activeSport) private var activeSport
     let athlete: Athlete?
-    let onSave: (String, Date, Bool, Season?, GolfRoundDetails?) -> Void
+    let onSave: (String, Date, Bool, Season?, GolfRoundDetails?, String?) -> Void
 
     @State private var opponent = ""
     @State private var date = Date()
@@ -34,6 +34,7 @@ struct GameCreationView: View {
     @State private var golfHoles: Int = 18
     @State private var golfParText: String = ""
     @State private var golfScoreText: String = ""
+    @State private var golfLocation: String = ""
 
     private var isGolf: Bool { activeSport == .golf }
     private var primaryLabel: String { isGolf ? "Course" : "Opponent" }
@@ -49,10 +50,17 @@ struct GameCreationView: View {
         (athlete?.seasons?.count ?? 0) > 1
     }
 
-    // Get previous opponents for autocomplete
+    // Get previous opponents for autocomplete. Scoped to the active sport so the
+    // golf "Recent Courses" list doesn't surface baseball opponents (and vice
+    // versa). Seasonless legacy games are treated as baseball — the sport
+    // concept didn't exist before v6.0.
     private var previousOpponents: [String] {
         guard let athlete = athlete else { return [] }
         let opponents = (athlete.games ?? [])
+            .filter { game in
+                guard let season = game.season else { return activeSport == .baseball }
+                return season.sport == activeSport
+            }
             .map { $0.opponent }
             .filter { !$0.isEmpty }
         // Deduplicate and sort by frequency
@@ -103,6 +111,11 @@ struct GameCreationView: View {
                     }
 
                     DatePicker("Date & Time", selection: $date)
+
+                    if isGolf {
+                        TextField("Location (Optional)", text: $golfLocation)
+                            .textInputAutocapitalization(.words)
+                    }
                 }
 
                 if isGolf {
@@ -287,7 +300,10 @@ struct GameCreationView: View {
             totalScore: Int(golfScoreText.trimmingCharacters(in: .whitespacesAndNewlines))
         ) : nil
 
-        onSave(opponent.trimmingCharacters(in: .whitespacesAndNewlines), date, makeGameLive, selectedSeason, golf)
+        let locationTrimmed = golfLocation.trimmingCharacters(in: .whitespacesAndNewlines)
+        let location: String? = (isGolf && !locationTrimmed.isEmpty) ? locationTrimmed : nil
+
+        onSave(opponent.trimmingCharacters(in: .whitespacesAndNewlines), date, makeGameLive, selectedSeason, golf, location)
         dismiss()
     }
 }

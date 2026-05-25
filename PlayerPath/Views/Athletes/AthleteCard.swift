@@ -96,9 +96,9 @@ struct AthleteCard: View {
                     )
 
                     AthleteStatBadge(
-                        icon: "baseball.diamond.bases",
+                        icon: athleteSports == [.golf] ? "figure.golf" : "baseball.diamond.bases",
                         count: (athlete.games ?? []).count,
-                        label: "Games"
+                        label: athleteSports == [.golf] ? "Tournaments" : "Games"
                     )
                 }
             }

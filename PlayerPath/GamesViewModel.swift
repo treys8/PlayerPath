@@ -100,19 +100,24 @@ final class GamesViewModel: ObservableObject {
         }
     }
     
-    func create(opponent: String, date: Date, isLive: Bool, season: Season? = nil, golfDetails: GolfRoundDetails? = nil, onError: @escaping (String) -> Void) {
+    func create(opponent: String, date: Date, isLive: Bool, season: Season? = nil, golfDetails: GolfRoundDetails? = nil, location: String? = nil, onError: @escaping (String) -> Void) {
         guard let athlete = self.athlete else { return }
         Task {
             let result = await gameService.createGame(for: athlete, opponent: opponent, date: date, isLive: isLive, season: season)
             switch result {
             case .success(let game):
-                if let golf = golfDetails {
+                if golfDetails != nil || location != nil {
                     await MainActor.run {
-                        game.holes = golf.holes
-                        game.par = golf.par
-                        game.totalScore = golf.totalScore
+                        if let golf = golfDetails {
+                            game.holes = golf.holes
+                            game.par = golf.par
+                            game.totalScore = golf.totalScore
+                        }
+                        if let location {
+                            game.location = location
+                        }
                         game.needsSync = true
-                        ErrorHandlerService.shared.saveContext(modelContext, caller: "GamesViewModel.create.golfDetails")
+                        ErrorHandlerService.shared.saveContext(modelContext, caller: "GamesViewModel.create.postCreateFields")
                     }
                 }
             case .failure(let error):

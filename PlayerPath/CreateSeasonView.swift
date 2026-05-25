@@ -17,11 +17,16 @@ struct CreateSeasonView: View {
     @State private var startDate = Date()
     @State private var endDate = Date()
     @State private var hasEndDate = false
-    @State private var selectedSport: Season.SportType = .baseball
+    @State private var selectedSport: Season.SportType
     @State private var makeActive = true
     @State private var showingError = false
     @State private var errorMessage = ""
     @State private var isCreating = false
+
+    init(athlete: Athlete, initialSport: Season.SportType? = nil) {
+        self.athlete = athlete
+        _selectedSport = State(initialValue: initialSport ?? .baseball)
+    }
 
     private var isCreatingPastSeason: Bool {
         !makeActive && athlete.activeSeason != nil

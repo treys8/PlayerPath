@@ -739,15 +739,41 @@ struct AthleteProfileRow: View {
     let onSelect: () -> Void
 
     @State private var showingEdit = false
+    @State private var showingAddSport = false
+
+    private var athleteSports: [Season.SportType] {
+        let set = Set((athlete.seasons ?? []).map(\.sport))
+        let sorted = set.sorted { $0.rawValue < $1.rawValue }
+        if !sorted.isEmpty { return sorted }
+        if let hint = Season.SportType(rawValue: (athlete.sport ?? .baseball).rawValue.capitalized) {
+            return [hint]
+        }
+        return [.baseball]
+    }
+
+    private var nextMissingSport: Season.SportType? {
+        let present = Set(athleteSports)
+        return Season.SportType.allCases.first { !present.contains($0) }
+    }
 
     var body: some View {
         HStack(spacing: 12) {
             Button(action: onSelect) {
                 HStack {
-                    Image(systemName: "figure.baseball")
-                        .font(.title2)
-                        .foregroundColor(.brandNavy)
-                        .frame(width: 30)
+                    HStack(spacing: 3) {
+                        ForEach(athleteSports.prefix(3), id: \.self) { sport in
+                            Image(systemName: sport.icon)
+                                .font(.title3)
+                                .foregroundColor(.brandNavy)
+                        }
+                        if athleteSports.count > 3 {
+                            Text("+\(athleteSports.count - 3)")
+                                .font(.labelSmall)
+                                .foregroundColor(.brandNavy)
+                        }
+                    }
+                    .frame(minWidth: 30, alignment: .leading)
+                    .accessibilityHidden(true)
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text(athlete.name)
@@ -785,6 +811,22 @@ struct AthleteProfileRow: View {
             .accessibilityHint("Select this athlete")
             .accessibilityValue(isSelected ? "Selected" : "Not selected")
 
+            if nextMissingSport != nil {
+                Button {
+                    Haptics.light()
+                    showingAddSport = true
+                } label: {
+                    Image(systemName: "plus.circle")
+                        .font(.title3)
+                        .foregroundColor(.brandNavy)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Add a sport for \(athlete.name)")
+                .accessibilityHint("Start a season in a new sport")
+            }
+
             Button {
                 Haptics.light()
                 showingEdit = true
@@ -809,6 +851,9 @@ struct AthleteProfileRow: View {
         }
         .sheet(isPresented: $showingEdit) {
             NavigationStack { EditAthleteView(athlete: athlete) }
+        }
+        .sheet(isPresented: $showingAddSport) {
+            CreateSeasonView(athlete: athlete, initialSport: nextMissingSport)
         }
     }
 }

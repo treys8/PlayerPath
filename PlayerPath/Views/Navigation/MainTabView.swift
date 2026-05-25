@@ -41,8 +41,10 @@ struct MainTabView: View {
     @GestureState private var dragOffset: CGFloat = 0
     @State private var tabTransition: AnyTransition = .identity
 
-    // Per-tab athlete IDs — only the active tab updates on athlete switch,
-    // inactive tabs defer until selected (avoids rebuilding all 5 tabs at once).
+    // Per-tab athlete IDs. All four are updated together when the athlete
+    // changes. Updating only the active tab (the prior approach) left zombie
+    // ViewModels in hidden tabs that kept reacting to NotificationCenter
+    // events with stale athlete relationships.
     @State private var homeAthleteID: UUID?
     @State private var gamesAthleteID: UUID?
     @State private var videosAthleteID: UUID?
@@ -186,9 +188,7 @@ struct MainTabView: View {
                 athleteDowngradeManager.evaluate(tier: authManager.currentTier)
             }
             .onChange(of: selectedAthlete.id) { _, _ in
-                // Only update the ACTIVE tab immediately; inactive tabs
-                // refresh lazily via refreshStaleTab() when selected.
-                refreshActiveTabAthleteID()
+                refreshAllTabAthleteIDs()
                 // Switching athletes also switches their persisted sport context.
                 activeSport = ActiveSportStore.resolve(for: selectedAthlete, available: availableSports)
             }
@@ -207,8 +207,6 @@ struct MainTabView: View {
             }
             .onChange(of: selectedTab) { _, newValue in
                 saveSelectedTab(newValue)
-                // Rebuild the newly selected tab if its athlete is stale
-                refreshStaleTab(newValue)
                 // Track screen views for feature usage analytics
                 let screenName: String
                 switch newValue {
@@ -429,6 +427,9 @@ struct MainTabView: View {
                     activeSport: $activeSport,
                     availableSports: availableSports
                 )
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal)
+                .padding(.vertical, 6)
             }
             if #available(iOS 18.0, *), horizontalSizeClass == .regular {
                 TabView(selection: $selectedTab) {
@@ -451,7 +452,7 @@ struct MainTabView: View {
         }
         .environment(\.activeSport, activeSport)
     }
-    
+
     private var homeTab: some View {
         NavigationStack(path: $homePath) {
             DashboardView(
@@ -670,30 +671,18 @@ struct MainTabView: View {
         }
     }
     
-    // MARK: - Deferred Tab Rebuild
+    // MARK: - Tab Rebuild
 
-    /// Updates only the currently visible tab's athlete ID.
-    /// Inactive tabs keep their old ID and refresh lazily via refreshStaleTab().
-    private func refreshActiveTabAthleteID() {
+    /// Rotates every per-tab athlete ID. Hidden tabs re-evaluate their `.id(...)`
+    /// modifier so their `@StateObject` ViewModels are torn down with the old
+    /// athlete — without this, ViewModels in non-active tabs kept handling
+    /// NotificationCenter events with stale athlete relationships.
+    private func refreshAllTabAthleteIDs() {
         let id = selectedAthlete.id
-        switch selectedTab {
-        case MainTab.home.rawValue: homeAthleteID = id
-        case MainTab.games.rawValue: gamesAthleteID = id
-        case MainTab.videos.rawValue: videosAthleteID = id
-        case MainTab.stats.rawValue: statsAthleteID = id
-        default: break // More tab uses selectedAthlete.id directly
-        }
-    }
-
-    private func refreshStaleTab(_ tab: Int) {
-        let id = selectedAthlete.id
-        switch tab {
-        case MainTab.home.rawValue where homeAthleteID != id: homeAthleteID = id
-        case MainTab.games.rawValue where gamesAthleteID != id: gamesAthleteID = id
-        case MainTab.videos.rawValue where videosAthleteID != id: videosAthleteID = id
-        case MainTab.stats.rawValue where statsAthleteID != id: statsAthleteID = id
-        default: break
-        }
+        homeAthleteID = id
+        gamesAthleteID = id
+        videosAthleteID = id
+        statsAthleteID = id
     }
 
     // MARK: - State Restoration

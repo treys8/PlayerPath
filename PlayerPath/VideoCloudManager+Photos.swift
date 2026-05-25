@@ -68,8 +68,57 @@ extension VideoCloudManager {
     }
 
     /// Downloads a photo file from Firebase Storage to a local path.
+    ///
+    /// Coalesces concurrent callers writing to the same `localPath` so two
+    /// `write(toFile:)` calls don't race on the same destination. Both
+    /// `PhotoThumbnailLoader` and `PhotoDetailView` request the same file
+    /// when a user taps an evicted photo; without this, GTMSessionFetcher
+    /// flagged them as duplicates and the file could be corrupted.
+    ///
+    /// Assumes both call sites resolve to the same `localPath` for the same
+    /// logical photo — true today because they both read `photo.resolvedFilePath`
+    /// from the same SwiftData instance (cached via `@Transient`). If a
+    /// future caller computes a different path the dedup is a no-op (back to
+    /// today's behavior), no correctness break.
     func downloadPhoto(from cloudURL: String, to localPath: String) async throws {
-        guard ConnectivityMonitor.shared.isConnected else {
+        // Check + insert is atomic on @MainActor — no other caller can slip
+        // in between these two lines.
+        if let existing = inFlightPhotoDownloads[localPath] {
+            try await existing.value
+            return
+        }
+
+        // `Task.detached` so a single caller's cancellation cannot tear down
+        // the shared download — other awaiters still need the file. The task
+        // is owned by VideoCloudManager (via the dictionary), not by any
+        // caller's structured-concurrency tree.
+        //
+        // Dict cleanup MUST happen inside the task body (not in a caller's
+        // catch) so it's tied to the download's lifetime, not the caller's.
+        // If a caller is cancelled mid-await, the underlying task keeps
+        // running and a re-tap by the user finds the still-in-flight task
+        // in the dict instead of spawning a second download.
+        let task = Task.detached { [weak self] in
+            var thrown: Error?
+            do {
+                try await Self.performPhotoDownload(from: cloudURL, to: localPath)
+            } catch {
+                thrown = error
+            }
+            await MainActor.run { [weak self] in self?.inFlightPhotoDownloads[localPath] = nil }
+            if let thrown { throw thrown }
+        }
+        inFlightPhotoDownloads[localPath] = task
+
+        try await task.value
+    }
+
+    /// Performs the actual photo download. Marked `nonisolated` (via `static`)
+    /// so it can run off the main actor inside `Task.detached`.
+    private static func performPhotoDownload(from cloudURL: String, to localPath: String) async throws {
+        // ConnectivityMonitor is @MainActor; hop briefly to read the flag.
+        let isConnected = await MainActor.run { ConnectivityMonitor.shared.isConnected }
+        guard isConnected else {
             throw VideoCloudError.networkUnavailable
         }
         guard let storageURL = URL(string: cloudURL) else { throw VideoCloudError.invalidURL }
