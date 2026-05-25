@@ -159,17 +159,21 @@ extension SyncCoordinator {
                     if local.endDate != remoteSeason.endDate { local.endDate = remoteSeason.endDate; changed = true }
                     if local.isActive != remoteSeason.isActive { local.isActive = remoteSeason.isActive; changed = true }
                     if local.notes != remoteSeason.notes { local.notes = remoteSeason.notes; changed = true }
+                    let remoteSport = Season.SportType(rawValue: remoteSeason.sport) ?? .baseball
+                    if local.sport != remoteSport { local.sport = remoteSport; changed = true }
                     if local.version != remoteSeason.version { local.version = remoteSeason.version; changed = true }
                     if changed {
                         local.lastSyncDate = Date()
                     }
                 }
             } else if let athlete = parentAthlete {
-                // Create new local season from remote
+                // Create new local season from remote. Decode sport via rawValue so
+                // any case (baseball / softball / golf) round-trips correctly.
+                let resolvedSport = Season.SportType(rawValue: remoteSeason.sport) ?? .baseball
                 let newSeason = Season(
                     name: remoteSeason.name,
                     startDate: remoteSeason.startDate ?? Date.distantPast,
-                    sport: remoteSeason.sport == "Softball" ? .softball : .baseball
+                    sport: resolvedSport
                 )
                 newSeason.id = UUID(uuidString: remoteSeason.swiftDataId) ?? UUID()
                 newSeason.firestoreId = remoteSeason.id

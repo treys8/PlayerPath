@@ -90,6 +90,15 @@ final class Game {
     var liveStartDate: Date? // Set when game becomes live; used for stale-game alerts
     var createdAt: Date?
     var year: Int? // Year for tracking when no season is active
+
+    // MARK: - Golf-only fields (nil for baseball/softball)
+    /// Number of holes played (9 or 18) for golf rounds.
+    var holes: Int?
+    /// Course par for golf rounds (e.g. 72).
+    var par: Int?
+    /// Total score for a golf round.
+    var totalScore: Int?
+
     var athlete: Athlete?
     var season: Season?
     @Relationship(inverse: \VideoClip.game) var videoClips: [VideoClip]?
@@ -176,6 +185,11 @@ final class Game {
         // Optional fields
         if let location = location { data["location"] = location }
         if let notes = notes { data["notes"] = notes }
+
+        // Golf-only fields
+        if let holes = holes { data["holes"] = holes }
+        if let par = par { data["par"] = par }
+        if let totalScore = totalScore { data["totalScore"] = totalScore }
 
         // Inline GameStatistics counters onto the game doc ONLY when this game
         // is in manual-entry mode. Video-derived stats are re-derivable on any

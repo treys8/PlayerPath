@@ -100,11 +100,22 @@ final class GamesViewModel: ObservableObject {
         }
     }
     
-    func create(opponent: String, date: Date, isLive: Bool, season: Season? = nil, onError: @escaping (String) -> Void) {
+    func create(opponent: String, date: Date, isLive: Bool, season: Season? = nil, golfDetails: GolfRoundDetails? = nil, onError: @escaping (String) -> Void) {
         guard let athlete = self.athlete else { return }
         Task {
             let result = await gameService.createGame(for: athlete, opponent: opponent, date: date, isLive: isLive, season: season)
-            if case .failure(let error) = result {
+            switch result {
+            case .success(let game):
+                if let golf = golfDetails {
+                    await MainActor.run {
+                        game.holes = golf.holes
+                        game.par = golf.par
+                        game.totalScore = golf.totalScore
+                        game.needsSync = true
+                        ErrorHandlerService.shared.saveContext(modelContext, caller: "GamesViewModel.create.golfDetails")
+                    }
+                }
+            case .failure(let error):
                 onError(error.localizedDescription)
             }
         }

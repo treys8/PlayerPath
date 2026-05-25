@@ -17,6 +17,7 @@ struct OnboardingSeasonCreationView: View {
     @State private var seasonName = ""
     @State private var startDate = Date()
     @State private var selectedSport: Season.SportType = .baseball
+    @State private var didSeedSport = false
     @State private var isCreating = false
     @State private var showingError = false
     @State private var errorMessage = ""
@@ -226,6 +227,15 @@ struct OnboardingSeasonCreationView: View {
             }
             .scrollDismissesKeyboard(.interactively)
             .toolbar(.hidden, for: .navigationBar)
+            .onAppear {
+                // Default the season's sport to the athlete's primary-sport hint
+                // (Athlete.sport — set in AddAthleteView). User can still change it.
+                guard !didSeedSport else { return }
+                didSeedSport = true
+                if let hint = Season.SportType(rawValue: athlete.sport.rawValue.capitalized) {
+                    selectedSport = hint
+                }
+            }
             .safeAreaInset(edge: .top, spacing: 0) {
                 Rectangle()
                     .fill(.ultraThinMaterial)

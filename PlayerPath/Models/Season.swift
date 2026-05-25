@@ -29,7 +29,8 @@ final class Season {
     /// Notes about the season (goals, achievements, etc.)
     var notes: String = ""
 
-    /// Sport for this season (baseball or softball)
+    /// Sport for this season (baseball, softball, or golf). Source of truth
+    /// for a given game's sport: read `game.season?.sport`.
     var sport: SportType = SportType.baseball
 
     // MARK: - Firestore Sync Metadata (Phase 2)
@@ -159,6 +160,7 @@ final class Season {
     enum SportType: String, Codable, CaseIterable {
         case baseball = "Baseball"
         case softball = "Softball"
+        case golf = "Golf"
 
         var displayName: String { rawValue }
 
@@ -166,6 +168,7 @@ final class Season {
             switch self {
             case .baseball: return "figure.baseball"
             case .softball: return "figure.softball"
+            case .golf:     return "figure.golf"
             }
         }
     }

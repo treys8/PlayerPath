@@ -9,10 +9,18 @@ import SwiftUI
 import SwiftData
 import Foundation
 
+/// Golf-specific fields collected at tournament creation time.
+struct GolfRoundDetails: Equatable {
+    var holes: Int
+    var par: Int?
+    var totalScore: Int?
+}
+
 struct GameCreationView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.activeSport) private var activeSport
     let athlete: Athlete?
-    let onSave: (String, Date, Bool, Season?) -> Void
+    let onSave: (String, Date, Bool, Season?, GolfRoundDetails?) -> Void
 
     @State private var opponent = ""
     @State private var date = Date()
@@ -21,6 +29,21 @@ struct GameCreationView: View {
     @State private var didInitSeason = false
     @State private var showingValidationError = false
     @State private var validationMessage = ""
+
+    // Golf-only state
+    @State private var golfHoles: Int = 18
+    @State private var golfParText: String = ""
+    @State private var golfScoreText: String = ""
+
+    private var isGolf: Bool { activeSport == .golf }
+    private var primaryLabel: String { isGolf ? "Course" : "Opponent" }
+    private var sectionTitle: String { isGolf ? "Tournament Details" : "Game Details" }
+    private var titleText: String { isGolf ? "New Tournament" : "New Game" }
+    private var recentLabel: String { isGolf ? "Recent Courses" : "Recent Opponents" }
+    private var validationSubject: String { isGolf ? "Course" : "Opponent" }
+    private var liveLabel: String { isGolf ? "Start as Live Round" : "Start as Live Game" }
+    private var liveInfo: String { isGolf ? "Round becomes active for recording" : "Game becomes active for recording" }
+    private var liveDisabledInfo: String { isGolf ? "Live mode isn't available for past seasons." : "Live mode isn't available for past seasons." }
 
     private var hasMultipleSeasons: Bool {
         (athlete?.seasons?.count ?? 0) > 1
@@ -51,7 +74,8 @@ struct GameCreationView: View {
     // Validation
     private var isValidOpponent: Bool {
         let trimmed = opponent.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.count >= 2 && trimmed.count <= 50
+        let maxLen = isGolf ? 80 : 50
+        return trimmed.count >= 2 && trimmed.count <= maxLen
     }
 
     private var canSave: Bool {
@@ -61,8 +85,8 @@ struct GameCreationView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Game Details") {
-                    TextField("Opponent", text: $opponent)
+                Section(sectionTitle) {
+                    TextField(primaryLabel, text: $opponent)
                         .submitLabel(.done)
                         .textInputAutocapitalization(.words)
                         .autocorrectionDisabled()
@@ -70,7 +94,7 @@ struct GameCreationView: View {
                     // Show validation feedback
                     if !opponent.isEmpty && !isValidOpponent {
                         Label {
-                            Text("Opponent name must be 2-50 characters")
+                            Text("\(validationSubject) name must be 2-\(isGolf ? 80 : 50) characters")
                                 .font(.bodySmall)
                         } icon: {
                             Image(systemName: "exclamationmark.triangle.fill")
@@ -81,9 +105,37 @@ struct GameCreationView: View {
                     DatePicker("Date & Time", selection: $date)
                 }
 
+                if isGolf {
+                    Section("Round") {
+                        Picker("Holes", selection: $golfHoles) {
+                            Text("9").tag(9)
+                            Text("18").tag(18)
+                        }
+                        .pickerStyle(.segmented)
+
+                        HStack {
+                            Text("Par")
+                            Spacer()
+                            TextField("e.g. 72", text: $golfParText)
+                                .keyboardType(.numberPad)
+                                .multilineTextAlignment(.trailing)
+                                .frame(width: 100)
+                        }
+
+                        HStack {
+                            Text("Total Score")
+                            Spacer()
+                            TextField("Optional", text: $golfScoreText)
+                                .keyboardType(.numberPad)
+                                .multilineTextAlignment(.trailing)
+                                .frame(width: 100)
+                        }
+                    }
+                }
+
                 // Opponent Suggestions — show when there are matches and at least one differs from the current input.
                 if !filteredOpponents.isEmpty && !filteredOpponents.allSatisfy({ $0 == opponent }) {
-                    Section("Recent Opponents") {
+                    Section(recentLabel) {
                         ForEach(filteredOpponents, id: \.self) { suggestion in
                             Button {
                                 opponent = suggestion
@@ -113,13 +165,13 @@ struct GameCreationView: View {
                     }
                 }
 
-                Section("Game Options") {
-                    Toggle("Start as Live Game", isOn: $makeGameLive)
+                Section(isGolf ? "Round Options" : "Game Options") {
+                    Toggle(liveLabel, isOn: $makeGameLive)
                         .disabled(selectedSeason?.isActive == false)
 
                     if makeGameLive {
                         Label {
-                            Text("Game becomes active for recording")
+                            Text(liveInfo)
                                 .font(.bodySmall)
                         } icon: {
                             Image(systemName: "info.circle")
@@ -127,7 +179,7 @@ struct GameCreationView: View {
                         }
                     } else if selectedSeason?.isActive == false {
                         Label {
-                            Text("Live mode isn't available for past seasons.")
+                            Text(liveDisabledInfo)
                                 .font(.bodySmall)
                         } icon: {
                             Image(systemName: "info.circle")
@@ -138,7 +190,9 @@ struct GameCreationView: View {
 
                 Section {
                     Label {
-                        Text("Add stats and videos after creating the game")
+                        Text(isGolf
+                             ? "Add videos and the final score after creating the round"
+                             : "Add stats and videos after creating the game")
                             .font(.bodySmall)
                             .foregroundColor(.secondary)
                     } icon: {
@@ -147,7 +201,7 @@ struct GameCreationView: View {
                     }
                 }
             }
-            .navigationTitle("New Game")
+            .navigationTitle(titleText)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -183,7 +237,8 @@ struct GameCreationView: View {
     private func saveGame() {
         // Final validation
         guard isValidOpponent else {
-            validationMessage = "Please enter a valid opponent name (2-50 characters)"
+            let maxLen = isGolf ? 80 : 50
+            validationMessage = "Please enter a valid \(validationSubject.lowercased()) name (2-\(maxLen) characters)"
             showingValidationError = true
             return
         }
@@ -223,10 +278,16 @@ struct GameCreationView: View {
         }
 
         #if DEBUG
-        print("🎮 GameCreationView: Saving game | Opponent: '\(opponent.trimmingCharacters(in: .whitespacesAndNewlines))' | makeGameLive: \(makeGameLive) | season: \(selectedSeason?.name ?? "none")")
+        print("🎮 GameCreationView: Saving game | Opponent: '\(opponent.trimmingCharacters(in: .whitespacesAndNewlines))' | makeGameLive: \(makeGameLive) | season: \(selectedSeason?.name ?? "none") | isGolf: \(isGolf)")
         #endif
 
-        onSave(opponent.trimmingCharacters(in: .whitespacesAndNewlines), date, makeGameLive, selectedSeason)
+        let golf: GolfRoundDetails? = isGolf ? GolfRoundDetails(
+            holes: golfHoles,
+            par: Int(golfParText.trimmingCharacters(in: .whitespacesAndNewlines)),
+            totalScore: Int(golfScoreText.trimmingCharacters(in: .whitespacesAndNewlines))
+        ) : nil
+
+        onSave(opponent.trimmingCharacters(in: .whitespacesAndNewlines), date, makeGameLive, selectedSeason, golf)
         dismiss()
     }
 }

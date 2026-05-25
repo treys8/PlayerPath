@@ -21,7 +21,12 @@ struct GameDetailView: View {
     @State private var showingEditGame = false
     @State private var showingPhotoCamera = false
     @State private var showingPhotoLibrary = false
+    @State private var showingScoreEntry = false
     @State private var gameService: GameService? = nil
+
+    private var isGolf: Bool { game.season?.sport == .golf }
+    private var unitNoun: String { isGolf ? "Tournament" : "Game" }
+    private var unitNounLower: String { isGolf ? "tournament" : "game" }
 
     // Bulk import from Photos — state owned by BulkImportAttach modifier.
     @State private var importTrigger = false
@@ -37,10 +42,10 @@ struct GameDetailView: View {
     var body: some View {
         List {
             // Game Info Section
-            Section("Game Details") {
+            Section(isGolf ? "Tournament Details" : "Game Details") {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack {
-                        Text("Opponent")
+                        Text(isGolf ? "Course" : "Opponent")
                             .font(.headingMedium)
                         Spacer()
                         Text(game.opponent)
@@ -119,6 +124,54 @@ struct GameDetailView: View {
                 .padding(.vertical, 5)
             }
 
+            // Score Section (golf only)
+            if isGolf {
+                Section("Score") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            Text("Holes")
+                                .font(.headingMedium)
+                            Spacer()
+                            Text("\(game.holes ?? 18)")
+                                .monospacedDigit()
+                                .foregroundColor(.secondary)
+                        }
+                        if let par = game.par {
+                            HStack {
+                                Text("Par")
+                                    .font(.headingMedium)
+                                Spacer()
+                                Text("\(par)")
+                                    .monospacedDigit()
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        if let score = game.totalScore {
+                            HStack {
+                                Text("Total Score")
+                                    .font(.headingMedium)
+                                Spacer()
+                                Text("\(score)")
+                                    .monospacedDigit()
+                                    .foregroundColor(.primary)
+                                if let par = game.par {
+                                    let diff = score - par
+                                    Text(diff == 0 ? "E" : (diff > 0 ? "+\(diff)" : "\(diff)"))
+                                        .font(.labelSmall)
+                                        .monospacedDigit()
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                        } else {
+                            Button(action: { showingScoreEntry = true }) {
+                                Label("Enter Score", systemImage: "pencil.line")
+                            }
+                        }
+                    }
+                    .padding(.vertical, 5)
+                }
+            }
+
             // Quick Actions Section — driven by `displayStatus` so the action
             // set always agrees with the badge.
             //   .scheduled:                 Record → Start → Photo → Stats → Edit → Delete
@@ -132,7 +185,7 @@ struct GameDetailView: View {
                         Label("Record Video", systemImage: "video.badge.plus")
                     }
                     Button(action: { startGame() }) {
-                        Label("Start Game", systemImage: "play.circle")
+                        Label(isGolf ? "Start Round" : "Start Game", systemImage: "play.circle")
                     }
                 case .live:
                     Button(action: { showingVideoRecorder = true }) {
@@ -142,15 +195,12 @@ struct GameDetailView: View {
                         Haptics.warning()
                         showingEndGame = true
                     } label: {
-                        Label("End Game", systemImage: "stop.circle")
+                        Label(isGolf ? "End Round" : "End Game", systemImage: "stop.circle")
                     }
                 case .completed:
                     Button(action: { importTrigger = true }) {
                         Label("Upload Video", systemImage: "square.and.arrow.down.on.square")
                     }
-                    // Past-dated journal games — surface the same affordance the
-                    // list's "Complete" swipe action has so users can opt in to
-                    // counting the game toward stats from detail view.
                     if !game.isComplete {
                         Button(action: { completeGame() }) {
                             Label("Mark Complete", systemImage: "checkmark.circle")
@@ -161,21 +211,26 @@ struct GameDetailView: View {
                 // Content: photo (menu — Take Photo / Choose from Library)
                 addPhotoMenu
 
-                // Data entry
-                Button(action: { showingManualStats = true }) {
-                    Label("Enter Statistics", systemImage: "chart.bar.doc.horizontal")
+                // Data entry — manual stats are baseball/softball only. Golf
+                // tournaments use the Score section above.
+                if !isGolf {
+                    Button(action: { showingManualStats = true }) {
+                        Label("Enter Statistics", systemImage: "chart.bar.doc.horizontal")
+                    }
+                } else if game.totalScore != nil {
+                    Button(action: { showingScoreEntry = true }) {
+                        Label("Edit Score", systemImage: "pencil.line")
+                    }
                 }
 
                 // Metadata
                 Button(action: { showingEditGame = true }) {
-                    Label("Edit Game", systemImage: "pencil")
+                    Label(isGolf ? "Edit Tournament" : "Edit Game", systemImage: "pencil")
                 }
 
-                // Restart only applies to games that were actually started and
-                // ended — a past-dated journal game has nothing to restart.
                 if game.isComplete {
                     Button(action: { restartGame() }) {
-                        Label("Restart Game", systemImage: "arrow.counterclockwise")
+                        Label(isGolf ? "Restart Round" : "Restart Game", systemImage: "arrow.counterclockwise")
                     }
                 }
 
@@ -185,7 +240,7 @@ struct GameDetailView: View {
                         Haptics.warning()
                         showingDeleteConfirmation = true
                     } label: {
-                        Label("Delete Game", systemImage: "trash")
+                        Label(isGolf ? "Delete Tournament" : "Delete Game", systemImage: "trash")
                     }
                 }
             }
@@ -222,8 +277,8 @@ struct GameDetailView: View {
                 }
             }
 
-            // Game Statistics
-            if let stats = game.gameStats {
+            // Game Statistics — hidden for golf (scoring lives in the Score section above)
+            if !isGolf, let stats = game.gameStats {
                 Section("Game Statistics") {
                     HStack {
                         Text("At Bats")
@@ -290,82 +345,19 @@ struct GameDetailView: View {
                 }
             }
         }
-        .navigationTitle("vs \(game.opponent)")
+        .navigationTitle("\(isGolf ? "at" : "vs") \(game.opponent)")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Menu {
-                    // Content group — mirrors the in-list Actions section
-                    switch game.displayStatus {
-                    case .scheduled:
-                        Button(action: { showingVideoRecorder = true }) {
-                            Label("Record Video", systemImage: "video.badge.plus")
-                        }
-                        Button(action: { startGame() }) {
-                            Label("Start Game", systemImage: "play.circle")
-                        }
-                    case .live:
-                        Button(action: { showingVideoRecorder = true }) {
-                            Label("Record Video", systemImage: "video.badge.plus")
-                        }
-                        Button(action: { Haptics.warning(); showingEndGame = true }) {
-                            Label("End Game", systemImage: "stop.circle")
-                        }
-                    case .completed:
-                        Button(action: { importTrigger = true }) {
-                            Label("Upload Video", systemImage: "square.and.arrow.down.on.square")
-                        }
-                        if !game.isComplete {
-                            Button(action: { completeGame() }) {
-                                Label("Mark Complete", systemImage: "checkmark.circle")
-                            }
-                        }
-                    }
-
-                    addPhotoMenu
-
-                    Divider()
-
-                    // Data + metadata group
-                    Button(action: { showingManualStats = true }) {
-                        Label("Enter Statistics", systemImage: "chart.bar.doc.horizontal")
-                    }
-
-                    Button(action: { showingEditGame = true }) {
-                        Label("Edit Game", systemImage: "pencil")
-                    }
-
-                    // State-change + destructive group
-                    if game.isComplete {
-                        Divider()
-
-                        Button(action: { restartGame() }) {
-                            Label("Restart Game", systemImage: "arrow.counterclockwise")
-                        }
-                    }
-
-                    if !game.isLive {
-                        if !game.isComplete { Divider() }
-                        Button(role: .destructive, action: { showingDeleteConfirmation = true }) {
-                            Label("Delete Game", systemImage: "trash")
-                        }
-                    }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                        .font(.title3)
-                }
-            }
-        }
-        .alert("End Game", isPresented: $showingEndGame) {
+        .toolbar { primaryActionMenu }
+        .alert(isGolf ? "End Round" : "End Game", isPresented: $showingEndGame) {
             Button("Cancel", role: .cancel) { }
             Button("End", role: .destructive) {
                 Haptics.heavy()
                 endGame()
             }
         } message: {
-            Text("Are you sure you want to end this game? You won't be able to record more videos for it.")
+            Text("Are you sure you want to end this \(unitNounLower)? You won't be able to record more videos for it.")
         }
-        .alert("Delete Game", isPresented: $showingDeleteConfirmation) {
+        .alert(isGolf ? "Delete Tournament" : "Delete Game", isPresented: $showingDeleteConfirmation) {
             Button("Cancel", role: .cancel) { }
             Button("Delete", role: .destructive) {
                 Haptics.heavy()
@@ -374,17 +366,20 @@ struct GameDetailView: View {
         } message: {
             if game.isComplete, !videoClips.isEmpty || game.gameStats != nil {
                 let clipCount = videoClips.count
-                let hasStats = game.gameStats != nil
+                let hasStats = !isGolf && game.gameStats != nil
                 if clipCount > 0 && hasStats {
-                    Text("This game has \(clipCount) video clip\(clipCount == 1 ? "" : "s") and recorded statistics. Deleting it will permanently remove all data and recalculate career stats.")
+                    Text("This \(unitNounLower) has \(clipCount) video clip\(clipCount == 1 ? "" : "s") and recorded statistics. Deleting it will permanently remove all data and recalculate career stats.")
                 } else if clipCount > 0 {
-                    Text("This game has \(clipCount) video clip\(clipCount == 1 ? "" : "s"). Deleting it will permanently remove all data.")
+                    Text("This \(unitNounLower) has \(clipCount) video clip\(clipCount == 1 ? "" : "s"). Deleting it will permanently remove all data.")
                 } else {
-                    Text("This game has recorded statistics. Deleting it will permanently remove all data and recalculate career stats.")
+                    Text("This \(unitNounLower) has recorded statistics. Deleting it will permanently remove all data and recalculate career stats.")
                 }
             } else {
-                Text("Are you sure you want to delete this game? This action cannot be undone.")
+                Text("Are you sure you want to delete this \(unitNounLower)? This action cannot be undone.")
             }
+        }
+        .sheet(isPresented: $showingScoreEntry) {
+            EnterScoreSheet(game: game)
         }
         .fullScreenCover(isPresented: $showingVideoRecorder) {
             DirectCameraRecorderView(athlete: game.athlete, game: game)
@@ -413,6 +408,74 @@ struct GameDetailView: View {
         }
         .onAppear {
             if gameService == nil { gameService = GameService(modelContext: modelContext) }
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var primaryActionMenu: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) {
+            Menu {
+                switch game.displayStatus {
+                case .scheduled:
+                    Button(action: { showingVideoRecorder = true }) {
+                        Label("Record Video", systemImage: "video.badge.plus")
+                    }
+                    Button(action: { startGame() }) {
+                        Label(isGolf ? "Start Round" : "Start Game", systemImage: "play.circle")
+                    }
+                case .live:
+                    Button(action: { showingVideoRecorder = true }) {
+                        Label("Record Video", systemImage: "video.badge.plus")
+                    }
+                    Button(action: { Haptics.warning(); showingEndGame = true }) {
+                        Label(isGolf ? "End Round" : "End Game", systemImage: "stop.circle")
+                    }
+                case .completed:
+                    Button(action: { importTrigger = true }) {
+                        Label("Upload Video", systemImage: "square.and.arrow.down.on.square")
+                    }
+                    if !game.isComplete {
+                        Button(action: { completeGame() }) {
+                            Label("Mark Complete", systemImage: "checkmark.circle")
+                        }
+                    }
+                }
+
+                addPhotoMenu
+
+                Divider()
+
+                if !isGolf {
+                    Button(action: { showingManualStats = true }) {
+                        Label("Enter Statistics", systemImage: "chart.bar.doc.horizontal")
+                    }
+                } else {
+                    Button(action: { showingScoreEntry = true }) {
+                        Label(game.totalScore == nil ? "Enter Score" : "Edit Score", systemImage: "pencil.line")
+                    }
+                }
+
+                Button(action: { showingEditGame = true }) {
+                    Label(isGolf ? "Edit Tournament" : "Edit Game", systemImage: "pencil")
+                }
+
+                if game.isComplete {
+                    Divider()
+                    Button(action: { restartGame() }) {
+                        Label(isGolf ? "Restart Round" : "Restart Game", systemImage: "arrow.counterclockwise")
+                    }
+                }
+
+                if !game.isLive {
+                    if !game.isComplete { Divider() }
+                    Button(role: .destructive, action: { showingDeleteConfirmation = true }) {
+                        Label(isGolf ? "Delete Tournament" : "Delete Game", systemImage: "trash")
+                    }
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .font(.title3)
+            }
         }
     }
 

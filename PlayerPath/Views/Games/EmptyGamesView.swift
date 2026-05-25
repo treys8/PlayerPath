@@ -10,8 +10,19 @@ import SwiftUI
 struct EmptyGamesView: View {
     let onAddGame: () -> Void
 
+    @Environment(\.activeSport) private var activeSport
     @State private var isAnimating = false
     @State private var floatOffset: CGFloat = 0
+
+    private var isGolf: Bool { activeSport == .golf }
+    private var heroIcon: String { isGolf ? "figure.golf" : "baseball.diamond.bases" }
+    private var titleText: String { isGolf ? "No Tournaments Yet" : "No Games Yet" }
+    private var subtitleText: String {
+        isGolf
+            ? "Create your first tournament to track\nyour rounds and scores"
+            : "Create your first game to record\nand track performance"
+    }
+    private var addButtonLabel: String { isGolf ? "Add Tournament" : "Add Game" }
 
     var body: some View {
         ZStack {
@@ -33,12 +44,12 @@ struct EmptyGamesView: View {
                 // Floating icon with glow
                 ZStack {
                     // Glow effect
-                    Image(systemName: "baseball.diamond.bases")
+                    Image(systemName: heroIcon)
                         .font(.system(size: 72, weight: .light))
                         .foregroundStyle(.green.opacity(0.3))
                         .blur(radius: 20)
 
-                    Image(systemName: "baseball.diamond.bases")
+                    Image(systemName: heroIcon)
                         .font(.system(size: 72, weight: .light))
                         .foregroundStyle(
                             LinearGradient(
@@ -54,11 +65,11 @@ struct EmptyGamesView: View {
                 .opacity(isAnimating ? 1.0 : 0.0)
 
                 VStack(spacing: 10) {
-                    Text("No Games Yet")
+                    Text(titleText)
                         .font(.headingLarge)
                         .foregroundColor(.primary)
 
-                    Text("Create your first game to record\nand track performance")
+                    Text(subtitleText)
                         .font(.bodyMedium)
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
@@ -75,7 +86,7 @@ struct EmptyGamesView: View {
                     HStack(spacing: 8) {
                         Image(systemName: "plus.circle.fill")
                             .font(.body)
-                        Text("Add Game")
+                        Text(addButtonLabel)
                             .font(.headingMedium)
                     }
                     .foregroundColor(.white)

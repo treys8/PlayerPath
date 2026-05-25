@@ -19,6 +19,18 @@ struct AthleteCard: View {
         (athlete.games ?? []).first(where: { $0.isLive })
     }
 
+    /// Sports this athlete plays — distinct seasons' sports, falling back to
+    /// the athlete's primary sport hint. Used to render single-vs-multi icons.
+    private var athleteSports: [Season.SportType] {
+        let set = Set((athlete.seasons ?? []).map(\.sport))
+        let sorted = set.sorted { $0.rawValue < $1.rawValue }
+        if !sorted.isEmpty { return sorted }
+        if let hint = Season.SportType(rawValue: athlete.sport.rawValue.capitalized) {
+            return [hint]
+        }
+        return [.baseball]
+    }
+
     var body: some View {
         Button(action: action) {
             VStack(spacing: 16) {
@@ -41,10 +53,20 @@ struct AthleteCard: View {
 
                 VStack(spacing: 6) {
                     HStack(spacing: 6) {
-                        Image(systemName: athlete.sport.icon)
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                            .accessibilityHidden(true)
+                        HStack(spacing: 3) {
+                            ForEach(athleteSports.prefix(3), id: \.self) { sport in
+                                Image(systemName: sport.icon)
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+                            }
+                            if athleteSports.count > 3 {
+                                Text("+\(athleteSports.count - 3)")
+                                    .font(.labelSmall)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        .accessibilityHidden(true)
+
                         Text(athlete.name)
                             .font(.headingLarge)
                             .foregroundColor(.primary)

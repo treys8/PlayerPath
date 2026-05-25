@@ -13,6 +13,8 @@ struct GameRow: View {
     let game: Game
     var isSeasonFiltered: Bool = false
 
+    private var isGolf: Bool { game.season?.sport == .golf }
+
     var body: some View {
         HStack(spacing: 0) {
             // Accent bar
@@ -35,7 +37,7 @@ struct GameRow: View {
         .shadow(color: .black.opacity(0.06), radius: 8, x: 0, y: 2)
         .shadow(color: .black.opacity(0.04), radius: 2, x: 0, y: 1)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Game against \(game.opponent)")
+        .accessibilityLabel(isGolf ? "Tournament at \(game.opponent)" : "Game against \(game.opponent)")
         .accessibilityValue(accessibilityStatus)
     }
 
@@ -58,10 +60,31 @@ struct GameRow: View {
     private struct RightStatusView: View {
         let game: Game
 
+        private var isGolf: Bool { game.season?.sport == .golf }
+
         var body: some View {
             HStack(spacing: 10) {
-                // Stats summary (if available)
-                if let stats = game.gameStats, stats.atBats > 0 {
+                if isGolf, let score = game.totalScore {
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text("\(score)")
+                            .font(.ppStatSmall)
+                            .monospacedDigit()
+                            .foregroundColor(.primary)
+                        if let par = game.par {
+                            let diff = score - par
+                            Text(diff == 0 ? "E" : (diff > 0 ? "+\(diff)" : "\(diff)"))
+                                .font(.labelSmall)
+                                .monospacedDigit()
+                                .foregroundColor(.secondary)
+                        } else {
+                            Text("SCORE")
+                                .font(.labelSmall)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                    .frame(width: 70, alignment: .trailing)
+                } else if !isGolf, let stats = game.gameStats, stats.atBats > 0 {
+                    // Baseball/softball batting summary
                     VStack(alignment: .trailing, spacing: 2) {
                         Text("\(stats.hits)-\(stats.atBats)")
                             .font(.ppStatSmall)
@@ -91,10 +114,13 @@ struct GameRow: View {
         let game: Game
         var showSeason: Bool = true
 
+        private var isGolf: Bool { game.season?.sport == .golf }
+        private var titlePrefix: String { isGolf ? "at" : "vs" }
+
         var body: some View {
             VStack(alignment: .leading, spacing: 6) {
-                // Opponent name
-                Text("vs \(game.opponent)")
+                // Opponent / course name
+                Text("\(titlePrefix) \(game.opponent)")
                     .font(.headingMedium)
                     .foregroundColor(.primary)
                     .lineLimit(1)

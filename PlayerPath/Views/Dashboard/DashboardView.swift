@@ -24,6 +24,7 @@ struct DashboardView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.activeSport) private var activeSport
 
     @StateObject private var viewModel: GamesDashboardViewModel
     @ObservedObject private var activityNotifService = ActivityNotificationService.shared
@@ -99,6 +100,30 @@ struct DashboardView: View {
             return "\(unread) new video\(unread == 1 ? "" : "s")"
         }
         return "\((athlete.coaches ?? []).count) Coaches"
+    }
+
+    // Golf scoring summary computed inline. SwiftData observes property reads
+    // in body, so this re-evaluates when a score is entered or a round is added.
+    private var golfRoundsWithScores: [Game] {
+        (athlete.games ?? []).filter { $0.season?.sport == .golf && $0.totalScore != nil }
+    }
+
+    private var golfRoundCount: Int { golfRoundsWithScores.count }
+
+    private var golfAverageScoreText: String {
+        let scores = golfRoundsWithScores.compactMap { $0.totalScore }
+        guard !scores.isEmpty else { return "—" }
+        let avg = Double(scores.reduce(0, +)) / Double(scores.count)
+        return String(format: "%.1f", avg)
+    }
+
+    private var golfBestScoreText: String {
+        let scores = golfRoundsWithScores.compactMap { $0.totalScore }
+        return scores.min().map(String.init) ?? "—"
+    }
+
+    private var statisticsCardSubtitle: String {
+        activeSport == .golf ? "\(golfRoundCount) Rounds" : cachedBA + " AVG"
     }
 
     // MARK: - Body
@@ -347,20 +372,25 @@ struct DashboardView: View {
                 Button {
                     createNewGame()
                 } label: {
-                    Text("+ New Game")
+                    Text(activeSport == .golf ? "+ New Tournament" : "+ New Game")
                         .font(.headingSmall)
                         .foregroundColor(.brandGold)
                 }
             }
 
             LazyVGrid(columns: managementColumns, spacing: 16) {
-                DashboardFeatureCard(icon: "baseball.diamond.bases", title: "Games", subtitle: "\(viewModel.totalGames) Total", color: .brandNavy) {
+                DashboardFeatureCard(
+                    icon: activeSport == .golf ? "figure.golf" : "baseball.diamond.bases",
+                    title: activeSport == .golf ? "Tournaments" : "Games",
+                    subtitle: "\(viewModel.totalGames) Total",
+                    color: .brandNavy
+                ) {
                     postSwitchTab(.games)
                 }
                 DashboardFeatureCard(icon: "video", title: "Video Clips", subtitle: "\(viewModel.totalVideos) Recorded", color: .brandNavy) {
                     postSwitchTab(.videos)
                 }
-                DashboardFeatureCard(icon: "chart.bar.fill", title: "Statistics", subtitle: cachedBA + " AVG", color: .brandNavy) {
+                DashboardFeatureCard(icon: "chart.bar.fill", title: "Statistics", subtitle: statisticsCardSubtitle, color: .brandNavy) {
                     postSwitchTab(.stats)
                 }
                 DashboardFeatureCard(icon: "calendar", title: "Seasons", subtitle: "\(cachedSeasonCount) Total", color: .brandNavy) {
@@ -410,9 +440,15 @@ struct DashboardView: View {
             DashboardSectionHeader(title: "Quick Stats", icon: "chart.bar.fill", color: .brandNavy)
 
             HStack(spacing: 12) {
-                DashboardStatCard(title: "AVG", value: cachedBA, icon: "square.grid.2x2.fill", color: .brandGold)
-                DashboardStatCard(title: "SLG", value: cachedSLG, icon: "chart.bar.fill", color: .brandGold)
-                DashboardStatCard(title: "Hits", value: cachedHits, icon: "hand.tap.fill", color: .brandGold)
+                if activeSport == .golf {
+                    DashboardStatCard(title: "Rounds", value: "\(golfRoundCount)", icon: "figure.golf", color: .brandGold)
+                    DashboardStatCard(title: "Avg Score", value: golfAverageScoreText, icon: "chart.bar.fill", color: .brandGold)
+                    DashboardStatCard(title: "Best", value: golfBestScoreText, icon: "trophy.fill", color: .brandGold)
+                } else {
+                    DashboardStatCard(title: "AVG", value: cachedBA, icon: "square.grid.2x2.fill", color: .brandGold)
+                    DashboardStatCard(title: "SLG", value: cachedSLG, icon: "chart.bar.fill", color: .brandGold)
+                    DashboardStatCard(title: "Hits", value: cachedHits, icon: "hand.tap.fill", color: .brandGold)
+                }
             }
         }
         .padding(.horizontal, dashboardHorizontalPadding)

@@ -20,6 +20,13 @@ struct EditGameSheet: View {
     @State private var location: String = ""
     @State private var notes: String = ""
 
+    private var isGolf: Bool { game.season?.sport == .golf }
+    private var primaryLabel: String { isGolf ? "Course" : "Opponent" }
+    private var sectionTitle: String { isGolf ? "Tournament Details" : "Game Details" }
+    private var navigationTitle: String { isGolf ? "Edit Tournament" : "Edit Game" }
+    private var notesPrompt: String { isGolf ? "Tournament notes" : "Game notes" }
+    private var maxLen: Int { isGolf ? 80 : 50 }
+
     enum Field: Hashable { case opponent, location, notes }
     @FocusState private var focusedField: Field?
     @State private var showingSaveError = false
@@ -28,7 +35,7 @@ struct EditGameSheet: View {
 
     private var isValidOpponent: Bool {
         let trimmed = opponent.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.count >= 2 && trimmed.count <= 50
+        return trimmed.count >= 2 && trimmed.count <= maxLen
     }
 
     private var hasChanges: Bool {
@@ -41,8 +48,8 @@ struct EditGameSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Game Details") {
-                    TextField("Opponent", text: $opponent)
+                Section(sectionTitle) {
+                    TextField(primaryLabel, text: $opponent)
                         .focused($focusedField, equals: .opponent)
                         .submitLabel(.next)
                         .onSubmit { focusedField = .location }
@@ -50,7 +57,7 @@ struct EditGameSheet: View {
                         .autocorrectionDisabled()
 
                     if !opponent.isEmpty && !isValidOpponent {
-                        Label("Opponent name must be 2-50 characters", systemImage: "exclamationmark.triangle.fill")
+                        Label("\(primaryLabel) name must be 2-\(maxLen) characters", systemImage: "exclamationmark.triangle.fill")
                             .font(.bodySmall)
                             .foregroundColor(.orange)
                     }
@@ -67,7 +74,7 @@ struct EditGameSheet: View {
                 }
 
                 Section("Notes (Optional)") {
-                    TextField("Game notes", text: $notes, axis: .vertical)
+                    TextField(notesPrompt, text: $notes, axis: .vertical)
                         .focused($focusedField, equals: .notes)
                         .submitLabel(.done)
                         .lineLimit(3...6)
@@ -75,20 +82,20 @@ struct EditGameSheet: View {
 
                 if game.isLive {
                     Section {
-                        Label("This game is currently live", systemImage: "circle.fill")
+                        Label(isGolf ? "This round is currently live" : "This game is currently live", systemImage: "circle.fill")
                             .foregroundColor(.red)
                             .font(.bodySmall)
                     }
                 } else if game.isComplete {
                     Section {
-                        Label("This game has been completed", systemImage: "checkmark.circle.fill")
+                        Label(isGolf ? "This round has been completed" : "This game has been completed", systemImage: "checkmark.circle.fill")
                             .foregroundColor(.green)
                             .font(.bodySmall)
                     }
                 }
             }
             .scrollDismissesKeyboard(.interactively)
-            .navigationTitle("Edit Game")
+            .navigationTitle(navigationTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItemGroup(placement: .keyboard) {
@@ -135,13 +142,14 @@ struct EditGameSheet: View {
         if let season = game.season {
             let start = season.startDate ?? .distantPast
             let end = season.endDate ?? .distantFuture
+            let unit = isGolf ? "Tournament" : "Game"
             if date < start {
-                validationMessage = "Game date is before the season starts."
+                validationMessage = "\(unit) date is before the season starts."
                 showingValidationError = true
                 return
             }
             if date > end {
-                validationMessage = "Game date is after the season ends."
+                validationMessage = "\(unit) date is after the season ends."
                 showingValidationError = true
                 return
             }

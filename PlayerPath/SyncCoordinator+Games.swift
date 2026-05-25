@@ -223,6 +223,9 @@ extension SyncCoordinator {
                     if local.year != remoteGame.year { local.year = remoteGame.year; changed = true }
                     if local.location != remoteGame.location { local.location = remoteGame.location; changed = true }
                     if local.notes != remoteGame.notes { local.notes = remoteGame.notes; changed = true }
+                    if local.holes != remoteGame.holes { local.holes = remoteGame.holes; changed = true }
+                    if local.par != remoteGame.par { local.par = remoteGame.par; changed = true }
+                    if local.totalScore != remoteGame.totalScore { local.totalScore = remoteGame.totalScore; changed = true }
                     if local.version != remoteGame.version { local.version = remoteGame.version; changed = true }
                     applyRemoteStats(remoteGame, to: local, context: context)
                     if changed {
@@ -242,6 +245,9 @@ extension SyncCoordinator {
                 newGame.year = remoteGame.year
                 newGame.location = remoteGame.location
                 newGame.notes = remoteGame.notes
+                newGame.holes = remoteGame.holes
+                newGame.par = remoteGame.par
+                newGame.totalScore = remoteGame.totalScore
                 newGame.createdAt = remoteGame.createdAt
                 newGame.lastSyncDate = Date()
                 newGame.needsSync = false

@@ -13,6 +13,14 @@ import Combine
 struct GamesView: View {
     let athlete: Athlete?
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.activeSport) private var activeSport
+
+    private var isGolf: Bool { activeSport == .golf }
+    private var unitNoun: String { isGolf ? "tournament" : "game" }
+    private var unitNounPlural: String { isGolf ? "tournaments" : "games" }
+    private var navigationTitle: String { isGolf ? "Tournaments" : "Games" }
+    private var searchPrompt: String { isGolf ? "Search by course or date" : "Search by opponent or date" }
+    private var addAccessibilityLabel: String { isGolf ? "Add new tournament" : "Add new game" }
 
     // Query games for the current athlete only — avoids loading all games across athletes
     private let athleteID: UUID?
@@ -125,8 +133,8 @@ struct GamesView: View {
     private var gameCreationSheet: some View {
         GameCreationView(
             athlete: athlete,
-            onSave: { opponent, date, isLive, season in
-                createGame(opponent: opponent, date: date, isLive: isLive, season: season)
+            onSave: { opponent, date, isLive, season, golf in
+                createGame(opponent: opponent, date: date, isLive: isLive, season: season, golf: golf)
             }
         )
     }
@@ -142,7 +150,17 @@ struct GamesView: View {
     private static let searchDateFormatter = DateFormatter.mediumDate
 
     private func filterGames(_ games: [Game]) -> [Game] {
-        var filtered = games
+        // Filter by active sport context. A game with no season falls back to
+        // the athlete's primary sport hint so legacy baseball games still appear
+        // when the athlete is multi-sport and toggled to baseball.
+        var filtered = games.filter { game in
+            if let seasonSport = game.season?.sport {
+                return seasonSport == activeSport
+            }
+            // No-season games match when active sport equals the athlete's hint.
+            let hint = Season.SportType(rawValue: (game.athlete?.sport ?? .baseball).rawValue.capitalized) ?? .baseball
+            return hint == activeSport
+        }
 
         // Filter by season
         if let seasonFilter = selectedSeasonFilter {
@@ -229,31 +247,45 @@ struct GamesView: View {
     private var gamesSummary: String? {
         // Only show at scale — for 1–2 games, the row card already conveys everything.
         guard cachedCompletedGames.count >= 3 else { return nil }
-        let withStats = cachedCompletedGames.compactMap { $0.gameStats }
-        guard !withStats.isEmpty else { return nil }
-
-        let totalAB = withStats.reduce(0) { $0 + $1.atBats }
-        let totalH  = withStats.reduce(0) { $0 + $1.hits }
-        let totalHR = withStats.reduce(0) { $0 + $1.homeRuns }
-        let totalRBI = withStats.reduce(0) { $0 + $1.rbis }
-        let totalPitches = withStats.reduce(0) { $0 + $1.totalPitches }
-        let totalK = withStats.reduce(0) { $0 + $1.pitchingStrikeouts }
-        let totalBB = withStats.reduce(0) { $0 + $1.pitchingWalks }
 
         let n = cachedCompletedGames.count
-        let gameWord = n == 1 ? "game" : "games"
+        var parts: [String] = []
 
-        var parts: [String] = ["\(n) \(gameWord)"]
+        if isGolf {
+            let scored = cachedCompletedGames.compactMap { $0.totalScore }
+            guard !scored.isEmpty else { return nil }
+            let total = scored.reduce(0, +)
+            let avg = Double(total) / Double(scored.count)
+            let best = scored.min() ?? 0
+            let roundWord = n == 1 ? "round" : "rounds"
+            parts.append("\(n) \(roundWord)")
+            parts.append("avg \(String(format: "%.1f", avg))")
+            parts.append("best \(best)")
+        } else {
+            let withStats = cachedCompletedGames.compactMap { $0.gameStats }
+            guard !withStats.isEmpty else { return nil }
 
-        if totalAB > 0 {
-            let avg = StatisticsService.shared.formatBattingAverage(Double(totalH) / Double(totalAB))
-            parts.append(avg)
-            if totalHR > 0 { parts.append("\(totalHR) HR") }
-            if totalRBI > 0 { parts.append("\(totalRBI) RBI") }
-        } else if totalPitches > 0 {
-            parts.append("\(totalK) K")
-            parts.append("\(totalBB) BB")
-            parts.append("\(totalPitches) P")
+            let totalAB = withStats.reduce(0) { $0 + $1.atBats }
+            let totalH  = withStats.reduce(0) { $0 + $1.hits }
+            let totalHR = withStats.reduce(0) { $0 + $1.homeRuns }
+            let totalRBI = withStats.reduce(0) { $0 + $1.rbis }
+            let totalPitches = withStats.reduce(0) { $0 + $1.totalPitches }
+            let totalK = withStats.reduce(0) { $0 + $1.pitchingStrikeouts }
+            let totalBB = withStats.reduce(0) { $0 + $1.pitchingWalks }
+
+            let gameWord = n == 1 ? "game" : "games"
+            parts.append("\(n) \(gameWord)")
+
+            if totalAB > 0 {
+                let avg = StatisticsService.shared.formatBattingAverage(Double(totalH) / Double(totalAB))
+                parts.append(avg)
+                if totalHR > 0 { parts.append("\(totalHR) HR") }
+                if totalRBI > 0 { parts.append("\(totalRBI) RBI") }
+            } else if totalPitches > 0 {
+                parts.append("\(totalK) K")
+                parts.append("\(totalBB) BB")
+                parts.append("\(totalPitches) P")
+            }
         }
 
         if let seasonID = selectedSeasonFilter {
@@ -449,15 +481,15 @@ struct GamesView: View {
 
     var body: some View {
         mainContent
-            .navigationTitle("Games")
+            .navigationTitle(navigationTitle)
             .navigationBarTitleDisplayMode(.large)
-            .searchable(text: $searchText, prompt: "Search by opponent or date")
+            .searchable(text: $searchText, prompt: searchPrompt)
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Button(action: { handleAddGame() }) {
                         Image(systemName: "plus")
                     }
-                    .accessibilityLabel("Add new game")
+                    .accessibilityLabel(addAccessibilityLabel)
                 }
 
                 if hasGames {
@@ -524,6 +556,9 @@ struct GamesView: View {
             .onChange(of: selectedSeasonFilter) { _, _ in
                 updateFilteredGames()
             }
+            .onChange(of: activeSport) { _, _ in
+                updateFilteredGames()
+            }
             .sheet(isPresented: $showingGameCreation) {
                 gameCreationSheet
             }
@@ -553,15 +588,15 @@ struct GamesView: View {
                 handleAddGame()
             }
             .confirmationDialog(
-                "Delete Game",
+                isGolf ? "Delete Tournament" : "Delete Game",
                 isPresented: $showingDeleteGameConfirmation,
                 presenting: gameToDelete
             ) { game in
                 Button("Delete \"\(game.opponent)\"", role: .destructive) {
                     deleteGame(game)
                 }
-            } message: { game in
-                Text("This will permanently delete this game and all its video clips, photos, and statistics.")
+            } message: { _ in
+                Text("This will permanently delete this \(unitNoun) and all its video clips, photos, and statistics.")
             }
     }
 
@@ -593,12 +628,13 @@ struct GamesView: View {
         refreshGames()
     }
     
-    private func createGame(opponent: String, date: Date, isLive: Bool, season: Season? = nil) {
+    private func createGame(opponent: String, date: Date, isLive: Bool, season: Season? = nil, golf: GolfRoundDetails? = nil) {
         viewModelHolder.viewModel?.create(
             opponent: opponent,
             date: date,
             isLive: isLive,
             season: season,
+            golfDetails: golf,
             onError: { errorMessage in
                 showError(errorMessage)
             }

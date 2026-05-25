@@ -16,6 +16,14 @@ struct PhotosView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.activeSport) private var activeSport
+
+    private func chipLabel(for filter: PhotoFilter) -> String {
+        switch filter {
+        case .games where activeSport == .golf: return "Tournaments"
+        default: return filter.rawValue
+        }
+    }
 
     // Query photos for the current athlete only
     private let athleteID: UUID
@@ -287,7 +295,7 @@ struct PhotosView: View {
                         activeFilter = filter
                     }
                 } label: {
-                    Text(filter.rawValue)
+                    Text(chipLabel(for: filter))
                         .font(activeFilter == filter ? .headingSmall : .bodyMedium)
                         .foregroundColor(activeFilter == filter ? .white : .secondary)
                         .padding(.horizontal, 14)

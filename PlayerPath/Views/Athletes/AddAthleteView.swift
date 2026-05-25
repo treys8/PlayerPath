@@ -367,17 +367,11 @@ struct AddAthleteView: View {
                         // Mark onboarding complete in auth manager (for session state)
                         authManager.markOnboardingComplete()
 
-                        // Golf onboarding stops here — Season/OnboardingBackupView are
-                        // baseball/softball-flavored and the golf experience routes to
-                        // GolfPlaceholderView from MainTabView. For non-golf athletes,
-                        // OnboardingSeasonCreationView/OnboardingBackupView still own
-                        // the new-user flag reset.
-                        if selectedSport == .golf {
-                            authManager.resetNewUserFlag()
-                            log.debug("Golf athlete created - skipping season/backup onboarding steps")
-                        } else {
-                            log.debug("First athlete created - user still flagged as new until season created")
-                        }
+                        // All sports flow through OnboardingSeasonCreationView →
+                        // OnboardingBackupView; the season-creation view picks the
+                        // sport (now including golf). The new-user flag is reset
+                        // by those views, not here.
+                        log.debug("First athlete created - user still flagged as new until season created")
                     }
                 }
 

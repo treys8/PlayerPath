@@ -55,6 +55,7 @@ struct SeasonIndicatorView: View {
 struct SeasonRecommendationBanner: View {
     let athlete: Athlete
     let recommendation: SeasonManager.SeasonRecommendation
+    @Environment(\.activeSport) private var activeSport
     @State private var showingSeasonManagement = false
     @State private var dismissed = false
 
@@ -83,13 +84,22 @@ struct SeasonRecommendationBanner: View {
         return Date().timeIntervalSince1970 - ts < Self.reShowAfter
     }
 
+    private var displayedMessage: String? {
+        switch recommendation {
+        case .createFirst where activeSport == .golf:
+            return "Create your first season to start tracking tournaments and videos"
+        default:
+            return recommendation.message
+        }
+    }
+
     var body: some View {
-        if !dismissed && !isCurrentlyDismissed, let message = recommendation.message {
+        if !dismissed && !isCurrentlyDismissed, let message = displayedMessage {
             HStack(spacing: 12) {
                 Image(systemName: iconForRecommendation)
                     .font(.title3)
                     .foregroundStyle(colorForRecommendation)
-                
+
                 VStack(alignment: .leading, spacing: 4) {
                     Text(titleForRecommendation)
                         .font(.headingSmall)

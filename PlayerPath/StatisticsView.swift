@@ -28,8 +28,24 @@ struct StatisticsView: View {
     }
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.activeSport) private var activeSport
     @State private var activeSheet: ActiveSheet?
     @State private var selectedSeasonFilter: String? = nil // nil = All Seasons (Career)
+
+    private var isGolf: Bool {
+        // When a specific season is filtered, prefer its sport; otherwise the
+        // tab-bar's active sport context wins.
+        if let id = selectedSeasonFilter,
+           let season = availableSeasons.first(where: { $0.id.uuidString == id }) {
+            return season.sport == .golf
+        }
+        return activeSport == .golf
+    }
+
+    private var selectedSeason: Season? {
+        guard let id = selectedSeasonFilter else { return nil }
+        return availableSeasons.first { $0.id.uuidString == id }
+    }
 
     // Get all available seasons (active + archived)
     private var availableSeasons: [Season] {
@@ -75,18 +91,21 @@ struct StatisticsView: View {
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 if statistics != nil {
-                    // View Charts button
-                    ToolbarItem(placement: .topBarLeading) {
-                        Button {
-                            showingCharts = true
-                        } label: {
-                            Label("View Charts", systemImage: "chart.xyaxis.line")
+                    // View Charts button — baseball/softball-only (StatisticsChartsView
+                    // is hard-coded to batting/pitching metrics).
+                    if !isGolf {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button {
+                                showingCharts = true
+                            } label: {
+                                Label("View Charts", systemImage: "chart.xyaxis.line")
+                            }
+                            .accessibilityLabel("View performance charts")
                         }
-                        .accessibilityLabel("View performance charts")
                     }
 
-                    // Compare seasons button (Plus+)
-                    if currentTier >= .plus {
+                    // Compare seasons button (Plus+) — also batting-only.
+                    if currentTier >= .plus && !isGolf {
                         ToolbarItem(placement: .topBarLeading) {
                             Button {
                                 showingSeasonComparison = true
@@ -116,7 +135,9 @@ struct StatisticsView: View {
                             // Manual-entry shortcuts contradict a user who has
                             // explicitly turned off stat tracking. Hide them
                             // here — export still works if they have old stats.
-                            if ath.trackStatsEnabled {
+                            // Also hide for golf: scoring is per-tournament via
+                            // EnterScoreSheet, not per-at-bat manual stats.
+                            if ath.trackStatsEnabled && !isGolf {
                                 if let game = currentLiveGame {
                                     Button {
                                         activeSheet = .quickEntry(game)
@@ -132,7 +153,9 @@ struct StatisticsView: View {
                                 }
                             }
 
-                            if statistics != nil, currentTier >= .plus {
+                            if statistics != nil, currentTier >= .plus, !isGolf {
+                                // Export is baseball-only — CSV/PDF generators
+                                // pull from batting/pitching fields on AthleteStatistics.
                                 Divider()
 
                                 Button {
@@ -295,7 +318,14 @@ struct StatisticsView: View {
 
     @ViewBuilder
     private var mainContent: some View {
-        if let stats = statistics {
+        if isGolf {
+            ScrollView {
+                LazyVStack(spacing: 20) {
+                    GolfStatsSection(athlete: athlete, season: selectedSeason)
+                }
+                .padding(horizontalSizeClass == .regular ? 32 : 16)
+            }
+        } else if let stats = statistics {
             ScrollView {
                 LazyVStack(spacing: 20) {
                     // Charts Prompt Card

@@ -51,6 +51,9 @@ final class Athlete {
     var createdAt: Date?
     var user: User?
     var primaryRole: AthleteRole = AthleteRole.batter
+    /// Primary sport hint. Defaults the first season's sport and drives the
+    /// athlete card icon. Source of truth for a given game's sport is
+    /// `game.season?.sport` — an athlete may have seasons in multiple sports.
     var sport: Sport = Sport.baseball
     @Relationship(inverse: \Season.athlete) var seasons: [Season]?
     @Relationship(inverse: \Game.athlete) var games: [Game]?

@@ -425,6 +425,11 @@ struct FirestoreGame: Codable, Identifiable {
     let version: Int
     let isDeleted: Bool
 
+    // Golf-only fields. nil for baseball/softball games.
+    let holes: Int?
+    let par: Int?
+    let totalScore: Int?
+
     // GameStatistics counters inlined onto the game doc. All optional so pre-V20
     // docs (which lack these fields) decode cleanly — nil means "remote has no
     // stats to apply; keep local as-is".
@@ -469,6 +474,9 @@ struct FirestoreGame: Codable, Identifiable {
         case updatedAt
         case version
         case isDeleted
+        case holes
+        case par
+        case totalScore
         case statsHasManualEntry = "stats_hasManualEntry"
         case statsAtBats = "stats_atBats"
         case statsHits = "stats_hits"

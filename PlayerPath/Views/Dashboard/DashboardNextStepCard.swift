@@ -4,6 +4,7 @@ import SwiftData
 struct DashboardNextStepCard: View {
     let athlete: Athlete
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.activeSport) private var activeSport
     @State private var dismissedTipID: String?
     @Query private var prefs: [UserPreferences]
 
@@ -18,9 +19,9 @@ struct DashboardNextStepCard: View {
             }
         }
 
-        var icon: String {
+        func icon(for sport: Season.SportType) -> String {
             switch self {
-            case .createGame: return "baseball.diamond.bases"
+            case .createGame: return sport == .golf ? "figure.golf" : "baseball.diamond.bases"
             case .recordVideo: return "video.badge.plus"
             }
         }
@@ -32,23 +33,26 @@ struct DashboardNextStepCard: View {
             }
         }
 
-        var title: String {
+        func title(for sport: Season.SportType) -> String {
             switch self {
-            case .createGame: return "Log Your First Game"
+            case .createGame: return sport == .golf ? "Log Your First Tournament" : "Log Your First Game"
             case .recordVideo: return "Record Your First Video"
             }
         }
 
-        var message: String {
+        func message(for sport: Season.SportType) -> String {
             switch self {
-            case .createGame: return "Start tracking your at-bats and stats by creating a game"
+            case .createGame:
+                return sport == .golf
+                    ? "Start tracking your rounds and scores by creating a tournament"
+                    : "Start tracking your at-bats and stats by creating a game"
             case .recordVideo: return "Record your swing to review your mechanics"
             }
         }
 
-        var buttonLabel: String {
+        func buttonLabel(for sport: Season.SportType) -> String {
             switch self {
-            case .createGame: return "Games"
+            case .createGame: return sport == .golf ? "Tournaments" : "Games"
             case .recordVideo: return "Videos"
             }
         }
@@ -82,15 +86,15 @@ struct DashboardNextStepCard: View {
     private var cardBody: some View {
         if let step = currentStep, step.tipID != dismissedTipID {
             HStack(spacing: 12) {
-                Image(systemName: step.icon)
+                Image(systemName: step.icon(for: activeSport))
                     .font(.title3)
                     .foregroundStyle(step.color)
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(step.title)
+                    Text(step.title(for: activeSport))
                         .font(.headingSmall)
 
-                    Text(step.message)
+                    Text(step.message(for: activeSport))
                         .font(.bodySmall)
                         .foregroundStyle(.secondary)
                 }
@@ -100,7 +104,7 @@ struct DashboardNextStepCard: View {
                 Button {
                     postSwitchTab(step.tab)
                 } label: {
-                    Text(step.buttonLabel)
+                    Text(step.buttonLabel(for: activeSport))
                         .font(.headingSmall)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
