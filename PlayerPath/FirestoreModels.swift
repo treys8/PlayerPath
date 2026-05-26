@@ -361,6 +361,9 @@ struct FirestoreAthlete: Codable, Identifiable {
     let sport: String?
     let userId: String
     let trackStatsEnabled: Bool?
+    /// Links sport-variant profiles for the same human so they share one
+    /// subscription slot. Optional — nil for pre-V24 docs and solo profiles.
+    let personGroupID: String?
     let createdAt: Date?
     let updatedAt: Date?
     let version: Int
@@ -373,6 +376,7 @@ struct FirestoreAthlete: Codable, Identifiable {
         case sport
         case userId
         case trackStatsEnabled
+        case personGroupID
         case createdAt
         case updatedAt
         case version

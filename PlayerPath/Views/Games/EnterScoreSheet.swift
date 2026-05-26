@@ -30,9 +30,10 @@ struct EnterScoreSheet: View {
     }
 
     private var isValid: Bool {
-        // Score is the only required field — par stays optional.
-        if let score = parsedScore { return score > 0 && score < 300 }
-        return false
+        guard let score = parsedScore, score >= holes, score < 300 else { return false }
+        // Par is optional but when present must be sensible.
+        if let par = parsedPar, !(par > 0 && par < 200) { return false }
+        return true
     }
 
     var body: some View {
@@ -105,6 +106,21 @@ struct EnterScoreSheet: View {
     private func save() {
         guard let score = parsedScore else {
             validationMessage = "Please enter a total score."
+            showingValidationError = true
+            return
+        }
+        guard score >= holes else {
+            validationMessage = "Score can't be less than the number of holes (\(holes))."
+            showingValidationError = true
+            return
+        }
+        guard score < 300 else {
+            validationMessage = "Score must be under 300."
+            showingValidationError = true
+            return
+        }
+        if let par = parsedPar, !(par > 0 && par < 200) {
+            validationMessage = "Par must be between 1 and 199."
             showingValidationError = true
             return
         }

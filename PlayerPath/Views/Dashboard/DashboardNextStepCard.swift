@@ -4,7 +4,7 @@ import SwiftData
 struct DashboardNextStepCard: View {
     let athlete: Athlete
     @Environment(\.modelContext) private var modelContext
-    @Environment(\.activeSport) private var activeSport
+    private var activeSport: Season.SportType { athlete.sportType }
     @State private var dismissedTipID: String?
     @Query private var prefs: [UserPreferences]
 

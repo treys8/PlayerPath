@@ -25,7 +25,6 @@ struct DirectCameraRecorderView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Environment(\.verticalSizeClass) private var vSizeClass
-    @Environment(\.activeSport) private var activeSport
     private var isLandscape: Bool { vSizeClass == .compact }
 
     let athlete: Athlete?
@@ -36,9 +35,9 @@ struct DirectCameraRecorderView: View {
     private var isCoachMode: Bool { coachContext != nil }
 
     /// Sport context for this recording: prefer the explicit game/practice season,
-    /// fall back to the athlete's active sport for free recordings.
+    /// then the athlete's primary sport, then baseball as a last resort.
     private var clipSport: Season.SportType {
-        game?.season?.sport ?? practice?.season?.sport ?? activeSport
+        game?.season?.sport ?? practice?.season?.sport ?? athlete?.sportType ?? .baseball
     }
 
     /// Phases of the Quick Record flow, rendered inline within a single fullScreenCover
@@ -220,7 +219,7 @@ struct DirectCameraRecorderView: View {
                 .font(.caption)
                 .fontWeight(.bold)
                 .foregroundColor(.white)
-            Text("vs \(game.opponent)")
+            Text(game.opponentLabel)
                 .font(.caption)
                 .fontWeight(.semibold)
                 .foregroundColor(.white)

@@ -307,11 +307,17 @@ struct VideoThumbnailView: View {
     private var contextLabel: String? {
         let opponent = clip.gameOpponent ?? clip.game?.opponent
         if let opponent = opponent {
+            // Sport is read from whichever relationship is intact. Falls back
+            // to "vs" only when both season and game relationships have been
+            // broken by a cross-device restore — opponent is denormalized but
+            // sport is not, so this is the best we can do.
+            let isGolf = clip.season?.sport == .golf || clip.game?.isGolf == true
+            let prefix = isGolf ? "at" : "vs"
             let date = clip.gameDate ?? clip.game?.date
             if let date = date {
-                return "vs \(opponent) · \(Self.contextDateFormatter.string(from: date))"
+                return "\(prefix) \(opponent) · \(Self.contextDateFormatter.string(from: date))"
             }
-            return "vs \(opponent)"
+            return "\(prefix) \(opponent)"
         }
         if clip.practice != nil {
             if let date = clip.practice?.date {

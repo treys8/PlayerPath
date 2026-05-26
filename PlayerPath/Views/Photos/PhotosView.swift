@@ -16,7 +16,7 @@ struct PhotosView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    @Environment(\.activeSport) private var activeSport
+    private var activeSport: Season.SportType { athlete.sportType }
 
     private func chipLabel(for filter: PhotoFilter) -> String {
         switch filter {

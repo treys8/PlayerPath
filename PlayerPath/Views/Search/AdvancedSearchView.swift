@@ -768,7 +768,7 @@ struct VideoSearchResultCard: View {
                 }
             }
             if let game = video.game {
-                Text("vs \(game.opponent)")
+                Text(game.opponentLabel)
                     .font(.bodySmall)
                     .foregroundColor(.secondary)
             }
@@ -787,7 +787,7 @@ struct GameSearchResultRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text("vs \(game.opponent)")
+                Text(game.opponentLabel)
                     .font(.headingLarge)
 
                 Spacer()
@@ -862,7 +862,7 @@ struct PhotoSearchResultCard: View {
                     .truncationMode(.tail)
             }
             if let game = photo.game {
-                Text("vs \(game.opponent)")
+                Text(game.opponentLabel)
                     .font(.bodySmall)
                     .foregroundColor(.secondary)
             } else if photo.practice != nil {

@@ -811,7 +811,7 @@ struct VideoClipInfoCard: View {
             }
 
             if let game = clip.game {
-                Text("vs \(game.opponent)")
+                Text(game.opponentLabel)
                     .font(.bodyMedium)
                     .foregroundColor(.secondary)
             } else if clip.practice != nil {

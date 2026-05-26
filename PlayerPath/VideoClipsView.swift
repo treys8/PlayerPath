@@ -13,8 +13,8 @@ struct VideoClipsView: View {
     let athlete: Athlete
     @Environment(\.modelContext) private var modelContext
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    @Environment(\.activeSport) private var activeSport
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
+    private var activeSport: Season.SportType { athlete.sportType }
     private let uploadManager = UploadQueueManager.shared
     @State private var showingRecorder = false
     @State private var showingAdvancedSearch = false
@@ -163,6 +163,10 @@ struct VideoClipsView: View {
                 .accessibilityLabel("Selection actions")
             }
         } else {
+            ToolbarItem(placement: .principal) {
+                SportContextChip(athlete: athlete)
+            }
+
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     Haptics.light()

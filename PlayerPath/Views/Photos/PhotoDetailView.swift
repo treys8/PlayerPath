@@ -229,7 +229,7 @@ struct PhotoDetailView: View {
                 }
 
                 if let game = photo.game {
-                    Label("vs \(game.opponent)", systemImage: "baseball.diamond.bases")
+                    Label(game.opponentLabel, systemImage: game.isGolf ? "figure.golf" : "baseball.diamond.bases")
                 } else if photo.practice != nil {
                     Label("Practice", systemImage: "figure.run")
                 }

@@ -275,6 +275,7 @@ struct PlayResultEditorView: View {
         let prevResult = clip.playResult
         let prevType = clip.playResult?.type
         let prevHighlight = clip.isHighlight
+        let prevClub = clip.club
 
         if let selected = selectedResult {
             if let existing = clip.playResult {
@@ -283,6 +284,10 @@ struct PlayResultEditorView: View {
                 let newResult = PlayResult(type: selected)
                 clip.playResult = newResult
             }
+            // Either/or invariant: a clip is tagged with a PlayResult OR a
+            // Club, not both. Clear any stale golf tag when re-tagging as
+            // a baseball/softball play.
+            if clip.club != nil { clip.club = nil }
         } else {
             clip.playResult = nil
         }
@@ -326,6 +331,7 @@ struct PlayResultEditorView: View {
             } else {
                 clip.playResult = nil
             }
+            clip.club = prevClub
             clip.isHighlight = prevHighlight
             Haptics.warning()
             errorMessage = "Could not save play result. Please try again."

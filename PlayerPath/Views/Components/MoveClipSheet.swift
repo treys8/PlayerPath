@@ -206,7 +206,7 @@ struct MoveClipSheet: View {
                         } label: {
                             HStack {
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text("vs \(game.opponent)")
+                                    Text(game.opponentLabel)
                                         .font(.bodyLarge)
                                         .foregroundColor(.primary)
                                     if let date = game.date {

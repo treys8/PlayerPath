@@ -196,7 +196,7 @@ struct PhotoHeroCell: View {
             }
             HStack(spacing: 6) {
                 if let game = photo.game {
-                    Text("vs \(game.opponent)")
+                    Text(game.opponentLabel)
                 } else if photo.practice != nil {
                     Text("Practice")
                 }

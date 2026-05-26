@@ -13,7 +13,7 @@ import Combine
 struct GamesView: View {
     let athlete: Athlete?
     @Environment(\.modelContext) private var modelContext
-    @Environment(\.activeSport) private var activeSport
+    private var activeSport: Season.SportType { athlete?.sportType ?? .baseball }
 
     private var isGolf: Bool { activeSport == .golf }
     private var unitNoun: String { isGolf ? "tournament" : "game" }
@@ -461,7 +461,7 @@ struct GamesView: View {
                         onClearFilters: clearAllFilters
                     )
                 } else {
-                    EmptyGamesView {
+                    EmptyGamesView(isGolf: isGolf) {
                         handleAddGame()
                     }
                 }
@@ -485,6 +485,12 @@ struct GamesView: View {
             .navigationBarTitleDisplayMode(.large)
             .searchable(text: $searchText, prompt: searchPrompt)
             .toolbar {
+                if let athlete {
+                    ToolbarItem(placement: .principal) {
+                        SportContextChip(athlete: athlete)
+                    }
+                }
+
                 ToolbarItem(placement: .primaryAction) {
                     Button(action: { handleAddGame() }) {
                         Image(systemName: "plus")

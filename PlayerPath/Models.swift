@@ -73,6 +73,14 @@ final class User {
         self.role = role
         self.createdAt = Date()
     }
+
+    /// Subscription slots consumed against the tier's `athleteLimit`. Linked
+    /// sport-variant profiles (same `personGroupID`) count as ONE slot;
+    /// pre-V24 athletes (nil group) fall back to their `id` and behave like
+    /// singletons. This is the canonical count for all tier-limit gates.
+    var athleteSlotsUsed: Int {
+        Set((athletes ?? []).map { $0.personGroupID ?? $0.id }).count
+    }
 }
 
 

@@ -24,7 +24,7 @@ struct DashboardView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.activeSport) private var activeSport
+    private var activeSport: Season.SportType { athlete.sportType }
 
     @StateObject private var viewModel: GamesDashboardViewModel
     @ObservedObject private var activityNotifService = ActivityNotificationService.shared
@@ -139,9 +139,14 @@ struct DashboardView: View {
         .navigationTitle(athlete.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                SportContextChip(athlete: athlete)
+            }
             ToolbarItem(placement: .principal) {
                 Menu {
-                    // Show all athletes with checkmark for current
+                    // Show all athletes with checkmark for current. Each entry
+                    // carries a sport icon so same-named spinoffs (e.g. two
+                    // "Zain" profiles in different sports) are distinguishable.
                     ForEach((user.athletes ?? []).sorted(by: { $0.name < $1.name })) { ath in
                         Button {
                             // Switch to this athlete
@@ -152,11 +157,20 @@ struct DashboardView: View {
                             Haptics.light()
                             athletePickerTip.invalidate(reason: .actionPerformed)
                         } label: {
-                            HStack {
-                                Text(ath.name)
-                                if ath.id == athlete.id {
-                                    Image(systemName: "checkmark")
+                            Label {
+                                HStack(spacing: 6) {
+                                    Text(ath.name)
+                                    Text("·")
+                                        .foregroundStyle(.secondary)
+                                    Text(ath.sportType.displayName)
+                                        .foregroundStyle(.secondary)
+                                    if ath.id == athlete.id {
+                                        Spacer(minLength: 8)
+                                        Image(systemName: "checkmark")
+                                    }
                                 }
+                            } icon: {
+                                Image(systemName: ath.sportType.icon)
                             }
                         }
                     }
@@ -180,7 +194,6 @@ struct DashboardView: View {
             }
         }
         .task {
-            viewModel.activeSport = activeSport
             await viewModel.refresh()
         }
         .onAppear {
@@ -199,13 +212,6 @@ struct DashboardView: View {
             updateCachedStats()
         }
         .onChange(of: athlete.photos?.count) { _, _ in
-            updateCachedStats()
-        }
-        .onChange(of: activeSport) { _, newSport in
-            // Sport toggle: rescope dashboard totals + cached counts so the
-            // management cards reflect the same filtered set the user lands on.
-            viewModel.activeSport = newSport
-            Task { await viewModel.refresh() }
             updateCachedStats()
         }
         .sheet(isPresented: $showingSeasons) {

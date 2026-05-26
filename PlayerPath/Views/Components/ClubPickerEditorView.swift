@@ -151,7 +151,15 @@ struct ClubPickerEditorView: View {
 
     private func saveChanges() {
         let prevClub = clip.club
+        let prevPlayResult = clip.playResult
         clip.club = selectedClub
+        // Either/or invariant: a clip is tagged with EITHER a PlayResult OR
+        // a Club. Detach the stale PlayResult relationship — matches the
+        // PlayResultEditorView pattern. PlayResult models aren't queried
+        // independently anywhere, so orphans are invisible to stats.
+        if selectedClub != nil, prevPlayResult != nil {
+            clip.playResult = nil
+        }
         clip.needsSync = true
 
         do {
@@ -160,6 +168,7 @@ struct ClubPickerEditorView: View {
             dismiss()
         } catch {
             clip.club = prevClub
+            clip.playResult = prevPlayResult
             Haptics.warning()
             errorMessage = "Could not save club tag. Please try again."
             showingError = true

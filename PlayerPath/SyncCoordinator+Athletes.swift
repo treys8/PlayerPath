@@ -188,6 +188,10 @@ extension SyncCoordinator {
                        local.trackStatsEnabled != remoteTrackStats {
                         local.trackStatsEnabled = remoteTrackStats; changed = true
                     }
+                    let remoteGroupID = remoteData.personGroupID.flatMap(UUID.init(uuidString:))
+                    if local.personGroupID != remoteGroupID {
+                        local.personGroupID = remoteGroupID; changed = true
+                    }
                     if local.version != remoteData.version { local.version = remoteData.version; changed = true }
                     if changed {
                         local.lastSyncDate = Date()
@@ -210,6 +214,7 @@ extension SyncCoordinator {
                 newAthlete.needsSync = false
                 newAthlete.version = remoteData.version
                 newAthlete.trackStatsEnabled = remoteData.trackStatsEnabled ?? true
+                newAthlete.personGroupID = remoteData.personGroupID.flatMap(UUID.init(uuidString:))
                 // Mirror the update-branch decode so primaryRole also propagates
                 // on first sync to a new device (without this, role silently
                 // defaults to .batter here while the update branch writes it).

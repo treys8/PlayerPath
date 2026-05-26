@@ -277,9 +277,11 @@ struct AddAthleteView: View {
             return
         }
 
-        // Enforce tier limit using live StoreKit tier (not stale SwiftData user.tier)
+        // Enforce tier limit using live StoreKit tier (not stale SwiftData user.tier).
+        // Use athleteSlotsUsed (deduped by personGroupID) so linked sport-variant
+        // profiles count as one slot.
         let liveTier = authManager.currentTier
-        let currentCount = (user.athletes ?? []).count
+        let currentCount = user.athleteSlotsUsed
         guard currentCount < liveTier.athleteLimit else {
             let upgradeMessage: String
             switch liveTier {

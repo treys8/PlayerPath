@@ -28,7 +28,7 @@ struct StatisticsView: View {
     }
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.modelContext) private var modelContext
-    @Environment(\.activeSport) private var activeSport
+    private var activeSport: Season.SportType { athlete?.sportType ?? .baseball }
     @State private var activeSheet: ActiveSheet?
     @State private var selectedSeasonFilter: String? = nil // nil = All Seasons (Career)
 
@@ -90,6 +90,11 @@ struct StatisticsView: View {
             .navigationTitle("Statistics")
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
+                if let athlete {
+                    ToolbarItem(placement: .principal) {
+                        SportContextChip(athlete: athlete)
+                    }
+                }
                 if statistics != nil {
                     // View Charts button — baseball/softball-only (StatisticsChartsView
                     // is hard-coded to batting/pitching metrics).

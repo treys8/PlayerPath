@@ -3055,10 +3055,18 @@ export const enforceAthleteLimit = functions.firestore
       };
       const limit = tierLimits[tier] ?? 1;
 
-      // Count existing athletes (excluding soft-deleted ones)
+      // Count existing athletes (excluding soft-deleted ones). Linked
+      // sport-variant profiles share a `personGroupID` and count as ONE
+      // slot — dedup via Set. Pre-V24 athletes lack the field; fall back
+      // to the doc ID so they behave like singletons.
       const athletesSnap = await db.collection('users').doc(uid)
         .collection('athletes').where('isDeleted', '!=', true).get();
-      const count = athletesSnap.size;
+      const personGroups = new Set<string>(
+        athletesSnap.docs.map((d) =>
+          (d.data().personGroupID as string | undefined) ?? d.id
+        )
+      );
+      const count = personGroups.size;
 
       if (count > limit) {
         console.warn(

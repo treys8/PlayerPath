@@ -24,13 +24,6 @@ final class GamesDashboardViewModel: ObservableObject {
     @Published private(set) var totalHighlights: Int = 0
     @Published private(set) var isLoading: Bool = false
 
-    /// Sport context driving the dashboard. Set by `DashboardView` from
-    /// `@Environment(\.activeSport)`. Drives `totalGames`/`totalVideos`/recents
-    /// so the management cards' subtitles match what users see when they tap
-    /// through to Games/Videos/etc. Items with no season pass through under
-    /// both sports — same rule as the VideoClipsView / Photos / Practices filters.
-    var activeSport: Season.SportType = .baseball
-
     // MARK: - Private Properties
 
     private let athlete: Athlete
@@ -67,17 +60,8 @@ final class GamesDashboardViewModel: ObservableObject {
         let currentAthlete = latestAthlete()
 
         // Use athlete relationships - more reliable than FetchDescriptor for newly created objects.
-        // Filter by activeSport so dashboard card totals/recents match the
-        // sport-scoped lists the user lands on when tapping through. Seasonless
-        // items pass through under both sports.
-        let athleteGames = (currentAthlete.games ?? []).filter { game in
-            guard let season = game.season else { return true }
-            return season.sport == activeSport
-        }
-        let athleteVideos = (currentAthlete.videoClips ?? []).filter { clip in
-            guard let season = clip.season else { return true }
-            return season.sport == activeSport
-        }
+        let athleteGames = currentAthlete.games ?? []
+        let athleteVideos = currentAthlete.videoClips ?? []
 
         #if DEBUG
         print("🔄 Dashboard: Refreshed - \(athleteGames.count) games, \(athleteVideos.count) videos")

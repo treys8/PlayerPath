@@ -183,8 +183,19 @@ extension SyncCoordinator {
                let remoteDate = remoteGame.date,
                !remoteGame.opponent.trimmingCharacters(in: .whitespaces).isEmpty {
                 let calendar = Calendar.current
+                let remoteSport = parentSeason?.sport
                 let matchesNaturalKey: (Game) -> Bool = { game in
-                    game.athlete?.id == athlete.id
+                    // Sport-aware dedup: a golf "at Pebble Beach" round and a
+                    // baseball "vs Pebble Beach" game on the same day must
+                    // NOT collapse into one. When either side has no season
+                    // yet, fall through and use opponent + date alone — the
+                    // common case where dedup actually fires.
+                    if let localSport = game.season?.sport,
+                       let remoteSport,
+                       localSport != remoteSport {
+                        return false
+                    }
+                    return game.athlete?.id == athlete.id
                         && game.opponent.localizedCaseInsensitiveCompare(remoteGame.opponent) == .orderedSame
                         && (game.date.map { calendar.isDate($0, inSameDayAs: remoteDate) } ?? false)
                 }

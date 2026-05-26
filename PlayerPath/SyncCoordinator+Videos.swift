@@ -204,8 +204,16 @@ extension SyncCoordinator {
 
                 localClip.isHighlight = remoteVideo.isHighlight
                 localClip.note = remoteVideo.note
-                if let rawValue = remoteVideo.playResultRawValue,
-                   let playResultType = PlayResultType(rawValue: rawValue) {
+                // Either/or invariant: a clip is tagged with EITHER a PlayResult
+                // (baseball/softball) OR a Club (golf), never both. If the
+                // remote has a club, detach any local PlayResult to prevent
+                // double-counting in stats recalc. Matches PlayResultEditorView
+                // — orphaned PlayResults aren't queried independently anywhere,
+                // so leaving them un-deleted is the safer pattern.
+                if remoteVideo.club != nil {
+                    localClip.playResult = nil
+                } else if let rawValue = remoteVideo.playResultRawValue,
+                          let playResultType = PlayResultType(rawValue: rawValue) {
                     if let existing = localClip.playResult {
                         existing.type = playResultType
                     } else {
@@ -291,8 +299,10 @@ extension SyncCoordinator {
                 newClip.needsSync = false
                 newClip.athlete = athlete
 
-                // Reconstruct PlayResult from the stored raw value
-                if let rawValue = remoteVideo.playResultRawValue,
+                // Either/or invariant: skip PlayResult reconstruction when the
+                // remote carries a club (golf tag) — see merge path above.
+                if remoteVideo.club == nil,
+                   let rawValue = remoteVideo.playResultRawValue,
                    let playResultType = PlayResultType(rawValue: rawValue) {
                     let playResult = PlayResult(type: playResultType)
                     newClip.playResult = playResult

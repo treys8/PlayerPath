@@ -323,7 +323,7 @@ struct SeasonGameRow: View {
                 .frame(width: 24)
             
             VStack(alignment: .leading, spacing: 2) {
-                Text("vs \(game.opponent)")
+                Text(game.opponentLabel)
                     .font(.labelLarge)
 
                 if let date = game.date {

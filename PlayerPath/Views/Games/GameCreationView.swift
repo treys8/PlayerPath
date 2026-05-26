@@ -18,9 +18,9 @@ struct GolfRoundDetails: Equatable {
 
 struct GameCreationView: View {
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.activeSport) private var activeSport
     let athlete: Athlete?
     let onSave: (String, Date, Bool, Season?, GolfRoundDetails?, String?) -> Void
+    private var activeSport: Season.SportType { athlete?.sportType ?? .baseball }
 
     @State private var opponent = ""
     @State private var date = Date()

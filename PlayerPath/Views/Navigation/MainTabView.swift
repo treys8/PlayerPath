@@ -50,25 +50,9 @@ struct MainTabView: View {
     @State private var videosAthleteID: UUID?
     @State private var statsAthleteID: UUID?
 
-    // Active sport context. Drives sport-aware tab labels and filters in the
-    // Games / Stats / Add Game surfaces. Source of truth: athlete's seasons.
-    // For single-sport athletes the toggle is hidden; for multi-sport athletes
-    // it appears above the tab bar.
-    @State private var activeSport: Season.SportType = .baseball
-
-    /// Sports represented by this athlete's seasons, sorted alphabetically.
-    /// Falls back to the athlete's primary-sport hint when no seasons exist.
-    private var availableSports: [Season.SportType] {
-        let set = Set((selectedAthlete.seasons ?? []).map(\.sport))
-        let sorted = set.sorted { $0.rawValue < $1.rawValue }
-        if !sorted.isEmpty { return sorted }
-        if let hint = Season.SportType(rawValue: (selectedAthlete.sport ?? .baseball).rawValue.capitalized) {
-            return [hint]
-        }
-        return [.baseball]
-    }
-
-    private var isGolfActive: Bool { activeSport == .golf }
+    // Tab chrome reads sport directly from the athlete's primary `sport`.
+    // One sport per athlete — multi-sport athletes use separate profiles.
+    private var isGolfActive: Bool { selectedAthlete.sportType == .golf }
     private var gamesTabLabel: String { isGolfActive ? "Tournaments" : "Games" }
     private var gamesTabIcon: String { isGolfActive ? "figure.golf" : "baseball.fill" }
 
@@ -153,9 +137,6 @@ struct MainTabView: View {
                 videosAthleteID = videosAthleteID ?? selectedAthlete.id
                 statsAthleteID = statsAthleteID ?? selectedAthlete.id
 
-                // Resolve initial active sport from persisted choice or athlete state.
-                activeSport = ActiveSportStore.resolve(for: selectedAthlete, available: availableSports)
-
                 // Run heavy one-time setup only once per app launch
                 guard !hasRunInitialSetup else { return }
                 hasRunInitialSetup = true
@@ -189,11 +170,6 @@ struct MainTabView: View {
             }
             .onChange(of: selectedAthlete.id) { _, _ in
                 refreshAllTabAthleteIDs()
-                // Switching athletes also switches their persisted sport context.
-                activeSport = ActiveSportStore.resolve(for: selectedAthlete, available: availableSports)
-            }
-            .onChange(of: activeSport) { _, newValue in
-                ActiveSportStore.save(newValue, for: selectedAthlete.id)
             }
             .onChange(of: authManager.currentTier) { _, newTier in
                 athleteDowngradeManager.evaluate(tier: newTier)
@@ -421,36 +397,24 @@ struct MainTabView: View {
     
     @ViewBuilder
     private var tabViewContent: some View {
-        VStack(spacing: 0) {
-            if availableSports.count > 1 {
-                SportTogglePicker(
-                    activeSport: $activeSport,
-                    availableSports: availableSports
-                )
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal)
-                .padding(.vertical, 6)
+        if #available(iOS 18.0, *), horizontalSizeClass == .regular {
+            TabView(selection: $selectedTab) {
+                homeTab
+                gamesTab
+                videosTab
+                statsTab
+                moreTab
             }
-            if #available(iOS 18.0, *), horizontalSizeClass == .regular {
-                TabView(selection: $selectedTab) {
-                    homeTab
-                    gamesTab
-                    videosTab
-                    statsTab
-                    moreTab
-                }
-                .tabViewStyle(.sidebarAdaptable)
-            } else {
-                TabView(selection: $selectedTab) {
-                    homeTab
-                    gamesTab
-                    videosTab
-                    statsTab
-                    moreTab
-                }
+            .tabViewStyle(.sidebarAdaptable)
+        } else {
+            TabView(selection: $selectedTab) {
+                homeTab
+                gamesTab
+                videosTab
+                statsTab
+                moreTab
             }
         }
-        .environment(\.activeSport, activeSport)
     }
 
     private var homeTab: some View {

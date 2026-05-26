@@ -8,13 +8,11 @@
 import SwiftUI
 
 struct EmptyGamesView: View {
+    let isGolf: Bool
     let onAddGame: () -> Void
 
-    @Environment(\.activeSport) private var activeSport
     @State private var isAnimating = false
     @State private var floatOffset: CGFloat = 0
-
-    private var isGolf: Bool { activeSport == .golf }
     private var heroIcon: String { isGolf ? "figure.golf" : "baseball.diamond.bases" }
     private var titleText: String { isGolf ? "No Tournaments Yet" : "No Games Yet" }
     private var subtitleText: String {

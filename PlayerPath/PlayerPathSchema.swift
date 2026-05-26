@@ -416,12 +416,27 @@ enum SchemaV23: VersionedSchema {
     static var models: [any PersistentModel.Type] { SchemaV1.models }
 }
 
+// MARK: - Schema V24 (2026-05-26 — Athlete sport-variant grouping)
+//
+//  Changes from V23:
+//    • Athlete.personGroupID (UUID?) added — links sport-variant profiles
+//      (e.g. Zain-Baseball and Zain-Golf) so they share ONE subscription
+//      slot. Nil for existing athletes; slot dedup falls back to `id`, so
+//      pre-migration data behaves identically to today.
+//
+//  Optional with nil default → lightweight migration is sufficient.
+
+enum SchemaV24: VersionedSchema {
+    static var versionIdentifier = Schema.Version(24, 0, 0)
+    static var models: [any PersistentModel.Type] { SchemaV1.models }
+}
+
 // MARK: - Migration Plan
 
 enum PlayerPathMigrationPlan: SchemaMigrationPlan {
     /// All schema versions in chronological order (oldest first).
     static var schemas: [any VersionedSchema.Type] {
-        [SchemaV1.self, SchemaV2.self, SchemaV3.self, SchemaV4.self, SchemaV5.self, SchemaV6.self, SchemaV7.self, SchemaV8.self, SchemaV9.self, SchemaV10.self, SchemaV11.self, SchemaV12.self, SchemaV13.self, SchemaV14.self, SchemaV15.self, SchemaV16.self, SchemaV17.self, SchemaV18.self, SchemaV19.self, SchemaV20.self, SchemaV21.self, SchemaV22.self, SchemaV23.self]
+        [SchemaV1.self, SchemaV2.self, SchemaV3.self, SchemaV4.self, SchemaV5.self, SchemaV6.self, SchemaV7.self, SchemaV8.self, SchemaV9.self, SchemaV10.self, SchemaV11.self, SchemaV12.self, SchemaV13.self, SchemaV14.self, SchemaV15.self, SchemaV16.self, SchemaV17.self, SchemaV18.self, SchemaV19.self, SchemaV20.self, SchemaV21.self, SchemaV22.self, SchemaV23.self, SchemaV24.self]
     }
 
     /// Migration stages between consecutive versions.
@@ -448,7 +463,8 @@ enum PlayerPathMigrationPlan: SchemaMigrationPlan {
             .lightweight(fromVersion: SchemaV19.self, toVersion: SchemaV20.self),
             .lightweight(fromVersion: SchemaV20.self, toVersion: SchemaV21.self),
             .lightweight(fromVersion: SchemaV21.self, toVersion: SchemaV22.self),
-            .lightweight(fromVersion: SchemaV22.self, toVersion: SchemaV23.self)
+            .lightweight(fromVersion: SchemaV22.self, toVersion: SchemaV23.self),
+            .lightweight(fromVersion: SchemaV23.self, toVersion: SchemaV24.self)
         ]
     }
 }

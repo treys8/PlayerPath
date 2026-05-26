@@ -37,7 +37,7 @@ extension Practice {
 struct PracticesView: View {
     let athlete: Athlete?
     @Environment(\.modelContext) private var modelContext
-    @Environment(\.activeSport) private var activeSport
+    private var activeSport: Season.SportType { athlete?.sportType ?? .baseball }
     @State private var viewModel = PracticesViewModel()
     @State private var navigateToPractice: Practice?
     @State private var showingAddPractice = false
@@ -241,7 +241,6 @@ struct PracticesView: View {
     var body: some View {
         practicesContent
         .task {
-            viewModel.activeSport = activeSport
             viewModel.update(practices: athlete?.practices ?? [])
         }
         .onAppear {
@@ -251,12 +250,6 @@ struct PracticesView: View {
         .onChange(of: viewModel.selectedSeasonFilter) { _, _ in viewModel.resetPagination(); viewModel.refilter() }
         .onChange(of: viewModel.sortOrder) { _, _ in viewModel.refilter() }
         .onChange(of: athlete?.practices?.count) { _, _ in viewModel.update(practices: athlete?.practices ?? []) }
-        .onChange(of: activeSport) { _, newValue in
-            // Sport toggle: re-scope the visible practices and the season dropdown.
-            viewModel.activeSport = newValue
-            viewModel.resetPagination()
-            viewModel.refilter()
-        }
         .navigationTitle("Practices")
         .navigationBarTitleDisplayMode(.large)
         .searchable(text: $viewModel.searchText, placement: .navigationBarDrawer(displayMode: .automatic))

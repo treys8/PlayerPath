@@ -389,7 +389,7 @@ struct VideoClipCard: View {
     @ViewBuilder
     private var primaryLabel: some View {
         if let game = video.game {
-            Text("vs \(game.opponent)")
+            Text(game.opponentLabel)
                 .font(.bodySmall)
                 .foregroundColor(.brandNavy)
         } else if video.practice != nil {

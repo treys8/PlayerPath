@@ -218,7 +218,7 @@ struct ShareToCoachFolderView: View {
                 Text("Notes (Optional)")
             } footer: {
                 if let game = clip.game {
-                    Text("Linked to: vs \(game.opponent)")
+                    Text("Linked to: \(game.opponentLabel)")
                 } else if clip.practice != nil {
                     Text("Linked to: Practice")
                 }

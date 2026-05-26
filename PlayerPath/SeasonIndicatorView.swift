@@ -55,7 +55,7 @@ struct SeasonIndicatorView: View {
 struct SeasonRecommendationBanner: View {
     let athlete: Athlete
     let recommendation: SeasonManager.SeasonRecommendation
-    @Environment(\.activeSport) private var activeSport
+    private var activeSport: Season.SportType { athlete.sportType }
     @State private var showingSeasonManagement = false
     @State private var dismissed = false
 

@@ -80,6 +80,13 @@ final class Athlete {
     /// their current behavior after migration.
     var trackStatsEnabled: Bool = true
 
+    /// Links sport-variant profiles for the same human (e.g. Zain-Baseball
+    /// and Zain-Golf). Athletes sharing a `personGroupID` count as ONE slot
+    /// against the user's subscription tier. Nil for athletes created before
+    /// the spinoff feature or for solo profiles — slot dedup falls back to
+    /// `id`, so nil-grouped athletes behave like singletons.
+    var personGroupID: UUID?
+
     /// The currently active season for this athlete (only one can be active at a time)
     var activeSeason: Season? {
         seasons?.first(where: { $0.isActive })
@@ -90,6 +97,13 @@ final class Athlete {
         (seasons ?? [])
             .filter { !$0.isActive }
             .sorted { ($0.startDate ?? Date.distantPast) > ($1.startDate ?? Date.distantPast) }
+    }
+
+    /// Athlete sport as `Season.SportType`. Bridges the two enums (`Sport`
+    /// stores lowercase raw values, `SportType` stores capitalized) so callers
+    /// don't repeat the conversion.
+    var sportType: Season.SportType {
+        Season.SportType(rawValue: (sport ?? .baseball).rawValue.capitalized) ?? .baseball
     }
 
     init(name: String) {
@@ -176,6 +190,7 @@ final class Athlete {
             "primaryRole": primaryRole.rawValue,
             "sport": (sport ?? .baseball).rawValue,
             "trackStatsEnabled": trackStatsEnabled,
+            "personGroupID": personGroupID?.uuidString ?? NSNull(),
             "createdAt": createdAt ?? Date(),
             "updatedAt": Date(),
             "version": version,

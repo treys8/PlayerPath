@@ -153,7 +153,7 @@ struct ProfileView: View {
     /// SwiftData user.tier, which is only written at purchase time and becomes stale
     /// when a subscription expires or renews outside the paywall.
     private var canAddMoreAthletes: Bool {
-        (user.athletes ?? []).count < authManager.currentTier.athleteLimit
+        user.athleteSlotsUsed < authManager.currentTier.athleteLimit
     }
     
     // MARK: - View Components
@@ -479,7 +479,7 @@ struct ProfileView: View {
             }
             .tint(Color.brandNavy)
             
-            if (user.athletes ?? []).count >= authManager.currentTier.athleteLimit {
+            if user.athleteSlotsUsed >= authManager.currentTier.athleteLimit {
                 HStack {
                     Image(systemName: "crown.fill")
                         .foregroundColor(.yellow)
