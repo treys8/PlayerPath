@@ -262,6 +262,37 @@ final class AnalyticsService {
         ])
     }
 
+    // MARK: - Onboarding Events
+
+    func trackOnboardingStarted(role: String) {
+        logEvent(.onboardingStarted, parameters: [
+            "role": role
+        ])
+    }
+
+    func trackOnboardingStepView(role: String, step: Int, stepName: String) {
+        logEvent(.onboardingStepView, parameters: [
+            "role": role,
+            "step": step,
+            "step_name": stepName
+        ])
+    }
+
+    func trackOnboardingCompleted(role: String) {
+        logEvent(.onboardingCompleted, parameters: [
+            "role": role
+        ])
+    }
+
+    /// `lastStep` is the highest-numbered step the user saw before bailing.
+    /// 0 means they didn't get past the welcome screen.
+    func trackOnboardingAbandoned(role: String, lastStep: Int) {
+        logEvent(.onboardingAbandoned, parameters: [
+            "role": role,
+            "last_step": lastStep
+        ])
+    }
+
     // MARK: - Help & Support Events
 
     func trackSupportContactSubmitted(category: String) {
@@ -391,6 +422,12 @@ enum AnalyticsEvent: String {
     case paywallPurchaseFailed = "paywall_purchase_failed"
     case subscriptionStarted = "subscription_started"
     case subscriptionCancelled = "subscription_cancelled"
+
+    // Onboarding
+    case onboardingStarted = "onboarding_started"
+    case onboardingStepView = "onboarding_step_view"
+    case onboardingCompleted = "onboarding_completed"
+    case onboardingAbandoned = "onboarding_abandoned"
 
     // Help & Support
     case helpArticleViewed = "help_article_viewed"

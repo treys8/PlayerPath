@@ -15,6 +15,9 @@ struct AthleteOnboardingFlow: View {
     @State private var isCompleting = false
     @State private var errorMessage: String?
     @State private var showingError = false
+    /// Tracks whether onboarding finished successfully so onDisappear can
+    /// distinguish completion from abandonment.
+    @State private var didComplete = false
 
     var body: some View {
         NavigationStack {
@@ -139,6 +142,15 @@ struct AthleteOnboardingFlow: View {
                 Text(errorMessage ?? "")
             }
         }
+        .onAppear {
+            AnalyticsService.shared.trackOnboardingStarted(role: "athlete")
+            AnalyticsService.shared.trackOnboardingStepView(role: "athlete", step: 0, stepName: "welcome")
+        }
+        .onDisappear {
+            if !didComplete {
+                AnalyticsService.shared.trackOnboardingAbandoned(role: "athlete", lastStep: 0)
+            }
+        }
     }
 
     private func completeOnboarding() {
@@ -148,6 +160,8 @@ struct AthleteOnboardingFlow: View {
         Task {
             do {
                 try await authManager.completeOnboarding(in: modelContext, resetNewUserFlag: false)
+                didComplete = true
+                AnalyticsService.shared.trackOnboardingCompleted(role: "athlete")
                 Haptics.medium()
             } catch {
                 modelContext.rollback()

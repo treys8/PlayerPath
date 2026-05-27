@@ -18,7 +18,11 @@ struct CoachOnboardingFlow: View {
     @State private var isCompleting = false
     @State private var errorMessage: String?
     @State private var showingError = false
+    @State private var didComplete = false
+    @State private var furthestStepReached = 0
     private let totalPages = 3
+
+    private static let coachStepNames = ["welcome", "how_it_works", "ready"]
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -60,6 +64,33 @@ struct CoachOnboardingFlow: View {
         } message: {
             Text(errorMessage ?? "")
         }
+        .onAppear {
+            AnalyticsService.shared.trackOnboardingStarted(role: "coach")
+            AnalyticsService.shared.trackOnboardingStepView(
+                role: "coach",
+                step: 0,
+                stepName: Self.coachStepNames[0]
+            )
+        }
+        .onChange(of: currentPage) { _, newPage in
+            if newPage > furthestStepReached {
+                furthestStepReached = newPage
+            }
+            let safeIndex = max(0, min(newPage, Self.coachStepNames.count - 1))
+            AnalyticsService.shared.trackOnboardingStepView(
+                role: "coach",
+                step: newPage,
+                stepName: Self.coachStepNames[safeIndex]
+            )
+        }
+        .onDisappear {
+            if !didComplete {
+                AnalyticsService.shared.trackOnboardingAbandoned(
+                    role: "coach",
+                    lastStep: furthestStepReached
+                )
+            }
+        }
     }
 
     private func completeCoachOnboarding() {
@@ -70,6 +101,8 @@ struct CoachOnboardingFlow: View {
         Task {
             do {
                 try await authManager.completeOnboarding(in: modelContext, resetNewUserFlag: true)
+                didComplete = true
+                AnalyticsService.shared.trackOnboardingCompleted(role: "coach")
                 Haptics.medium()
             } catch {
                 modelContext.rollback()
