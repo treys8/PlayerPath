@@ -392,6 +392,10 @@ struct ImprovedPaywallView: View {
         if selectedTier != .free && storeManager.currentTier > selectedTier {
             return "Included in \(storeManager.currentTier.displayName)"
         }
+        if selectedTier != .free, let product = selectedProduct,
+           storeManager.isEligibleForIntroOffer(product) {
+            return "Start 7-Day Free Trial"
+        }
         switch selectedTier {
         case .free: return "Keep Free"
         case .plus: return "Get Plus"
@@ -422,9 +426,15 @@ struct ImprovedPaywallView: View {
     private var termsSection: some View {
         VStack(spacing: 6) {
             if selectedTier != .free, let product = selectedProduct {
-                Text("\(product.displayName) — \(product.displayPrice) / \(isAnnual ? "1 year" : "1 month")")
-                    .font(.labelMedium)
-                    .foregroundStyle(.primary)
+                if storeManager.isEligibleForIntroOffer(product) {
+                    Text("7 days free, then \(product.displayPrice) / \(isAnnual ? "1 year" : "1 month"). Cancel anytime.")
+                        .font(.labelMedium)
+                        .foregroundStyle(.primary)
+                } else {
+                    Text("\(product.displayName) — \(product.displayPrice) / \(isAnnual ? "1 year" : "1 month")")
+                        .font(.labelMedium)
+                        .foregroundStyle(.primary)
+                }
             }
             Text("Subscription automatically renews unless cancelled at least 24 hours before the end of the current period. Payment will be charged to your Apple ID account at confirmation of purchase. Manage or cancel anytime in Settings > Subscriptions.")
                 .font(.bodySmall)
