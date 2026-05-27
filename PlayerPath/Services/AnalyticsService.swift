@@ -210,6 +210,51 @@ final class AnalyticsService {
         ])
     }
 
+    /// Fires when the paywall closes WITHOUT a successful purchase. The
+    /// shown→dismissed delta is the top of the conversion funnel.
+    func trackPaywallDismissed(source: String, selectedTier: String, isAnnual: Bool) {
+        logEvent(.paywallDismissed, parameters: [
+            "source": source,
+            "selected_tier": selectedTier,
+            "period": isAnnual ? "annual" : "monthly"
+        ])
+    }
+
+    /// Fires the moment the user taps the purchase CTA, before StoreKit shows
+    /// its system sheet. Used as the denominator for purchase-completion rate.
+    func trackPaywallPurchaseAttempted(source: String, productID: String, tier: String, isAnnual: Bool) {
+        logEvent(.paywallPurchaseAttempted, parameters: [
+            "source": source,
+            "product_id": productID,
+            "tier": tier,
+            "period": isAnnual ? "annual" : "monthly"
+        ])
+    }
+
+    func trackPaywallPurchaseSucceeded(source: String, productID: String, tier: String, isAnnual: Bool, price: String) {
+        logEvent(.paywallPurchaseSucceeded, parameters: [
+            "source": source,
+            "product_id": productID,
+            "tier": tier,
+            "period": isAnnual ? "annual" : "monthly",
+            "price": price
+        ])
+    }
+
+    /// `reason` distinguishes user-cancel from system error so funnel reports
+    /// can exclude cancellations from genuine failure rate.
+    func trackPaywallPurchaseFailed(source: String, productID: String, tier: String, isAnnual: Bool, reason: String, errorCode: String? = nil) {
+        var params: [String: Any] = [
+            "source": source,
+            "product_id": productID,
+            "tier": tier,
+            "period": isAnnual ? "annual" : "monthly",
+            "reason": reason
+        ]
+        if let errorCode { params["error_code"] = errorCode }
+        logEvent(.paywallPurchaseFailed, parameters: params)
+    }
+
     func trackSubscriptionStarted(planType: String, price: String) {
         logEvent(.subscriptionStarted, parameters: [
             "plan_type": planType,
@@ -340,6 +385,10 @@ enum AnalyticsEvent: String {
 
     // Premium
     case paywallShown = "paywall_shown"
+    case paywallDismissed = "paywall_dismissed"
+    case paywallPurchaseAttempted = "paywall_purchase_attempted"
+    case paywallPurchaseSucceeded = "paywall_purchase_succeeded"
+    case paywallPurchaseFailed = "paywall_purchase_failed"
     case subscriptionStarted = "subscription_started"
     case subscriptionCancelled = "subscription_cancelled"
 

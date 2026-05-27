@@ -20,6 +20,18 @@ struct CoachPaywallView: View {
     @State private var showingPrivacyPolicy = false
     @State private var showingPendingAlert = false
     @State private var showingEmailCopied = false
+    @State private var purchaseSucceeded = false
+
+    private let analyticsSource = "coach_paywall"
+
+    private var selectedTierName: String {
+        switch selectedTier {
+        case .free:          return "coach_free"
+        case .instructor:    return "instructor"
+        case .proInstructor: return "pro_instructor"
+        case .academy:       return "academy"
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -63,10 +75,23 @@ struct CoachPaywallView: View {
                 if isPurchasing { LoadingOverlay(message: "Processing purchase...") }
             }
             .task {
+                AnalyticsService.shared.trackPaywallShown(source: analyticsSource)
                 await storeManager.loadProducts()
             }
+            .onDisappear {
+                if !purchaseSucceeded {
+                    AnalyticsService.shared.trackPaywallDismissed(
+                        source: analyticsSource,
+                        selectedTier: selectedTierName,
+                        isAnnual: isAnnual
+                    )
+                }
+            }
             .onChange(of: storeManager.currentCoachTier) { _, newTier in
-                if newTier >= .instructor { dismiss() }
+                if newTier >= .instructor {
+                    purchaseSucceeded = true
+                    dismiss()
+                }
             }
         }
     }
@@ -481,23 +506,64 @@ struct CoachPaywallView: View {
         }()
 
         if let product {
+            AnalyticsService.shared.trackPaywallPurchaseAttempted(
+                source: analyticsSource,
+                productID: product.id,
+                tier: selectedTierName,
+                isAnnual: isAnnual
+            )
             let result = await storeManager.purchase(product)
             switch result {
-            case .failed:
-                // error alert driven by storeManager.error binding
+            case .failed(let error):
+                AnalyticsService.shared.trackPaywallPurchaseFailed(
+                    source: analyticsSource,
+                    productID: product.id,
+                    tier: selectedTierName,
+                    isAnnual: isAnnual,
+                    reason: "failed",
+                    errorCode: String((error as NSError).code)
+                )
                 isPurchasing = false
                 return
             case .cancelled:
+                AnalyticsService.shared.trackPaywallPurchaseFailed(
+                    source: analyticsSource,
+                    productID: product.id,
+                    tier: selectedTierName,
+                    isAnnual: isAnnual,
+                    reason: "cancelled"
+                )
                 isPurchasing = false
                 return
             case .pending:
+                AnalyticsService.shared.trackPaywallPurchaseFailed(
+                    source: analyticsSource,
+                    productID: product.id,
+                    tier: selectedTierName,
+                    isAnnual: isAnnual,
+                    reason: "pending"
+                )
                 isPurchasing = false
                 showingPendingAlert = true
                 return
             case .success:
+                AnalyticsService.shared.trackPaywallPurchaseSucceeded(
+                    source: analyticsSource,
+                    productID: product.id,
+                    tier: selectedTierName,
+                    isAnnual: isAnnual,
+                    price: product.displayPrice
+                )
                 // dismiss handled by onChange(of: currentCoachTier)
                 break
             case .unknown:
+                AnalyticsService.shared.trackPaywallPurchaseFailed(
+                    source: analyticsSource,
+                    productID: product.id,
+                    tier: selectedTierName,
+                    isAnnual: isAnnual,
+                    reason: "unknown"
+                )
                 break
             }
         }

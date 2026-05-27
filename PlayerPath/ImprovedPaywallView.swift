@@ -27,6 +27,19 @@ struct ImprovedPaywallView: View {
     @State private var showingNoRestoreAlert = false
     @State private var hasAppeared = false
     @State private var pendingProductID: String?
+    /// Set to true inside onPurchaseSucceeded so .onDisappear can distinguish
+    /// "user dismissed without buying" from "dismissed after successful purchase".
+    @State private var purchaseSucceeded = false
+
+    private let analyticsSource = "main_app"
+
+    private var selectedTierName: String {
+        switch selectedTier {
+        case .free: return "free"
+        case .plus: return "plus"
+        case .pro:  return "pro"
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -75,11 +88,20 @@ struct ImprovedPaywallView: View {
                 if isPurchasing { LoadingOverlay(message: "Processing purchase...") }
             }
             .task {
-                AnalyticsService.shared.trackPaywallShown(source: "main_app")
+                AnalyticsService.shared.trackPaywallShown(source: analyticsSource)
                 await storeManager.loadProducts()
                 // Set after loadProducts so async entitlement resolution during
                 // load doesn't immediately dismiss the paywall for existing subscribers
                 hasAppeared = true
+            }
+            .onDisappear {
+                if !purchaseSucceeded {
+                    AnalyticsService.shared.trackPaywallDismissed(
+                        source: analyticsSource,
+                        selectedTier: selectedTierName,
+                        isAnnual: isAnnual
+                    )
+                }
             }
             .onChange(of: storeManager.currentTier) { _, newTier in
                 guard hasAppeared else { return }
@@ -486,21 +508,56 @@ struct ImprovedPaywallView: View {
 
             if let product = tierProduct {
                 pendingProductID = product.id
+                AnalyticsService.shared.trackPaywallPurchaseAttempted(
+                    source: analyticsSource,
+                    productID: product.id,
+                    tier: selectedTierName,
+                    isAnnual: isAnnual
+                )
                 let result = await storeManager.purchase(product)
                 switch result {
-                case .failed:
+                case .failed(let error):
+                    AnalyticsService.shared.trackPaywallPurchaseFailed(
+                        source: analyticsSource,
+                        productID: product.id,
+                        tier: selectedTierName,
+                        isAnnual: isAnnual,
+                        reason: "failed",
+                        errorCode: String((error as NSError).code)
+                    )
                     isPurchasing = false
                     return
                 case .cancelled:
+                    AnalyticsService.shared.trackPaywallPurchaseFailed(
+                        source: analyticsSource,
+                        productID: product.id,
+                        tier: selectedTierName,
+                        isAnnual: isAnnual,
+                        reason: "cancelled"
+                    )
                     isPurchasing = false
                     return
                 case .pending:
+                    AnalyticsService.shared.trackPaywallPurchaseFailed(
+                        source: analyticsSource,
+                        productID: product.id,
+                        tier: selectedTierName,
+                        isAnnual: isAnnual,
+                        reason: "pending"
+                    )
                     isPurchasing = false
                     showingPendingAlert = true
                     return
                 case .success:
                     break
                 case .unknown:
+                    AnalyticsService.shared.trackPaywallPurchaseFailed(
+                        source: analyticsSource,
+                        productID: product.id,
+                        tier: selectedTierName,
+                        isAnnual: isAnnual,
+                        reason: "unknown"
+                    )
                     break
                 }
             } else {
@@ -536,8 +593,16 @@ struct ImprovedPaywallView: View {
                 planType: product.id,
                 price: product.displayPrice
             )
+            AnalyticsService.shared.trackPaywallPurchaseSucceeded(
+                source: analyticsSource,
+                productID: product.id,
+                tier: selectedTierName,
+                isAnnual: isAnnual,
+                price: product.displayPrice
+            )
         }
         pendingProductID = nil
+        purchaseSucceeded = true
         // Subscription tier is managed by StoreKit verification + Firestore sync.
         // Do not write tier to local SwiftData — it's the server's source of truth.
         dismiss()
