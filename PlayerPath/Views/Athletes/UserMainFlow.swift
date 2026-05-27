@@ -38,6 +38,10 @@ struct UserMainFlow: View {
     // Quick Actions manager
     @ObservedObject private var quickActionsManager = QuickActionsManager.shared
 
+    // StoreKit win-back: drives the cancellation-reason sheet when the user's
+    // subscription is in grace period or billing retry.
+    @ObservedObject private var storeKitManager = StoreKitManager.shared
+
     // Onboarding (tutorial shown from MainTabView after setup is complete)
 
     init(user: User, isNewUserFlag: Bool, hasCompletedOnboarding: Bool) {
@@ -149,6 +153,15 @@ struct UserMainFlow: View {
             }
         }
         .animation(.easeInOut(duration: 0.3), value: showingAthleteSelection)
+        .sheet(item: Binding(
+            get: { storeKitManager.winBackOpportunity },
+            set: { _ in /* dismissal handled inside the sheet */ }
+        )) { opportunity in
+            WinBackSheet(opportunity: opportunity) {
+                // The sheet itself calls dismissWinBackOpportunity(); this closure
+                // is what triggers SwiftUI to tear down the sheet view.
+            }
+        }
         .overlay(alignment: .top) {
             VStack(spacing: 8) {
                 if showCreationToast {

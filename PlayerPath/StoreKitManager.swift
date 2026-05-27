@@ -43,6 +43,17 @@ class StoreKitManager: ObservableObject {
     /// the product config.
     @Published private(set) var introOfferEligibility: [String: Bool] = [:]
 
+    /// Subscription is past its expiration date but Apple is still honoring it
+    /// during the publisher-grace window (only applies if the subscription
+    /// group is configured for grace periods in App Store Connect).
+    @Published private(set) var isInGracePeriod: Bool = false
+
+    /// When non-nil, the user has a subscription in a recoverable lapse state
+    /// (grace period or billing retry). UserMainFlow observes this to present
+    /// the win-back sheet on app open. Cleared once the user dismisses the
+    /// sheet for this cycle or the subscription resumes.
+    @Published private(set) var winBackOpportunity: WinBackOpportunity?
+
     // MARK: - Private Properties
 
     private var updateListenerTask: Task<Void, Never>?
@@ -238,6 +249,8 @@ class StoreKitManager: ObservableObject {
         // Check billing retry BEFORE applying expiration downgrade.
         // Uses status.state == .inBillingRetryPeriod — the correct StoreKit 2 API.
         var resolvedBillingRetry = false
+        var resolvedGracePeriod = false
+        var lapsingProductID: String?
         var billingRetryCheckSucceeded = false
 
         if !products.isEmpty {
@@ -256,6 +269,11 @@ class StoreKitManager: ObservableObject {
                 for status in statuses {
                     if status.state == .inBillingRetryPeriod {
                         resolvedBillingRetry = true
+                        if lapsingProductID == nil { lapsingProductID = product.id }
+                    }
+                    if status.state == .inGracePeriod {
+                        resolvedGracePeriod = true
+                        if lapsingProductID == nil { lapsingProductID = product.id }
                     }
                 }
             }
@@ -298,11 +316,66 @@ class StoreKitManager: ObservableObject {
         currentTier = resolvedTier
         tierExpirationDate = resolvedTierExpiration
         isInBillingRetryPeriod = resolvedBillingRetry
+        isInGracePeriod = resolvedGracePeriod
         currentCoachTier = resolvedCoachTier
         coachTierExpirationDate = resolvedCoachTierExpiration
 
+        updateWinBackOpportunity(
+            productID: lapsingProductID,
+            inGracePeriod: resolvedGracePeriod,
+            inBillingRetry: resolvedBillingRetry
+        )
+
         await refreshIntroOfferEligibility()
     }
+
+    /// Compute the current `winBackOpportunity`, suppressing it if the user
+    /// has already dismissed the sheet for this product since the last
+    /// "subscription-active" observation. The dismiss marker lives in
+    /// UserDefaults keyed by productID so it survives relaunch but is reset
+    /// when the user resumes a healthy subscription.
+    private func updateWinBackOpportunity(productID: String?, inGracePeriod: Bool, inBillingRetry: Bool) {
+        guard let productID, inGracePeriod || inBillingRetry else {
+            // Healthy state — reset the dismiss flag so a future lapse triggers
+            // a fresh prompt.
+            if winBackOpportunity != nil {
+                winBackOpportunity = nil
+            }
+            UserDefaults.standard.removeObject(forKey: Self.winBackDismissKey)
+            return
+        }
+
+        let dismissedProductID = UserDefaults.standard.string(forKey: Self.winBackDismissKey)
+        if dismissedProductID == productID {
+            winBackOpportunity = nil
+            return
+        }
+
+        let reason: WinBackOpportunity.Reason = inGracePeriod ? .gracePeriod : .billingRetry
+        let isCoachProduct = CoachSubscriptionProduct.allCases.contains { $0.rawValue == productID }
+        let tierName: String = {
+            if isCoachProduct {
+                return currentCoachTier == .proInstructor ? "pro_instructor" : "instructor"
+            }
+            return currentTier == .pro ? "pro" : "plus"
+        }()
+
+        winBackOpportunity = WinBackOpportunity(
+            productID: productID,
+            tierName: tierName,
+            reason: reason
+        )
+    }
+
+    /// Suppresses the win-back sheet for the supplied product until the user
+    /// either renews or transitions to a different SKU.
+    func dismissWinBackOpportunity() {
+        guard let opportunity = winBackOpportunity else { return }
+        UserDefaults.standard.set(opportunity.productID, forKey: Self.winBackDismissKey)
+        winBackOpportunity = nil
+    }
+
+    private static let winBackDismissKey = "winBack_dismissedProductID"
 
     /// Query StoreKit for each product's intro-offer eligibility and cache the
     /// result so the paywall can render synchronously.
@@ -395,6 +468,20 @@ enum PurchaseResult {
     case pending
     case failed(Error)
     case unknown
+}
+
+/// Captures a recoverable subscription lapse so the UI can prompt for a
+/// cancellation reason and offer recovery paths.
+struct WinBackOpportunity: Equatable, Identifiable {
+    enum Reason: String {
+        case gracePeriod = "grace_period"
+        case billingRetry = "billing_retry"
+    }
+    let productID: String
+    let tierName: String
+    let reason: Reason
+
+    var id: String { productID }
 }
 
 enum StoreError: LocalizedError {

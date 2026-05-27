@@ -262,6 +262,34 @@ final class AnalyticsService {
         ])
     }
 
+    // MARK: - Win-Back Events
+
+    func trackWinBackShown(productID: String, tierName: String, reason: String) {
+        logEvent(.winBackShown, parameters: [
+            "product_id": productID,
+            "tier": tierName,
+            "lapse_reason": reason
+        ])
+    }
+
+    func trackWinBackReasonSubmitted(productID: String, tierName: String, reason: String, cancellationReason: String, hasFreeText: Bool) {
+        logEvent(.winBackReasonSubmitted, parameters: [
+            "product_id": productID,
+            "tier": tierName,
+            "lapse_reason": reason,
+            "cancellation_reason": cancellationReason,
+            "has_free_text": hasFreeText
+        ])
+    }
+
+    func trackWinBackDismissed(productID: String, tierName: String, reason: String) {
+        logEvent(.winBackDismissed, parameters: [
+            "product_id": productID,
+            "tier": tierName,
+            "lapse_reason": reason
+        ])
+    }
+
     // MARK: - Onboarding Events
 
     func trackOnboardingStarted(role: String) {
@@ -428,6 +456,11 @@ enum AnalyticsEvent: String {
     case onboardingStepView = "onboarding_step_view"
     case onboardingCompleted = "onboarding_completed"
     case onboardingAbandoned = "onboarding_abandoned"
+
+    // Win-back
+    case winBackShown = "win_back_shown"
+    case winBackReasonSubmitted = "win_back_reason_submitted"
+    case winBackDismissed = "win_back_dismissed"
 
     // Help & Support
     case helpArticleViewed = "help_article_viewed"
