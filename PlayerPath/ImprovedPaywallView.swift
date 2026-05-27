@@ -18,7 +18,7 @@ struct ImprovedPaywallView: View {
 
     // Selection state
     @State private var selectedTier: SubscriptionTier = .plus
-    @State private var isAnnual: Bool = false
+    @State private var isAnnual: Bool = true
 
     @State private var isPurchasing = false
     @State private var showingTerms = false

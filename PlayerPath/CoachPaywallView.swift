@@ -14,7 +14,7 @@ struct CoachPaywallView: View {
     @ObservedObject private var storeManager = StoreKitManager.shared
 
     @State private var selectedTier: CoachSubscriptionTier = .instructor
-    @State private var isAnnual: Bool = false
+    @State private var isAnnual: Bool = true
     @State private var isPurchasing = false
     @State private var showingTerms = false
     @State private var showingPrivacyPolicy = false
