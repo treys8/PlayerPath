@@ -158,12 +158,18 @@ struct AthleteOnboardingFlow: View {
         isCompleting = true
 
         Task {
+            // Optimistically mark complete BEFORE awaiting authManager —
+            // completeOnboarding flips hasCompletedOnboarding mid-await,
+            // which causes AuthenticatedFlow to swap us out for UserMainFlow.
+            // That swap fires .onDisappear, which would otherwise log a
+            // spurious onboarding_abandoned. Rolled back on failure.
+            didComplete = true
             do {
                 try await authManager.completeOnboarding(in: modelContext, resetNewUserFlag: false)
-                didComplete = true
                 AnalyticsService.shared.trackOnboardingCompleted(role: "athlete")
                 Haptics.medium()
             } catch {
+                didComplete = false
                 modelContext.rollback()
                 ErrorHandlerService.shared.handle(error, context: "AthleteOnboarding.completeOnboarding", showAlert: false)
                 errorMessage = "Could not complete setup. Please try again."

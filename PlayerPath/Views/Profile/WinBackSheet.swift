@@ -166,15 +166,21 @@ struct WinBackSheet: View {
     }
 
     private func submitReason() {
-        guard let reason = selectedReason else { return }
-        let trimmed = freeText.trimmingCharacters(in: .whitespacesAndNewlines)
-        AnalyticsService.shared.trackWinBackReasonSubmitted(
-            productID: opportunity.productID,
-            tierName: opportunity.tierName,
-            reason: opportunity.reason.rawValue,
-            cancellationReason: reason.rawValue,
-            hasFreeText: !trimmed.isEmpty
-        )
+        // Log the reason ONLY if the user actually selected one; the primary
+        // CTA ("Update Payment Method") is enabled without a reason because
+        // recovering payment shouldn't be gated on telling us why. The
+        // dismissWinBackOpportunity() call runs either way so the user doesn't
+        // return from Manage Subscriptions to a still-presented sheet.
+        if let reason = selectedReason {
+            let trimmed = freeText.trimmingCharacters(in: .whitespacesAndNewlines)
+            AnalyticsService.shared.trackWinBackReasonSubmitted(
+                productID: opportunity.productID,
+                tierName: opportunity.tierName,
+                reason: opportunity.reason.rawValue,
+                cancellationReason: reason.rawValue,
+                hasFreeText: !trimmed.isEmpty
+            )
+        }
         StoreKitManager.shared.dismissWinBackOpportunity()
     }
 

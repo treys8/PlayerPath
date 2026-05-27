@@ -155,12 +155,21 @@ struct UserMainFlow: View {
         .animation(.easeInOut(duration: 0.3), value: showingAthleteSelection)
         .sheet(item: Binding(
             get: { storeKitManager.winBackOpportunity },
-            set: { _ in /* dismissal handled inside the sheet */ }
-        )) { opportunity in
-            WinBackSheet(opportunity: opportunity) {
-                // The sheet itself calls dismissWinBackOpportunity(); this closure
-                // is what triggers SwiftUI to tear down the sheet view.
+            // SwiftUI calls set(nil) ONLY on interactive (swipe-down) dismissal.
+            // Button paths clear the opportunity directly via dismissWinBackOpportunity(),
+            // which propagates through get() — set is not invoked, so no double-logging.
+            set: { newValue in
+                if newValue == nil, let opp = storeKitManager.winBackOpportunity {
+                    AnalyticsService.shared.trackWinBackDismissed(
+                        productID: opp.productID,
+                        tierName: opp.tierName,
+                        reason: opp.reason.rawValue
+                    )
+                    storeKitManager.dismissWinBackOpportunity()
+                }
             }
+        )) { opportunity in
+            WinBackSheet(opportunity: opportunity) { }
         }
         .overlay(alignment: .top) {
             VStack(spacing: 8) {

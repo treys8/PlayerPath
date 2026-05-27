@@ -99,12 +99,18 @@ struct CoachOnboardingFlow: View {
         Haptics.light()
 
         Task {
+            // Optimistically mark complete BEFORE awaiting authManager —
+            // completeOnboarding flips hasCompletedOnboarding mid-await,
+            // which causes AuthenticatedFlow to swap us out for UserMainFlow.
+            // That swap fires .onDisappear, which would otherwise log a
+            // spurious onboarding_abandoned. Rolled back on failure.
+            didComplete = true
             do {
                 try await authManager.completeOnboarding(in: modelContext, resetNewUserFlag: true)
-                didComplete = true
                 AnalyticsService.shared.trackOnboardingCompleted(role: "coach")
                 Haptics.medium()
             } catch {
+                didComplete = false
                 modelContext.rollback()
                 ErrorHandlerService.shared.handle(error, context: "CoachOnboarding.completeOnboarding", showAlert: false)
                 errorMessage = "Could not complete setup. Please try again."

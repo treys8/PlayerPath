@@ -266,14 +266,19 @@ class StoreKitManager: ObservableObject {
                     billingRetryCheckSucceeded = false
                     continue
                 }
+                // status.status is per-subscription-group, not per-product, so
+                // the lapsing product ID must come from status.transaction —
+                // the iterated `product` is just the loop variable. Without
+                // this, a user on plus.annual whose subscription is in grace
+                // surfaces as plus.monthly (whichever product iterates first
+                // in the same group).
                 for status in statuses {
-                    if status.state == .inBillingRetryPeriod {
-                        resolvedBillingRetry = true
-                        if lapsingProductID == nil { lapsingProductID = product.id }
-                    }
-                    if status.state == .inGracePeriod {
-                        resolvedGracePeriod = true
-                        if lapsingProductID == nil { lapsingProductID = product.id }
+                    let isLapsing = status.state == .inBillingRetryPeriod || status.state == .inGracePeriod
+                    if status.state == .inBillingRetryPeriod { resolvedBillingRetry = true }
+                    if status.state == .inGracePeriod { resolvedGracePeriod = true }
+                    if isLapsing, lapsingProductID == nil,
+                       case .verified(let txn) = status.transaction {
+                        lapsingProductID = txn.productID
                     }
                 }
             }
