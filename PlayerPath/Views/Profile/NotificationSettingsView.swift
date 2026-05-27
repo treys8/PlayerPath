@@ -33,6 +33,15 @@ struct NotificationSettingsView: View {
     /// gated off below to avoid showing irrelevant or broken toggles.
     private var isCoach: Bool { athleteId == nil }
 
+    private var isGolfAthlete: Bool {
+        guard let athleteId, let uuid = UUID(uuidString: athleteId) else { return false }
+        var descriptor = FetchDescriptor<Athlete>(predicate: #Predicate { $0.id == uuid })
+        descriptor.fetchLimit = 1
+        return (try? modelContext.fetch(descriptor).first)?.sport == .golf
+    }
+
+    private var eventNoun: String { isGolfAthlete ? "Tournament" : "Game" }
+
     /// Canonical prefs accessor. @Query observes changes reactively; shared(in:)
     /// is a safety net if the singleton somehow isn't present yet (MainAppView
     /// ensures it is on every launch).
@@ -91,7 +100,7 @@ struct NotificationSettingsView: View {
 
             if !isCoach {
                 Section {
-                    Toggle("Game Reminders", isOn: gameRemindersBinding)
+                    Toggle("\(eventNoun) Reminders", isOn: gameRemindersBinding)
 
                     if prefs.enableGameReminders {
                         Picker("Remind Me", selection: gameReminderMinutesBinding) {
@@ -102,7 +111,7 @@ struct NotificationSettingsView: View {
                         }
                     }
 
-                    Toggle("End-of-Game Reminder", isOn: $staleGameReminders)
+                    Toggle("End-of-\(eventNoun) Reminder", isOn: $staleGameReminders)
                         .onChange(of: staleGameReminders) { _, enabled in
                             if !enabled {
                                 UNUserNotificationCenter.current().getPendingNotificationRequests { requests in
@@ -116,9 +125,9 @@ struct NotificationSettingsView: View {
                             }
                         }
                 } header: {
-                    Text("Game Notifications")
+                    Text("\(eventNoun) Notifications")
                 } footer: {
-                    Text("End-of-Game Reminder fires 3.5 hours after a game starts if it hasn't been ended.")
+                    Text("End-of-\(eventNoun) Reminder fires 3.5 hours after a \(eventNoun.lowercased()) starts if it hasn't been ended.")
                 }
                 .disabled(authorizationStatus == .denied)
             }

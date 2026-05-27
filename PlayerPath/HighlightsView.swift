@@ -501,6 +501,11 @@ struct HighlightsView: View {
             pop.sourceRect = CGRect(x: topVC.view.bounds.midX, y: topVC.view.bounds.midY, width: 0, height: 0)
             pop.permittedArrowDirections = []
         }
+        vc.completionWithItemsHandler = { _, completed, _, _ in
+            if completed {
+                ReviewPromptManager.shared.requestReviewIfAppropriate()
+            }
+        }
         topVC.present(vc, animated: true)
     }
 

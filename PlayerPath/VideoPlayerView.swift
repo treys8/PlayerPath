@@ -63,7 +63,8 @@ struct VideoPlayerView: View {
 
     @ViewBuilder
     private var playerMenuItems: some View {
-        let tagNoun = clip.season?.sport == .golf ? "Club" : "Play Result"
+        let isGolfClip = clip.season?.sport == .golf
+        let tagNoun = isGolfClip ? "Club" : "Play Result"
         if !clip.isTagged {
             Button {
                 showingPlayResultEditor = true
@@ -81,7 +82,9 @@ struct VideoPlayerView: View {
         Button {
             showingGameLinker = true
         } label: {
-            Label(clip.game == nil ? "Link to Game" : "Change Game", systemImage: "baseball.diamond.bases")
+            let linkNoun = isGolfClip ? "Tournament" : "Game"
+            let linkIcon = isGolfClip ? "figure.golf" : "baseball.diamond.bases"
+            Label(clip.game == nil ? "Link to \(linkNoun)" : "Change \(linkNoun)", systemImage: linkIcon)
         }
 
         Button {
@@ -606,6 +609,7 @@ struct VideoPlayerView: View {
                     if success {
                         Haptics.success()
                         self.showingSaveSuccess = true
+                        ReviewPromptManager.shared.requestReviewIfAppropriate()
                     } else {
                         self.saveErrorMessage = error?.localizedDescription ?? "Failed to save video"
                     }

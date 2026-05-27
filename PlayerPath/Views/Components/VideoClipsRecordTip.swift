@@ -13,11 +13,11 @@ import TipKit
 
 struct VideoClipsRecordTip: Tip {
     var title: Text {
-        Text("Record from a game")
+        Text("Record during play")
     }
 
     var message: Text? {
-        Text("Videos you record during games will show up here")
+        Text("Videos you record during games or tournaments will show up here")
     }
 
     var image: Image? {

@@ -57,7 +57,7 @@ struct AccountDeletionView: View {
                 } else {
                     DeletionItem(icon: "figure.baseball", title: "All Athletes", description: "All athlete profiles you created")
                     DeletionItem(icon: "calendar.badge.minus", title: "All Seasons", description: "Season data and settings")
-                    DeletionItem(icon: "baseball.diamond.bases", title: "All Games", description: "Game records and live game data")
+                    DeletionItem(icon: "baseball.diamond.bases", title: "All Games & Tournaments", description: "Game and tournament records and live data")
                     DeletionItem(icon: "chart.bar.xaxis", title: "All Statistics", description: "Batting averages and performance data")
                     DeletionItem(icon: "video.slash", title: "All Videos", description: "Cloud video files, tags, timestamps, and references")
                     DeletionItem(icon: "cloud.slash", title: "Cloud Sync Data", description: "All data synced to Firestore")

@@ -29,8 +29,10 @@ final class ReviewPromptManager {
     /// Minimum sessions before first prompt is eligible
     private let minimumSessionsBeforePrompt: Int = 5
 
-    /// Game milestones that trigger a prompt check (10th, 25th, 50th, 100th, ...)
-    private let gameMilestones: Set<Int> = [10, 25, 50, 100, 200, 500]
+    /// Game milestones that trigger a prompt check. Early entries (3, 5) catch
+    /// new users while they're still forming an opinion; the ≥5-session and
+    /// 60-day gates below keep the first actual prompt from being premature.
+    private let gameMilestones: Set<Int> = [3, 5, 10, 25, 50, 100, 200, 500]
 
     // MARK: - State (backed by stored properties, synced to UserDefaults on set)
 

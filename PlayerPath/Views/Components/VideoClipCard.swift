@@ -246,7 +246,9 @@ struct VideoClipCard: View {
         Button {
             showingGameLinker = true
         } label: {
-            Label(video.game == nil ? "Link to Game" : "Change Game", systemImage: "baseball.diamond.bases")
+            let linkNoun = isGolfClip ? "Tournament" : "Game"
+            let linkIcon = isGolfClip ? "figure.golf" : "baseball.diamond.bases"
+            Label(video.game == nil ? "Link to \(linkNoun)" : "Change \(linkNoun)", systemImage: linkIcon)
         }
 
         Button {
@@ -367,6 +369,7 @@ struct VideoClipCard: View {
                 isSavingToPhotos = false
                 Haptics.success()
                 showingSaveSuccess = true
+                ReviewPromptManager.shared.requestReviewIfAppropriate()
             } catch {
                 isSavingToPhotos = false
                 errorMessage = "Could not save video to Photos. \(error.localizedDescription)"

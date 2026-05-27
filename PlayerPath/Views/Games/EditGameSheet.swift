@@ -178,7 +178,8 @@ struct EditGameSheet: View {
                             gameId: gameId,
                             opponent: newOpponent,
                             scheduledTime: date,
-                            reminderMinutes: reminderMinutes
+                            reminderMinutes: reminderMinutes,
+                            isGolf: game.season?.sport == .golf
                         )
                     }
                 }

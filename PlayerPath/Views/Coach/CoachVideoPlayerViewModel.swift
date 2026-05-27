@@ -273,6 +273,10 @@ class CoachVideoPlayerViewModel {
 
             Haptics.success()
 
+            if isCoachComment {
+                ReviewPromptManager.shared.requestReviewIfAppropriate()
+            }
+
             // Athlete is notified by the server-side onNewComment CF (for text
             // coach comments, which are mirrored to the comments subcollection)
             // or onNewAnnotation CF (for drawings handled by addDrawingAnnotation).
@@ -315,6 +319,7 @@ class CoachVideoPlayerViewModel {
 
             // Athlete is notified by the server-side onCoachNoteUpdated CF which
             // fires on the video doc's coachNote field changing.
+            ReviewPromptManager.shared.requestReviewIfAppropriate()
         } else {
             coachNoteText = nil
             coachNoteAuthorName = nil
@@ -561,6 +566,7 @@ class CoachVideoPlayerViewModel {
                 userName: userName
             )
             Haptics.success()
+            ReviewPromptManager.shared.requestReviewIfAppropriate()
             return true
         } catch {
             errorMessage = error.localizedDescription

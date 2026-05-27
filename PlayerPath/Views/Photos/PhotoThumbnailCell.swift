@@ -109,7 +109,7 @@ struct PhotoThumbnailCell: View {
                 Button {
                     showingTagSheet = true
                 } label: {
-                    Label("Tag to Game/Practice", systemImage: "tag")
+                    Label(photo.athlete?.sport == .golf ? "Tag to Tournament/Practice" : "Tag to Game/Practice", systemImage: "tag")
                 }
 
                 Button {

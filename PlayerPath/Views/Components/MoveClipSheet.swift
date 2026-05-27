@@ -183,13 +183,15 @@ struct MoveClipSheet: View {
             if let athlete = selectedAthlete {
                 let games = (athlete.games ?? [])
                     .sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
+                let unitNoun = athlete.sport == .golf ? "tournament" : "game"
+                let unitNounCapitalized = athlete.sport == .golf ? "Tournament" : "Game"
 
                 Section {
                     Button {
                         selectedGame = nil
                     } label: {
                         HStack {
-                            Text("No Game")
+                            Text("No \(unitNounCapitalized)")
                                 .foregroundColor(.primary)
                             Spacer()
                             if selectedGame == nil {
@@ -225,7 +227,7 @@ struct MoveClipSheet: View {
                         }
                     }
                 } header: {
-                    Text("Assign to game (optional)")
+                    Text("Assign to \(unitNoun) (optional)")
                 }
             }
         }

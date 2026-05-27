@@ -210,7 +210,8 @@ class GameService {
             gameId: game.id.uuidString,
             opponent: game.opponent,
             scheduledTime: gameDate,
-            reminderMinutes: minutes
+            reminderMinutes: minutes,
+            isGolf: game.season?.sport == .golf
         )
     }
 

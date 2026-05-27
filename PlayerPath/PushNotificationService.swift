@@ -345,27 +345,37 @@ final class PushNotificationService: NSObject, ObservableObject {
         gameId: String,
         opponent: String,
         scheduledTime: Date,
-        reminderMinutes: Int = 30
+        reminderMinutes: Int = 30,
+        isGolf: Bool = false
     ) async {
         guard canScheduleNotifications else { return }
-        
+
         let reminderDate = scheduledTime.addingTimeInterval(-TimeInterval(reminderMinutes * 60))
         guard reminderDate > Date() else { return }
-        
+
         let trigger = UNCalendarNotificationTrigger(
             dateMatching: Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: reminderDate),
             repeats: false
         )
-        
+
+        let title = isGolf ? "Tournament Starting Soon! ⛳" : "Game Starting Soon! ⚾"
+        let body: String = {
+            if isGolf {
+                return "Your tournament at \(opponent) starts in \(reminderMinutes) minutes. Ready to record?"
+            } else {
+                return "Your game vs \(opponent) starts in \(reminderMinutes) minutes. Ready to record?"
+            }
+        }()
+
         let success = await scheduleLocalNotification(
             identifier: "game_reminder_\(gameId)",
-            title: "Game Starting Soon! ⚾",
-            body: "Your game vs \(opponent) starts in \(reminderMinutes) minutes. Ready to record?",
+            title: title,
+            body: body,
             categoryIdentifier: "GAME_REMINDER",
             userInfo: ["gameId": gameId, "type": "game_reminder"],
             trigger: trigger
         )
-        
+
         if success {
             logger.info("Scheduled game reminder for \(opponent)")
         }

@@ -413,14 +413,6 @@ struct GamesView: View {
                         NavigationLink(destination: GameDetailView(game: game)) {
                             GameRow(game: game, isSeasonFiltered: selectedSeasonFilter != nil)
                         }
-                        .swipeActions(edge: .leading) {
-                            Button(role: .destructive) {
-                                gameToDelete = game
-                                showingDeleteGameConfirmation = true
-                            } label: {
-                                Text("Delete")
-                            }
-                        }
                         .onAppear {
                             if game.id == cachedCompletedGames.last?.id,
                                viewModelHolder.viewModel?.hasMoreCompleted == true {

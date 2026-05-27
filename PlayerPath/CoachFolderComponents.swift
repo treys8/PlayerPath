@@ -355,7 +355,7 @@ struct GamesTabView: View {
     var body: some View {
         Group {
             if isLoading && videos.isEmpty {
-                ProgressView("Loading game videos...")
+                ProgressView("Loading videos...")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let error = errorMessage, videos.isEmpty {
                 EmptyFolderView(
@@ -365,9 +365,9 @@ struct GamesTabView: View {
                 )
             } else if videos.isEmpty {
                 EmptyFolderView(
-                    icon: "figure.baseball",
-                    title: "No Game Videos",
-                    message: "Game videos will appear here once they're uploaded."
+                    icon: "video.slash",
+                    title: "No Videos Yet",
+                    message: "Videos will appear here once they're uploaded."
                 )
             } else {
                 ScrollView {
