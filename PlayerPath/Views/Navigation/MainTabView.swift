@@ -169,6 +169,12 @@ struct MainTabView: View {
                 athleteDowngradeManager.evaluate(tier: authManager.currentTier)
             }
             .onChange(of: selectedAthlete.id) { _, _ in
+                // Reset path state so the user lands at the root of each stack
+                // on the new athlete instead of stranding them on a destination
+                // (especially folder-by-ID destinations) belonging to the prior
+                // athlete's data.
+                homePath = NavigationPath()
+                morePath = NavigationPath()
                 refreshAllTabAthleteIDs()
             }
             .onChange(of: authManager.currentTier) { _, newTier in

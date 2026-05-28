@@ -215,6 +215,11 @@ struct AddSportProfileSheet: View {
         new.needsSync = true
         modelContext.insert(new)
 
+        // Prime the new profile with a default active season so the user lands
+        // on populated tab chrome (correct sport, valid quick-add) instead of an
+        // empty state that depends on a later tab tap to lazy-create one.
+        SeasonManager.ensureActiveSeason(for: new, in: modelContext)
+
         ErrorHandlerService.shared.saveContext(modelContext, caller: "AddSportProfileSheet.createSpinoff")
 
         if let user = sourceAthlete.user {

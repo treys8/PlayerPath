@@ -172,6 +172,8 @@ struct CreateSeasonView: View {
         let previousActive = athlete.activeSeason
         let previousActiveWasActive = previousActive?.isActive ?? false
         let previousActiveEndDate = previousActive?.endDate
+        // Season.activate() now updates athlete.sport — capture so we can revert on save failure.
+        let previousAthleteSport = athlete.sport
 
         // If making this active, archive the current active season
         if makeActive {
@@ -243,6 +245,8 @@ struct CreateSeasonView: View {
                     previousActive?.activate()
                     previousActive?.endDate = previousActiveEndDate
                 }
+                // Revert the athlete.sport mutation that activate() applied.
+                athlete.sport = previousAthleteSport
 
                 errorMessage = "Failed to create season: \(error.localizedDescription)"
                 showingError = true

@@ -72,6 +72,8 @@ struct SeasonService {
         let previousActiveEndDate = previousActive?.endDate
         let wasActive = season.isActive
         let previousEndDate = season.endDate
+        // Season.activate() now updates athlete.sport — capture so we can revert on save failure.
+        let previousAthleteSport = athlete.sport
 
         previousActive?.archive()
         season.activate()
@@ -90,6 +92,7 @@ struct SeasonService {
                 season.isActive = false
             }
             season.endDate = previousEndDate
+            athlete.sport = previousAthleteSport
             throw SeasonServiceError.saveFailed(underlying: error)
         }
 

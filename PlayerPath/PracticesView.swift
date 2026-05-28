@@ -122,7 +122,7 @@ struct PracticesView: View {
     private var practicesListContent: some View {
         VStack(spacing: 0) {
             if let athlete = athlete {
-                let seasonRecommendation = SeasonManager.checkSeasonStatus(for: athlete)
+                let seasonRecommendation = SeasonManager.checkSeasonStatus(for: athlete, sport: activeSport)
                 if seasonRecommendation.message != nil {
                     SeasonRecommendationBanner(athlete: athlete, recommendation: seasonRecommendation)
                         .padding()

@@ -233,6 +233,17 @@ final class Season {
 
         self.isActive = true
         self.endDate = nil
+
+        // Keep athlete.sport in sync with the active season. Without this the
+        // hint goes stale after a sport switch — tab chrome, default sport for
+        // new seasons, and seasonless-content fallback all read athlete.sport
+        // directly and would otherwise lag behind the active season.
+        if let athlete = self.athlete,
+           let mapped = Sport(rawValue: sport.rawValue.lowercased()),
+           athlete.sport != mapped {
+            athlete.sport = mapped
+            athlete.needsSync = true
+        }
     }
 
     // MARK: - Firestore Conversion

@@ -45,10 +45,14 @@ struct SeasonManager {
             seasonName = "Winter \(year + 1)"
         }
 
-        // Infer sport from athlete's most recent season; fall back to .baseball
-        let sport = athlete.seasons?
+        // Infer sport: most recent season's sport, else the athlete's primary
+        // hint (so spinoff profiles with no seasons honor their declared sport),
+        // else .baseball.
+        let mostRecentSport = athlete.seasons?
             .sorted { ($0.startDate ?? .distantPast) > ($1.startDate ?? .distantPast) }
-            .first?.sport ?? .baseball
+            .first?.sport
+        let hintSport = Season.SportType(rawValue: (athlete.sport ?? .baseball).rawValue.capitalized)
+        let sport = mostRecentSport ?? hintSport ?? .baseball
 
         // Create and activate new season
         // Set the athlete relationship BEFORE activate() so the deactivation
@@ -121,17 +125,28 @@ struct SeasonManager {
         return summary
     }
 
-    /// Checks if an athlete should be prompted to create or end a season
-    /// - Parameter athlete: The athlete to check
-    /// - Returns: A recommendation for season management
-    static func checkSeasonStatus(for athlete: Athlete) -> SeasonRecommendation {
+    /// Checks if an athlete should be prompted to create or end a season.
+    /// - Parameters:
+    ///   - athlete: The athlete to check.
+    ///   - sport: When non-nil, evaluates only seasons matching this sport, so
+    ///     a golf athlete with no golf season but an active baseball season
+    ///     gets a "create first" / "no active season" recommendation instead
+    ///     of a misleading `.ok`. Pass nil to preserve legacy sport-agnostic
+    ///     behavior.
+    /// - Returns: A recommendation for season management.
+    static func checkSeasonStatus(for athlete: Athlete, sport: Season.SportType? = nil) -> SeasonRecommendation {
+        let seasons = (athlete.seasons ?? []).filter { season in
+            guard let sport else { return true }
+            return season.sport == sport
+        }
+
         // No seasons at all - recommend creating one
-        if (athlete.seasons ?? []).isEmpty {
+        if seasons.isEmpty {
             return .createFirst
         }
 
         // No active season - recommend creating or reactivating
-        guard let activeSeason = athlete.activeSeason else {
+        guard let activeSeason = seasons.first(where: { $0.isActive }) else {
             return .noActiveSeason
         }
 

@@ -62,12 +62,25 @@ struct DashboardView: View {
         }, sort: [SortDescriptor(\Game.date, order: .reverse)])
     }
 
+    /// Live games scoped to the athlete's active sport. The @Query above keys
+    /// by athleteID (a stable capture); sport-filtering happens here so a stale
+    /// cross-sport live game (e.g. baseball game left running after the athlete
+    /// activated a golf season) doesn't leak into the dashboard's Live Now
+    /// section. Mirrors GamesView.filterGames: season-sport match, seasonless
+    /// passes through.
+    private var liveGamesForActiveSport: [Game] {
+        liveGames.filter { game in
+            guard let seasonSport = game.season?.sport else { return true }
+            return seasonSport == activeSport
+        }
+    }
+
     private var hasLiveGame: Bool {
-        !liveGames.isEmpty
+        !liveGamesForActiveSport.isEmpty
     }
 
     private var firstLiveGame: Game? {
-        liveGames.first
+        liveGamesForActiveSport.first
     }
 
     private var isRegularWidth: Bool {
@@ -290,6 +303,7 @@ struct DashboardView: View {
 
     @ViewBuilder
     private var liveGamesSection: some View {
+        let liveGames = liveGamesForActiveSport
         if !liveGames.isEmpty {
             VStack(spacing: 12) {
                 HStack {
@@ -482,7 +496,7 @@ struct DashboardView: View {
     }
 
     private func updateCachedStats() {
-        seasonRecommendation = SeasonManager.checkSeasonStatus(for: athlete)
+        seasonRecommendation = SeasonManager.checkSeasonStatus(for: athlete, sport: activeSport)
         if let stats = athlete.statistics {
             cachedBA = StatisticsService.shared.formatBattingAverage(stats.battingAverage)
             cachedSLG = StatisticsService.shared.formatBattingAverage(stats.sluggingPercentage)

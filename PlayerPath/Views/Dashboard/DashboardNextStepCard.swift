@@ -67,11 +67,23 @@ struct DashboardNextStepCard: View {
 
     private var currentStep: Step? {
         guard prefs.first?.showOnboardingTips ?? true else { return nil }
-        if (athlete.games ?? []).isEmpty,
+        // Sport-scope the emptiness checks so a stale cross-sport game/clip
+        // doesn't silently suppress the onboarding prompt for the active sport.
+        // Same rule as GamesView.filterGames: season-sport match, seasonless
+        // passes through.
+        let activeSportGames = (athlete.games ?? []).filter { game in
+            guard let seasonSport = game.season?.sport else { return true }
+            return seasonSport == activeSport
+        }
+        let activeSportClips = (athlete.videoClips ?? []).filter { clip in
+            guard let seasonSport = clip.season?.sport else { return true }
+            return seasonSport == activeSport
+        }
+        if activeSportGames.isEmpty,
            OnboardingManager.shared.shouldShowTip(Step.createGame.tipID) {
             return .createGame
         }
-        if (athlete.videoClips ?? []).isEmpty,
+        if activeSportClips.isEmpty,
            OnboardingManager.shared.shouldShowTip(Step.recordVideo.tipID) {
             return .recordVideo
         }

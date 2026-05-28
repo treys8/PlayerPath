@@ -147,7 +147,15 @@ final class GamesDashboardViewModel: ObservableObject {
             .prefix(3)
             .map { $0 }
 
-        totalGames = games.count
+        // Sport-scope the count so the Tournaments/Games card matches the
+        // sport-filtered list the user lands on. Mirrors GamesView.filterGames:
+        // a game's sport is `season.sport`; seasonless games pass through under
+        // the active athlete's sport (always the active sport here).
+        let activeSport = athlete.sportType
+        totalGames = games.filter { game in
+            guard let seasonSport = game.season?.sport else { return true }
+            return seasonSport == activeSport
+        }.count
     }
 
     private func updateVideos(_ videos: [VideoClip]) {
@@ -159,9 +167,18 @@ final class GamesDashboardViewModel: ObservableObject {
             return lhsDate > rhsDate
         }
 
+        // Sport-scope the counts so Video Clips and Highlights card subtitles
+        // match the sport-filtered destination tabs. Seasonless clips pass
+        // through under both sports — same rule as VideoClipsView.
+        let activeSport = athlete.sportType
+        let videosForActiveSport = videos.filter { clip in
+            guard let seasonSport = clip.season?.sport else { return true }
+            return seasonSport == activeSport
+        }
+
         recentVideos = Array(sortedVideos.prefix(3))
-        totalVideos = videos.count
-        totalHighlights = videos.filter { $0.isHighlight }.count
+        totalVideos = videosForActiveSport.count
+        totalHighlights = videosForActiveSport.filter { $0.isHighlight }.count
     }
 }
 

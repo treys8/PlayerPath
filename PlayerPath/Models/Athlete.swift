@@ -51,9 +51,12 @@ final class Athlete {
     var createdAt: Date?
     var user: User?
     var primaryRole: AthleteRole = AthleteRole.batter
-    /// Primary sport hint. Defaults the first season's sport and drives the
-    /// athlete card icon. Source of truth for a given game's sport is
-    /// `game.season?.sport` — an athlete may have seasons in multiple sports.
+    /// Primary sport for this athlete. Drives the athlete card icon, default
+    /// sport for new seasons, and sport attribution for seasonless legacy
+    /// content. Kept in sync with the active season by `Season.activate()`,
+    /// so a sport switch flips this automatically. Source of truth for a
+    /// given game's sport remains `game.season?.sport` — an athlete may have
+    /// seasons in multiple sports.
     ///
     /// Optional because athletes created before SchemaV21 have NULL in storage.
     /// Reading a non-Optional Sport from NULL trips SwiftData's KVC cast and
