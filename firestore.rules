@@ -214,6 +214,17 @@ service cloud.firestore {
         allow create: if isAuthenticated() && isOwner(userID);
         allow update: if isAuthenticated() && isOwner(userID);
         allow delete: if isAuthenticated() && isOwner(userID);
+
+        // Per-hole golf scoring subcollection (SchemaV25). Doc id is the
+        // hole number as a string ("1"–"18"), giving deterministic upsert
+        // semantics. Owner-only; coach access is intentionally absent —
+        // reels and per-hole data are athlete-side in v6.1.
+        match /holes/{holeNumber} {
+          allow read:   if isAuthenticated() && isOwner(userID);
+          allow create: if isAuthenticated() && isOwner(userID);
+          allow update: if isAuthenticated() && isOwner(userID);
+          allow delete: if isAuthenticated() && isOwner(userID);
+        }
       }
 
       // ======================================================================
@@ -233,6 +244,16 @@ service cloud.firestore {
           allow update: if isAuthenticated() && isOwner(userID);
           allow delete: if isAuthenticated() && isOwner(userID);
         }
+
+        // Per-hole golf scoring subcollection for practice rounds
+        // (SchemaV25). Wired up for PR3 when `practiceType` accepts
+        // "practice_round" — rules are owner-only either way.
+        match /holes/{holeNumber} {
+          allow read:   if isAuthenticated() && isOwner(userID);
+          allow create: if isAuthenticated() && isOwner(userID);
+          allow update: if isAuthenticated() && isOwner(userID);
+          allow delete: if isAuthenticated() && isOwner(userID);
+        }
       }
 
       // ======================================================================
@@ -240,6 +261,21 @@ service cloud.firestore {
       // ======================================================================
 
       match /athletes/{athleteID}/coaches/{coachID} {
+        allow read:   if isAuthenticated() && isOwner(userID);
+        allow create: if isAuthenticated() && isOwner(userID);
+        allow update: if isAuthenticated() && isOwner(userID);
+        allow delete: if isAuthenticated() && isOwner(userID);
+      }
+
+      // ======================================================================
+      // HIGHLIGHT REELS (v6.1 PR2 — virtual reels keyed by reel UUID)
+      // ======================================================================
+      //
+      // Owner-only. Reels are athlete-side in v6.1 — no coach access. Doc id
+      // is the reel's UUID string (set client-side in
+      // SyncCoordinator+HighlightReels.swift), distinct from the hole-score
+      // pattern under games/{gameID}/holes where the doc id is the hole number.
+      match /highlightReels/{reelID} {
         allow read:   if isAuthenticated() && isOwner(userID);
         allow create: if isAuthenticated() && isOwner(userID);
         allow update: if isAuthenticated() && isOwner(userID);

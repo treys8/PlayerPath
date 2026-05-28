@@ -29,6 +29,9 @@ struct GameCreationView: View {
     @State private var didInitSeason = false
     @State private var showingValidationError = false
     @State private var validationMessage = ""
+    /// Golf single-live confirmation before starting a new live tournament
+    /// while another golf activity is live.
+    @State private var showingSingleLiveConfirm = false
 
     // Golf-only state
     @State private var golfHoles: Int = 18
@@ -245,6 +248,16 @@ struct GameCreationView: View {
         } message: {
             Text(validationMessage)
         }
+        .confirmationDialog(
+            "End your live \(athlete.flatMap { LiveActivityGuard.currentLiveGolfLabel(for: $0) } ?? "activity")?",
+            isPresented: $showingSingleLiveConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("End & Start New", role: .destructive) { commitSave() }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("You already have a live \(athlete.flatMap { LiveActivityGuard.currentLiveGolfLabel(for: $0) } ?? "activity") going. Starting a new one will end it.")
+        }
     }
 
     private func saveGame() {
@@ -290,6 +303,19 @@ struct GameCreationView: View {
             }
         }
 
+        // Golf single-live guard: if this tournament would go live and another
+        // golf activity (tournament or practice) already is, confirm the
+        // replacement first. Baseball keeps GameService's silent auto-end.
+        if isGolf, makeGameLive, (selectedSeason?.isActive ?? true),
+           let athlete, LiveActivityGuard.hasAnyLiveGolf(for: athlete) {
+            showingSingleLiveConfirm = true
+            return
+        }
+
+        commitSave()
+    }
+
+    private func commitSave() {
         #if DEBUG
         print("🎮 GameCreationView: Saving game | Opponent: '\(opponent.trimmingCharacters(in: .whitespacesAndNewlines))' | makeGameLive: \(makeGameLive) | season: \(selectedSeason?.name ?? "none") | isGolf: \(isGolf)")
         #endif

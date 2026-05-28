@@ -70,7 +70,8 @@ struct CoachDashboardView: View {
                         displayName: authManager.userDisplayName,
                         needsReviewCount: needsReviewQueue.totalCount,
                         draftCount: reviewQueue.totalCount,
-                        hasActiveSession: sessionManager.activeSession != nil,
+                        isLiveSession: sessionManager.activeSession?.status == .live,
+                        isReviewingSession: sessionManager.activeSession?.status == .reviewing,
                         nextScheduledDate: sessionManager.scheduledSessions
                             .compactMap(\.scheduledDate)
                             .filter { $0 > Date() }
@@ -278,27 +279,32 @@ struct CoachDashboardView: View {
             let headerColor: Color = isLive ? .red : .brandNavy
 
             VStack(spacing: 12) {
-                HStack {
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(headerColor)
-                            .frame(width: 8, height: 8)
-                            .opacity(isLive && headerPulse ? 0.4 : 1.0)
-                            .shadow(color: headerColor.opacity(0.8), radius: isLive && headerPulse ? 4 : 2)
-                            .animation(isLive && !reduceMotion ? .easeInOut(duration: 0.8).repeatForever(autoreverses: true) : nil, value: headerPulse)
-                            .onAppear { if isLive { headerPulse = true } }
+                // Big colored header only for the live state. For a reviewing
+                // (ended) session the card's own "SESSION ENDED" badge is the
+                // single label — avoids a stacked duplicate heading.
+                if isLive {
+                    HStack {
+                        HStack(spacing: 6) {
+                            Circle()
+                                .fill(headerColor)
+                                .frame(width: 8, height: 8)
+                                .opacity(headerPulse ? 0.4 : 1.0)
+                                .shadow(color: headerColor.opacity(0.8), radius: headerPulse ? 4 : 2)
+                                .animation(!reduceMotion ? .easeInOut(duration: 0.8).repeatForever(autoreverses: true) : nil, value: headerPulse)
+                                .onAppear { headerPulse = true }
 
-                        Text(isLive ? "Live Now" : "Session Ended")
-                            .font(.title3)
-                            .fontWeight(.bold)
-                            .foregroundStyle(
-                                LinearGradient(
-                                    colors: [headerColor, headerColor.opacity(0.8)],
-                                    startPoint: .leading, endPoint: .trailing
+                            Text("Live Now")
+                                .font(.title3)
+                                .fontWeight(.bold)
+                                .foregroundStyle(
+                                    LinearGradient(
+                                        colors: [headerColor, headerColor.opacity(0.8)],
+                                        startPoint: .leading, endPoint: .trailing
+                                    )
                                 )
-                            )
+                        }
+                        Spacer()
                     }
-                    Spacer()
                 }
 
                 LiveSessionCard(
@@ -352,6 +358,11 @@ struct CoachDashboardView: View {
                         .disabled(isCompletingSession)
                     }
                 }
+            }
+            .onChange(of: session.status) { _, newStatus in
+                // Stop the pulse once the session is no longer live so the flag
+                // doesn't carry stale state across a live → ended → live cycle.
+                if newStatus != .live { headerPulse = false }
             }
         }
     }
@@ -480,7 +491,8 @@ struct CoachDashboardView: View {
             DashboardSectionHeader(title: "Quick Actions", icon: "bolt.fill", color: .brandGold)
 
             HStack(spacing: 12) {
-                if sessionManager.activeSession != nil {
+                switch sessionManager.activeSession?.status {
+                case .live:
                     QuickActionButton(
                         icon: "play.circle.fill",
                         title: "Resume Session",
@@ -490,7 +502,17 @@ struct CoachDashboardView: View {
                             resumeSession(session)
                         }
                     }
-                } else {
+                case .reviewing:
+                    QuickActionButton(
+                        icon: "eye",
+                        title: "Review Clips",
+                        color: .brandNavy
+                    ) {
+                        if let session = sessionManager.activeSession {
+                            reviewSession(session)
+                        }
+                    }
+                default:
                     QuickActionButton(
                         icon: "plus.circle.fill",
                         title: "New Session",

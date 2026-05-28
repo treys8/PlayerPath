@@ -7,6 +7,7 @@
 
 import Foundation
 import SwiftData
+import os
 
 enum AthleteRole: String, Codable, CaseIterable {
     case batter
@@ -128,6 +129,20 @@ final class Athlete {
 
         // Track which clips are owned by a game or practice so we don't double-delete
         var deletedClipIDs = Set<UUID>()
+
+        // v6.1 PR2: hard-delete this athlete's HighlightReels locally before
+        // games/practices go away. Reels carry only a denormalized athleteID
+        // FK, so a single in-memory filter is enough — they don't cascade
+        // via SwiftData relationships. Firestore cleanup is best-effort and
+        // backstopped by the daily cleanup function.
+        do {
+            let allReels = try context.fetch(FetchDescriptor<HighlightReel>())
+            for reel in allReels where reel.athleteID == athleteId {
+                context.delete(reel)
+            }
+        } catch {
+            modelsLog.error("Failed to fetch HighlightReels for athlete-delete cascade: \(error.localizedDescription)")
+        }
 
         // Delete all games (and their video clips, stats)
         for game in games ?? [] {

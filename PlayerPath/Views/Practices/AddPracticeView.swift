@@ -19,17 +19,53 @@ struct AddPracticeView: View {
     @Environment(\.dismiss) private var dismiss
 
     let athlete: Athlete
+    /// Pre-selected practice type when launched from NewPracticeTypePicker
+    /// (golf) or another contextual path. Nil falls back to the sport-default.
+    var initialType: PracticeType? = nil
     var onCreated: ((Practice) -> Void)? = nil
 
     @State private var practiceType: PracticeType = .general
     @State private var date: Date = Date()
     @State private var selectedSeason: Season?
-    @State private var didInitSeason = false
+    @State private var holes: Int = 18
+    @State private var course: String = ""
+    @State private var didInit = false
     @State private var showingValidationError = false
     @State private var validationMessage = ""
+    /// Golf single-live confirmation — shown when this new practice would go
+    /// live but another golf activity already is.
+    @State private var showingSingleLiveConfirm = false
 
     private var hasMultipleSeasons: Bool {
         (athlete.seasons?.count ?? 0) > 1
+    }
+
+    private var availableTypes: [PracticeType] {
+        PracticeType.cases(for: athlete.sportType)
+    }
+
+    private var defaultTypeForSport: PracticeType {
+        athlete.sportType == .golf ? .practiceRound : .general
+    }
+
+    private var isGolf: Bool { athlete.sportType == .golf }
+
+    /// The season this practice will land on for the live-eligibility check.
+    private var effectiveSeason: Season? {
+        selectedSeason ?? athlete.activeSeason
+    }
+
+    /// Golf practices go live immediately when created for today on an active
+    /// season — no separate toggle. Backdated/future practices, inactive
+    /// seasons, and all baseball practices stay historical logs.
+    private var shouldGoLive: Bool {
+        isGolf
+            && Calendar.current.isDateInToday(date)
+            && (effectiveSeason?.isActive ?? true)
+    }
+
+    private var courseFieldLabel: String {
+        practiceType == .rangeSession ? "Location" : "Course"
     }
 
     var body: some View {
@@ -37,11 +73,28 @@ struct AddPracticeView: View {
             Form {
                 Section("Details") {
                     Picker("Type", selection: $practiceType) {
-                        ForEach(PracticeType.allCases) { type in
+                        ForEach(availableTypes) { type in
                             Label(type.displayName, systemImage: type.icon).tag(type)
                         }
                     }
                     DatePicker("Date", selection: $date)
+
+                    // Hole count picker — only shown for golf practice rounds.
+                    // Range sessions and baseball practices stay holes=nil.
+                    if practiceType == .practiceRound {
+                        Picker("Holes", selection: $holes) {
+                            Text("9").tag(9)
+                            Text("18").tag(18)
+                        }
+                        .pickerStyle(.segmented)
+                    }
+
+                    // Optional course / location for golf — surfaced as the
+                    // live card subtitle. Baseball practices skip it.
+                    if isGolf {
+                        TextField(courseFieldLabel, text: $course)
+                            .textInputAutocapitalization(.words)
+                    }
                 }
 
                 if hasMultipleSeasons {
@@ -67,14 +120,25 @@ struct AddPracticeView: View {
                 }
             }
             .onAppear {
-                guard !didInitSeason else { return }
+                guard !didInit else { return }
                 selectedSeason = athlete.activeSeason
-                didInitSeason = true
+                practiceType = initialType ?? defaultTypeForSport
+                didInit = true
             }
             .alert("Validation Error", isPresented: $showingValidationError) {
                 Button("OK", role: .cancel) { }
             } message: {
                 Text(validationMessage)
+            }
+            .confirmationDialog(
+                "End your live \(LiveActivityGuard.currentLiveGolfLabel(for: athlete) ?? "activity")?",
+                isPresented: $showingSingleLiveConfirm,
+                titleVisibility: .visible
+            ) {
+                Button("End & Start New", role: .destructive) { performCreate() }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("You already have a live \(LiveActivityGuard.currentLiveGolfLabel(for: athlete) ?? "activity") going. Starting a new one will end it.")
             }
         }
     }
@@ -96,10 +160,36 @@ struct AddPracticeView: View {
             }
         }
 
+        // Golf single-live guard: if this practice would go live and another
+        // golf activity already is, confirm the replacement first. Otherwise
+        // create straight away.
+        if shouldGoLive && LiveActivityGuard.hasAnyLiveGolf(for: athlete) {
+            showingSingleLiveConfirm = true
+            return
+        }
+
+        performCreate()
+    }
+
+    private func performCreate() {
         let practice = Practice(date: date)
         practice.practiceType = practiceType.rawValue
+        // Persist hole count only for golf practice rounds; range sessions
+        // and baseball practices stay nil so LiveHoleTracker's gate is clean.
+        practice.holes = (practiceType == .practiceRound) ? holes : nil
+        let trimmedCourse = course.trimmingCharacters(in: .whitespacesAndNewlines)
+        practice.course = (isGolf && !trimmedCourse.isEmpty) ? trimmedCourse : nil
         practice.athlete = athlete
         practice.needsSync = true
+
+        // Go live inline (mirrors GameService.createGame). Ending any other
+        // live golf activity here enforces the single-live invariant even if
+        // the confirmation was skipped (nothing was live at save time).
+        if shouldGoLive {
+            PracticeService.endAllOtherLiveGolf(for: athlete, exceptPractice: practice)
+            practice.isLive = true
+            practice.liveStartDate = Date()
+        }
 
         if athlete.practices == nil { athlete.practices = [] }
         athlete.practices?.append(practice)

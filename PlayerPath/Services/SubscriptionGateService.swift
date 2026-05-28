@@ -12,6 +12,18 @@
 
 import SwiftUI
 
+/// A reference to an athlete connected via an accepted coach→athlete invitation.
+/// Carries both identifier axes because the same real athlete can be recorded
+/// under two namespaces — the stable Athlete UUID and the account UID — and
+/// reconciliation against folders needs both to avoid double-counting.
+struct CoachAthleteRef {
+    let athleteUUID: String?
+    let athleteUserID: String?
+
+    /// Canonical per-athlete key: prefer the stable Athlete UUID, fall back to account UID.
+    var canonicalKey: String? { athleteUUID ?? athleteUserID }
+}
+
 /// Stateless helper for subscription gate checks.
 /// Uses the auth manager and shared folder data to determine limits.
 enum SubscriptionGate {
@@ -32,22 +44,94 @@ enum SubscriptionGate {
         let isConfirmed: Bool
     }
 
+    /// Accepted-invitation refs that are NOT already represented by a folder,
+    /// deduplicated by canonical key.
+    ///
+    /// Reconciliation must distinguish two superficially identical situations that
+    /// share an account UID:
+    /// 1. The SAME athlete recorded under two namespaces (a folder keyed by Athlete
+    ///    UUID + a legacy invitation that only carries the account UID) — must merge.
+    /// 2. TWO athlete profiles under one parent account, the second connected by an
+    ///    invitation whose folders haven't synced yet — must NOT merge (N slots).
+    ///
+    /// The Athlete UUID is the discriminator: when both sides have one, only a UUID
+    /// match counts as "already known". The account-UID axis is used only when a
+    /// UUID isn't available to compare (legacy folder or UUID-less invitation), where
+    /// legacy data is inherently single-profile so account reconciliation is safe.
+    static func unmatchedInvitationRefs(folders: [SharedFolder], invitationRefs: [CoachAthleteRef]) -> [CoachAthleteRef] {
+        var folderUUIDs = Set<String>()                // athleteUUIDs present on folders
+        var folderAccountIDs = Set<String>()           // all folder owner account UIDs
+        var legacyFolderAccountIDs = Set<String>()      // owner UIDs of folders that have no UUID
+        for folder in folders {
+            if let uuid = folder.athleteUUID, !uuid.isEmpty {
+                folderUUIDs.insert(uuid)
+            } else {
+                legacyFolderAccountIDs.insert(folder.ownerAthleteID)
+            }
+            folderAccountIDs.insert(folder.ownerAthleteID)
+        }
+        var seen = Set<String>()
+        var result: [CoachAthleteRef] = []
+        for ref in invitationRefs {
+            if isRepresentedByFolder(ref,
+                                     folderUUIDs: folderUUIDs,
+                                     folderAccountIDs: folderAccountIDs,
+                                     legacyFolderAccountIDs: legacyFolderAccountIDs) {
+                continue
+            }
+            guard let key = ref.canonicalKey, seen.insert(key).inserted else { continue }
+            result.append(ref)
+        }
+        return result
+    }
+
+    /// Whether an accepted invitation already corresponds to an existing folder.
+    /// See `unmatchedInvitationRefs` for the reconciliation rationale.
+    private static func isRepresentedByFolder(_ ref: CoachAthleteRef,
+                                              folderUUIDs: Set<String>,
+                                              folderAccountIDs: Set<String>,
+                                              legacyFolderAccountIDs: Set<String>) -> Bool {
+        if let uuid = ref.athleteUUID, !uuid.isEmpty {
+            if folderUUIDs.contains(uuid) { return true }
+            // No UUID-matching folder: only a legacy (UUID-less) folder for the same
+            // account is this same athlete. A folder with a DIFFERENT UUID is a
+            // separate profile on the same parent account.
+            if let account = ref.athleteUserID, legacyFolderAccountIDs.contains(account) { return true }
+            return false
+        }
+        // UUID-less invitation: reconcile on the account axis against any folder.
+        if let account = ref.athleteUserID, folderAccountIDs.contains(account) { return true }
+        return false
+    }
+
+    /// Deduplicated set of connected-athlete keys: folder owners reconciled with
+    /// accepted coach→athlete invitations. The single source of truth for the
+    /// athlete-count used by limit checks and the coach UI.
+    static func connectedAthleteKeys(folders: [SharedFolder], invitationRefs: [CoachAthleteRef]) -> Set<String> {
+        // One slot per real athlete: prefer the stable Athlete UUID, fall back to account UID.
+        var keys = Set(folders.map { $0.athleteUUID ?? $0.ownerAthleteID })
+        for ref in unmatchedInvitationRefs(folders: folders, invitationRefs: invitationRefs) {
+            if let key = ref.canonicalKey { keys.insert(key) }
+        }
+        return keys
+    }
+
     /// Full connected athlete count merging folder owners + accepted coach-to-athlete invitations.
     /// This is the single source of truth for athlete limit checks.
     /// Returns `isConfirmed: false` on network failure (uses local folder count as fallback).
     @MainActor
     static func fullConnectedAthleteCountResult(coachID: String) async -> AthleteCountResult {
-        // Per-athlete UUID when present (new data), account UID fallback (legacy) so one slot per real athlete.
-        var athleteIDs = Set(SharedFolderManager.shared.coachFolders.map { $0.athleteUUID ?? $0.ownerAthleteID })
+        let folders = SharedFolderManager.shared.coachFolders
+        var invitationRefs: [CoachAthleteRef] = []
         var confirmed = true
         do {
-            let acceptedIDs = try await FirestoreManager.shared.fetchAcceptedCoachToAthleteAthleteIDs(coachID: coachID)
-            athleteIDs.formUnion(acceptedIDs)
+            invitationRefs = try await FirestoreManager.shared.fetchAcceptedCoachToAthleteRefs(coachID: coachID)
         } catch {
             confirmed = false
             ErrorHandlerService.shared.handle(error, context: "SubscriptionGate.fullConnectedAthleteCount", showAlert: false)
         }
-        return AthleteCountResult(count: athleteIDs.count, isConfirmed: confirmed)
+        let count = connectedAthleteKeys(folders: folders, invitationRefs: invitationRefs).count
+        return AthleteCountResult(count: count, isConfirmed: confirmed)
     }
 
     /// Full connected athlete count (convenience accessor when confirmation status isn't needed).

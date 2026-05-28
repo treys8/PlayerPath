@@ -186,6 +186,9 @@ struct AuthenticatedFlow: View {
             // Start Firestore listeners for real-time updates
             if let firebaseUID = authManager.currentFirebaseUser?.uid {
                 ActivityNotificationService.shared.startListening(forUserID: firebaseUID)
+                // Re-assert the push token against the current user — handles
+                // sign-out→sign-in where the cached token is unchanged.
+                Task { await PushNotificationService.shared.reassociateTokenWithCurrentUser() }
             }
 
             if authManager.userRole == .coach {

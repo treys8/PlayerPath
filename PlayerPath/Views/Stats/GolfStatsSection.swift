@@ -2,8 +2,9 @@
 //  GolfStatsSection.swift
 //  PlayerPath
 //
-//  Live-computed scoring summary for golf rounds. Counts only games whose
-//  parent Season has sport == .golf and which have a totalScore entered.
+//  Live-computed scoring summary for golf rounds. v6.1 PR3: splits the
+//  single "Avg Score" tile into Tournament Avg and Practice Avg so range
+//  sessions and practice rounds don't pollute the tournament-only number.
 //  No fields are added to AthleteStatistics — golf scoring is summarised on
 //  the fly so it stays simple and migration-free.
 //
@@ -17,7 +18,9 @@ struct GolfStatsSection: View {
     /// When non-nil, only rounds in this season are counted. nil = all golf rounds.
     let season: Season?
 
-    private var golfRounds: [Game] {
+    // MARK: - Source pools
+
+    private var tournamentRounds: [Game] {
         let pool: [Game]
         if let season {
             pool = season.games ?? []
@@ -29,14 +32,47 @@ struct GolfStatsSection: View {
             .sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
     }
 
-    private var totalRounds: Int { golfRounds.count }
-    private var scores: [Int] { golfRounds.compactMap { $0.totalScore } }
-    private var bestScore: Int? { scores.min() }
-    private var worstScore: Int? { scores.max() }
-    private var averageScore: Double? {
-        guard !scores.isEmpty else { return nil }
-        return Double(scores.reduce(0, +)) / Double(scores.count)
+    /// Golf practice rounds with at least one scored hole. Season filter
+    /// matches the tournament path: when `season` is set, only practice
+    /// rounds tied to that season are counted; otherwise all of the athlete's
+    /// practice rounds qualify. Practices without per-hole entries are
+    /// excluded — they don't contribute a meaningful average.
+    private var practiceRounds: [Practice] {
+        let pool: [Practice]
+        if let season {
+            pool = season.practices ?? []
+        } else {
+            pool = athlete?.practices ?? []
+        }
+        return pool.filter { practice in
+            practice.practiceType == PracticeType.practiceRound.rawValue
+                && !(practice.holeScores ?? []).isEmpty
+        }
     }
+
+    // MARK: - Derived metrics
+
+    private var tournamentScores: [Int] { tournamentRounds.compactMap { $0.totalScore } }
+    private var practiceScores: [Int] {
+        practiceRounds.map { practice in
+            (practice.holeScores ?? []).reduce(0) { $0 + $1.score }
+        }
+    }
+
+    private var totalRounds: Int { tournamentScores.count + practiceScores.count }
+    private var bestScore: Int? { (tournamentScores + practiceScores).min() }
+    private var worstScore: Int? { (tournamentScores + practiceScores).max() }
+
+    private var tournamentAverage: Double? {
+        guard !tournamentScores.isEmpty else { return nil }
+        return Double(tournamentScores.reduce(0, +)) / Double(tournamentScores.count)
+    }
+    private var practiceAverage: Double? {
+        guard !practiceScores.isEmpty else { return nil }
+        return Double(practiceScores.reduce(0, +)) / Double(practiceScores.count)
+    }
+
+    // MARK: - Body
 
     var body: some View {
         VStack(spacing: 16) {
@@ -60,7 +96,7 @@ struct GolfStatsSection: View {
             Text("No completed rounds yet")
                 .font(.bodyMedium)
                 .foregroundColor(.secondary)
-            Text("Enter a score on a completed tournament to start tracking your scoring average.")
+            Text("Enter a score on a completed tournament or score holes on a practice round to start tracking your averages.")
                 .font(.bodySmall)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
@@ -73,11 +109,16 @@ struct GolfStatsSection: View {
     private var summaryGrid: some View {
         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
             statTile(label: "Rounds", value: "\(totalRounds)")
-            if let avg = averageScore {
-                statTile(label: "Avg Score", value: String(format: "%.1f", avg))
-            }
             if let best = bestScore {
                 statTile(label: "Best", value: "\(best)", color: .green)
+            }
+            if let avg = tournamentAverage {
+                statTile(label: "Tournament Avg", value: String(format: "%.1f", avg))
+            }
+            // Practice avg hides when zero practice rounds exist so a
+            // tournament-only golfer doesn't see a stranded "—".
+            if let avg = practiceAverage {
+                statTile(label: "Practice Avg", value: String(format: "%.1f", avg))
             }
             if let worst = worstScore {
                 statTile(label: "Worst", value: "\(worst)", color: .secondary)
@@ -100,10 +141,12 @@ struct GolfStatsSection: View {
         .statCardBackground()
     }
 
+    /// Recent-rounds chart is tournament-only — practice rounds vary in length
+    /// (9 vs 18 holes) so plotting them on the same axis would mislead.
     private var recentRoundsChart: some View {
-        let recent = Array(golfRounds.prefix(10).reversed())
+        let recent = Array(tournamentRounds.prefix(10).reversed())
         return VStack(alignment: .leading, spacing: 8) {
-            Text("Recent Rounds")
+            Text("Recent Tournaments")
                 .font(.headingMedium)
             if recent.count < 2 {
                 Text("Play another round to see a trend.")
@@ -125,6 +168,12 @@ struct GolfStatsSection: View {
                     }
                 }
                 .frame(height: 160)
+            }
+            if !practiceScores.isEmpty {
+                Text("Practice rounds shown in totals only.")
+                    .font(.bodySmall)
+                    .foregroundColor(.secondary)
+                    .padding(.top, 4)
             }
         }
         .padding(12)

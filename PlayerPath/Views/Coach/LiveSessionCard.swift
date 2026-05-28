@@ -23,109 +23,131 @@ struct LiveSessionCard: View {
     private var accentColor: Color { isLive ? .red : .brandNavy }
 
     var body: some View {
-        HStack(spacing: 14) {
-            // Pulsing indicator
-            ZStack {
-                Circle()
-                    .fill(accentColor.opacity(isPulsing ? 0.15 : 0.25))
-                    .frame(width: 50, height: 50)
-                    .blur(radius: 4)
-                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: isPulsing)
+        VStack(alignment: .leading, spacing: 12) {
+            // Top row: live indicator, session info, and (when ended) a
+            // chevron. The info column gets the full card width here so the
+            // LIVE badge, name, and metadata never compete with the action
+            // buttons for space — actions live on their own row below.
+            HStack(spacing: 14) {
+                // Pulsing indicator
+                ZStack {
+                    Circle()
+                        .fill(accentColor.opacity(isPulsing ? 0.15 : 0.25))
+                        .frame(width: 50, height: 50)
+                        .blur(radius: 4)
+                        .animation(reduceMotion ? nil : .easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: isPulsing)
 
-                Circle()
-                    .fill(accentColor.opacity(0.2))
-                    .frame(width: 44, height: 44)
+                    Circle()
+                        .fill(accentColor.opacity(0.2))
+                        .frame(width: 44, height: 44)
 
-                Circle()
-                    .fill(accentColor.opacity(isPulsing ? 0.1 : 0.35))
-                    .frame(width: 36, height: 36)
-                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: isPulsing)
+                    Circle()
+                        .fill(accentColor.opacity(isPulsing ? 0.1 : 0.35))
+                        .frame(width: 36, height: 36)
+                        .animation(reduceMotion ? nil : .easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: isPulsing)
 
-                Image(systemName: isLive ? "record.circle" : "checkmark.circle")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(accentColor)
-                    .symbolRenderingMode(.hierarchical)
-            }
-            .onAppear { if isLive && !reduceMotion { isPulsing = true } }
-            .onChange(of: scenePhase) { _, newPhase in
-                isPulsing = isLive && newPhase == .active && !reduceMotion
-            }
-
-            // Session info
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 6) {
-                    HStack(spacing: 3) {
-                        Circle()
-                            .fill(accentColor)
-                            .frame(width: 6, height: 6)
-                            .opacity(isPulsing ? 0.5 : 1.0)
-                        Text(isLive ? "LIVE" : "SESSION ENDED")
-                            .font(.caption2)
-                            .fontWeight(.black)
-                            .foregroundColor(accentColor)
-                    }
-                    .badgeSmall()
-                    .background(Capsule().fill(accentColor.opacity(0.12)))
-
-                    if isLive {
-                        Text("SESSION")
-                            .font(.caption2)
-                            .fontWeight(.semibold)
-                            .foregroundColor(.secondary)
-                    }
+                    Image(systemName: isLive ? "record.circle" : "checkmark.circle")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(accentColor)
+                        .symbolRenderingMode(.hierarchical)
+                }
+                .onAppear { if isLive && !reduceMotion { isPulsing = true } }
+                .onChange(of: scenePhase) { _, newPhase in
+                    isPulsing = isLive && newPhase == .active && !reduceMotion
                 }
 
-                Text(session.athleteNamesSummary)
-                    .font(.body)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
+                // Session info
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack(spacing: 6) {
+                        HStack(spacing: 3) {
+                            Circle()
+                                .fill(accentColor)
+                                .frame(width: 6, height: 6)
+                                .opacity(isPulsing ? 0.5 : 1.0)
+                            Text(isLive ? "LIVE" : "SESSION ENDED")
+                                .font(.caption2)
+                                .fontWeight(.black)
+                                .foregroundColor(accentColor)
+                                .fixedSize()
+                        }
+                        .badgeSmall()
+                        .background(Capsule().fill(accentColor.opacity(0.12)))
+                        // Keep the pill at intrinsic width so "LIVE" can never wrap.
+                        .fixedSize()
 
-                HStack(spacing: 8) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "video.fill")
-                            .font(.caption2)
-                        Text("\(session.clipCount) clip\(session.clipCount == 1 ? "" : "s")")
-                            .font(.caption)
+                        if isLive {
+                            Text("SESSION")
+                                .font(.caption2)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                        }
                     }
 
-                    if isLive, let startedAt = session.startedAt {
+                    Text(session.athleteNamesSummary)
+                        .font(.body)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+
+                    HStack(spacing: 8) {
                         HStack(spacing: 4) {
-                            Image(systemName: "clock.fill")
+                            Image(systemName: "video.fill")
                                 .font(.caption2)
-                            Text(startedAt, style: .timer)
+                            Text("\(session.clipCount) clip\(session.clipCount == 1 ? "" : "s")")
                                 .font(.caption)
-                                .monospacedDigit()
+                                .lineLimit(1)
+                        }
+                        .fixedSize()
+
+                        if isLive, let startedAt = session.startedAt {
+                            HStack(spacing: 4) {
+                                Image(systemName: "clock.fill")
+                                    .font(.caption2)
+                                Text(startedAt, style: .timer)
+                                    .font(.caption)
+                                    .monospacedDigit()
+                                    .lineLimit(1)
+                            }
+                            .fixedSize()
+                        }
+
+                        if let onEditNotes {
+                            Button {
+                                onEditNotes()
+                            } label: {
+                                Image(systemName: "note.text")
+                                    .font(.caption2)
+                                    .foregroundColor(.brandNavy)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Edit session notes")
                         }
                     }
+                    .foregroundColor(.secondary)
 
-                    if let onEditNotes {
-                        Button {
-                            onEditNotes()
-                        } label: {
-                            Image(systemName: "note.text")
-                                .font(.caption2)
-                                .foregroundColor(.brandNavy)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Edit session notes")
+                    if let notes = session.notes, !notes.isEmpty {
+                        Text(notes)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .italic()
                     }
                 }
-                .foregroundColor(.secondary)
 
-                if let notes = session.notes, !notes.isEmpty {
-                    Text(notes)
+                Spacer()
+
+                if !isLive {
+                    Image(systemName: "chevron.right")
                         .font(.caption)
                         .foregroundColor(.secondary)
-                        .lineLimit(1)
-                        .italic()
                 }
             }
 
-            Spacer()
-
-            if isLive {
-                HStack(spacing: 8) {
+            // Action row — full-width CTAs on their own line so they never
+            // crowd the name or metadata. Side-by-side when both present.
+            if isLive, onRecord != nil || onEnd != nil {
+                HStack(spacing: 10) {
                     if let onRecord {
                         Button {
                             Haptics.medium()
@@ -134,9 +156,10 @@ struct LiveSessionCard: View {
                             Label("Record", systemImage: "video.fill")
                                 .font(.caption)
                                 .fontWeight(.bold)
+                                .lineLimit(1)
                                 .foregroundColor(.white)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 7)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 11)
                                 .background(
                                     LinearGradient(
                                         colors: [.red, .red.opacity(0.8)],
@@ -165,18 +188,14 @@ struct LiveSessionCard: View {
                             .font(.caption)
                             .fontWeight(.semibold)
                             .foregroundColor(.primary)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 7)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 11)
                             .background(Capsule().fill(Color(.secondarySystemBackground)))
                         }
                         .disabled(isEnding)
                         .buttonStyle(.borderless)
                     }
                 }
-            } else {
-                Image(systemName: "chevron.right")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
             }
         }
         .padding(16)

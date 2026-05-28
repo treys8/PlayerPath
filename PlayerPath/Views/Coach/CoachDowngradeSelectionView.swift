@@ -188,16 +188,23 @@ struct CoachDowngradeSelectionView: View {
             )
         }
 
-        // Also include athletes connected via accepted invitations (no folder yet)
-        // so the count matches SubscriptionGate.fullConnectedAthleteCount
+        // Also include athletes connected via accepted invitations whose folders
+        // aren't present locally yet, so the count matches SubscriptionGate.
+        // Reconcile on both ID axes so an athlete already shown via a folder isn't
+        // re-added as a phantom invitation-only entry.
         do {
-            let invitationOnlyIDs = try await FirestoreManager.shared
-                .fetchAcceptedCoachToAthleteAthleteIDs(coachID: coachID)
-            for athleteID in invitationOnlyIDs where athleteMap[athleteID] == nil {
-                // Fetch display name for invitation-only athletes
-                let profile = try? await FirestoreManager.shared.fetchUserProfile(userID: athleteID)
-                let name = profile?.email.components(separatedBy: "@").first
-                athleteMap[athleteID] = (
+            let invitationRefs = try await FirestoreManager.shared
+                .fetchAcceptedCoachToAthleteRefs(coachID: coachID)
+            let unmatched = SubscriptionGate.unmatchedInvitationRefs(folders: folders, invitationRefs: invitationRefs)
+            for ref in unmatched {
+                guard let key = ref.canonicalKey, athleteMap[key] == nil else { continue }
+                // Name lookup uses the account UID (the Athlete UUID isn't a user doc ID).
+                var name: String?
+                if let uid = ref.athleteUserID {
+                    name = (try? await FirestoreManager.shared.fetchUserProfile(userID: uid))?
+                        .email.components(separatedBy: "@").first
+                }
+                athleteMap[key] = (
                     name: name ?? "Unknown Athlete",
                     folderCount: 0,
                     videoCount: 0

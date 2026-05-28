@@ -132,6 +132,11 @@ struct FirestoreVideoMetadata: Codable, Identifiable {
     // doesn't drop the field on Codable round-trip.
     var club: String? = nil
 
+    // Hole number this clip was recorded on within a live golf round
+    // (SchemaV25). Set by ClipPersistenceService via LiveHoleTracker — nil for
+    // baseball/softball or for golf clips recorded outside a live round.
+    var holeNumber: Int? = nil
+
     // Coach-authored plain note (separate from athlete `notes`)
     var coachNote: String? = nil
     var coachNoteAuthorID: String? = nil
@@ -525,6 +530,17 @@ struct FirestorePractice: Codable, Identifiable {
     let updatedAt: Date?
     let version: Int
     let isDeleted: Bool
+    /// Golf practice-round hole count (9 or 18). Optional so pre-PR3 docs
+    /// without the field decode cleanly. Nil for baseball practices and
+    /// range sessions.
+    let holes: Int?
+    /// True while a golf practice is the live dashboard activity (SchemaV26).
+    /// Optional so pre-V26 docs decode cleanly; defaults to false on decode.
+    let isLive: Bool?
+    /// Timestamp the practice went live (SchemaV26). Nil when not live.
+    let liveStartDate: Date?
+    /// Optional course / location for golf practices (SchemaV26).
+    let course: String?
 
     enum CodingKeys: String, CodingKey {
         case swiftDataId = "id"
@@ -536,7 +552,52 @@ struct FirestorePractice: Codable, Identifiable {
         case updatedAt
         case version
         case isDeleted
+        case holes
+        case isLive
+        case liveStartDate
+        case course
     }
+}
+
+/// Per-hole golf scoring row (SchemaV25). Doc id is the hole number as a
+/// String ("1"–"18"), so re-scoring a hole upserts deterministically without
+/// a separate firestoreId lookup. Lives under both
+/// `users/{uid}/games/{gameId}/holes/{N}` (tournaments) and
+/// `users/{uid}/practices/{practiceId}/holes/{N}` (practice rounds, PR3).
+struct FirestoreHoleScore: Codable, Identifiable {
+    var id: String?
+    let holeNumber: Int
+    let par: Int
+    let score: Int
+    let putts: Int?
+    let createdAt: Date?
+    let updatedAt: Date?
+    let version: Int?
+    let isDeleted: Bool?
+}
+
+/// Virtual highlight reel (SchemaV25 / v6.1 PR2). Top-level athlete collection
+/// at `users/{uid}/highlightReels/{reelId}` where the doc id is
+/// `reel.id.uuidString` — distinct from `FirestoreHoleScore` which keys on
+/// hole number under the parent game. Reels reference clips by UUID; the
+/// referenced video docs live under the `videos` top-level collection
+/// (uploaded via the same path as any other VideoClip).
+struct FirestoreHighlightReel: Codable, Identifiable {
+    var id: String?
+    let athleteID: String
+    let gameID: String?
+    let practiceID: String?
+    let holeNumber: Int
+    let score: Int
+    let par: Int
+    let displayName: String
+    let courseOrOpponent: String
+    let clipIDs: [String]
+    let date: Date
+    let createdAt: Date?
+    let updatedAt: Date?
+    let version: Int?
+    let isDeleted: Bool?
 }
 
 struct FirestorePracticeNote: Codable, Identifiable {

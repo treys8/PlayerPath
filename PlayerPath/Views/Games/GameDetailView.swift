@@ -23,6 +23,10 @@ struct GameDetailView: View {
     @State private var showingPhotoLibrary = false
     @State private var showingScoreEntry = false
     @State private var gameService: GameService? = nil
+    /// Hole picked for per-hole scoring; non-nil presents ScoreHoleSheet.
+    /// Use a wrapper instead of a bare Int so `.sheet(item:)` redraws when
+    /// the user opens different holes back-to-back.
+    @State private var scoreHoleTarget: ScoreHoleTarget? = nil
 
     private var isGolf: Bool { game.season?.sport == .golf }
     private var unitNoun: String { isGolf ? "Tournament" : "Game" }
@@ -37,6 +41,18 @@ struct GameDetailView: View {
 
     var gamePhotos: [Photo] {
         (game.photos ?? []).sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
+    }
+
+    /// Per-hole rows for this game, ascending by hole. Empty when none entered.
+    private var holeScores: [HoleScore] {
+        (game.holeScores ?? []).sorted { $0.holeNumber < $1.holeNumber }
+    }
+
+    /// Next unscored hole (1…holes), used for the live "Score Hole X" CTA.
+    private var nextHoleNumber: Int {
+        let total = game.holes ?? 18
+        let scoredMax = holeScores.last?.holeNumber ?? 0
+        return min(scoredMax + 1, total)
     }
 
     var body: some View {
@@ -170,6 +186,20 @@ struct GameDetailView: View {
                     }
                     .padding(.vertical, 5)
                 }
+
+                // Per-hole grid — read-only summary that's also tappable to edit
+                // any prior hole. Only renders once at least one hole is scored.
+                if !holeScores.isEmpty {
+                    Section("Holes") {
+                        HoleScoreGrid(
+                            holes: holeScores,
+                            onTap: { hole in
+                                scoreHoleTarget = ScoreHoleTarget(holeNumber: hole.holeNumber)
+                            }
+                        )
+                        .padding(.vertical, 4)
+                    }
+                }
             }
 
             // Quick Actions Section — driven by `displayStatus` so the action
@@ -188,6 +218,16 @@ struct GameDetailView: View {
                         Label(isGolf ? "Start Round" : "Start Game", systemImage: "play.circle")
                     }
                 case .live:
+                    // Score Hole is promoted above Record Video for golf live
+                    // tournaments — entering a score is the primary action on
+                    // each hole, and clip attribution depends on it.
+                    if isGolf {
+                        Button(action: {
+                            scoreHoleTarget = ScoreHoleTarget(holeNumber: nextHoleNumber)
+                        }) {
+                            Label("Score Hole \(nextHoleNumber)", systemImage: "flag.checkered")
+                        }
+                    }
                     Button(action: { showingVideoRecorder = true }) {
                         Label("Record Video", systemImage: "video.badge.plus")
                     }
@@ -381,6 +421,9 @@ struct GameDetailView: View {
         .sheet(isPresented: $showingScoreEntry) {
             EnterScoreSheet(game: game)
         }
+        .sheet(item: $scoreHoleTarget) { target in
+            ScoreHoleSheet(game: game, holeNumber: target.holeNumber)
+        }
         .fullScreenCover(isPresented: $showingVideoRecorder) {
             DirectCameraRecorderView(athlete: game.athlete, game: game)
         }
@@ -424,6 +467,13 @@ struct GameDetailView: View {
                         Label(isGolf ? "Start Round" : "Start Game", systemImage: "play.circle")
                     }
                 case .live:
+                    if isGolf {
+                        Button(action: {
+                            scoreHoleTarget = ScoreHoleTarget(holeNumber: nextHoleNumber)
+                        }) {
+                            Label("Score Hole \(nextHoleNumber)", systemImage: "flag.checkered")
+                        }
+                    }
                     Button(action: { showingVideoRecorder = true }) {
                         Label("Record Video", systemImage: "video.badge.plus")
                     }

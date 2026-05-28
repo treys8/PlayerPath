@@ -51,7 +51,11 @@ struct CoachRow: View {
                     }
                 }
 
-                if coach.isInvitationExpired || coach.lastInvitationStatus == "declined" {
+                if coach.lastInvitationStatus == "rejected_limit" {
+                    Text("Coach is at their athlete capacity — they'll need to upgrade or free a slot before they can accept")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                } else if coach.isInvitationExpired || coach.lastInvitationStatus == "declined" {
                     Text(coach.isInvitationExpired ? "Invitation expired — swipe right to re-invite" : "Invitation declined — swipe right to re-invite")
                         .font(.caption2)
                         .foregroundStyle(.orange)

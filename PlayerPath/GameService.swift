@@ -21,6 +21,26 @@ class GameService {
         let userId = game.athlete?.user?.firebaseAuthUid
         let gameAthlete = game.athlete
         let gameIdString = game.id.uuidString
+        let gameID = game.id
+        // Capture hole numbers BEFORE deletion so we can soft-delete the
+        // matching Firestore subcollection docs after the local save commits.
+        let holeNumbers = (game.holeScores ?? []).map(\.holeNumber)
+
+        // v6.1 PR2: collect HighlightReel doc IDs for this game so we can
+        // soft-delete the Firestore docs after local delete + save. Reels
+        // aren't a SwiftData child of Game (only denormalized `gameID`), so
+        // we have to fetch flat.
+        var reelDocIDsToSoftDelete: [String] = []
+        do {
+            let allReels = try modelContext.fetch(FetchDescriptor<HighlightReel>())
+            let matchingReels = allReels.filter { $0.gameID == gameID }
+            reelDocIDsToSoftDelete = matchingReels.compactMap(\.firestoreId)
+            for reel in matchingReels {
+                modelContext.delete(reel)
+            }
+        } catch {
+            logger.error("Failed to fetch HighlightReels for cascade delete: \(error.localizedDescription)")
+        }
 
         // Cancel any pending push notification for this game
         PushNotificationService.shared.cancelNotifications(
@@ -43,6 +63,13 @@ class GameService {
         // Delete game stats
         if let gameStats = game.gameStats {
             modelContext.delete(gameStats)
+        }
+
+        // Delete per-hole scoring rows. SwiftData inverse nullifies the
+        // game pointer on cascade, but we want hard removal so a re-created
+        // game with the same UUID can't inherit ghost holes.
+        for hole in game.holeScores ?? [] {
+            modelContext.delete(hole)
         }
 
         modelContext.delete(game)
@@ -72,6 +99,35 @@ class GameService {
             Task {
                 await retryAsync {
                     try await FirestoreManager.shared.deleteGame(userId: userId, gameId: firestoreId)
+                }
+                // Soft-delete each hole subcollection doc so cross-device sync
+                // doesn't resurrect them. Fire-and-forget per hole — failures
+                // are caught by the daily server-side cleanup.
+                for holeNumber in holeNumbers {
+                    await retryAsync {
+                        try await FirestoreManager.shared.deleteGameHoleScore(
+                            userId: userId,
+                            gameFirestoreId: firestoreId,
+                            holeNumber: holeNumber
+                        )
+                    }
+                }
+            }
+        }
+
+        // Soft-delete each reel doc independently of the game firestoreId —
+        // reels live at the user-scoped collection, not under the game doc,
+        // so a game with no firestoreId (created offline, never synced) still
+        // needs to surface any synced reels for cleanup.
+        if let userId, !reelDocIDsToSoftDelete.isEmpty {
+            Task {
+                for reelId in reelDocIDsToSoftDelete {
+                    await retryAsync {
+                        try await FirestoreManager.shared.deleteHighlightReel(
+                            userId: userId,
+                            reelId: reelId
+                        )
+                    }
                 }
             }
         }
@@ -128,6 +184,11 @@ class GameService {
             (athlete.games ?? []).filter { $0.isLive }.forEach {
                 $0.isLive = false
                 GameAlertService.shared.cancelEndGameReminder(for: $0)
+            }
+            // v6.1 golf single-live spans practices: a new live tournament also
+            // ends any live practice round / range session for this athlete.
+            if resolvedSeason?.sport == .golf {
+                endLivePractices(for: athlete)
             }
         }
 
@@ -243,19 +304,33 @@ class GameService {
     }
 
     // MARK: - Game Lifecycle Management
-    
+
+    /// End any live golf practices for the athlete. Used by the golf start
+    /// paths so the single-live invariant spans games and practices.
+    private func endLivePractices(for athlete: Athlete) {
+        for practice in (athlete.practices ?? []) where practice.isLive {
+            practice.isLive = false
+            practice.liveStartDate = nil
+            practice.needsSync = true
+        }
+    }
+
     func start(_ game: Game) async {
         guard let athlete = game.athlete else {
             logger.warning("start() called but game.athlete is nil — no action taken")
             return
         }
-        
+
         // End other live games of this athlete
         for otherGame in athlete.games ?? [] where otherGame.isLive && otherGame != game {
             otherGame.isLive = false
             GameAlertService.shared.cancelEndGameReminder(for: otherGame)
         }
-        
+        // v6.1: golf tournaments also end live practices (single-live invariant).
+        if game.season?.sport == .golf {
+            endLivePractices(for: athlete)
+        }
+
         // Start this game
         game.isLive = true
         game.liveStartDate = Date()
@@ -352,6 +427,10 @@ class GameService {
         for otherGame in athlete.games ?? [] where otherGame.isLive && otherGame != game {
             otherGame.isLive = false
             GameAlertService.shared.cancelEndGameReminder(for: otherGame)
+        }
+        // v6.1: golf tournaments also end live practices (single-live invariant).
+        if game.season?.sport == .golf {
+            endLivePractices(for: athlete)
         }
 
         // Restart this game

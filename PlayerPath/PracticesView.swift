@@ -16,11 +16,13 @@ private let log = Logger(subsystem: "com.playerpath.app", category: "Practices")
 extension PracticeType {
     var color: Color {
         switch self {
-        case .general:  return .brandNavy
-        case .batting:  return .orange
-        case .fielding: return .green
-        case .bullpen:  return .red
-        case .team:     return .purple
+        case .general:        return .brandNavy
+        case .batting:        return .orange
+        case .fielding:       return .green
+        case .bullpen:        return .red
+        case .team:           return .purple
+        case .practiceRound:  return .brandGold
+        case .rangeSession:   return .green
         }
     }
 }
@@ -41,6 +43,14 @@ struct PracticesView: View {
     @State private var viewModel = PracticesViewModel()
     @State private var navigateToPractice: Practice?
     @State private var showingAddPractice = false
+    /// Golf "+" → NewPracticeTypePicker sheet, then chains into AddPracticeView
+    /// with `preselectedType` propagated. Baseball ignores both.
+    @State private var showingNewPracticeTypePicker = false
+    @State private var preselectedType: PracticeType?
+    /// Set by `.setGolfPickerPending` (posted from the dashboard as it switches
+    /// tabs). Consumed in `.onAppear` so the picker surfaces reliably even on a
+    /// cold mount, replacing the old timing-based notification hand-off.
+    @State private var pendingGolfPickerRequest = false
 
     /// True when this athlete has seasons in more than one sport. Drives
     /// sport-aware empty-state copy ("No Golf Practices Yet") so single-sport
@@ -110,7 +120,11 @@ struct PracticesView: View {
                 EmptyPracticesView(
                     sportTitle: isMultiSport ? activeSport.displayName : nil
                 ) {
-                    quickCreatePractice(type: .general)
+                    if activeSport == .golf {
+                        showingNewPracticeTypePicker = true
+                    } else {
+                        quickCreatePractice(type: .general)
+                    }
                 }
             }
         } else {
@@ -185,31 +199,44 @@ struct PracticesView: View {
     @ToolbarContentBuilder
     private var practicesToolbar: some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
-            Menu {
+            // Golf athletes pick Range vs Practice Round in a sheet (per-hole
+            // scoring and clip attribution depend on the type, so we don't
+            // surface a single-tap "general" shortcut for golf). Baseball
+            // athletes keep the inline Menu they're used to.
+            if activeSport == .golf {
                 Button {
-                    quickCreatePractice(type: .general)
+                    showingNewPracticeTypePicker = true
                 } label: {
-                    Label("General Practice", systemImage: PracticeType.general.icon)
+                    Image(systemName: "plus")
                 }
-                ForEach(PracticeType.allCases.filter { $0 != .general }) { type in
+                .accessibilityLabel("Add Practice")
+            } else {
+                Menu {
                     Button {
-                        quickCreatePractice(type: type)
+                        quickCreatePractice(type: .general)
                     } label: {
-                        Label(type.displayName, systemImage: type.icon)
+                        Label("General Practice", systemImage: PracticeType.general.icon)
                     }
-                }
-                Divider()
-                Button {
-                    showingAddPractice = true
+                    ForEach(PracticeType.cases(for: activeSport).filter { $0 != .general }) { type in
+                        Button {
+                            quickCreatePractice(type: type)
+                        } label: {
+                            Label(type.displayName, systemImage: type.icon)
+                        }
+                    }
+                    Divider()
+                    Button {
+                        showingAddPractice = true
+                    } label: {
+                        Label("Schedule Practice…", systemImage: "calendar.badge.plus")
+                    }
                 } label: {
-                    Label("Schedule Practice…", systemImage: "calendar.badge.plus")
+                    Image(systemName: "plus")
+                } primaryAction: {
+                    quickCreatePractice(type: .general)
                 }
-            } label: {
-                Image(systemName: "plus")
-            } primaryAction: {
-                quickCreatePractice(type: .general)
+                .accessibilityLabel("Add Practice")
             }
-            .accessibilityLabel("Add Practice")
         }
 
         if hasAnyPractices {
@@ -245,6 +272,14 @@ struct PracticesView: View {
         }
         .onAppear {
             AnalyticsService.shared.trackScreenView(screenName: "Practices", screenClass: "PracticesView")
+            // Consume a picker request armed before this view mounted (cold
+            // tab switch from the dashboard).
+            if pendingGolfPickerRequest {
+                pendingGolfPickerRequest = false
+                if activeSport == .golf {
+                    showingNewPracticeTypePicker = true
+                }
+            }
         }
         .onChange(of: viewModel.searchText) { _, _ in viewModel.resetPagination(); viewModel.refilter() }
         .onChange(of: viewModel.selectedSeasonFilter) { _, _ in viewModel.resetPagination(); viewModel.refilter() }
@@ -259,10 +294,52 @@ struct PracticesView: View {
         }
         .sheet(isPresented: $showingAddPractice) {
             if let athlete {
-                AddPracticeView(athlete: athlete) { created in
+                AddPracticeView(athlete: athlete, initialType: preselectedType) { created in
                     navigateToPractice = created
                 }
             }
+        }
+        // Picker → AddPracticeView is a two-sheet chain. Presenting the
+        // second sheet inside the picker's onSelect closure (while the
+        // first is still on-screen) loses the second sheet on iOS 17.
+        // `onDismiss:` runs AFTER the picker fully tears down, so chaining
+        // through it is reliable.
+        .sheet(isPresented: $showingNewPracticeTypePicker, onDismiss: {
+            if preselectedType != nil {
+                showingAddPractice = true
+            }
+        }) {
+            NewPracticeTypePicker { type in
+                preselectedType = type
+            }
+        }
+        .onChange(of: showingNewPracticeTypePicker) { _, presenting in
+            // Reset preselectedType on each picker open so a stale value
+            // from a previous Cancel'd AddPracticeView can't re-trigger the
+            // creation sheet via onDismiss.
+            if presenting {
+                preselectedType = nil
+                // The request (cold or warm path) has now been satisfied —
+                // clear the pending flag so a later appear can't re-open it.
+                pendingGolfPickerRequest = false
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .presentGolfPracticePicker)) { _ in
+            guard activeSport == .golf else { return }
+            showingNewPracticeTypePicker = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .setGolfPickerPending)) { _ in
+            // Arm the request; `.onAppear` consumes it on a cold mount. The
+            // warm path (view already mounted) is handled by the direct
+            // `.presentGolfPracticePicker` receiver above, which clears this
+            // flag via the onChange below when the picker opens.
+            pendingGolfPickerRequest = true
+        }
+        .onChange(of: showingAddPractice) { _, isPresented in
+            // Clear preselectedType after AddPracticeView dismisses so a
+            // baseball "Schedule Practice…" tap doesn't inherit a stale
+            // golf preselection.
+            if !isPresented { preselectedType = nil }
         }
     }
 

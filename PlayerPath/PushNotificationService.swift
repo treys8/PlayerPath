@@ -12,6 +12,7 @@ import Combine
 import os.log
 import FirebaseAuth
 import FirebaseFirestore
+import FirebaseMessaging
 
 @MainActor
 final class PushNotificationService: NSObject, ObservableObject {
@@ -610,6 +611,26 @@ final class PushNotificationService: NSObject, ObservableObject {
             Task {
                 await sendFCMTokenToServerWithRetry(token, previousToken: previousFCMToken)
             }
+        }
+    }
+
+    /// Force-writes the current FCM (and APNs) token to the signed-in user's
+    /// Firestore doc, bypassing the `tokenChanged` guard. Called on sign-in:
+    /// after a sign-out→sign-in the cached token is unchanged so the Messaging
+    /// delegate never re-fires, leaving the freshly signed-in user's doc with no
+    /// `fcmTokens` entry and push silently broken until the OS rotates the token.
+    func reassociateTokenWithCurrentUser() async {
+        var fcm = Messaging.messaging().fcmToken
+        if fcm == nil {
+            fcm = try? await Messaging.messaging().token()
+        }
+        if let fcm {
+            self.fcmToken = fcm
+            UserDefaults.standard.set(fcm, forKey: "fcmToken")
+            await sendFCMTokenToServerWithRetry(fcm, previousToken: nil)
+        }
+        if let apns = self.deviceToken {
+            await sendTokenToServerWithRetry(apns, previousToken: nil)
         }
     }
 

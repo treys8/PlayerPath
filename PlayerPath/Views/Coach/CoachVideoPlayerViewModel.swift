@@ -337,9 +337,11 @@ class CoachVideoPlayerViewModel {
         return video.isReviewed(by: coachID)
     }
 
-    /// Explicitly mark the clip reviewed by the current coach. Throws so the
-    /// caller can surface the error inline.
-    func markReviewed(coachID: String) async throws {
+    /// Mark the clip reviewed by the current coach. Throws so the caller can
+    /// surface the error inline. Pass `silent: true` for the auto-mark-on-open
+    /// path so merely viewing a clip doesn't fire a success haptic — that
+    /// confirmation is reserved for the explicit "Mark Reviewed" action.
+    func markReviewed(coachID: String, silent: Bool = false) async throws {
         let videoID = video.id
         guard !videoID.isEmpty else { return }
         do {
@@ -352,7 +354,7 @@ class CoachVideoPlayerViewModel {
             throw error
         }
         reviewedAt = Date()
-        Haptics.success()
+        if !silent { Haptics.success() }
     }
 
     func deleteAnnotation(_ annotation: VideoAnnotation) async {

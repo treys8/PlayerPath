@@ -21,12 +21,42 @@ struct PracticeDetailView: View {
 
     @State private var showingAddNote = false
     @State private var showingRecordCamera = false
+    /// Non-nil presents ScoreHoleSheet for the chosen hole (golf practice
+    /// rounds only). Cleared on dismissal.
+    @State private var scoreHoleTarget: ScoreHoleTarget?
 
     // Bulk import from Photos — state owned by BulkImportAttach modifier.
     @State private var importTrigger = false
 
     private var practiceType: PracticeType {
         practice.type
+    }
+
+    private var isPracticeRound: Bool {
+        practice.practiceType == PracticeType.practiceRound.rawValue
+    }
+
+    /// Sport-aware type list for the in-place Type-change Menu. Falls back to
+    /// the union when athlete is missing (shouldn't happen — practice with no
+    /// athlete is orphaned — but defensive).
+    private var typeMenuOptions: [PracticeType] {
+        guard let sport = practice.athlete?.sportType else { return PracticeType.allCases }
+        return PracticeType.cases(for: sport)
+    }
+
+    private var sortedHoleScores: [HoleScore] {
+        (practice.holeScores ?? []).sorted { $0.holeNumber < $1.holeNumber }
+    }
+
+    /// Next unscored hole (capped at Practice.holes ?? 18). Used to label the
+    /// "Score Hole X" button. Derived inline (matching GameDetailView) rather
+    /// than via LiveHoleTracker.currentHole, because the detail screen scores
+    /// rounds regardless of live state, while currentHole is gated on `isLive`
+    /// for clip attribution.
+    private var nextHoleNumber: Int {
+        let total = practice.holes ?? 18
+        let scoredMax = sortedHoleScores.last?.holeNumber ?? 0
+        return min(scoredMax + 1, total)
     }
 
     var videoClips: [VideoClip] {
@@ -54,9 +84,17 @@ struct PracticeDetailView: View {
                         .font(.headingMedium)
                     Spacer()
                     Menu {
-                        ForEach(PracticeType.allCases) { type in
+                        ForEach(typeMenuOptions) { type in
                             Button {
                                 practice.practiceType = type.rawValue
+                                // Practice rounds want a hole count; range
+                                // sessions and any baseball type clear it so
+                                // LiveHoleTracker's gate stays clean.
+                                if type == .practiceRound {
+                                    if practice.holes == nil { practice.holes = 18 }
+                                } else {
+                                    practice.holes = nil
+                                }
                                 practice.needsSync = true
                                 ErrorHandlerService.shared.saveContext(modelContext, caller: "PracticesView.changePracticeType")
                                 Haptics.light()
@@ -80,6 +118,18 @@ struct PracticeDetailView: View {
 
             // Actions Section
             Section("Actions") {
+                // Score Hole — golf practice rounds only. Promoted above
+                // Record Video so the primary on-course action is the first
+                // tap target (mirrors GameDetailView's golf placement).
+                if isPracticeRound {
+                    Button {
+                        Haptics.medium()
+                        scoreHoleTarget = ScoreHoleTarget(holeNumber: nextHoleNumber)
+                    } label: {
+                        Label("Score Hole \(nextHoleNumber)", systemImage: "flag.fill")
+                    }
+                }
+
                 Button(action: { showingRecordCamera = true }) {
                     Label("Record Video", systemImage: "video.badge.plus")
                 }
@@ -97,6 +147,20 @@ struct PracticeDetailView: View {
                     showingDeleteConfirmation = true
                 }) {
                     Label("Delete Practice", systemImage: "trash")
+                }
+            }
+
+            // Per-hole grid — only renders when at least one hole has been
+            // scored on a practice round. Tapping a cell re-opens the score
+            // sheet for that hole (edit-in-place via ScoreHoleSheet's
+            // existingHole lookup).
+            if isPracticeRound && !sortedHoleScores.isEmpty {
+                Section("Holes") {
+                    HoleScoreGrid(holes: sortedHoleScores) { tapped in
+                        scoreHoleTarget = ScoreHoleTarget(holeNumber: tapped.holeNumber)
+                    }
+                    .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 8, trailing: 8))
+                    .listRowBackground(Color.clear)
                 }
             }
 
@@ -144,6 +208,9 @@ struct PracticeDetailView: View {
         }
         .sheet(isPresented: $showingAddNote) {
             AddPracticeNoteView(practice: practice)
+        }
+        .sheet(item: $scoreHoleTarget) { target in
+            ScoreHoleSheet(practice: practice, holeNumber: target.holeNumber)
         }
         .bulkImportAttach(athlete: practice.athlete, practice: practice, trigger: $importTrigger)
         .fullScreenCover(item: $selectedVideo) { video in

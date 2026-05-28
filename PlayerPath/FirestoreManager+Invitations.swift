@@ -558,27 +558,23 @@ extension FirestoreManager {
         }
     }
 
-    /// Returns athlete user IDs from accepted coach-to-athlete invitations for a given coach.
-    /// Used to count connected athletes for limit enforcement.
-    func fetchAcceptedCoachToAthleteAthleteIDs(coachID: String) async throws -> Set<String> {
+    /// Returns athlete references from accepted coach-to-athlete invitations for a given coach.
+    /// Used to count connected athletes for limit enforcement. Both identifier axes are
+    /// returned (per-athlete UUID and account UID) so callers can reconcile against folders —
+    /// which may key the same real athlete by either axis — without double-counting.
+    func fetchAcceptedCoachToAthleteRefs(coachID: String) async throws -> [CoachAthleteRef] {
         let snapshot = try await db.collection(FC.invitations)
             .whereField("type", isEqualTo: "coach_to_athlete")
             .whereField("coachID", isEqualTo: coachID)
             .whereField("status", isEqualTo: "accepted")
             .limit(to: 200)
             .getDocuments()
-        var ids = Set<String>()
-        for doc in snapshot.documents {
-            // Prefer per-athlete UUID (matches folder.athleteUUID so the SubscriptionGate union dedupes
-            // correctly); fall back to the account UID for legacy invitations accepted before that field.
+        return snapshot.documents.map { doc in
             let data = doc.data()
-            if let athleteUUID = data["athleteUUID"] as? String, !athleteUUID.isEmpty {
-                ids.insert(athleteUUID)
-            } else if let athleteUID = data["athleteUserID"] as? String, !athleteUID.isEmpty {
-                ids.insert(athleteUID)
-            }
+            let uuid = (data["athleteUUID"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            let accountUID = (data["athleteUserID"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            return CoachAthleteRef(athleteUUID: uuid, athleteUserID: accountUID)
         }
-        return ids
     }
 
     /// Real-time listener for pending athlete-to-coach invitations sent to a given coach email.

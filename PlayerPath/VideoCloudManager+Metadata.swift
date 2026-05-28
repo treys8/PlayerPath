@@ -30,6 +30,7 @@ extension VideoCloudManager {
         let clipPitchSpeed = videoClip.pitchSpeed
         let clipPitchType = videoClip.pitchType
         let clipClub = videoClip.club?.rawValue
+        let clipHoleNumber = videoClip.holeNumber
         let playResultType = videoClip.playResult?.type
         let gameId = videoClip.game.map { $0.firestoreId ?? $0.id.uuidString }
         let gameOpponent = videoClip.gameOpponent ?? videoClip.game?.opponent
@@ -108,6 +109,9 @@ extension VideoCloudManager {
         if let club = clipClub {
             data["club"] = club
         }
+        if let holeNumber = clipHoleNumber {
+            data["holeNumber"] = holeNumber
+        }
         if let sourceCoachVideoID {
             data["sourceCoachVideoID"] = sourceCoachVideoID
         }
@@ -151,6 +155,7 @@ extension VideoCloudManager {
         let clipPitchSpeed = videoClip.pitchSpeed
         let clipPitchType = videoClip.pitchType
         let clipClub = videoClip.club?.rawValue
+        let clipHoleNumber = videoClip.holeNumber
         let playResultType = videoClip.playResult?.type
         let gameId = videoClip.game.map { $0.firestoreId ?? $0.id.uuidString }
         let gameOpponent = videoClip.gameOpponent ?? videoClip.game?.opponent
@@ -226,6 +231,9 @@ extension VideoCloudManager {
         }
         if let club = clipClub {
             data["club"] = club
+        }
+        if let holeNumber = clipHoleNumber {
+            data["holeNumber"] = holeNumber
         }
         if let sourceCoachVideoID {
             data["sourceCoachVideoID"] = sourceCoachVideoID

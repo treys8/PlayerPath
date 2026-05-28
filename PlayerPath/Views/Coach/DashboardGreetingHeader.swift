@@ -12,7 +12,8 @@ struct DashboardGreetingHeader: View {
     let displayName: String?
     let needsReviewCount: Int
     let draftCount: Int
-    let hasActiveSession: Bool
+    let isLiveSession: Bool
+    let isReviewingSession: Bool
     let nextScheduledDate: Date?
 
     var body: some View {
@@ -49,8 +50,11 @@ struct DashboardGreetingHeader: View {
         if needsReviewCount > 0 {
             return "\(needsReviewCount) clip\(needsReviewCount == 1 ? "" : "s") need your review"
         }
-        if hasActiveSession {
+        if isLiveSession {
             return "Session in progress"
+        }
+        if isReviewingSession {
+            return "Review or complete your session"
         }
         if let date = nextScheduledDate {
             let formatter = RelativeDateTimeFormatter()

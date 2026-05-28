@@ -215,6 +215,15 @@ extension SyncCoordinator {
                 } else if remoteIsNewer {
                     local.date = remoteData.date
                     local.practiceType = remoteData.practiceType ?? local.practiceType
+                    // Holes is optional and only populated for golf practice
+                    // rounds; preserve nil semantics on baseball/range docs.
+                    if let h = remoteData.holes { local.holes = h }
+                    // Live-activity state (SchemaV26). A round/session started
+                    // on another device surfaces as live here; End on either
+                    // device clears it.
+                    local.isLive = remoteData.isLive ?? false
+                    local.liveStartDate = remoteData.liveStartDate
+                    local.course = remoteData.course
                     local.lastSyncDate = Date()
                     local.version = remoteData.version
                     local.needsSync = false
@@ -229,6 +238,10 @@ extension SyncCoordinator {
                 newPractice.needsSync = false
                 newPractice.version = remoteData.version
                 newPractice.practiceType = remoteData.practiceType ?? "general"
+                newPractice.holes = remoteData.holes
+                newPractice.isLive = remoteData.isLive ?? false
+                newPractice.liveStartDate = remoteData.liveStartDate
+                newPractice.course = remoteData.course
                 newPractice.athlete = athlete
 
                 // Link to season if seasonId provided

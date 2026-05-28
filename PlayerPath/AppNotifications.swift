@@ -34,6 +34,15 @@ extension Notification.Name {
     static let showSubscriptionPaywall = Notification.Name("showSubscriptionPaywall")
     static let videoRecorded = Notification.Name("VideoRecorded")
     static let presentAddPractice = Notification.Name("presentAddPractice")
+    /// Posted from DashboardView's golf-idle Quick Actions "New Practice"
+    /// button. PracticesView listens and surfaces NewPracticeTypePicker
+    /// (Range vs Practice Round). Golf athletes only — baseball ignores.
+    static let presentGolfPracticePicker = Notification.Name("presentGolfPracticePicker")
+    /// Posted alongside `navigateToMorePractice` so PracticesView can surface
+    /// NewPracticeTypePicker on first appear even when it isn't yet in the
+    /// hierarchy to hear `presentGolfPracticePicker` directly (cold mount /
+    /// slow device). Sets a pending flag the view consumes in `.onAppear`.
+    static let setGolfPickerPending = Notification.Name("setGolfPickerPending")
     /// Posted by PushNotificationService when a cloud-backup / upload-failed /
     /// storage-warning notification is tapped. Athlete navigates to More → Storage.
     static let navigateToCloudStorage = Notification.Name("navigateToCloudStorage")

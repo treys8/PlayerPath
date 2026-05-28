@@ -112,6 +112,10 @@ final class Game {
     @Relationship(inverse: \VideoClip.game) var videoClips: [VideoClip]?
     @Relationship(inverse: \GameStatistics.game) var gameStats: GameStatistics?
     @Relationship(inverse: \Photo.game) var photos: [Photo]?
+    /// Per-hole scoring rows for golf tournaments (SchemaV25). Nil for
+    /// baseball/softball games. Entry happens via ScoreHoleSheet during a
+    /// live round; sync is per-row in `users/{uid}/games/{gameId}/holes/{N}`.
+    @Relationship(inverse: \HoleScore.game) var holeScores: [HoleScore]?
 
     // MARK: - Firestore Sync Metadata (Phase 2)
 
@@ -246,9 +250,35 @@ final class Practice {
     @Relationship(inverse: \VideoClip.practice) var videoClips: [VideoClip]?
     @Relationship(inverse: \PracticeNote.practice) var notes: [PracticeNote]?
     @Relationship(inverse: \Photo.practice) var photos: [Photo]?
+    /// Per-hole scoring rows for golf practice rounds (SchemaV25). Populated
+    /// only when `practiceType == "practice_round"` (PR3); nil otherwise.
+    @Relationship(inverse: \HoleScore.practice) var holeScores: [HoleScore]?
 
-    /// Practice type — "general", "batting", "fielding", "bullpen", or "team"
+    /// Practice type — baseball values ("general"/"batting"/"fielding"/
+    /// "bullpen"/"team") or golf values ("practice_round"/"range_session",
+    /// added in v6.1 PR3).
     var practiceType: String = "general"
+
+    /// Hole count for golf practice rounds (9 or 18). Nil for baseball
+    /// practices and golf range sessions. Read by LiveHoleTracker to cap
+    /// the current-hole pointer.
+    var holes: Int?
+
+    /// True while a golf practice (round or range session) is the active
+    /// live activity on the dashboard (SchemaV26). Mirrors `Game.isLive`.
+    /// Set on creation when the practice is dated today on the active season;
+    /// cleared by PracticeService.end. Only one golf activity (Game or
+    /// Practice) is live at a time — see LiveActivityGuard.
+    var isLive: Bool = false
+
+    /// Timestamp the practice went live (SchemaV26). Nil when not live.
+    /// Mirrors `Game.liveStartDate`; powers the range card's elapsed timer.
+    var liveStartDate: Date?
+
+    /// Optional course name for golf practice rounds (SchemaV26). Surfaced as
+    /// the live card subtitle when set; nil falls back to "Practice Round".
+    /// Range sessions and baseball practices leave this nil.
+    var course: String?
 
     // MARK: - Firestore Sync Metadata (Phase 3)
 
@@ -278,7 +308,7 @@ final class Practice {
     func toFirestoreData() -> [String: Any] {
         let athleteRef = athlete?.firestoreId ?? athlete?.id.uuidString ?? ""
         let seasonRef = season?.firestoreId ?? season?.id.uuidString
-        return [
+        var data: [String: Any] = [
             "id": id.uuidString,
             "athleteId": athleteRef,
             "seasonId": seasonRef as Any,
@@ -289,6 +319,16 @@ final class Practice {
             "version": version,
             "isDeleted": false
         ]
+        // Golf practice-round hole count (v6.1 PR3). Only practice rounds set
+        // this; baseball practices and range sessions stay nil and the key
+        // is omitted from the doc.
+        if let holes = holes { data["holes"] = holes }
+        // Live-activity state (SchemaV26). Synced so a round/session started on
+        // one device surfaces as live on another; cleared on End.
+        data["isLive"] = isLive
+        if let liveStartDate = liveStartDate { data["liveStartDate"] = liveStartDate }
+        if let course = course { data["course"] = course }
+        return data
     }
 
     /// Properly delete practice with all associated files and data
@@ -301,6 +341,30 @@ final class Practice {
         // Delete notes
         for note in (self.notes ?? []) {
             context.delete(note)
+        }
+
+        // Delete per-hole scoring rows (golf practice rounds). Inverse on
+        // HoleScore.practice would nullify by default; hard-deleting keeps
+        // the table tidy and stops dead rows from leaking into sync.
+        for hole in (self.holeScores ?? []) {
+            context.delete(hole)
+        }
+
+        // v6.1 PR3: HighlightReels generated for practice-round birdies
+        // carry a denormalized `practiceID` FK (no SwiftData relationship),
+        // so they don't cascade automatically. Mirror Athlete.delete's
+        // pattern: flat fetch, filter, hard-delete locally. Firestore
+        // orphans are picked up by the same daily cleanup that handles the
+        // Athlete-delete path.
+        let practiceID = self.id
+        do {
+            let allReels = try context.fetch(FetchDescriptor<HighlightReel>())
+            for reel in allReels where reel.practiceID == practiceID {
+                context.delete(reel)
+            }
+        } catch {
+            // Best-effort — log and continue; the practice deletion itself
+            // shouldn't be blocked by an unreachable reel table.
         }
 
         // SwiftData handles relationship cleanup automatically
@@ -316,26 +380,47 @@ enum PracticeType: String, CaseIterable, Identifiable {
     case fielding
     case bullpen
     case team
+    // Golf-only cases (v6.1 PR3). Raw values are wire-format and referenced
+    // by SyncCoordinator+HoleScores and LiveHoleTracker — do not rename.
+    case practiceRound = "practice_round"
+    case rangeSession  = "range_session"
 
     var id: String { rawValue }
 
     var displayName: String {
         switch self {
-        case .general:  return "General"
-        case .batting:  return "Batting"
-        case .fielding: return "Fielding"
-        case .bullpen:  return "Bullpen"
-        case .team:     return "Team"
+        case .general:        return "General"
+        case .batting:        return "Batting"
+        case .fielding:       return "Fielding"
+        case .bullpen:        return "Bullpen"
+        case .team:           return "Team"
+        case .practiceRound:  return "Practice Round"
+        case .rangeSession:   return "Range Session"
         }
     }
 
     var icon: String {
         switch self {
-        case .general:  return "figure.baseball"
-        case .batting:  return "baseball.fill"
-        case .fielding: return "hand.raised.fill"
-        case .bullpen:  return "flame.fill"
-        case .team:     return "person.3.fill"
+        case .general:        return "figure.baseball"
+        case .batting:        return "baseball.fill"
+        case .fielding:       return "hand.raised.fill"
+        case .bullpen:        return "flame.fill"
+        case .team:           return "person.3.fill"
+        case .practiceRound:  return "flag.fill"
+        case .rangeSession:   return "target"
+        }
+    }
+
+    /// Sport-aware case list. The two golf cases are mutually exclusive with
+    /// the baseball cases at the UX layer — golf athletes don't see batting
+    /// drills and vice versa. Used by PracticesView, AddPracticeView, and
+    /// PracticeDetailView to render the right Type picker.
+    static func cases(for sport: Season.SportType) -> [PracticeType] {
+        switch sport {
+        case .golf:
+            return [.practiceRound, .rangeSession]
+        case .baseball, .softball:
+            return [.general, .batting, .fielding, .bullpen, .team]
         }
     }
 }

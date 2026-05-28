@@ -492,6 +492,7 @@ struct VideoClipMetadata {
     let pitchSpeed: Double?
     let pitchType: String?
     let club: String?
+    let holeNumber: Int?
     let duration: Double?
     let athleteName: String
     let fileSize: Int64
@@ -537,6 +538,7 @@ struct VideoClipMetadata {
         self.pitchSpeed = data["pitchSpeed"] as? Double
         self.pitchType = data["pitchType"] as? String
         self.club = data["club"] as? String
+        self.holeNumber = data["holeNumber"] as? Int
         self.duration = data["duration"] as? Double
         self.athleteName = athleteName
         self.fileSize = data["fileSize"] as? Int64 ?? 0

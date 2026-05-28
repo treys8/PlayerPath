@@ -1692,21 +1692,18 @@ export const sendCoachAccessRevokedEmail = functions.firestore
     const revocation = snap.data();
     const revocationId = context.params.revocationId;
 
-    // Decrement the coach's atomic athlete counter (mirrors the increment in acceptance functions).
-    // This runs on every revocation doc creation — both athlete-initiated removal and coach downgrade.
-    // Only decrement if the counter exists (> 0) to avoid going negative during migration
-    // from pre-counter connections.
+    // Recompute the coach's athlete counter authoritatively from current state.
+    // A single disconnect creates one revocation doc per folder (Games + Lessons),
+    // so a blind increment(-1) would over-decrement; recomputing from ground truth
+    // is idempotent across both docs and self-heals any pre-existing drift.
     if (revocation.coachID) {
       try {
-        const coachDoc = await admin.firestore().collection('users').doc(revocation.coachID).get();
-        const currentCount = coachDoc.data()?.coachAthleteCount;
-        if (typeof currentCount === 'number' && currentCount > 0) {
-          await admin.firestore().collection('users').doc(revocation.coachID).update({
-            coachAthleteCount: admin.firestore.FieldValue.increment(-1),
-          });
-        }
+        const trueCount = await computeCoachConnectionCount(admin.firestore(), revocation.coachID);
+        await admin.firestore().collection('users').doc(revocation.coachID).update({
+          coachAthleteCount: trueCount,
+        });
       } catch (e) {
-        console.warn(`Failed to decrement coachAthleteCount for ${revocation.coachID}:`, e);
+        console.warn(`Failed to recompute coachAthleteCount for ${revocation.coachID}:`, e);
       }
     }
 
@@ -1765,7 +1762,13 @@ export const sendCoachAccessRevokedEmail = functions.firestore
       const athleteName = (revocation.athleteName as string) || 'An athlete';
       const folderName = (revocation.folderName as string) || 'a folder';
       if (folderID && coachID) {
-        const body = `${athleteName} has removed your access to "${folderName}"`;
+        // A subscription lapse isn't an active removal by the athlete — phrase
+        // it accurately so the coach isn't told the athlete deliberately cut them.
+        const isLapse = revocation.reason === 'lapse';
+        const title = isLapse ? 'Folder Access Ended' : 'Folder Access Removed';
+        const body = isLapse
+          ? `Your access to "${folderName}" ended because ${athleteName}'s subscription changed`
+          : `${athleteName} has removed your access to "${folderName}"`;
         // Shares the `revoked_{folderID}_{coachID}` key with onSharedFolderDeleted
         // and the Swift client's postAccessRevokedNotification so a delete-cascade
         // revocation produces exactly one notification doc.
@@ -1774,7 +1777,7 @@ export const sendCoachAccessRevokedEmail = functions.firestore
           `revoked_${folderID}_${coachID}`,
           {
             type: 'access_revoked',
-            title: 'Folder Access Removed',
+            title,
             body,
             senderName: athleteName,
             senderID: athleteID,
@@ -1785,7 +1788,7 @@ export const sendCoachAccessRevokedEmail = functions.firestore
         );
         await sendPushNotification(
           coachID,
-          'Folder Access Removed',
+          title,
           body,
           { type: 'access_revoked', folderID },
           'ACCESS_REVOKED'
@@ -2067,8 +2070,12 @@ export const acceptAthleteToCoachInvitation = functions.https.onCall(async (data
           'You have reached your athlete limit. Upgrade your plan to accept more athletes.'
         );
       }
+      // Write an explicit value derived from the in-transaction read (not
+      // increment()) so concurrent accepts serialize via the coach-doc
+      // write-conflict, and a migration coach with no counter field is
+      // initialized to its true total rather than to 1.
       transaction.update(coachRef, {
-        coachAthleteCount: admin.firestore.FieldValue.increment(1),
+        coachAthleteCount: currentCount + 1,
       });
     }
 
@@ -2121,41 +2128,18 @@ export const acceptAthleteToCoachInvitation = functions.https.onCall(async (data
     );
   }
   const permissions = invData.permissions || { canUpload: true, canComment: true, canDelete: false };
-  const folderBase: Record<string, unknown> = {
-    ownerAthleteID: athleteID,
-    ownerAthleteName: athleteName,
+  const coachDisplayName = coachDoc.data()?.displayName || coachEmail?.split('@')[0] || 'Coach';
+
+  // Reuse the athlete's existing folders (and their clips) on re-invite; only
+  // create the ones that don't already exist.
+  const { gamesFolderID, lessonsFolderID } = await reuseOrCreateSharedFolders(db, {
+    coachID,
     athleteUUID,
-    sharedWithCoachIDs: [coachID],
-    permissions: { [coachID]: permissions },
-    createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    videoCount: 0,
-  };
-
-  let gamesFolderID: string | null = null;
-  let lessonsFolderID: string | null = null;
-
-  try {
-    const gamesRef = await db.collection('sharedFolders').add({
-      ...folderBase,
-      name: `${athleteName}'s Games`,
-      folderType: 'games',
-    });
-    gamesFolderID = gamesRef.id;
-  } catch (e) {
-    console.error('Failed to create Games folder:', e);
-  }
-
-  try {
-    const lessonsRef = await db.collection('sharedFolders').add({
-      ...folderBase,
-      name: `${athleteName}'s Lessons`,
-      folderType: 'lessons',
-    });
-    lessonsFolderID = lessonsRef.id;
-  } catch (e) {
-    console.error('Failed to create Lessons folder:', e);
-  }
+    ownerAthleteID: athleteID,
+    athleteName,
+    coachPermissions: permissions,
+    coachDisplayName,
+  });
 
   // Link folder IDs back to the invitation
   const primaryFolderID = gamesFolderID || lessonsFolderID;
@@ -2355,8 +2339,10 @@ export const acceptCoachToAthleteInvitation = functions.https.onCall(async (data
           'This coach has reached their athlete limit. The invitation cannot be accepted.'
         );
       }
+      // Explicit value from the in-transaction read (not increment()) so
+      // concurrent accepts serialize and migration coaches initialize correctly.
       transaction.update(coachRef, {
-        coachAthleteCount: admin.firestore.FieldValue.increment(1),
+        coachAthleteCount: currentCount + 1,
       });
     }
 
@@ -2374,42 +2360,17 @@ export const acceptCoachToAthleteInvitation = functions.https.onCall(async (data
   const name = clientAthleteName || invData.athleteName || 'Athlete';
   const coachDisplayName = coachDoc.data()?.displayName || invData.coachName || invData.coachEmail?.split('@')[0] || 'Coach';
   const defaultPerms = { canUpload: true, canComment: true, canDelete: false };
-  const folderBase: Record<string, unknown> = {
-    ownerAthleteID: athleteUserID,
-    ownerAthleteName: name,
+
+  // Reuse the athlete's existing folders (and their clips) on re-invite; only
+  // create the ones that don't already exist.
+  const { gamesFolderID, lessonsFolderID } = await reuseOrCreateSharedFolders(db, {
+    coachID,
     athleteUUID,
-    sharedWithCoachIDs: [coachID],
-    sharedWithCoachNames: { [coachID]: coachDisplayName },
-    permissions: { [coachID]: defaultPerms },
-    createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    videoCount: 0,
-  };
-
-  let gamesFolderID: string | null = null;
-  let lessonsFolderID: string | null = null;
-
-  try {
-    const gamesRef = await db.collection('sharedFolders').add({
-      ...folderBase,
-      name: `${name}'s Games`,
-      folderType: 'games',
-    });
-    gamesFolderID = gamesRef.id;
-  } catch (e) {
-    console.error('Failed to create Games folder:', e);
-  }
-
-  try {
-    const lessonsRef = await db.collection('sharedFolders').add({
-      ...folderBase,
-      name: `${name}'s Lessons`,
-      folderType: 'lessons',
-    });
-    lessonsFolderID = lessonsRef.id;
-  } catch (e) {
-    console.error('Failed to create Lessons folder:', e);
-  }
+    ownerAthleteID: athleteUserID,
+    athleteName: name,
+    coachPermissions: defaultPerms,
+    coachDisplayName,
+  });
 
   // Link folder IDs back to the invitation document
   const folderID = gamesFolderID || lessonsFolderID;
@@ -3081,6 +3042,175 @@ export const enforceAthleteLimit = functions.firestore
     }
   });
 
+/**
+ * Coach sharing is a Pro feature, so coach access tracks the athlete's Pro tier.
+ * Tier is written server-side by syncSubscriptionTier, so enforcement belongs in
+ * a trigger (the app may not be foregrounded when a lapse/renewal lands).
+ *
+ * Pro → non-Pro (lapse): revoke every coach from the athlete's folders, writing
+ * a `reason: 'lapse'` revocation doc per (folder, coach). That drives
+ * canAccessFolder denial plus sendCoachAccessRevokedEmail (email + coach notify +
+ * counter recompute), and records what to restore later.
+ *
+ * non-Pro → Pro (renewal): undo exactly those lapse revocations — re-add the
+ * coaches and delete the lapse docs — so re-subscribing seamlessly restores the
+ * prior sharing relationships without the athlete re-inviting anyone.
+ */
+export const syncCoachAccessOnAthleteTierChange = functions.firestore
+  .document('users/{uid}')
+  .onUpdate(async (change, context) => {
+    const { uid } = context.params;
+    const before = change.before.data();
+    const after = change.after.data();
+    const wasPro = before?.subscriptionTier === 'pro';
+    const isPro = after?.subscriptionTier === 'pro';
+    if (wasPro === isPro) return; // not a Pro-boundary crossing
+
+    const db = admin.firestore();
+    try {
+      if (wasPro && !isPro) {
+        await revokeCoachAccessForLapsedAthlete(db, uid, after);
+      } else {
+        await restoreCoachAccessForResubscribedAthlete(db, uid);
+      }
+    } catch (e) {
+      console.error(`syncCoachAccessOnAthleteTierChange failed for ${uid}:`, e);
+    }
+  });
+
+async function revokeCoachAccessForLapsedAthlete(
+  db: admin.firestore.Firestore,
+  uid: string,
+  afterData: admin.firestore.DocumentData | undefined
+): Promise<void> {
+  const foldersSnap = await db.collection('sharedFolders')
+    .where('ownerAthleteID', '==', uid)
+    .get();
+  if (foldersSnap.empty) return;
+
+  // Cache coach emails to avoid duplicate reads across the athlete's folders.
+  const coachEmailCache = new Map<string, string>();
+  const getCoachEmail = async (coachID: string): Promise<string> => {
+    if (coachEmailCache.has(coachID)) return coachEmailCache.get(coachID)!;
+    let email = '';
+    try {
+      const cDoc = await db.collection('users').doc(coachID).get();
+      email = (cDoc.data()?.email as string) || '';
+    } catch { /* leave blank — email send will be skipped, counter still recomputes */ }
+    coachEmailCache.set(coachID, email);
+    return email;
+  };
+
+  let revokedAny = false;
+  for (const folderDoc of foldersSnap.docs) {
+    const folder = folderDoc.data();
+    const coachIDs: string[] = folder.sharedWithCoachIDs || [];
+    if (coachIDs.length === 0) continue;
+
+    const athleteName = (folder.ownerAthleteName as string) || (afterData?.displayName as string) || 'An athlete';
+    const folderName = (folder.name as string) || 'a folder';
+
+    for (const coachID of coachIDs) {
+      const coachEmail = await getCoachEmail(coachID);
+      const batch = db.batch();
+      batch.update(folderDoc.ref, {
+        sharedWithCoachIDs: admin.firestore.FieldValue.arrayRemove(coachID),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      const revRef = db.collection('coach_access_revocations').doc(`${folderDoc.id}_${coachID}`);
+      batch.set(revRef, {
+        folderID: folderDoc.id,
+        folderName,
+        coachID,
+        coachEmail,
+        athleteID: uid,
+        athleteName,
+        revokedAt: admin.firestore.FieldValue.serverTimestamp(),
+        emailSent: false,
+        reason: 'lapse',
+      }, { merge: true });
+      await batch.commit();
+      revokedAny = true;
+    }
+  }
+
+  if (revokedAny) {
+    await writeActivityNotification(uid, `lapse_${uid}`, {
+      type: 'access_lapsed',
+      title: 'Coach Access Paused',
+      body: 'Your subscription lapsed below Pro, so coach access to your shared folders was paused. Renew Pro to restore it.',
+      senderName: 'PlayerPath',
+      senderID: 'system',
+    });
+  }
+}
+
+async function restoreCoachAccessForResubscribedAthlete(
+  db: admin.firestore.Firestore,
+  uid: string
+): Promise<void> {
+  // Only undo revocations this athlete's LAPSE created — never coaches the
+  // athlete (or a coach) deliberately removed (those lack reason: 'lapse').
+  const revSnap = await db.collection('coach_access_revocations')
+    .where('athleteID', '==', uid)
+    .get();
+  const lapseRevs = revSnap.docs.filter(d => d.data().reason === 'lapse');
+  if (lapseRevs.length === 0) return;
+
+  const coachNameCache = new Map<string, string>();
+  const getCoachName = async (coachID: string): Promise<string> => {
+    if (coachNameCache.has(coachID)) return coachNameCache.get(coachID)!;
+    let name = 'Coach';
+    try {
+      const cDoc = await db.collection('users').doc(coachID).get();
+      name = (cDoc.data()?.displayName as string) || (cDoc.data()?.email as string)?.split('@')[0] || 'Coach';
+    } catch { /* default name */ }
+    coachNameCache.set(coachID, name);
+    return name;
+  };
+
+  const defaultPerms = { canUpload: true, canComment: true, canDelete: false };
+  const restoredCoachIDs = new Set<string>();
+
+  for (const rev of lapseRevs) {
+    const data = rev.data();
+    const folderID = data.folderID as string | undefined;
+    const coachID = data.coachID as string | undefined;
+    if (!folderID || !coachID) { await rev.ref.delete(); continue; }
+
+    const folderRef = db.collection('sharedFolders').doc(folderID);
+    const folderSnap = await folderRef.get();
+    if (folderSnap.exists) {
+      const coachName = await getCoachName(coachID);
+      await folderRef.update({
+        sharedWithCoachIDs: admin.firestore.FieldValue.arrayUnion(coachID),
+        [`permissions.${coachID}`]: defaultPerms,
+        [`sharedWithCoachNames.${coachID}`]: coachName,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      restoredCoachIDs.add(coachID);
+    }
+    // Deleting the lapse doc lets canAccessFolder allow the coach again. A
+    // delete does not re-fire sendCoachAccessRevokedEmail (onCreate only).
+    await rev.ref.delete();
+  }
+
+  // The coaches are connected again — recompute each one's athlete counter.
+  for (const coachID of restoredCoachIDs) {
+    try {
+      const trueCount = await computeCoachConnectionCount(db, coachID);
+      await db.collection('users').doc(coachID).update({ coachAthleteCount: trueCount });
+    } catch (e) {
+      console.warn(`Failed to recompute coachAthleteCount for ${coachID} on restore:`, e);
+    }
+  }
+
+  // Clear the athlete's "Coach Access Paused" notice now that it's resolved.
+  try {
+    await db.collection('notifications').doc(uid).collection('items').doc(`lapse_${uid}`).delete();
+  } catch { /* nothing to clear */ }
+}
+
 // =============================================================================
 // COACH ATHLETE LIMIT ENFORCEMENT
 // =============================================================================
@@ -3093,6 +3223,143 @@ function getCoachAthleteLimit(tier: string): number {
     case 'coach_academy': return Number.MAX_SAFE_INTEGER;
     default: return 2; // coach_free
   }
+}
+
+/**
+ * Authoritative count of distinct athletes connected to a coach, merging two
+ * sources: shared folders and accepted coach→athlete invitations.
+ *
+ * Reconciliation is UUID-aware, NOT a flat both-axes union — see memory
+ * project_athlete_count_reconcile. The same real athlete can appear keyed by an
+ * `athleteUUID` in one source and only by an account ID in the other (legacy/
+ * stale data); a naive union double-counts them. Rule: each distinct
+ * `athleteUUID` is one slot (a parent account hosting N profiles counts as N),
+ * plus one slot per account that NEVER carried a UUID anywhere (legacy data is
+ * single-profile). An account that appears both with and without a UUID
+ * reconciles onto the UUID.
+ *
+ * Revoked coaches are already stripped from `sharedWithCoachIDs`, so the folder
+ * query reflects current access without a separate revocations lookup. Used both
+ * as the accept-time pre-check and as the authoritative recompute on revocation
+ * (self-heals counter drift).
+ */
+async function computeCoachConnectionCount(
+  db: admin.firestore.Firestore,
+  coachID: string
+): Promise<number> {
+  const uuids = new Set<string>();            // distinct athlete UUIDs
+  const accountsWithUUID = new Set<string>(); // accounts that have a UUID-bearing entry
+  const accountsNoUUID = new Set<string>();   // accounts seen only without a UUID
+
+  const consider = (uuid: unknown, account: unknown) => {
+    const u = typeof uuid === 'string' && uuid.length > 0 ? uuid : undefined;
+    const a = typeof account === 'string' && account.length > 0 ? account : undefined;
+    if (u) {
+      uuids.add(u);
+      if (a) accountsWithUUID.add(a);
+    } else if (a) {
+      accountsNoUUID.add(a);
+    }
+  };
+
+  const foldersSnap = await db.collection('sharedFolders')
+    .where('sharedWithCoachIDs', 'array-contains', coachID)
+    .get();
+  for (const d of foldersSnap.docs) {
+    consider(d.data().athleteUUID, d.data().ownerAthleteID);
+  }
+
+  const acceptedSnap = await db.collection('invitations')
+    .where('type', '==', 'coach_to_athlete')
+    .where('coachID', '==', coachID)
+    .where('status', '==', 'accepted')
+    .get();
+  for (const doc of acceptedSnap.docs) {
+    consider(doc.data().athleteUUID, doc.data().athleteUserID);
+  }
+
+  // Legacy accounts that never carried a UUID anywhere count once each;
+  // accounts that also appear with a UUID reconcile onto that UUID.
+  let legacyCount = 0;
+  for (const acc of accountsNoUUID) {
+    if (!accountsWithUUID.has(acc)) legacyCount++;
+  }
+
+  return uuids.size + legacyCount;
+}
+
+/**
+ * Reattaches a coach to an athlete's existing Games/Lessons folders, creating
+ * only the ones that don't yet exist. Athlete folders (and their clips) survive
+ * coach removal, so a re-invite must reuse them — unconditionally creating a new
+ * pair would orphan the original clips behind invisible duplicates. Reattaching
+ * also clears the deterministic revocation doc so `canAccessFolder` stops denying
+ * the re-added coach.
+ */
+async function reuseOrCreateSharedFolders(
+  db: admin.firestore.Firestore,
+  params: {
+    coachID: string;
+    athleteUUID: string;
+    ownerAthleteID: string;
+    athleteName: string;
+    coachPermissions: Record<string, boolean>;
+    coachDisplayName?: string;
+  }
+): Promise<{ gamesFolderID: string | null; lessonsFolderID: string | null }> {
+  const { coachID, athleteUUID, ownerAthleteID, athleteName, coachPermissions, coachDisplayName } = params;
+
+  const existingSnap = await db.collection('sharedFolders')
+    .where('athleteUUID', '==', athleteUUID)
+    .get();
+  const existingByType = new Map<string, admin.firestore.QueryDocumentSnapshot>();
+  for (const d of existingSnap.docs) {
+    const t = d.data().folderType as string | undefined;
+    if (t && !existingByType.has(t)) existingByType.set(t, d);
+  }
+
+  const folderBase: Record<string, unknown> = {
+    ownerAthleteID,
+    ownerAthleteName: athleteName,
+    athleteUUID,
+    sharedWithCoachIDs: [coachID],
+    permissions: { [coachID]: coachPermissions },
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    videoCount: 0,
+  };
+  if (coachDisplayName) folderBase.sharedWithCoachNames = { [coachID]: coachDisplayName };
+
+  const result: { games: string | null; lessons: string | null } = { games: null, lessons: null };
+
+  for (const folderType of ['games', 'lessons'] as const) {
+    const name = folderType === 'games' ? `${athleteName}'s Games` : `${athleteName}'s Lessons`;
+    const existing = existingByType.get(folderType);
+    if (existing) {
+      const update: Record<string, unknown> = {
+        sharedWithCoachIDs: admin.firestore.FieldValue.arrayUnion(coachID),
+        [`permissions.${coachID}`]: coachPermissions,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      };
+      if (coachDisplayName) update[`sharedWithCoachNames.${coachID}`] = coachDisplayName;
+      try {
+        await existing.ref.update(update);
+        await db.collection('coach_access_revocations').doc(`${existing.id}_${coachID}`).delete();
+        result[folderType] = existing.id;
+      } catch (e) {
+        console.error(`Failed to reattach coach to ${folderType} folder:`, e);
+      }
+    } else {
+      try {
+        const ref = await db.collection('sharedFolders').add({ ...folderBase, name, folderType });
+        result[folderType] = ref.id;
+      } catch (e) {
+        console.error(`Failed to create ${folderType} folder:`, e);
+      }
+    }
+  }
+
+  return { gamesFolderID: result.games, lessonsFolderID: result.lessons };
 }
 
 /**

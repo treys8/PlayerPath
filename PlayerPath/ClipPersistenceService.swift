@@ -248,6 +248,14 @@ final class ClipPersistenceService {
         game: Game?,
         practice: Practice?
     ) async throws -> VideoClip {
+        // Capture the live golf hole NOW, before any awaits. The remaining
+        // work (file copy, asset load, verifyVideoPlayability, thumbnail) can
+        // take seconds, during which a score tap landing between MainActor
+        // yields would shift LiveHoleTracker's next-unscored hole by one and
+        // attribute this clip to the *next* hole instead of the recording hole.
+        let capturedHoleNumber = LiveHoleTracker.shared.currentHole(for: game)
+            ?? LiveHoleTracker.shared.currentHole(for: practice)
+
         // Validate source URL
         guard url.isFileURL else { throw ClipPersistenceError.invalidURL(url) }
         guard fileManager.fileExists(atPath: url.path) else { throw ClipPersistenceError.fileNotFound(url) }
@@ -334,6 +342,9 @@ final class ClipPersistenceService {
         videoClip.club = club
         videoClip.note = note
         videoClip.isHighlight = markAsHighlight
+        // Use the hole captured at saveClip entry (see top of function).
+        // Nil for baseball/softball or for golf clips recorded outside a live round.
+        videoClip.holeNumber = capturedHoleNumber
 
         // Create and link PlayResult model if provided
         if let playResultType = playResult {

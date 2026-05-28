@@ -34,6 +34,9 @@ struct DashboardView: View {
     @State private var showingSeasons = false
     @State private var isCheckingPermissions = false
     @State private var isEndingGame: Set<UUID> = []
+    /// Set by LiveGameCard's "Score Hole X" CTA; presents ScoreHoleSheet for
+    /// the targeted (game, holeNumber). Cleared on dismissal.
+    @State private var liveScoreTarget: LiveScoreTarget? = nil
     private let athletePickerTip = AthletePickerTip()
 
     // Cached computed values to avoid recalculation during body evaluation
@@ -48,6 +51,15 @@ struct DashboardView: View {
     // Dynamic live games query configured via init to safely capture athleteID
     private let athleteID: UUID
     @Query private var liveGames: [Game]
+    /// Live golf practices (rounds + range sessions). Keyed by athleteID like
+    /// liveGames; sport-filtered below. Practices only ever go live on the
+    /// golf side, but the filter keeps parity with the games path.
+    @Query private var livePractices: [Practice]
+    /// Set on the LiveSessionCard "Record" CTA (or Quick Actions "Record Swing"
+    /// when a practice is live); presents the recorder targeting that practice
+    /// so swings attribute to it.
+    @State private var recordingPractice: Practice? = nil
+    @State private var isEndingPractice: Set<UUID> = []
 
     init(user: User, athlete: Athlete, authManager: ComprehensiveAuthManager, modelContext: ModelContext, homePath: Binding<NavigationPath>) {
         self.user = user
@@ -60,6 +72,9 @@ struct DashboardView: View {
         self._liveGames = Query(filter: #Predicate<Game> { game in
             game.isLive == true && game.athlete?.id == athleteID
         }, sort: [SortDescriptor(\Game.date, order: .reverse)])
+        self._livePractices = Query(filter: #Predicate<Practice> { practice in
+            practice.isLive == true && practice.athlete?.id == athleteID
+        }, sort: [SortDescriptor(\Practice.date, order: .reverse)])
     }
 
     /// Live games scoped to the athlete's active sport. The @Query above keys
@@ -81,6 +96,35 @@ struct DashboardView: View {
 
     private var firstLiveGame: Game? {
         liveGamesForActiveSport.first
+    }
+
+    /// Live practices scoped to the active sport (golf-only in practice). Same
+    /// stale-cross-sport guard as liveGamesForActiveSport.
+    private var livePracticesForActiveSport: [Practice] {
+        livePractices.filter { practice in
+            guard let seasonSport = practice.season?.sport else { return true }
+            return seasonSport == activeSport
+        }
+    }
+
+    private var livePracticeRounds: [Practice] {
+        livePracticesForActiveSport.filter { $0.practiceType == PracticeType.practiceRound.rawValue }
+    }
+
+    private var liveRangeSessions: [Practice] {
+        livePracticesForActiveSport.filter { $0.practiceType == PracticeType.rangeSession.rawValue }
+    }
+
+    /// True when any golf activity (tournament, practice round, or range
+    /// session) is live for the active sport. Drives the Live Now section and
+    /// the single-live confirmation guard.
+    private var hasLiveActivity: Bool {
+        hasLiveGame || !livePracticesForActiveSport.isEmpty
+    }
+
+    /// Total live-activity count for the section header badge.
+    private var liveActivityCount: Int {
+        liveGamesForActiveSport.count + livePracticesForActiveSport.count
     }
 
     private var isRegularWidth: Bool {
@@ -244,6 +288,17 @@ struct DashboardView: View {
         .fullScreenCover(item: $selectedVideoForPlayback) { video in
             VideoPlayerView(clip: video)
         }
+        .fullScreenCover(item: $recordingPractice) { practice in
+            DirectCameraRecorderView(athlete: athlete, practice: practice)
+        }
+        .sheet(item: $liveScoreTarget) { target in
+            switch target.parent {
+            case .game(let game):
+                ScoreHoleSheet(game: game, holeNumber: target.holeNumber)
+            case .practice(let practice):
+                ScoreHoleSheet(practice: practice, holeNumber: target.holeNumber)
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .presentFullscreenVideo)) { notification in
             if let video = notification.object as? VideoClip {
                 selectedVideoForPlayback = video
@@ -261,6 +316,66 @@ struct DashboardView: View {
         Task { @MainActor in
             defer { isEndingGame.remove(game.id) }
             await GameService(modelContext: modelContext).end(game)
+        }
+    }
+
+    private func endLivePractice(_ practice: Practice) {
+        guard !isEndingPractice.contains(practice.id) else { return }
+        isEndingPractice.insert(practice.id)
+        Haptics.light()
+
+        Task { @MainActor in
+            defer { isEndingPractice.remove(practice.id) }
+            await PracticeService(modelContext: modelContext).end(practice)
+        }
+    }
+
+    /// Open the recorder targeting a live range session so swings attribute to
+    /// it (clip→practice wiring already lives in ClipPersistenceService).
+    private func recordIntoSession(_ practice: Practice) {
+        Task { @MainActor in
+            guard !isCheckingPermissions else { return }
+            isCheckingPermissions = true
+            defer { isCheckingPermissions = false }
+
+            let status = await RecorderPermissions.ensureCapturePermissions(context: "RangeSessionRecord")
+            guard status == .granted else { return }
+
+            recordingPractice = practice
+            Haptics.medium()
+        }
+    }
+
+    /// Compute the next unscored hole for a live golf round and surface the
+    /// ScoreHoleSheet via the `liveScoreTarget` binding.
+    private func presentScoreHole(for game: Game) {
+        guard let hole = LiveHoleTracker.shared.currentHole(for: game) else { return }
+        liveScoreTarget = LiveScoreTarget(parent: .game(game), holeNumber: hole)
+    }
+
+    private func presentScoreHole(for practice: Practice) {
+        guard let hole = LiveHoleTracker.shared.currentHole(for: practice) else { return }
+        liveScoreTarget = LiveScoreTarget(parent: .practice(practice), holeNumber: hole)
+    }
+
+    /// "Record Swing" Quick Action while a golf activity is live. Targets the
+    /// live tournament (game) when present, otherwise the live practice (round
+    /// or range session), so the captured clip attaches to the right parent.
+    private func recordIntoLiveActivity() {
+        Task { @MainActor in
+            guard !isCheckingPermissions else { return }
+            isCheckingPermissions = true
+            defer { isCheckingPermissions = false }
+
+            let status = await RecorderPermissions.ensureCapturePermissions(context: "GolfQuickRecord")
+            guard status == .granted else { return }
+
+            if firstLiveGame != nil {
+                showingDirectCamera = true
+            } else if let practice = livePracticesForActiveSport.first {
+                recordingPractice = practice
+            }
+            Haptics.medium()
         }
     }
 
@@ -303,8 +418,7 @@ struct DashboardView: View {
 
     @ViewBuilder
     private var liveGamesSection: some View {
-        let liveGames = liveGamesForActiveSport
-        if !liveGames.isEmpty {
+        if hasLiveActivity {
             VStack(spacing: 12) {
                 HStack {
                     HStack(spacing: 6) {
@@ -328,7 +442,7 @@ struct DashboardView: View {
 
                     Spacer()
 
-                    Text("\(liveGames.count)")
+                    Text("\(liveActivityCount)")
                         .font(.labelMedium)
                         .foregroundColor(.secondary)
                         .padding(.horizontal, 8)
@@ -337,13 +451,48 @@ struct DashboardView: View {
                         .clipShape(Capsule())
                 }
 
-                ForEach(liveGames) { game in
+                ForEach(liveGamesForActiveSport) { game in
                     NavigationLink {
                         GameDetailView(game: game)
                     } label: {
-                        LiveGameCard(game: game, isEnding: isEndingGame.contains(game.id)) {
-                            endLiveGame(game)
-                        }
+                        LiveGameCard(
+                            game: game,
+                            isEnding: isEndingGame.contains(game.id),
+                            onScore: game.season?.sport == .golf
+                                ? { presentScoreHole(for: game) }
+                                : nil,
+                            onEnd: { endLiveGame(game) }
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                // Live golf practice rounds — full tournament-style card.
+                ForEach(livePracticeRounds) { practice in
+                    NavigationLink {
+                        PracticeDetailView(practice: practice)
+                    } label: {
+                        LiveGameCard(
+                            practiceRound: practice,
+                            isEnding: isEndingPractice.contains(practice.id),
+                            onScore: { presentScoreHole(for: practice) },
+                            onEnd: { endLivePractice(practice) }
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                // Live range sessions — lighter card (no scoring).
+                ForEach(liveRangeSessions) { practice in
+                    NavigationLink {
+                        PracticeDetailView(practice: practice)
+                    } label: {
+                        LiveRangeCard(
+                            practice: practice,
+                            isEnding: isEndingPractice.contains(practice.id),
+                            onRecord: { recordIntoSession(practice) },
+                            onEnd: { endLivePractice(practice) }
+                        )
                     }
                     .buttonStyle(.plain)
                 }
@@ -354,41 +503,110 @@ struct DashboardView: View {
 
     @ViewBuilder
     private var quickActionsSection: some View {
-        if hasLiveGame {
-            VStack(spacing: 16) {
-                DashboardSectionHeader(title: "Quick Actions", icon: "bolt.fill", color: .brandNavy)
+        // Sport-aware quick actions. Golf:
+        //   live activity → [Record Swing]  (Score Hole / End live on the cards
+        //                   above for rounds/tournaments; range sessions own
+        //                   their own Record/End. Quick Actions owns capture so
+        //                   recording always has a home mid-activity.)
+        //   idle          → [New Tournament, New Practice]
+        // Baseball: unchanged — [New Game, Record Live] only when a live game exists.
+        if activeSport == .golf {
+            golfQuickActions
+        } else if hasLiveGame {
+            baseballLiveQuickActions
+        }
+    }
 
-                HStack(spacing: 12) {
+    @ViewBuilder
+    private var golfQuickActions: some View {
+        VStack(spacing: 16) {
+            DashboardSectionHeader(title: "Quick Actions", icon: "bolt.fill", color: .brandNavy)
+
+            HStack(spacing: 12) {
+                if hasLiveActivity {
+                    // Capture only — management CTAs live on the cards above.
+                    // recordIntoLiveActivity targets the live game or practice
+                    // so the clip attaches to the right parent.
+                    QuickActionButton(
+                        icon: "record.circle",
+                        title: "Record Swing",
+                        color: .red
+                    ) {
+                        recordIntoLiveActivity()
+                    }
+                    .disabled(isCheckingPermissions)
+                } else {
                     QuickActionButton(
                         icon: "plus.circle.fill",
-                        title: "New Game",
+                        title: "New Tournament",
                         color: .brandNavy
                     ) {
                         createNewGame()
                     }
-
                     QuickActionButton(
-                        icon: "record.circle",
-                        title: "Record Live",
-                        color: .red
+                        icon: "figure.golf",
+                        title: "New Practice",
+                        color: .green
                     ) {
-                        Task { @MainActor in
-                            guard !isCheckingPermissions else { return }
-                            isCheckingPermissions = true
-                            defer { isCheckingPermissions = false }
-
-                            let status = await RecorderPermissions.ensureCapturePermissions(context: "QuickRecord")
-                            guard status == .granted else { return }
-
-                            showingDirectCamera = true
-                            Haptics.medium()
-                        }
+                        presentGolfPracticePicker()
                     }
-                    .disabled(isCheckingPermissions)
                 }
             }
-            .padding(.horizontal, dashboardHorizontalPadding)
         }
+        .padding(.horizontal, dashboardHorizontalPadding)
+    }
+
+    @ViewBuilder
+    private var baseballLiveQuickActions: some View {
+        VStack(spacing: 16) {
+            DashboardSectionHeader(title: "Quick Actions", icon: "bolt.fill", color: .brandNavy)
+
+            HStack(spacing: 12) {
+                QuickActionButton(
+                    icon: "plus.circle.fill",
+                    title: "New Game",
+                    color: .brandNavy
+                ) {
+                    createNewGame()
+                }
+
+                QuickActionButton(
+                    icon: "record.circle",
+                    title: "Record Live",
+                    color: .red
+                ) {
+                    Task { @MainActor in
+                        guard !isCheckingPermissions else { return }
+                        isCheckingPermissions = true
+                        defer { isCheckingPermissions = false }
+
+                        let status = await RecorderPermissions.ensureCapturePermissions(context: "QuickRecord")
+                        guard status == .granted else { return }
+
+                        showingDirectCamera = true
+                        Haptics.medium()
+                    }
+                }
+                .disabled(isCheckingPermissions)
+            }
+        }
+        .padding(.horizontal, dashboardHorizontalPadding)
+    }
+
+    /// Two-step hand-off: switch to the Practices tab so PracticesView mounts,
+    /// then post the picker notification after the tab transition so the
+    /// .onReceive listener fires in the correct context. Mirrors the
+    /// `presentCoachVideos` pattern at the bottom of the management grid.
+    private func presentGolfPracticePicker() {
+        Haptics.light()
+        // Arm a pending flag first, then switch tabs. PracticesView consumes
+        // the flag in `.onAppear`, so this works on a cold mount where a
+        // timing-based `presentGolfPracticePicker` post would be dropped. The
+        // direct `presentGolfPracticePicker` post (heard by an already-mounted
+        // PracticesView) still fires for the warm-tab path.
+        NotificationCenter.default.post(name: .setGolfPickerPending, object: nil)
+        NotificationCenter.default.post(name: .navigateToMorePractice, object: nil)
+        NotificationCenter.default.post(name: .presentGolfPracticePicker, object: nil)
     }
 
     @ViewBuilder
@@ -555,6 +773,24 @@ struct AthletePickerLabel: View {
                 .fill(Color.brandNavy.opacity(0.08))
         )
     }
+}
+
+// MARK: - Live Score Target
+
+/// Identifies a (parent, holeNumber) pair for `.sheet(item:)` presentation of
+/// ScoreHoleSheet from the dashboard. The parent is a live golf tournament
+/// (Game) or a live practice round (Practice) — ScoreHoleSheet accepts either.
+/// Lives here rather than in HoleScoreGrid because that file's
+/// `ScoreHoleTarget` already implies a known parent and only tunnels the hole
+/// number; the dashboard needs both pieces.
+struct LiveScoreTarget: Identifiable {
+    enum Parent {
+        case game(Game)
+        case practice(Practice)
+    }
+    let id = UUID()
+    let parent: Parent
+    let holeNumber: Int
 }
 
 // MARK: - Dashboard Section Header

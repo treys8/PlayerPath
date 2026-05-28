@@ -114,7 +114,7 @@ struct CoachesView: View {
                                 .tint(.orange)
                             }
                             .swipeActions(edge: .leading) {
-                                if coach.isInvitationExpired || coach.lastInvitationStatus == "declined" {
+                                if coach.isInvitationExpired || coach.lastInvitationStatus == "declined" || coach.lastInvitationStatus == "rejected_limit" {
                                     Button {
                                         reinviteCoach(coach)
                                     } label: {

@@ -93,6 +93,9 @@ struct AddSportProfileSheet: View {
                 .font(.bodyMedium)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
+                // Force full height so the medium detent can't truncate this to
+                // a single clipped line.
+                .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 24)
                 .padding(.top, 8)
 
@@ -120,7 +123,10 @@ struct AddSportProfileSheet: View {
 
             Spacer(minLength: 0)
         }
-        .navigationTitle("Add another sport for \(sourceAthlete.name)")
+        // Short, fixed title — the athlete name lived here before but always
+        // truncated in the inline bar; the prefilled "Profile name" field below
+        // already carries that context.
+        .navigationTitle("Add Another Sport")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {

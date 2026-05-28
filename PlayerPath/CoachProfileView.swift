@@ -19,7 +19,7 @@ struct CoachProfileView: View {
     @State private var isSigningOut = false
     @State private var showingPaywall = false
     @State private var showingEditProfile = false
-    @State private var coachToAthleteConnectedIDs: Set<String> = []
+    @State private var coachToAthleteRefs: [CoachAthleteRef] = []
     @State private var lastConnectedIDsFetch: Date?
 
     private enum ProfileRoute: Hashable {
@@ -264,7 +264,7 @@ struct CoachProfileView: View {
             .task {
                 guard let coachID = authManager.userID else { return }
                 do {
-                    coachToAthleteConnectedIDs = try await FirestoreManager.shared.fetchAcceptedCoachToAthleteAthleteIDs(coachID: coachID)
+                    coachToAthleteRefs = try await FirestoreManager.shared.fetchAcceptedCoachToAthleteRefs(coachID: coachID)
                 } catch {
                     ErrorHandlerService.shared.handle(error, context: "CoachProfile.fetchAthleteIDs", showAlert: false)
                 }
@@ -310,8 +310,8 @@ struct CoachProfileView: View {
                             }
                             Task {
                                 guard let coachID = authManager.userID else { return }
-                                if let ids = try? await FirestoreManager.shared.fetchAcceptedCoachToAthleteAthleteIDs(coachID: coachID) {
-                                    coachToAthleteConnectedIDs = ids
+                                if let refs = try? await FirestoreManager.shared.fetchAcceptedCoachToAthleteRefs(coachID: coachID) {
+                                    coachToAthleteRefs = refs
                                     lastConnectedIDsFetch = Date()
                                 }
                             }
@@ -332,9 +332,10 @@ struct CoachProfileView: View {
     }
 
     private var uniqueAthleteCount: Int {
-        var ids = Set(sharedFolderManager.coachFolders.map { $0.athleteUUID ?? $0.ownerAthleteID })
-        ids.formUnion(coachToAthleteConnectedIDs)
-        return ids.count
+        SubscriptionGate.connectedAthleteKeys(
+            folders: sharedFolderManager.coachFolders,
+            invitationRefs: coachToAthleteRefs
+        ).count
     }
 
     private var totalVideoCount: Int {

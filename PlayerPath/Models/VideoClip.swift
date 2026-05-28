@@ -26,6 +26,11 @@ final class VideoClip {
     /// nil for baseball/softball clips. A clip has either `playResult` or `club`,
     /// never both — see `isTagged`.
     var club: Club?
+    /// Hole number this clip belongs to within a live golf round (SchemaV25).
+    /// Stamped at ClipPersistenceService.saveClip time from
+    /// LiveHoleTracker.currentHole(...). Nil for baseball/softball clips or
+    /// golf clips recorded outside a live round.
+    var holeNumber: Int?
     @Relationship(inverse: \PlayResult.videoClip) var playResult: PlayResult?
     var isHighlight: Bool = false
     var note: String? = nil

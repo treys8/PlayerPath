@@ -399,8 +399,12 @@ final class ActivityNotificationService: ObservableObject {
     }
 
     func markFolderNotificationsRead(forUserID userID: String) async {
+        // Match the badge counter's predicate (unreadCountByFolder): coach-feedback
+        // notifications arrive as targetType == .video with a folderID set, so a
+        // .folder-only filter would leave them unread and the badge stuck.
         await markBatchRead(forUserID: userID, label: "folder") {
-            ($0.type == .newVideo || $0.type == .coachComment || $0.type == .uploadFailed) && $0.targetType == .folder
+            ($0.type == .newVideo || $0.type == .coachComment || $0.type == .uploadFailed)
+            && ($0.targetType == .folder || $0.targetType == .video || $0.folderID != nil)
         }
     }
 
@@ -459,7 +463,7 @@ final class ActivityNotificationService: ObservableObject {
     // remaining client-side writers in this file cover two cases the server
     // can't observe from Firestore state alone:
     //   1. Coach-initiated tier downgrades that affect athlete access
-    //      (postCoachAccessLostNotification, postAccessLapsedNotification)
+    //      (postCoachAccessLostNotification)
     //   2. Client-only upload failures triggered by runtime conditions
     //      (postClipUploadFailedPermissionNotification,
     //       postClipUploadFailedNotification)
@@ -546,27 +550,6 @@ final class ActivityNotificationService: ObservableObject {
         )
     }
 
-    /// Athlete's subscription lapsed → notify coaches that the sharing relationship is in limbo.
-    func postAccessLapsedNotification(
-        folderID: String,
-        folderName: String,
-        athleteName: String,
-        athleteID: String,
-        coachUserID: String
-    ) async {
-        let data: [String: Any] = [
-            "type": ActivityNotification.NotificationType.accessLapsed.rawValue,
-            "title": "Athlete Subscription Lapsed",
-            "body": "\(athleteName)'s subscription has changed. Shared folders may be temporarily unavailable.",
-            "senderName": athleteName,
-            "senderID": athleteID,
-            "targetID": folderID,
-            "targetType": ActivityNotification.TargetType.folder.rawValue,
-            "isRead": false,
-            "createdAt": FieldValue.serverTimestamp()
-        ]
-        await writeNotification(data, toUserIDs: [coachUserID])
-    }
 
     // MARK: - Internal Write
 

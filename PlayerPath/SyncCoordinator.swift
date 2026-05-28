@@ -119,14 +119,16 @@ final class SyncCoordinator {
         defer { isSyncing = false }
 
         let syncTask = Task { @MainActor in
-            await self.isolatedSync("Athletes")  { try await self.syncAthletes(for: user) }
-            await self.isolatedSync("Seasons")   { try await self.syncSeasons(for: user) }
-            await self.isolatedSync("Games")     { try await self.syncGames(for: user) }
-            await self.isolatedSync("Practices") { try await self.syncPractices(for: user) }
-            await self.isolatedSync("Videos")    { try await self.syncVideos(for: user) }
-            await self.isolatedSync("Notes")     { try await self.syncPracticeNotes(for: user) }
-            await self.isolatedSync("Photos")    { try await self.syncPhotos(for: user) }
-            await self.isolatedSync("Coaches")   { try await self.syncCoaches(for: user) }
+            await self.isolatedSync("Athletes")   { try await self.syncAthletes(for: user) }
+            await self.isolatedSync("Seasons")    { try await self.syncSeasons(for: user) }
+            await self.isolatedSync("Games")      { try await self.syncGames(for: user) }
+            await self.isolatedSync("Practices")  { try await self.syncPractices(for: user) }
+            await self.isolatedSync("HoleScores") { try await self.syncHoleScores(for: user) }
+            await self.isolatedSync("Videos")     { try await self.syncVideos(for: user) }
+            await self.isolatedSync("HighlightReels") { try await self.syncHighlightReels(for: user) }
+            await self.isolatedSync("Notes")      { try await self.syncPracticeNotes(for: user) }
+            await self.isolatedSync("Photos")     { try await self.syncPhotos(for: user) }
+            await self.isolatedSync("Coaches")    { try await self.syncCoaches(for: user) }
         }
 
         let timeoutTask = Task {
@@ -183,13 +185,15 @@ final class SyncCoordinator {
         let syncTask = Task { @MainActor in
             // Upload paths are cheap — only dirty items are processed, so run
             // them for ALL athletes to keep local changes flowing to Firestore.
-            await self.isolatedSync("Athletes")  { try await self.syncAthletes(for: user) }
-            await self.isolatedSync("Seasons")   { try await self.syncSeasons(for: user) }
-            await self.isolatedSync("Games")     { try await self.syncGames(for: user) }
-            await self.isolatedSync("Practices") { try await self.syncPractices(for: user) }
+            await self.isolatedSync("Athletes")   { try await self.syncAthletes(for: user) }
+            await self.isolatedSync("Seasons")    { try await self.syncSeasons(for: user) }
+            await self.isolatedSync("Games")      { try await self.syncGames(for: user) }
+            await self.isolatedSync("Practices")  { try await self.syncPractices(for: user) }
+            await self.isolatedSync("HoleScores") { try await self.syncHoleScores(for: user) }
 
             // Video download is the expensive per-athlete query — scope it.
             await self.isolatedSync("Videos")    { try await self.syncVideos(for: user, activeOnly: true) }
+            await self.isolatedSync("HighlightReels") { try await self.syncHighlightReels(for: user) }
         }
 
         let timeoutTask = Task {

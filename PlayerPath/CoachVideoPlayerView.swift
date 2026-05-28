@@ -242,6 +242,14 @@ struct CoachVideoPlayerView: View {
                 await ActivityNotificationService.shared.markVideoRead(videoID: video.id, forUserID: userID)
             }
 
+            // A folder coach opening an unreviewed clip counts as reviewing it —
+            // keeps the dashboard "Needs Review" count in sync with the folder
+            // badge that markVideoRead just cleared, so the two never disagree.
+            // The explicit "Mark Reviewed" button stays for marking from a list.
+            if canEditCoachNote, let coachID = authManager.userID, !viewModel.isReviewed(by: coachID) {
+                try? await viewModel.markReviewed(coachID: coachID, silent: true)
+            }
+
             // Auto-show the earliest coach drawing once everything is loaded.
             // Aspect ratio (videoNaturalSize) is set by loadVideoNaturalSize
             // above; annotations populated by loadAnnotations. No-op when the

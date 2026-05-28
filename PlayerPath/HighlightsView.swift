@@ -18,13 +18,23 @@ struct HighlightsView: View {
     @Environment(\.scenePhase) private var scenePhase
     @ObservedObject private var autoHighlightSettings = AutoHighlightSettings.shared
     @State private var selectedClip: VideoClip?
+    @State private var selectedReel: HighlightReel?
     @State private var showingVideoPlayer = false
+    @State private var showingReelPlayer = false
     @State private var showingDeleteAlert = false
     @State private var clipToDelete: VideoClip?
     @State private var editMode: EditMode = .inactive
     @State private var showingAutoHighlightSettings = false
     @State private var stitchedReelURL: URL?
     @State private var showingStitchedReel = false
+
+    /// Live source for v6.1 reels. Filtering to non-deleted at the @Query
+    /// level keeps the view model out of stale-reel handling — soft-deleted
+    /// rows just disappear from the grid the next time the SwiftData store
+    /// invalidates this query (e.g. after ScoreHoleSheet saves).
+    @Query(filter: #Predicate<HighlightReel> { !$0.isDeletedRemotely },
+           sort: \HighlightReel.date, order: .reverse)
+    private var allReels: [HighlightReel]
 
     @State private var viewModel = HighlightsViewModel()
     @State private var selection = Set<VideoClip.ID>()
@@ -43,6 +53,22 @@ struct HighlightsView: View {
             viewModel.refilter()
         }
     }
+
+    /// Forwards the current athlete's clips + the athlete-scoped reels into
+    /// the view model. Reels come from the @Query (cross-athlete); we filter
+    /// here so the view model stays athlete-agnostic.
+    private func updateViewModel() {
+        let scopedReels: [HighlightReel]
+        if let athleteID = athlete?.id {
+            scopedReels = allReels.filter { $0.athleteID == athleteID }
+        } else {
+            scopedReels = []
+        }
+        viewModel.update(
+            videoClips: athlete?.videoClips ?? [],
+            reels: scopedReels
+        )
+    }
     
     var body: some View {
         contentView
@@ -56,6 +82,11 @@ struct HighlightsView: View {
         .fullScreenCover(isPresented: $showingVideoPlayer) {
             if let clip: VideoClip = selectedClip {
                 VideoPlayerView(clip: clip)
+            }
+        }
+        .fullScreenCover(isPresented: $showingReelPlayer) {
+            if let reel = selectedReel {
+                ReelPlayerView(reel: reel)
             }
         }
         .alert("Delete Highlight", isPresented: $showingDeleteAlert) {
@@ -83,7 +114,7 @@ struct HighlightsView: View {
         }
         .task {
             migrateHitVideosToHighlights()
-            viewModel.update(videoClips: athlete?.videoClips ?? [])
+            updateViewModel()
         }
         .onDisappear {
             recomputeTask?.cancel()
@@ -94,7 +125,8 @@ struct HighlightsView: View {
         .onAppear {
             AnalyticsService.shared.trackScreenView(screenName: "Highlights", screenClass: "HighlightsView")
         }
-        .onChange(of: athlete?.videoClips?.count) { _, _ in recomputeAll() }
+        .onChange(of: athlete?.videoClips?.count) { _, _ in updateViewModel() }
+        .onChange(of: allReels.count) { _, _ in updateViewModel() }
         .onChange(of: viewModel.selectedSeasonFilter) { _, _ in recomputeAll() }
         .onChange(of: viewModel.filter) { _, _ in recomputeAll() }
         .onChange(of: viewModel.searchText) { _, _ in
@@ -171,7 +203,7 @@ struct HighlightsView: View {
     private var contentView: some View {
         if viewModel.isLoading {
             VideoGridSkeletonView()
-        } else if viewModel.highlights.isEmpty {
+        } else if viewModel.feed.isEmpty {
             if hasActiveFilters && hasAnyHighlights {
                 // Filtered empty state - user has highlights but filters exclude them
                 FilteredEmptyStateView(
@@ -240,41 +272,55 @@ struct HighlightsView: View {
                 ],
                 spacing: 16
             ) {
-                ForEach(viewModel.highlights) { clip in
-                    VideoClipCard(
-                        video: clip,
-                        isSelectionMode: editMode == .active,
-                        isSelected: selection.contains(clip.id),
-                        hasCoachingAccess: hasCoachingAccess,
-                        onPlay: {
-                            if editMode == .inactive {
-                                selectedClip = clip
-                                showingVideoPlayer = true
-                            } else {
-                                toggleSelection(clip)
-                            }
-                        },
-                        onDelete: {
-                            clipToDelete = clip
-                            showingDeleteAlert = true
-                        },
-                        onToggleSelection: { toggleSelection(clip) }
-                    )
-                    .onAppear { viewModel.onItemAppear(clip) }
+                ForEach(viewModel.feed) { item in
+                    switch item {
+                    case .clip(let clip):
+                        VideoClipCard(
+                            video: clip,
+                            isSelectionMode: editMode == .active,
+                            isSelected: selection.contains(clip.id),
+                            hasCoachingAccess: hasCoachingAccess,
+                            onPlay: {
+                                if editMode == .inactive {
+                                    selectedClip = clip
+                                    showingVideoPlayer = true
+                                } else {
+                                    toggleSelection(clip)
+                                }
+                            },
+                            onDelete: {
+                                clipToDelete = clip
+                                showingDeleteAlert = true
+                            },
+                            onToggleSelection: { toggleSelection(clip) }
+                        )
+                        .onAppear { viewModel.onItemAppear(.clip(clip)) }
+                    case .reel(let reel):
+                        HighlightReelCard(
+                            reel: reel,
+                            onPlay: {
+                                guard editMode == .inactive else { return }
+                                selectedReel = reel
+                                showingReelPlayer = true
+                            },
+                            isDimmed: editMode == .active
+                        )
+                        .onAppear { viewModel.onItemAppear(.reel(reel)) }
+                    }
                 }
             }
             .padding(.vertical)
             .padding(.horizontal, horizontalSizeClass == .regular ? 32 : 16)
         }
         .refreshable {
-            viewModel.update(videoClips: athlete?.videoClips ?? [])
+            updateViewModel()
         }
     }
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         // Season filter (only show if we have highlights)
-        if !viewModel.highlights.isEmpty {
+        if !viewModel.feed.isEmpty {
             ToolbarItem(placement: .topBarLeading) {
                 SeasonFilterMenu(
                     selectedSeasonID: $viewModel.selectedSeasonFilter,
@@ -285,7 +331,7 @@ struct HighlightsView: View {
         }
 
         // Combined Filter & Sort menu
-        if !viewModel.highlights.isEmpty {
+        if !viewModel.feed.isEmpty {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Section("Filter") {
@@ -323,7 +369,7 @@ struct HighlightsView: View {
         }
 
         // Edit button
-        if !viewModel.highlights.isEmpty {
+        if !viewModel.feed.isEmpty {
             ToolbarItem(placement: .topBarTrailing) {
                 editButton
             }

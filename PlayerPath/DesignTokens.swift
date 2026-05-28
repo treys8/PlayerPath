@@ -98,6 +98,15 @@ extension Color {
     /// Play result colors
     static let gold = Color(red: 1.0, green: 0.75, blue: 0.0)
 
+    /// Golf score-relative tint (modern convention: green under par, red over
+    /// par, neutral at par). Single source of truth shared by ScoreHoleSheet's
+    /// hero readout and the HoleScoreGrid cells.
+    static func parRelative(_ diff: Int) -> Color {
+        if diff < 0 { return .green }   // birdie or better
+        if diff > 0 { return .red }     // bogey or worse
+        return .secondary               // even par
+    }
+
     /// Status colors
     static let success = Color.green
     static let warning = Color.orange

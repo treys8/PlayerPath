@@ -246,6 +246,13 @@ extension SyncCoordinator {
                 if let clubRaw = remoteVideo.club, let club = Club(rawValue: clubRaw) {
                     localClip.club = club
                 }
+                // holeNumber is set once at clip creation on the recording
+                // device and never mutated. Mirror unconditionally so a
+                // second device can attribute the clip to its parent hole
+                // for PR2's reel grouping. Nil-remote leaves local alone.
+                if let holeNumber = remoteVideo.holeNumber {
+                    localClip.holeNumber = holeNumber
+                }
                 if let duration = remoteVideo.duration {
                     localClip.duration = duration
                 }
@@ -291,6 +298,7 @@ extension SyncCoordinator {
                 newClip.pitchSpeed = remoteVideo.pitchSpeed
                 newClip.pitchType = remoteVideo.pitchType
                 newClip.club = remoteVideo.club.flatMap(Club.init(rawValue:))
+                newClip.holeNumber = remoteVideo.holeNumber
                 newClip.duration = remoteVideo.duration
                 newClip.firestoreId = remoteVideo.id.uuidString
                 newClip.sourceCoachVideoID = remoteVideo.sourceCoachVideoID
