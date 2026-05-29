@@ -83,7 +83,7 @@ struct AthleteOnboardingFlow: View {
                     FeatureHighlight(
                         icon: "calendar.badge.plus",
                         title: "Set Up Your Season",
-                        description: "Organize games and track stats over time",
+                        description: "Organize seasons and track stats over time",
                         color: .brandNavy
                     )
 

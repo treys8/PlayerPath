@@ -93,7 +93,9 @@ struct OnboardingSeasonCreationView: View {
                         FeatureHighlight(
                             icon: "chart.bar.fill",
                             title: "Automatic Statistics",
-                            description: "Track batting average and stats by season"
+                            description: selectedSport == .golf
+                                ? "Track scoring average and stats by season"
+                                : "Track batting average and stats by season"
                         )
 
                         FeatureHighlight(
@@ -166,6 +168,7 @@ struct OnboardingSeasonCreationView: View {
                                 .datePickerStyle(.compact)
                                 .labelsHidden()
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
 
                         // Sport picker
                         VStack(alignment: .leading, spacing: 8) {

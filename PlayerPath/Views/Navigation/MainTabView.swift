@@ -260,6 +260,7 @@ struct MainTabView: View {
             .sheet(isPresented: $showingWelcomeTutorial) {
                 WelcomeTutorialView(
                     athleteName: selectedAthlete.name,
+                    sport: selectedAthlete.sport ?? .baseball,
                     userEmail: authManager.userEmail ?? ""
                 )
             }
