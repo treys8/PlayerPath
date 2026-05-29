@@ -73,15 +73,15 @@ struct WelcomeFlow: View {
 
                         FeatureHighlight(
                             icon: "video.circle.fill",
-                            title: "Record every at-bat",
-                            description: "Clip by clip, game by game",
+                            title: "Record every rep",
+                            description: "Clip by clip, session by session",
                             color: .red
                         )
 
                         FeatureHighlight(
                             icon: "chart.line.uptrend.xyaxis.circle.fill",
                             title: "Auto-generated stats",
-                            description: "AVG, OBP, SLG and more",
+                            description: "Stats that build themselves",
                             color: .brandNavy
                         )
 

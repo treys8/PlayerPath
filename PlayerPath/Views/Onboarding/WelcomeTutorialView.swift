@@ -10,6 +10,7 @@ import SwiftUI
 
 struct WelcomeTutorialView: View {
     let athleteName: String
+    let sport: Sport
     let userEmail: String
 
     @Environment(\.dismiss) private var dismiss
@@ -32,20 +33,21 @@ struct WelcomeTutorialView: View {
 
                 PlayerReadyPage(
                     athleteName: athleteName,
+                    sport: sport,
                     onNext: { advancePage() }
                 )
                 .tag(1)
 
-                GameDayPage(onNext: { advancePage() })
+                GameDayPage(sport: sport, onNext: { advancePage() })
                     .tag(2)
 
-                RecordAtBatPage(onNext: { advancePage() })
+                RecordAtBatPage(sport: sport, onNext: { advancePage() })
                     .tag(3)
 
-                TagResultPage(onNext: { advancePage() })
+                TagResultPage(sport: sport, onNext: { advancePage() })
                     .tag(4)
 
-                BetweenGamesPage(onComplete: completeWalkthrough)
+                BetweenGamesPage(sport: sport, onComplete: completeWalkthrough)
                     .tag(5)
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
@@ -239,6 +241,7 @@ private struct ManagerPage: View {
 
 private struct PlayerReadyPage: View {
     let athleteName: String
+    let sport: Sport
     let onNext: () -> Void
 
     @State private var appeared = false
@@ -247,7 +250,7 @@ private struct PlayerReadyPage: View {
         VStack(spacing: 0) {
             Spacer()
 
-            WalkthroughIcon(systemName: "figure.baseball", accentColor: .orange)
+            WalkthroughIcon(systemName: sport.icon, accentColor: .orange)
                 .scaleEffect(appeared ? 1 : 0.6)
                 .opacity(appeared ? 1 : 0)
                 .animation(.spring(response: 0.6, dampingFraction: 0.7).delay(0.1), value: appeared)
@@ -275,7 +278,7 @@ private struct PlayerReadyPage: View {
 
             // Athlete card
             HStack(spacing: 14) {
-                Image(systemName: "figure.baseball")
+                Image(systemName: sport.icon)
                     .font(.headingLarge)
                     .foregroundColor(.orange)
                     .frame(width: 40, height: 40)
@@ -338,21 +341,39 @@ private struct PlayerReadyPage: View {
 // MARK: - Page 3: On Game Day
 
 private struct GameDayPage: View {
+    let sport: Sport
     let onNext: () -> Void
 
     @State private var appeared = false
 
-    private let steps: [(icon: String, color: Color, title: String, detail: String)] = [
-        ("baseball.diamond.bases", .brandNavy, "Open the Games Tab", "This is home base for all your games."),
-        ("plus.circle.fill",       .green,     "Create a Game",      "Add the opponent and date — takes 10 seconds."),
-        ("play.circle.fill",       .orange,    "Tap Start Game",     "When the game begins, tap Start Game to begin tracking."),
-    ]
+    private var steps: [(icon: String, color: Color, title: String, detail: String)] {
+        if sport == .golf {
+            return [
+                ("figure.golf",      .brandNavy, "Open the Tournaments Tab", "This is where every tournament lives."),
+                ("plus.circle.fill", .green,     "Create a Tournament",      "Add the course and date — takes 10 seconds."),
+                ("play.circle.fill", .orange,    "Tap Start Round",          "When the round begins, tap Start Round to begin tracking."),
+            ]
+        }
+        return [
+            ("baseball.diamond.bases", .brandNavy, "Open the Games Tab", "This is home base for all your games."),
+            ("plus.circle.fill",       .green,     "Create a Game",      "Add the opponent and date — takes 10 seconds."),
+            ("play.circle.fill",       .orange,    "Tap Start Game",     "When the game begins, tap Start Game to begin tracking."),
+        ]
+    }
+
+    private var heroIcon: String {
+        sport == .golf ? "figure.golf" : "baseball.diamond.bases"
+    }
+
+    private var title: String {
+        sport == .golf ? "On the Course" : "On Game Day"
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             Spacer().frame(height: 40)
 
-            WalkthroughIcon(systemName: "baseball.diamond.bases", accentColor: .brandNavy)
+            WalkthroughIcon(systemName: heroIcon, accentColor: .brandNavy)
                 .scaleEffect(appeared ? 1 : 0.6)
                 .opacity(appeared ? 1 : 0)
                 .animation(.spring(response: 0.6, dampingFraction: 0.7).delay(0.1), value: appeared)
@@ -360,7 +381,7 @@ private struct GameDayPage: View {
             Spacer().frame(height: 24)
 
             VStack(spacing: 10) {
-                Text("On Game Day")
+                Text(title)
                     .font(.custom("Fraunces72pt-Bold", size: 36, relativeTo: .largeTitle))
                     .foregroundColor(.primary)
                     .multilineTextAlignment(.center)
@@ -437,9 +458,18 @@ private struct GameDayPage: View {
 // MARK: - Page 4: Record Every At-Bat
 
 private struct RecordAtBatPage: View {
+    let sport: Sport
     let onNext: () -> Void
 
     @State private var appeared = false
+
+    private var title: String {
+        sport == .golf ? "Record Every Shot" : "Record Every At-Bat"
+    }
+
+    private var setupCue: String {
+        sport == .golf ? "steps up to the tee" : "steps up to the plate"
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -453,12 +483,12 @@ private struct RecordAtBatPage: View {
             Spacer().frame(height: 36)
 
             VStack(spacing: 10) {
-                Text("Record Every At-Bat")
+                Text(title)
                     .font(.custom("Fraunces72pt-Bold", size: 36, relativeTo: .largeTitle))
                     .foregroundColor(.primary)
                     .multilineTextAlignment(.center)
 
-                Text("Tap \(Text("Record").font(.custom("Inter18pt-SemiBold", size: 17))) when your kid steps up to the plate. Hit \(Text("Stop").font(.custom("Inter18pt-SemiBold", size: 17))) when the play is over.")
+                Text("Tap \(Text("Record").font(.custom("Inter18pt-SemiBold", size: 17))) when your kid \(setupCue). Hit \(Text("Stop").font(.custom("Inter18pt-SemiBold", size: 17))) when the play is over.")
                     .font(.bodyLarge)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
@@ -503,16 +533,27 @@ private struct RecordAtBatPage: View {
 // MARK: - Page 5: Tag What Happened
 
 private struct TagResultPage: View {
+    let sport: Sport
     let onNext: () -> Void
 
     @State private var appeared = false
 
-    private let exampleTags: [(label: String, color: Color)] = [
-        ("Single",     .green),
-        ("Strikeout",  .red),
-        ("Walk",       .blue),
-        ("Double",     .orange),
-    ]
+    private var exampleTags: [(label: String, color: Color)] {
+        if sport == .golf {
+            return [
+                ("Birdie", .green),
+                ("Bogey",  .red),
+                ("Par",    .blue),
+                ("Eagle",  .orange),
+            ]
+        }
+        return [
+            ("Single",     .green),
+            ("Strikeout",  .red),
+            ("Walk",       .blue),
+            ("Double",     .orange),
+        ]
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -617,15 +658,37 @@ private struct TagResultPage: View {
 // MARK: - Page 6: Between Games
 
 private struct BetweenGamesPage: View {
+    let sport: Sport
     let onComplete: () -> Void
 
     @State private var appeared = false
 
-    private let features: [(icon: String, color: Color, title: String, detail: String)] = [
-        ("chart.bar.fill",    .brandNavy, "Check Their Stats",      "Batting average and more — all calculated from your tags."),
-        ("video.fill",        .purple,    "Review Their Videos",    "Watch at-bats back and see their progress."),
-        ("person.2.fill",     .orange,    "Share with Their Coach", "Send clips to a hitting or pitching instructor."),
-    ]
+    private var features: [(icon: String, color: Color, title: String, detail: String)] {
+        if sport == .golf {
+            return [
+                ("chart.bar.fill", .brandNavy, "Check Their Stats",      "Scoring average and more — all calculated from your tags."),
+                ("video.fill",     .purple,    "Review Their Videos",    "Watch their swings back and see their progress."),
+                ("person.2.fill",  .orange,    "Share with Their Coach", "Send clips to a swing coach or instructor."),
+            ]
+        }
+        return [
+            ("chart.bar.fill",    .brandNavy, "Check Their Stats",      "Batting average and more — all calculated from your tags."),
+            ("video.fill",        .purple,    "Review Their Videos",    "Watch at-bats back and see their progress."),
+            ("person.2.fill",     .orange,    "Share with Their Coach", "Send clips to a hitting or pitching instructor."),
+        ]
+    }
+
+    private var title: String {
+        sport == .golf ? "Between Rounds" : "Between Games"
+    }
+
+    private var subtitle: String {
+        sport == .golf ? "Here's what you can do when there's no round on." : "Here's what you can do when there's no game on."
+    }
+
+    private var ctaIcon: String {
+        sport == .golf ? "figure.golf" : "baseball.diamond.bases"
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -639,12 +702,12 @@ private struct BetweenGamesPage: View {
             Spacer().frame(height: 36)
 
             VStack(spacing: 10) {
-                Text("Between Games")
+                Text(title)
                     .font(.custom("Fraunces72pt-Bold", size: 36, relativeTo: .largeTitle))
                     .foregroundColor(.primary)
                     .multilineTextAlignment(.center)
 
-                Text("Here's what you can do when there's no game on.")
+                Text(subtitle)
                     .font(.bodyLarge)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
@@ -693,7 +756,7 @@ private struct BetweenGamesPage: View {
 
             Spacer()
 
-            WalkthroughCTA(title: "Let's Go!", icon: "baseball.diamond.bases", action: onComplete)
+            WalkthroughCTA(title: "Let's Go!", icon: ctaIcon, action: onComplete)
                 .offset(y: appeared ? 0 : 20)
                 .opacity(appeared ? 1 : 0)
                 .animation(.spring(response: 0.5, dampingFraction: 0.8).delay(0.55), value: appeared)

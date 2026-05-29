@@ -83,7 +83,9 @@ struct AddAthleteView: View {
                                 FeatureHighlight(
                                     icon: "chart.line.uptrend.xyaxis.circle.fill",
                                     title: "Track Statistics",
-                                    description: "Monitor batting averages and performance metrics"
+                                    description: selectedSport == .golf
+                                        ? "Monitor scoring averages and performance metrics"
+                                        : "Monitor batting averages and performance metrics"
                                 )
 
                                 FeatureHighlight(
