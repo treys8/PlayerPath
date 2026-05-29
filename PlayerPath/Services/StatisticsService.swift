@@ -99,16 +99,21 @@ final class StatisticsService {
         }
 
         // Clean up orphaned AthleteStatistics left behind by the old bug
-        // where season stats stole the athlete relationship
-        let allStatsDescriptor = FetchDescriptor<AthleteStatistics>()
-        if let allStats = try? context.fetch(allStatsDescriptor) {
-            for stat in allStats where stat.athlete == nil && stat.season == nil {
-                context.delete(stat)
+        // where season stats stole the athlete relationship.
+        // Gated behind !skipSave: skipSave callers expect no DB side-effects,
+        // and staging these deletes would otherwise ride along on the next
+        // external save (autosave / another caller's save).
+        if !skipSave {
+            let allStatsDescriptor = FetchDescriptor<AthleteStatistics>()
+            if let allStats = try? context.fetch(allStatsDescriptor) {
+                for stat in allStats where stat.athlete == nil && stat.season == nil {
+                    context.delete(stat)
+                }
             }
-        }
 
-        if !skipSave && context.hasChanges {
-            try context.save()
+            if context.hasChanges {
+                try context.save()
+            }
         }
     }
 
@@ -190,10 +195,6 @@ final class StatisticsService {
             return
         }
 
-        let oldHits = stats.hits
-        let oldAtBats = stats.atBats
-        let oldTotalPitches = stats.totalPitches
-
         stats.resetAllCounts()
 
         // Get all videos for this game and sum up play results
@@ -208,9 +209,10 @@ final class StatisticsService {
             }
         }
 
-        if stats.hits != oldHits || stats.atBats != oldAtBats || stats.totalPitches != oldTotalPitches {
-            if context.hasChanges { try context.save() }
-        }
+        // Persist whenever anything changed. A field diff on hits/atBats/
+        // totalPitches misses hit-distribution-only retags (e.g. single↔double,
+        // where hits/AB stay constant) and would silently skip the save.
+        if context.hasChanges { try context.save() }
 
         statsLog.info("Game stats - Hits: \(stats.hits), AB: \(stats.atBats), BA: \(stats.battingAverage.formatted(.number.precision(.fractionLength(3))))")
     }
