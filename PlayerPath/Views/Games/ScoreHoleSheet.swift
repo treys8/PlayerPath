@@ -181,14 +181,42 @@ struct ScoreHoleSheet: View {
             return
         }
 
-        // New hole — seed par from the most recently scored prior hole so a
-        // user who set par=5 on hole 3 doesn't have to re-set it on 4. Falls
-        // back to 4 when no prior holes exist.
+        // New hole — seed par. Priority:
+        //  1. Same hole at the most recent prior round on this course — a strong
+        //     signal (hole 7 stays a par 3 every visit), so the golfer doesn't
+        //     re-enter the layout each round.
+        //  2. Most recently scored prior hole in THIS round — weak fallback for
+        //     a first-time course (a user who set par=5 on 3 keeps it on 4).
+        //  3. 4.
         let priorHoles = holes.filter { $0.holeNumber < holeNumber }
-        let mostRecent = priorHoles.max(by: { $0.holeNumber < $1.holeNumber })
-        let seedPar = mostRecent?.par ?? 4
+        let inRoundPar = priorHoles.max(by: { $0.holeNumber < $1.holeNumber })?.par
+        let seedPar = priorRoundPar(forHole: holeNumber) ?? inRoundPar ?? 4
         par = seedPar
         score = seedPar
+    }
+
+    /// Par for `hole` from the most recent *prior* round at the same course, so
+    /// per-hole par carries across rounds rather than resetting each time.
+    /// Games key off `opponent` (the course name for golf); practice rounds key
+    /// off `Practice.course`. Returns nil when the athlete hasn't played here
+    /// before (or never scored this hole), falling back to the in-round seed.
+    private func priorRoundPar(forHole hole: Int) -> Int? {
+        guard let athlete = parentAthlete else { return nil }
+        switch parent {
+        case .game(let current):
+            guard !current.opponent.isEmpty else { return nil }
+            let prior = (athlete.games ?? [])
+                .filter { $0.id != current.id && $0.opponent == current.opponent
+                          && ($0.season?.sport ?? .baseball) == .golf }
+                .max(by: { ($0.date ?? .distantPast) < ($1.date ?? .distantPast) })
+            return prior?.holeScores?.first { $0.holeNumber == hole }?.par
+        case .practice(let current):
+            guard let course = current.course, !course.isEmpty else { return nil }
+            let prior = (athlete.practices ?? [])
+                .filter { $0.id != current.id && $0.course == course }
+                .max(by: { ($0.date ?? .distantPast) < ($1.date ?? .distantPast) })
+            return prior?.holeScores?.first { $0.holeNumber == hole }?.par
+        }
     }
 
     private func save() {

@@ -153,7 +153,7 @@ struct ComprehensiveSignInView: View {
             VStack(spacing: 8) {
                 Text(isSignUpMode ? "Create Account" : "Welcome Back")
                     .font(.displayMedium)
-                Text(isSignUpMode ? (selectedRole == .athlete ? "Join PlayerPath to track your baseball journey" : "Join PlayerPath to coach your athletes") : "Sign in to continue to PlayerPath")
+                Text(isSignUpMode ? (selectedRole == .athlete ? "Join PlayerPath to track your sports journey" : "Join PlayerPath to coach your athletes") : "Sign in to continue to PlayerPath")
                     .font(.bodyMedium).foregroundColor(.secondary).multilineTextAlignment(.center)
             }
         }
@@ -162,7 +162,7 @@ struct ComprehensiveSignInView: View {
 
     private var roleSelectionSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("I am a:")
+            Text("Account type")
                 .font(.headingSmall).foregroundColor(.secondary)
             HStack(spacing: 12) {
                 RoleSelectionButton(role: .athlete, isSelected: selectedRole == .athlete, icon: "figure.baseball", title: "Athlete", description: "Track my progress") {
@@ -178,10 +178,23 @@ struct ComprehensiveSignInView: View {
     private var formFieldsSection: some View {
         VStack(spacing: 16) {
             if isSignUpMode {
-                ModernTextField(placeholder: "Your name (optional)", text: $displayName, icon: "person.fill", textContentType: .name, autocapitalization: .words, validationState: displayNameValidationState, submitLabel: .next, onSubmit: { emailFocused = true }, focusedBinding: $nameFocused)
-                    .id("nameField")
-                    .accessibilityLabel("Display name")
-                    .accessibilityHint("Enter your preferred display name")
+                VStack(alignment: .leading, spacing: 6) {
+                    ModernTextField(placeholder: selectedRole == .athlete ? "Your name (account holder)" : "Your name (optional)", text: $displayName, icon: "person.fill", textContentType: .name, autocapitalization: .words, validationState: displayNameValidationState, submitLabel: .next, onSubmit: { emailFocused = true }, focusedBinding: $nameFocused)
+                        .id("nameField")
+                        .accessibilityLabel("Account holder name")
+                        .accessibilityHint(selectedRole == .athlete ? "Enter the account holder's name. You'll add your athlete's name next." : "Enter your preferred display name")
+
+                    // The account holder isn't necessarily the player (e.g. a
+                    // parent), so clarify that the athlete's name comes next —
+                    // this is where users otherwise enter the wrong name.
+                    if selectedRole == .athlete {
+                        Text("You'll add your athlete's name in the next step.")
+                            .font(.bodySmall)
+                            .foregroundColor(.secondary)
+                            .padding(.leading, 4)
+                            .accessibilityHidden(true)
+                    }
+                }
             }
 
             ModernTextField(placeholder: "you@example.com", text: $email, icon: "envelope.fill", keyboardType: .emailAddress, textContentType: .emailAddress, autocapitalization: .never, validationState: emailValidationState, submitLabel: .next, onSubmit: { passwordFocused = true }, focusedBinding: $emailFocused)

@@ -75,6 +75,21 @@ struct GameCreationView: View {
             .sorted { frequency[$0, default: 0] > frequency[$1, default: 0] }
     }
 
+    // Most recent prior golf game at the given course — source for pre-filling
+    // round details (holes/par/location) when the user taps a recent course.
+    // Sport-scoped to match previousOpponents so a baseball game sharing a
+    // course-like name can't leak into golf pre-fill.
+    private func mostRecentGame(forCourse course: String) -> Game? {
+        guard let athlete = athlete else { return nil }
+        return (athlete.games ?? [])
+            .filter { game in
+                guard game.opponent == course else { return false }
+                guard let season = game.season else { return activeSport == .baseball }
+                return (season.sport ?? .baseball) == activeSport
+            }
+            .max(by: { ($0.date ?? .distantPast) < ($1.date ?? .distantPast) })
+    }
+
     // Filter opponents by current input
     private var filteredOpponents: [String] {
         guard !opponent.isEmpty else { return previousOpponents.prefix(5).map { $0 } }
@@ -156,6 +171,15 @@ struct GameCreationView: View {
                         ForEach(filteredOpponents, id: \.self) { suggestion in
                             Button {
                                 opponent = suggestion
+                                // Golf: tapping a course the athlete has played
+                                // before pre-fills its round details from the
+                                // most recent prior round there. Score is never
+                                // carried — it's per-round.
+                                if isGolf, let prior = mostRecentGame(forCourse: suggestion) {
+                                    if let h = prior.holes { golfHoles = h }
+                                    if let p = prior.par { golfParText = String(p) }
+                                    if let loc = prior.location, !loc.isEmpty { golfLocation = loc }
+                                }
                             } label: {
                                 HStack {
                                     Image(systemName: "clock.arrow.circlepath")

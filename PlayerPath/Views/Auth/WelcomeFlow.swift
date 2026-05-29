@@ -62,6 +62,17 @@ struct WelcomeFlow: View {
                                 .foregroundColor(.primary)
                                 .multilineTextAlignment(.center)
                                 .fixedSize(horizontal: false, vertical: true)
+
+                            // Signals multi-sport support so golf/softball players
+                            // aren't put off by the baseball brand mark above.
+                            Text("Baseball · Softball · Golf")
+                                .font(.bodySmall)
+                                .fontWeight(.semibold)
+                                .textCase(.uppercase)
+                                .tracking(1.5)
+                                .foregroundColor(.secondary)
+                                .padding(.top, 2)
+                                .accessibilityLabel("Supports baseball, softball, and golf")
                         }
                     }
 
