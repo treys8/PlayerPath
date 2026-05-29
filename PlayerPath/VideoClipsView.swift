@@ -163,10 +163,6 @@ struct VideoClipsView: View {
                 .accessibilityLabel("Selection actions")
             }
         } else {
-            ToolbarItem(placement: .principal) {
-                SportContextChip(athlete: athlete)
-            }
-
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     Haptics.light()

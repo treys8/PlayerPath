@@ -32,6 +32,7 @@ struct DashboardView: View {
     @State private var showingDirectCamera = false
     @State private var selectedVideoForPlayback: VideoClip?
     @State private var showingSeasons = false
+    @State private var showingSpinoffSheet = false
     @State private var isCheckingPermissions = false
     @State private var isEndingGame: Set<UUID> = []
     /// Set by LiveGameCard's "Score Hole X" CTA; presents ScoreHoleSheet for
@@ -196,9 +197,6 @@ struct DashboardView: View {
         .navigationTitle(athlete.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                SportContextChip(athlete: athlete)
-            }
             ToolbarItem(placement: .principal) {
                 Menu {
                     // Show all athletes with checkmark for current. Each entry
@@ -240,6 +238,17 @@ struct DashboardView: View {
                     } label: {
                         Label("Manage Athletes", systemImage: "person.2.fill")
                     }
+
+                    // Spin off a second-sport profile of the current athlete.
+                    // Lives here (was the deleted SportContextChip) so the rare
+                    // multi-sport setup action doesn't own top-bar space on
+                    // every tab. Scoped to the active athlete, like the old chip.
+                    Button {
+                        showingSpinoffSheet = true
+                        Haptics.light()
+                    } label: {
+                        Label("Add Another Sport for \(athlete.name)", systemImage: "plus.circle")
+                    }
                 } label: {
                     AthletePickerLabel(name: athlete.name, initials: athleteInitials)
                 }
@@ -275,6 +284,13 @@ struct DashboardView: View {
             NavigationStack {
                 SeasonsView(athlete: athlete)
             }
+        }
+        .sheet(isPresented: $showingSpinoffSheet) {
+            NavigationStack {
+                AddSportProfileSheet(sourceAthlete: athlete)
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
         }
         .navigationDestination(for: HomeDestination.self) { destination in
             switch destination {

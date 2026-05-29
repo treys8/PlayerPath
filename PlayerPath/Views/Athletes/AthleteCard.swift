@@ -11,6 +11,10 @@ import SwiftData
 struct AthleteCard: View {
     let athlete: Athlete
     let action: () -> Void
+    /// Optional spin-off action — when set, a "Add Another Sport" item appears
+    /// in the card's context menu, scoped to this athlete. The presenter owns
+    /// the sheet so it can react to the resulting athlete switch.
+    var onAddSport: (() -> Void)? = nil
     @Environment(\.modelContext) private var modelContext
     @State private var isEndingGame = false
 
@@ -124,6 +128,13 @@ struct AthleteCard: View {
                         Label(isEndingGame ? "Ending..." : "End Live", systemImage: "stop.circle")
                     }
                     .disabled(isEndingGame)
+                }
+                if let onAddSport {
+                    Button {
+                        onAddSport()
+                    } label: {
+                        Label("Add Another Sport", systemImage: "plus.circle")
+                    }
                 }
             }
         }

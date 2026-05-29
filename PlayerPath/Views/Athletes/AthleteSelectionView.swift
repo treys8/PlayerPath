@@ -17,6 +17,8 @@ struct AthleteSelectionView: View {
     var onDismiss: (() -> Void)? = nil
     @State private var showingAddAthlete = false
     @State private var showingSignOutConfirmation = false
+    /// Athlete whose "Add Another Sport" spin-off sheet is presented, if any.
+    @State private var spinoffSource: Athlete?
 
     @State private var searchText: String = ""
 
@@ -94,6 +96,8 @@ struct AthleteSelectionView: View {
                                         AthleteCard(athlete: athlete) {
                                             selectedAthlete = athlete
                                             onDismiss?()
+                                        } onAddSport: {
+                                            spinoffSource = athlete
                                         }
                                     }
                                 }
@@ -146,6 +150,13 @@ struct AthleteSelectionView: View {
         }
         .sheet(isPresented: $showingAddAthlete) {
             AddAthleteView(user: user, selectedAthlete: .constant(nil), isFirstAthlete: false)
+        }
+        .sheet(item: $spinoffSource) { source in
+            NavigationStack {
+                AddSportProfileSheet(sourceAthlete: source)
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
         }
         .confirmationDialog(
             "Sign Out",

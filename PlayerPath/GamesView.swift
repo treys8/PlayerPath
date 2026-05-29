@@ -477,12 +477,6 @@ struct GamesView: View {
             .navigationBarTitleDisplayMode(.large)
             .searchable(text: $searchText, prompt: searchPrompt)
             .toolbar {
-                if let athlete {
-                    ToolbarItem(placement: .principal) {
-                        SportContextChip(athlete: athlete)
-                    }
-                }
-
                 ToolbarItem(placement: .primaryAction) {
                     Button(action: { handleAddGame() }) {
                         Image(systemName: "plus")

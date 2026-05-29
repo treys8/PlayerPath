@@ -1,51 +1,21 @@
 //
-//  SportContextChip.swift
+//  AddSportProfileSheet.swift
 //  PlayerPath
 //
-//  Persistent nav-bar chip showing the current athlete's sport. Replaces the
-//  deleted SportTogglePicker. Tap opens a sheet for SPINNING OFF a second
-//  sport-variant profile of the same human — the new profile shares the
-//  source's `personGroupID`, so both count as ONE subscription slot.
-//  Correcting an initial wrong-sport choice still happens via EditAthleteView.
+//  The flow for SPINNING OFF a second sport-variant profile of the same human.
+//  The new profile shares the source's `personGroupID`, so both count as ONE
+//  subscription slot. Correcting an initial wrong-sport choice still happens
+//  via EditAthleteView.
+//
+//  Entry points: the Dashboard athlete-picker menu ("Add Another Sport for
+//  [name]") and the AthleteSelectionView card context menu. This used to be a
+//  persistent nav-bar chip (SportContextChip) on every tab; it was consolidated
+//  because the chip duplicated the sport label the picker already shows and the
+//  spinoff is a rare setup action.
 //
 
 import SwiftUI
 import SwiftData
-
-struct SportContextChip: View {
-    let athlete: Athlete
-    @State private var showingSpinoffSheet = false
-
-    var body: some View {
-        Button {
-            showingSpinoffSheet = true
-        } label: {
-            HStack(spacing: 4) {
-                Image(systemName: athlete.sportType.icon)
-                    .font(.caption)
-                Text(athlete.sportType.displayName)
-                    .font(.labelMedium)
-                Image(systemName: "chevron.down")
-                    .font(.caption2)
-                    .opacity(0.75)
-            }
-            .foregroundColor(.brandNavy)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background(Capsule().fill(Color.brandNavy.opacity(0.08)))
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Sport: \(athlete.sportType.displayName)")
-        .accessibilityHint("Double-tap to add another sport for \(athlete.name)")
-        .sheet(isPresented: $showingSpinoffSheet) {
-            NavigationStack {
-                AddSportProfileSheet(sourceAthlete: athlete)
-            }
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
-        }
-    }
-}
 
 /// Sheet for creating a new athlete profile in a different sport, linked to
 /// the source via `personGroupID` so both count as one subscription slot.
