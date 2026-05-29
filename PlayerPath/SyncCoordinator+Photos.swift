@@ -19,8 +19,17 @@ extension SyncCoordinator {
         let athletes = user.athletes ?? []
 
         var syncedPhotos: [Photo] = []
+        // Photo files to download, collected across all athletes and drained with
+        // bounded concurrency after the save (see below). Only Sendable values.
+        var pendingPhotoDownloads: [(photoID: UUID, url: String, path: String)] = []
 
         for athlete in athletes {
+            // Skip athletes whose parent record hasn't synced yet. Keying photos on
+            // the local UUID (the old `?? athlete.id.uuidString` fallback) silos them
+            // per device and risks ghost-double-athletes when the same logical athlete
+            // exists under a different firestoreId on the server. Respect parent-sync
+            // ordering, exactly as the Games/Seasons upload paths do.
+            guard let athleteStableId = athlete.firestoreId else { continue }
             let photos = athlete.photos ?? []
 
             // Upload new photos that haven't been synced
@@ -65,12 +74,19 @@ extension SyncCoordinator {
                         throw error
                     }
                     photo.needsSync = false
-                    syncedPhotos.append(photo)
                     if let uploadedSize = (try? FileManager.default.attributesOfItem(atPath: resolvedPath)[.size] as? Int64) {
                         user.cloudStorageUsedBytes += uploadedSize
                     } else {
                         syncLog.warning("Could not read uploaded photo file size for storage tracking")
                     }
+                    // Persist cloudURL + firestoreId (+ quota) IMMEDIATELY. If the
+                    // batch save at the end of syncPhotos later fails, we must not
+                    // lose the fact that this photo is already in Storage + Firestore
+                    // — otherwise the next sync sees cloudURL == nil and re-uploads,
+                    // leaking the first blob AND double-charging quota. Mirrors the
+                    // firestoreId-immediate-save pattern in +Coaches / +Athletes.
+                    ErrorHandlerService.shared.saveContext(context, caller: "SyncCoordinator.syncPhotos.uploaded")
+                    syncedPhotos.append(photo)
                 } catch {
                     syncLog.error("Failed to sync photo: \(error.localizedDescription)")
                 }
@@ -93,7 +109,6 @@ extension SyncCoordinator {
             }
 
             // Download photos that exist remotely but not locally
-            let athleteStableId = athlete.firestoreId ?? athlete.id.uuidString
             let remotePhotos = try await FirestoreManager.shared.fetchPhotos(
                 uploadedBy: ownerUID,
                 athleteId: athleteStableId
@@ -134,61 +149,21 @@ extension SyncCoordinator {
 
                 context.insert(newPhoto)
 
-                // Download the image file in the background if not already present.
-                // Outer Task inherits @MainActor; CPU-bound thumbnail work is offloaded
-                // to a detached utility-priority task to keep the main thread responsive.
-                let taskID = UUID()
-                let photoRef = newPhoto
-                let resolvedPath = newPhoto.resolvedFilePath
-                let photoID = newPhoto.id
-                pendingDownloadTasks[taskID] = Task { [weak self] in
-                    do {
-                        try await VideoCloudManager.shared.downloadPhoto(from: downloadURL, to: resolvedPath)
-                        // Generate aspect-preserving thumbnail via CGImageSource (max 600px)
-                        // off the main actor — CGImageSource decode + JPEG encode + disk write.
-                        let thumbRelPath = await Task.detached(priority: .utility) { () -> String? in
-                            let photoURL = URL(fileURLWithPath: resolvedPath)
-                            guard let source = CGImageSourceCreateWithURL(photoURL as CFURL, nil) else { return nil }
-                            let options: [CFString: Any] = [
-                                kCGImageSourceThumbnailMaxPixelSize: 600,
-                                kCGImageSourceCreateThumbnailFromImageAlways: true,
-                                kCGImageSourceCreateThumbnailWithTransform: true
-                            ]
-                            guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary),
-                                  let thumbData = UIImage(cgImage: cgImage).jpegData(compressionQuality: 0.7),
-                                  let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
-                                return nil
-                            }
-                            let thumbDir = documentsURL.appendingPathComponent("PhotoThumbnails", isDirectory: true)
-                            do {
-                                try FileManager.default.createDirectory(at: thumbDir, withIntermediateDirectories: true)
-                                let thumbPath = thumbDir.appendingPathComponent("thumb_\(photoID.uuidString).jpg")
-                                try thumbData.write(to: thumbPath, options: .atomic)
-                                return "PhotoThumbnails/thumb_\(photoID.uuidString).jpg"
-                            } catch {
-                                syncLog.error("Failed to save photo thumbnail for \(photoID): \(error.localizedDescription)")
-                                return nil
-                            }
-                        }.value
-                        if let thumbRelPath {
-                            photoRef.thumbnailPath = thumbRelPath
-                        }
-                    } catch {
-                        // Mark for re-download on next sync so the photo doesn't remain as a ghost record
-                        syncLog.error("Failed to download photo \(photoID): \(error.localizedDescription)")
-                        photoRef.needsSync = true
-                    }
-                    _ = self?.pendingDownloadTasks.removeValue(forKey: taskID)
-                }
+                // Queue the file download; drained with bounded concurrency after the
+                // save (see drainPhotoDownloads). The old code spawned one Task PER
+                // missing photo with no cap — a fresh install of a heavy account
+                // launched thousands of parallel downloads + CGImageSource decodes,
+                // risking OOM and main-thread starvation.
+                pendingPhotoDownloads.append((photoID: newPhoto.id, url: downloadURL, path: newPhoto.resolvedFilePath))
             }
 
-            // Detect photos deleted on other devices
+            // Detect photos deleted on other devices. Gated on connectivity
+            // (see +HoleScores): an offline/partial cached fetch must not drive
+            // deletions, which would make a network blip look like a bulk delete.
             let remotePhotoIds = Set(remotePhotos.compactMap { $0.id })
             let syncedLocalPhotos = photos.filter { $0.firestoreId != nil }
-            let remoteReturnedTooFew = !syncedLocalPhotos.isEmpty
-                && remotePhotoIds.count < syncedLocalPhotos.count / 2
-            if remoteReturnedTooFew {
-                syncLog.warning("Remote returned \(remotePhotoIds.count) photos but \(syncedLocalPhotos.count) synced locally — skipping deletion pass")
+            if !ConnectivityMonitor.shared.isConnected {
+                syncLog.warning("Skipping photo deletion pass — offline (would risk wiping synced photos)")
             } else {
                 for localPhoto in syncedLocalPhotos {
                     guard let fsId = localPhoto.firestoreId, !remotePhotoIds.contains(fsId) else { continue }
@@ -198,7 +173,9 @@ extension SyncCoordinator {
             }
         }
 
-        // Save all changes to SwiftData — re-dirty on failure so next sync retries
+        // Save all changes to SwiftData — re-dirty on failure so next sync retries.
+        // Inserts must be persisted before the background downloader runs, so it can
+        // refetch each photo by id.
         if context.hasChanges {
             do {
                 try context.save()
@@ -207,5 +184,101 @@ extension SyncCoordinator {
                 throw error
             }
         }
+
+        // Drain queued downloads in the background with bounded concurrency. One
+        // wrapper task is registered in pendingDownloadTasks so sign-out cancels the
+        // whole batch (cancellation propagates to the TaskGroup children).
+        if !pendingPhotoDownloads.isEmpty {
+            let taskID = UUID()
+            let jobs = pendingPhotoDownloads
+            pendingDownloadTasks[taskID] = Task { [weak self] in
+                await self?.drainPhotoDownloads(jobs, maxConcurrent: 6)
+                _ = self?.pendingDownloadTasks.removeValue(forKey: taskID)
+            }
+        }
+    }
+
+    // MARK: - Bounded Background Photo Downloads
+
+    /// Drains queued photo downloads with at most `maxConcurrent` in flight, so a
+    /// heavy fresh install can't spawn thousands of simultaneous downloads +
+    /// thumbnail decodes (OOM / main-thread starvation). Sliding-window TaskGroup.
+    private func drainPhotoDownloads(
+        _ jobs: [(photoID: UUID, url: String, path: String)],
+        maxConcurrent: Int
+    ) async {
+        var iterator = jobs.makeIterator()
+        await withTaskGroup(of: Void.self) { group in
+            var inFlight = 0
+            while inFlight < maxConcurrent, let job = iterator.next() {
+                group.addTask { await self.downloadOnePhoto(job) }
+                inFlight += 1
+            }
+            while await group.next() != nil {
+                if let job = iterator.next() {
+                    group.addTask { await self.downloadOnePhoto(job) }
+                }
+            }
+        }
+    }
+
+    /// Downloads one photo's file + thumbnail, then writes the result back to the
+    /// SwiftData row. The row is REFETCHED by id (not captured) so a sign-out or a
+    /// deletion mid-download can't mutate a dead object — if it's gone, we bail.
+    private func downloadOnePhoto(_ job: (photoID: UUID, url: String, path: String)) async {
+        do {
+            try await VideoCloudManager.shared.downloadPhoto(from: job.url, to: job.path)
+            let thumbRelPath = await Self.makePhotoThumbnail(at: job.path, photoID: job.photoID)
+            guard let photo = fetchPhoto(by: job.photoID) else { return }
+            if let thumbRelPath { photo.thumbnailPath = thumbRelPath }
+            if let context = modelContext {
+                ErrorHandlerService.shared.saveContext(context, caller: "SyncCoordinator.syncPhotos.downloaded")
+            }
+        } catch {
+            syncLog.error("Failed to download photo \(job.photoID): \(error.localizedDescription)")
+            // Mark for re-download next sync — only if the row still exists.
+            guard let photo = fetchPhoto(by: job.photoID) else { return }
+            photo.needsSync = true
+            if let context = modelContext {
+                ErrorHandlerService.shared.saveContext(context, caller: "SyncCoordinator.syncPhotos.downloadFailed")
+            }
+        }
+    }
+
+    /// Fetches a single Photo by its stable id, or nil if it no longer exists.
+    private func fetchPhoto(by id: UUID) -> Photo? {
+        guard let context = modelContext else { return nil }
+        var descriptor = FetchDescriptor<Photo>(predicate: #Predicate { $0.id == id })
+        descriptor.fetchLimit = 1
+        return try? context.fetch(descriptor).first
+    }
+
+    /// Builds an aspect-preserving thumbnail (max 600px) off the main actor —
+    /// CGImageSource decode + JPEG encode + disk write. Returns the relative path.
+    nonisolated private static func makePhotoThumbnail(at resolvedPath: String, photoID: UUID) async -> String? {
+        await Task.detached(priority: .utility) { () -> String? in
+            let photoURL = URL(fileURLWithPath: resolvedPath)
+            guard let source = CGImageSourceCreateWithURL(photoURL as CFURL, nil) else { return nil }
+            let options: [CFString: Any] = [
+                kCGImageSourceThumbnailMaxPixelSize: 600,
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true
+            ]
+            guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary),
+                  let thumbData = UIImage(cgImage: cgImage).jpegData(compressionQuality: 0.7),
+                  let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+                return nil
+            }
+            let thumbDir = documentsURL.appendingPathComponent("PhotoThumbnails", isDirectory: true)
+            do {
+                try FileManager.default.createDirectory(at: thumbDir, withIntermediateDirectories: true)
+                let thumbPath = thumbDir.appendingPathComponent("thumb_\(photoID.uuidString).jpg")
+                try thumbData.write(to: thumbPath, options: .atomic)
+                return "PhotoThumbnails/thumb_\(photoID.uuidString).jpg"
+            } catch {
+                syncLog.error("Failed to save photo thumbnail for \(photoID): \(error.localizedDescription)")
+                return nil
+            }
+        }.value
     }
 }

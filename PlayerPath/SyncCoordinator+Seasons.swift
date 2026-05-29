@@ -50,10 +50,18 @@ extension SyncCoordinator {
             return
         }
 
-        var syncedSeasons: [Season] = []
+        // See uploadLocalAthletes for the rollback rationale: restore all mutated
+        // sync fields (not just needsSync) on batch-save failure; firestoreId stays
+        // (it's persisted immediately for new seasons).
+        var rollback: [(season: Season, needsSync: Bool, version: Int, lastSyncDate: Date?)] = []
 
         for season in dirtySeasons {
+            let priorNeedsSync = season.needsSync
+            let priorVersion = season.version
+            let priorLastSync = season.lastSyncDate
             do {
+                // Bump version BEFORE serialization so the written doc carries it.
+                season.version += 1
                 if let firestoreId = season.firestoreId {
                     try await FirestoreManager.shared.updateSeason(
                         userId: (user.firebaseAuthUid ?? user.id.uuidString),
@@ -71,10 +79,10 @@ extension SyncCoordinator {
 
                 season.needsSync = false
                 season.lastSyncDate = Date()
-                season.version += 1
-                syncedSeasons.append(season)
+                rollback.append((season, priorNeedsSync, priorVersion, priorLastSync))
 
             } catch {
+                season.version = priorVersion
                 appendSyncError(SyncError(
                     type: .uploadFailed,
                     entityId: season.id.uuidString,
@@ -87,7 +95,11 @@ extension SyncCoordinator {
             do {
                 try context.save()
             } catch {
-                for season in syncedSeasons { season.needsSync = true }
+                for entry in rollback {
+                    entry.season.needsSync = true
+                    entry.season.version = entry.version
+                    entry.season.lastSyncDate = entry.lastSyncDate
+                }
                 throw error
             }
         }
@@ -111,16 +123,18 @@ extension SyncCoordinator {
         // Safety: skip if remote count is suspiciously low (transient fetch failure).
         let remoteSeasonIds = Set(remoteSeasons.compactMap { $0.id })
         let syncedLocalSeasons = allLocalSeasons.filter { $0.firestoreId != nil }
-        let remoteReturnedTooFew = !syncedLocalSeasons.isEmpty
-            && remoteSeasonIds.count < syncedLocalSeasons.count / 2
-        if remoteReturnedTooFew {
-            syncLog.warning("Remote returned \(remoteSeasonIds.count) seasons but \(syncedLocalSeasons.count) synced locally — skipping deletion pass to prevent data loss")
-        } else {
+        // Gate destructive reconciliation on connectivity: an OFFLINE getDocuments
+        // can return a stale/empty cached set without throwing, and this hard
+        // delete (which also nukes seasonStatistics) is unrecoverable. Only act on
+        // authoritative online data — matches +HoleScores / +HighlightReels.
+        if ConnectivityMonitor.shared.isConnected {
             for localSeason in syncedLocalSeasons {
                 guard let fsId = localSeason.firestoreId, !remoteSeasonIds.contains(fsId) else { continue }
                 if let seasonStats = localSeason.seasonStatistics { context.delete(seasonStats) }
                 context.delete(localSeason)
             }
+        } else {
+            syncLog.warning("Skipping season deletion pass — offline (would risk wiping synced seasons)")
         }
 
         for remoteSeason in remoteSeasons {
@@ -163,7 +177,8 @@ extension SyncCoordinator {
                     if local.sport != remoteSport { local.sport = remoteSport; changed = true }
                     if local.version != remoteSeason.version { local.version = remoteSeason.version; changed = true }
                     if changed {
-                        local.lastSyncDate = Date()
+                        // Anchor to remote write time, not Date() — see uploadLocalAthletes.
+                        local.lastSyncDate = remoteSeason.updatedAt ?? Date()
                     }
                 }
             } else if let athlete = parentAthlete {

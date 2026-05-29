@@ -335,6 +335,11 @@ extension ComprehensiveAuthManager {
         await PushNotificationService.shared.removeTokenFromServer()
         await PushNotificationService.shared.removeFCMTokenFromServer()
 
+        // Best-effort, time-boxed upload of any unsynced local edits BEFORE the
+        // Firebase session is torn down (Firestore writes need a valid token and
+        // clearLocalSignedInState() wipes all local data immediately after).
+        await SyncCoordinator.shared.flushPendingUploads()
+
         var signOutError: Error?
         do {
             try Auth.auth().signOut()

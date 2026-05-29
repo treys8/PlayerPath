@@ -62,6 +62,7 @@ struct PlayerPathMainView: View {
     @ObservedObject private var themeManager = ThemeManager.shared
     @Environment(\.modelContext) private var modelContext
     @Environment(\.navigationCoordinator) private var navigationCoordinator
+    @Query private var prefs: [UserPreferences]
 
     var body: some View {
         Group {
@@ -98,6 +99,7 @@ struct PlayerPathMainView: View {
             }
         }
         .environmentObject(authManager)
+        .environment(\.onboardingTipsEnabled, prefs.first?.showOnboardingTips ?? true)
         .environment(\.font, .bodyLarge)
         .tint(Color.brandNavy)
         .preferredColorScheme(themeManager.colorScheme)

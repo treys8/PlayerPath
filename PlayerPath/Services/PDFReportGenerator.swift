@@ -181,7 +181,7 @@ final class PDFReportGenerator {
                 yPosition = drawText("End Date: \(endDate.formatted(date: .abbreviated, time: .omitted))", at: yPosition, in: pageRect, fontSize: 12)
             }
             yPosition = drawText("Status: \(season.isActive ? "Active" : "Completed")", at: yPosition, in: pageRect, fontSize: 12)
-            yPosition = drawText("Sport: \(season.sport.displayName)", at: yPosition, in: pageRect, fontSize: 12)
+            yPosition = drawText("Sport: \((season.sport ?? .baseball).displayName)", at: yPosition, in: pageRect, fontSize: 12)
             yPosition += 20
 
             // Season Statistics

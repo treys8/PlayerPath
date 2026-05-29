@@ -197,9 +197,12 @@ struct ManualStatisticsEntryView: View {
         var stats = game.gameStats
         if stats == nil {
             let newStats = GameStatistics()
-            game.gameStats = newStats
-            newStats.game = game
+            // Insert BEFORE wiring the relationship: setting an inverse on an
+            // object not yet in the context is order-fragile across SwiftData
+            // versions. Setting one side (game) lets SwiftData maintain the
+            // inverse (game.gameStats) itself.
             modelContext.insert(newStats)
+            newStats.game = game
             stats = newStats
         }
 
@@ -226,9 +229,17 @@ struct ManualStatisticsEntryView: View {
             // Recalculate career + season statistics from scratch so they
             // stay consistent with game stats (also repairs any prior corruption).
             if let athlete = game.athlete {
-                try? StatisticsService.shared.recalculateAthleteStatistics(
-                    for: athlete, context: modelContext, skipSave: true
-                )
+                do {
+                    try StatisticsService.shared.recalculateAthleteStatistics(
+                        for: athlete, context: modelContext, skipSave: true
+                    )
+                } catch {
+                    // Don't swallow silently — career/season totals could drift
+                    // out of sync with the game stats we just wrote.
+                    ErrorHandlerService.shared.handle(
+                        error, context: "ManualStatisticsEntryView.recalculate", showAlert: false
+                    )
+                }
             }
         }
 

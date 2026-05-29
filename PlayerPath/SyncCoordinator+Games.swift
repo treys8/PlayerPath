@@ -46,10 +46,16 @@ extension SyncCoordinator {
             return
         }
 
-        var syncedGames: [Game] = []
+        // See uploadLocalAthletes for the rollback rationale.
+        var rollback: [(game: Game, needsSync: Bool, version: Int, lastSyncDate: Date?)] = []
 
         for game in dirtyGames {
+            let priorNeedsSync = game.needsSync
+            let priorVersion = game.version
+            let priorLastSync = game.lastSyncDate
             do {
+                // Bump version BEFORE serialization so the written doc carries it.
+                game.version += 1
                 if let firestoreId = game.firestoreId {
                     // Update existing game in Firestore
                     try await FirestoreManager.shared.updateGame(
@@ -71,10 +77,10 @@ extension SyncCoordinator {
                 // Mark as synced
                 game.needsSync = false
                 game.lastSyncDate = Date()
-                game.version += 1
-                syncedGames.append(game)
+                rollback.append((game, priorNeedsSync, priorVersion, priorLastSync))
 
             } catch {
+                game.version = priorVersion
                 appendSyncError(SyncError(
                     type: .uploadFailed,
                     entityId: game.id.uuidString,
@@ -83,12 +89,16 @@ extension SyncCoordinator {
             }
         }
 
-        // Save all changes to SwiftData — re-dirty on failure so next sync retries
+        // Save all changes to SwiftData — on failure restore every mutated sync field.
         if context.hasChanges {
             do {
                 try context.save()
             } catch {
-                for game in syncedGames { game.needsSync = true }
+                for entry in rollback {
+                    entry.game.needsSync = true
+                    entry.game.version = entry.version
+                    entry.game.lastSyncDate = entry.lastSyncDate
+                }
                 throw error
             }
         }
@@ -119,14 +129,15 @@ extension SyncCoordinator {
         let syncedLocalGames = allLocalGames.filter {
             $0.firestoreId != nil && seenDeleteIDs.insert($0.id).inserted
         }
-        let remoteReturnedTooFew = !syncedLocalGames.isEmpty
-            && remoteGameIds.count < syncedLocalGames.count / 2
         /// Athletes whose stats need recalculation because games were deleted remotely.
         /// The deleted games take their clips' play results with them, so athlete
         /// totals shift — game-level stats aren't needed because the games are gone.
         var athletesAffectedByGameDeletion: Set<PersistentIdentifier> = []
-        if remoteReturnedTooFew {
-            syncLog.warning("Remote returned \(remoteGameIds.count) games but \(syncedLocalGames.count) synced locally — skipping deletion pass to prevent data loss")
+        // Gate destructive reconciliation on connectivity (see +HoleScores): an
+        // offline/partial cached fetch can return a stale set without throwing, and
+        // the game cascade hard-deletes clips/photos/gameStats — unrecoverable.
+        if !ConnectivityMonitor.shared.isConnected {
+            syncLog.warning("Skipping game deletion pass — offline (would risk wiping synced games)")
         } else {
             for localGame in syncedLocalGames {
                 guard let fsId = localGame.firestoreId, !remoteGameIds.contains(fsId) else { continue }
@@ -240,7 +251,8 @@ extension SyncCoordinator {
                     if local.version != remoteGame.version { local.version = remoteGame.version; changed = true }
                     applyRemoteStats(remoteGame, to: local, context: context)
                     if changed {
-                        local.lastSyncDate = Date()
+                        // Anchor to remote write time, not Date() — see uploadLocalAthletes.
+                        local.lastSyncDate = remoteGame.updatedAt ?? Date()
                     }
                 }
             } else if let athlete = parentAthlete {

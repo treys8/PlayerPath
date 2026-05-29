@@ -23,7 +23,6 @@ struct VideoRecordingSettingsView: View {
     @State private var showingResetConfirmation = false
     @State private var showingUnsupportedAlert = false
     @State private var unsupportedMessage = ""
-    @State private var lastSaveTime: Date?
 
     init(role: UserRole = .athlete) {
         self.role = role
@@ -248,10 +247,15 @@ struct VideoRecordingSettingsView: View {
                             Slider(
                                 value: Binding(
                                     get: { Double(prefs.maxVideoFileSize) },
-                                    set: { prefs.maxVideoFileSize = Int($0); ErrorHandlerService.shared.saveContext(modelContext, caller: "RecordingSettings.maxFileSize") }
+                                    set: { prefs.maxVideoFileSize = Int($0) }   // in-memory; persisted on release
                                 ),
                                 in: 50...2000,
-                                step: 50
+                                step: 50,
+                                onEditingChanged: { editing in
+                                    if !editing {
+                                        ErrorHandlerService.shared.saveContext(modelContext, caller: "RecordingSettings.maxFileSize")
+                                    }
+                                }
                             )
 
                             HStack {

@@ -20,6 +20,7 @@ struct EnterScoreSheet: View {
     @State private var didInit = false
     @State private var showingValidationError = false
     @State private var validationMessage = ""
+    @State private var showingSaveError = false
 
     private var parsedScore: Int? {
         Int(scoreText.trimmingCharacters(in: .whitespacesAndNewlines))
@@ -100,6 +101,11 @@ struct EnterScoreSheet: View {
             } message: {
                 Text(validationMessage)
             }
+            .alert("Save Failed", isPresented: $showingSaveError) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text("Your score couldn't be saved. Please try again.")
+            }
         }
     }
 
@@ -130,7 +136,11 @@ struct EnterScoreSheet: View {
         // Setting a score marks the round as effectively complete for stats.
         if !game.isComplete && !game.isLive { game.isComplete = true }
         game.needsSync = true
-        ErrorHandlerService.shared.saveContext(modelContext, caller: "EnterScoreSheet.save")
+        guard ErrorHandlerService.shared.saveContext(modelContext, caller: "EnterScoreSheet.save") else {
+            modelContext.rollback()
+            showingSaveError = true
+            return
+        }
         Haptics.success()
         dismiss()
     }

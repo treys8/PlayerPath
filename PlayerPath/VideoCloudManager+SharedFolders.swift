@@ -7,6 +7,7 @@
 
 import Foundation
 import FirebaseStorage
+import FirebaseAuth
 import os
 
 private let videoCloudLog = Logger(subsystem: "com.playerpath.app", category: "VideoCloud")
@@ -30,9 +31,15 @@ extension VideoCloudManager {
         let metadata = StorageMetadata()
         metadata.contentType = "video/quicktime"
 
+        let uploadBox = UploadTaskBox()
         return try await withCheckedThrowingContinuation { continuation in
             let hasResumed = OSAllocatedUnfairLock(initialState: false)
-            let uploadTask = videoRef.putFile(from: localURL, metadata: metadata) { metadata, error in
+            let uploadTask = videoRef.putFile(from: localURL, metadata: metadata) { [weak uploadBox] metadata, error in
+                // Remove the progress observer to prevent a leak — Firebase
+                // retains the task (and its progress closure) until observers
+                // are cleared. Mirrors the athlete upload path.
+                uploadBox?.task?.removeAllObservers()
+
                 if let error = error {
                     let alreadyResumed = hasResumed.withLock { val -> Bool in
                         if val { return true }; val = true; return false
@@ -55,6 +62,8 @@ extension VideoCloudManager {
                     }
                 }
             }
+
+            uploadBox.task = uploadTask
 
             // Monitor upload progress with throttling
             uploadTask.observe(.progress) { [weak self] snapshot in
@@ -164,6 +173,9 @@ extension VideoCloudManager {
 
     /// Deletes a video from Firebase Storage for a shared folder
     func deleteVideo(fileName: String, folderID: String) async throws {
+        guard Auth.auth().currentUser != nil else {
+            throw VideoCloudError.deletionFailed("Session expired — please sign in again")
+        }
         let storage = Storage.storage()
         let storageRef = storage.reference()
         let videoRef = storageRef.child("shared_folders/\(folderID)/\(fileName)")
@@ -186,6 +198,9 @@ extension VideoCloudManager {
 
     /// Deletes a thumbnail from Firebase Storage for a shared folder
     func deleteThumbnail(videoFileName: String, folderID: String) async throws {
+        guard Auth.auth().currentUser != nil else {
+            throw VideoCloudError.deletionFailed("Session expired — please sign in again")
+        }
         let storage = Storage.storage()
         let storageRef = storage.reference()
 

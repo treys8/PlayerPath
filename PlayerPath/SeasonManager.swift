@@ -137,7 +137,7 @@ struct SeasonManager {
     static func checkSeasonStatus(for athlete: Athlete, sport: Season.SportType? = nil) -> SeasonRecommendation {
         let seasons = (athlete.seasons ?? []).filter { season in
             guard let sport else { return true }
-            return season.sport == sport
+            return (season.sport ?? .baseball) == sport
         }
 
         // No seasons at all - recommend creating one

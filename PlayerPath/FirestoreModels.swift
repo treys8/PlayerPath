@@ -66,6 +66,28 @@ struct SharedFolder: Codable, Identifiable, Hashable {
     }
 }
 
+extension SharedFolder {
+    /// Custom decoder so legacy folder docs missing required fields decode with
+    /// safe defaults instead of throwing `keyNotFound` (synthesized Codable
+    /// ignores defaults). A swallowed throw would drop the folder from fetches.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(String.self, forKey: .id)
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+        ownerAthleteID = try c.decodeIfPresent(String.self, forKey: .ownerAthleteID) ?? ""
+        ownerAthleteName = try c.decodeIfPresent(String.self, forKey: .ownerAthleteName)
+        athleteUUID = try c.decodeIfPresent(String.self, forKey: .athleteUUID)
+        sharedWithCoachIDs = try c.decodeIfPresent([String].self, forKey: .sharedWithCoachIDs) ?? []
+        sharedWithCoachNames = try c.decodeIfPresent([String: String].self, forKey: .sharedWithCoachNames)
+        permissions = try c.decodeIfPresent([String: [String: Bool]].self, forKey: .permissions) ?? [:]
+        createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt)
+        updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt)
+        videoCount = try c.decodeIfPresent(Int.self, forKey: .videoCount)
+        tags = try c.decodeIfPresent([String].self, forKey: .tags)
+        folderType = try c.decodeIfPresent(String.self, forKey: .folderType)
+    }
+}
+
 /// Thumbnail metadata with support for multiple quality levels
 struct ThumbnailMetadata: Codable, Equatable {
     let standardURL: String         // Standard quality (480x270, 16:9)
@@ -421,6 +443,29 @@ struct FirestoreSeason: Codable, Identifiable {
     }
 }
 
+extension FirestoreSeason {
+    /// Custom decoder so legacy docs missing later-added fields (e.g. `notes`)
+    /// decode with sane defaults instead of throwing `keyNotFound` — synthesized
+    /// Codable ignores stored-property defaults. A swallowed throw here would
+    /// drop the doc from the fetch and let SyncCoordinator wipe it locally.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = nil
+        swiftDataId = try c.decode(String.self, forKey: .swiftDataId)
+        name = try c.decode(String.self, forKey: .name)
+        athleteId = try c.decode(String.self, forKey: .athleteId)
+        startDate = try c.decodeIfPresent(Date.self, forKey: .startDate)
+        endDate = try c.decodeIfPresent(Date.self, forKey: .endDate)
+        isActive = try c.decode(Bool.self, forKey: .isActive)
+        sport = try c.decodeIfPresent(String.self, forKey: .sport) ?? Season.SportType.baseball.rawValue
+        notes = try c.decodeIfPresent(String.self, forKey: .notes) ?? ""
+        createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt)
+        updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt)
+        version = try c.decode(Int.self, forKey: .version)
+        isDeleted = try c.decode(Bool.self, forKey: .isDeleted)
+    }
+}
+
 /// Game model for Firestore sync
 struct FirestoreGame: Codable, Identifiable {
     var id: String?           // Firestore document ID (auto-generated, not encoded)
@@ -678,6 +723,28 @@ struct FirestoreCoach: Codable, Identifiable {
         case createdAt
         case updatedAt
         case isDeleted
+    }
+}
+
+extension FirestoreCoach {
+    /// Custom decoder so legacy coach docs missing later-added fields (e.g.
+    /// `role`) decode with defaults instead of throwing `keyNotFound`. See
+    /// FirestoreSeason.init(from:) for rationale.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = nil
+        swiftDataId = try c.decode(String.self, forKey: .swiftDataId)
+        athleteId = try c.decode(String.self, forKey: .athleteId)
+        name = try c.decode(String.self, forKey: .name)
+        role = try c.decodeIfPresent(String.self, forKey: .role) ?? "coach"
+        email = try c.decode(String.self, forKey: .email)
+        phone = try c.decodeIfPresent(String.self, forKey: .phone)
+        notes = try c.decodeIfPresent(String.self, forKey: .notes)
+        firebaseCoachID = try c.decodeIfPresent(String.self, forKey: .firebaseCoachID)
+        invitationStatus = try c.decodeIfPresent(String.self, forKey: .invitationStatus)
+        createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt)
+        updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt)
+        isDeleted = try c.decode(Bool.self, forKey: .isDeleted)
     }
 }
 

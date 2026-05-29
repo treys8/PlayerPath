@@ -6,7 +6,6 @@
 //
 
 import SwiftUI
-import SwiftData
 import TipKit
 
 extension View {
@@ -35,10 +34,13 @@ private struct OnboardingTipModifier<T: Tip>: ViewModifier {
     let tip: T
     let arrowEdge: Edge
     let also: Bool
-    @Query private var prefs: [UserPreferences]
+    // Read the user's preference from the environment (injected once at the root)
+    // rather than running a per-modifier @Query. Tip-decorated list rows would
+    // otherwise fan out N concurrent queries over the single-row table.
+    @Environment(\.onboardingTipsEnabled) private var tipsEnabled
 
     private var enabled: Bool {
-        (prefs.first?.showOnboardingTips ?? true) && also
+        tipsEnabled && also
     }
 
     func body(content: Content) -> some View {
@@ -47,5 +49,21 @@ private struct OnboardingTipModifier<T: Tip>: ViewModifier {
         } else {
             content
         }
+    }
+}
+
+// MARK: - Onboarding Tips Environment
+
+/// Whether onboarding tips should be shown, mirroring the user's
+/// `UserPreferences.showOnboardingTips`. Injected once at the app root
+/// (see `PlayerPathMainView`); defaults to `true` so tips show if unset.
+private struct OnboardingTipsEnabledKey: EnvironmentKey {
+    static let defaultValue = true
+}
+
+extension EnvironmentValues {
+    var onboardingTipsEnabled: Bool {
+        get { self[OnboardingTipsEnabledKey.self] }
+        set { self[OnboardingTipsEnabledKey.self] = newValue }
     }
 }

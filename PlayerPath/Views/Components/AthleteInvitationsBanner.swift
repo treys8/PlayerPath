@@ -205,6 +205,10 @@ struct AthleteInvitationsSheet: View {
             Haptics.error()
         }
         processingInvitationID = nil
+        // The manager clears pendingInvitations *during* the await above, while
+        // processingInvitationID is still set — so the .onChange dismiss is skipped.
+        // Re-check now that the flag is clear to auto-close after the last accept.
+        if invitationManager.pendingInvitations.isEmpty { dismiss() }
     }
 
     private func declineInvitation(_ invitation: CoachToAthleteInvitation) async {
@@ -228,6 +232,7 @@ struct AthleteInvitationsSheet: View {
             Haptics.error()
         }
         processingInvitationID = nil
+        if invitationManager.pendingInvitations.isEmpty { dismiss() }
     }
 }
 

@@ -260,6 +260,8 @@ struct ScenePhaseSaveHandler<Content: View>: View {
                    user.firebaseAuthUid != nil {
                     do {
                         try await SyncCoordinator.shared.syncAll(for: user)
+                    } catch is SyncCoordinatorError {
+                        // Already syncing or signed out — expected, not user-facing.
                     } catch {
                         ErrorHandlerService.shared.handle(error, context: "PlayerPathApp.foregroundSync", showAlert: true)
                     }

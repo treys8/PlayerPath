@@ -63,8 +63,14 @@ extension FirestoreManager {
         // Strip non-default subscription/billing fields — upgrades go through syncSubscriptionTiers().
         // Default values ("free", "coach_free") are allowed through so initial profile creation
         // satisfies the Firestore security rule requiring subscriptionTier == "free" on create.
+        // coachAthleteLimit/coachAthleteCount/athleteTierSource are CF-managed (Admin SDK) and
+        // must never be written by the client — dropped here to match the Firestore rules.
         let defaultTierValues: Set<String> = ["free", "coach_free"]
+        let cfManagedKeys: Set<String> = ["coachAthleteLimit", "coachAthleteCount", "athleteTierSource"]
         let safeProfileData = profileData.filter { key, value in
+            if cfManagedKeys.contains(key) {
+                return false
+            }
             if key == "subscriptionTier" || key == "coachSubscriptionTier" {
                 return defaultTierValues.contains(value as? String ?? "")
             }

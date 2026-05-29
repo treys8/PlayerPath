@@ -32,6 +32,8 @@ struct EditGameSheet: View {
     @State private var showingSaveError = false
     @State private var showingValidationError = false
     @State private var validationMessage = ""
+    @State private var isSaving = false
+    @State private var didInit = false
 
     private var isValidOpponent: Bool {
         let trimmed = opponent.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -113,12 +115,16 @@ struct EditGameSheet: View {
                     Button("Save") {
                         saveChanges()
                     }
-                    .disabled(!isValidOpponent || !hasChanges)
+                    .disabled(!isValidOpponent || !hasChanges || isSaving)
                     .fontWeight(.semibold)
                 }
             }
             .onAppear {
-                // Initialize with current values
+                // Initialize once with current values. Guarding with didInit
+                // prevents a sheet re-appearance (child push/pop, focus shift)
+                // from wiping in-progress edits.
+                guard !didInit else { return }
+                didInit = true
                 opponent = game.opponent
                 date = game.date ?? Date()
                 location = game.location ?? ""
@@ -159,37 +165,42 @@ struct EditGameSheet: View {
         let gameId = game.id.uuidString
         let newOpponent = opponent.trimmingCharacters(in: .whitespacesAndNewlines)
 
+        isSaving = true
+
         game.opponent = newOpponent
         game.date = date
         game.location = location.isEmpty ? nil : location.trimmingCharacters(in: .whitespacesAndNewlines)
         game.notes = notes.isEmpty ? nil : notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Mark dirty so SyncCoordinator uploads the edit — every other game
+        // mutation path sets this. The sync layer bumps `version` itself.
+        game.needsSync = true
+
+        guard ErrorHandlerService.shared.saveContext(modelContext, caller: "EditGameSheet.saveChanges") else {
+            modelContext.rollback()
+            isSaving = false
+            showingSaveError = true
+            return
+        }
 
         Task {
-            do {
-                try modelContext.save()
-
-                // Reschedule game reminder if date changed
-                let prefs = try? modelContext.fetch(FetchDescriptor<UserPreferences>()).first
-                let reminderMinutes = prefs?.gameReminderMinutes ?? 30
-                if dateChanged && (prefs?.enableGameReminders ?? true) {
-                    PushNotificationService.shared.cancelNotifications(withIdentifiers: ["game_reminder_\(gameId)"])
-                    if date > Date().addingTimeInterval(TimeInterval(reminderMinutes * 60)) {
-                        await PushNotificationService.shared.scheduleGameReminder(
-                            gameId: gameId,
-                            opponent: newOpponent,
-                            scheduledTime: date,
-                            reminderMinutes: reminderMinutes,
-                            isGolf: game.season?.sport == .golf
-                        )
-                    }
+            // Reschedule game reminder if date changed
+            let prefs = try? modelContext.fetch(FetchDescriptor<UserPreferences>()).first
+            let reminderMinutes = prefs?.gameReminderMinutes ?? 30
+            if dateChanged && (prefs?.enableGameReminders ?? true) {
+                PushNotificationService.shared.cancelNotifications(withIdentifiers: ["game_reminder_\(gameId)"])
+                if date > Date().addingTimeInterval(TimeInterval(reminderMinutes * 60)) {
+                    await PushNotificationService.shared.scheduleGameReminder(
+                        gameId: gameId,
+                        opponent: newOpponent,
+                        scheduledTime: date,
+                        reminderMinutes: reminderMinutes,
+                        isGolf: game.season?.sport == .golf
+                    )
                 }
-
-                Haptics.success()
-                dismiss()
-            } catch {
-                showingSaveError = true
-                ErrorHandlerService.shared.handle(error, context: "GamesView.saveGame", showAlert: false)
             }
+
+            Haptics.success()
+            dismiss()
         }
     }
 }

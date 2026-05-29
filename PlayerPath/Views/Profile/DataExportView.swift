@@ -175,7 +175,7 @@ struct DataExportView: View {
                     "startDate": Self.isoFormatter.string(from: season.startDate ?? Date()),
                     "endDate": season.endDate.map { Self.isoFormatter.string(from: $0) } ?? "",
                     "isActive": season.isActive,
-                    "sport": season.sport.rawValue,
+                    "sport": (season.sport ?? .baseball).rawValue,
                     "notes": season.notes
                 ]
             })

@@ -59,7 +59,13 @@ extension VideoCloudManager {
         return try await withCheckedThrowingContinuation { continuation in
             photoRef.delete { error in
                 if let error = error {
-                    continuation.resume(throwing: error)
+                    let nsError = error as NSError
+                    if nsError.domain == "FIRStorageErrorDomain" && nsError.code == StorageErrorCode.objectNotFound.rawValue {
+                        // Already gone — treat as success so cleanup is idempotent.
+                        continuation.resume()
+                    } else {
+                        continuation.resume(throwing: error)
+                    }
                 } else {
                     continuation.resume()
                 }

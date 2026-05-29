@@ -51,6 +51,11 @@ struct ScoreHoleSheet: View {
     /// place rather than creating a duplicate row.
     @State private var existingHole: HoleScore? = nil
 
+    /// Re-entrancy guard. A rapid double-tap of Save would otherwise re-enter
+    /// before dismiss propagates and insert a second HoleScore (and reel) for
+    /// the same hole, corrupting totals.
+    @State private var isSaving: Bool = false
+
     // MARK: - Parent accessors
 
     private var parentHoles: [HoleScore] {
@@ -97,7 +102,7 @@ struct ScoreHoleSheet: View {
                             .font(.labelMedium)
                             .foregroundColor(.secondary)
                         Picker("Par", selection: $par) {
-                            ForEach(3...6, id: \.self) { Text("\($0)").tag($0) }
+                            ForEach(3...5, id: \.self) { Text("\($0)").tag($0) }
                         }
                         .pickerStyle(.segmented)
                         .onChange(of: par) { _, newPar in
@@ -127,7 +132,9 @@ struct ScoreHoleSheet: View {
                                 if on, putts == nil { putts = 2 }
                             }
                         if includePutts {
-                            NumberChipGrid(range: 0...10, selected: putts ?? 2, par: nil) { value in
+                            // Putts can never exceed total strokes — cap the grid
+                            // at the score so an impossible round can't be entered.
+                            NumberChipGrid(range: 0...min(10, score), selected: min(putts ?? 2, score), par: nil) { value in
                                 putts = value
                             }
                         } else {
@@ -147,7 +154,7 @@ struct ScoreHoleSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { save() }
-                        .disabled(score < 1)
+                        .disabled(score < 1 || isSaving)
                 }
             }
             .presentationDetents([.medium, .large])
@@ -185,10 +192,18 @@ struct ScoreHoleSheet: View {
     }
 
     private func save() {
+        guard !isSaving else { return }
+        isSaving = true
+
+        // Putts can never exceed strokes; clamp defensively in case state was
+        // seeded above the score before the grid re-rendered. Preserve the
+        // original nil-when-unset semantics (don't coerce a missing value to 0).
+        let savedPutts: Int? = includePutts ? putts.map { min($0, score) } : nil
+
         if let existing = existingHole {
             existing.par = par
             existing.score = score
-            existing.putts = includePutts ? putts : nil
+            existing.putts = savedPutts
             existing.updatedAt = Date()
             existing.version += 1
             existing.needsSync = true
@@ -197,7 +212,7 @@ struct ScoreHoleSheet: View {
                 holeNumber: holeNumber,
                 par: par,
                 score: score,
-                putts: includePutts ? putts : nil
+                putts: savedPutts
             )
             switch parent {
             case .game(let g):     new.game = g
@@ -214,10 +229,18 @@ struct ScoreHoleSheet: View {
         // matching EnterScoreSheet's "final score" semantics, keeping
         // in-progress rounds out of the averages. Practices derive their total
         // from holeScores directly, so no rollup is needed there.
-        if case .game(let g) = parent {
-            let holes = g.holeScores ?? []
-            if let total = g.holes, holes.count == total {
-                g.totalScore = holes.reduce(0) { $0 + $1.score }
+        //
+        // Build the effective hole→score map explicitly (keyed by holeNumber)
+        // rather than counting `g.holeScores`: that count is both blind to
+        // duplicate rows and not guaranteed to reflect the row inserted above
+        // before save(). Folding in (holeNumber, score) here is dedupe-safe and
+        // insert-timing-safe.
+        if case .game(let g) = parent, let total = g.holes {
+            var scoreByHole: [Int: Int] = [:]
+            for h in (g.holeScores ?? []) { scoreByHole[h.holeNumber] = h.score }
+            scoreByHole[holeNumber] = score
+            if scoreByHole.count == total {
+                g.totalScore = scoreByHole.values.reduce(0, +)
                 g.needsSync = true
             }
         }
@@ -230,6 +253,7 @@ struct ScoreHoleSheet: View {
         do {
             try modelContext.save()
         } catch {
+            isSaving = false
             ErrorHandlerService.shared.handle(error, context: "ScoreHoleSheet.save", showAlert: true)
             return
         }

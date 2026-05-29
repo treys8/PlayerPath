@@ -392,7 +392,7 @@ struct PhotosView: View {
     // MARK: - Empty State
 
     private var isMultiSport: Bool {
-        Set((athlete.seasons ?? []).map(\.sport)).count > 1
+        Set((athlete.seasons ?? []).map { $0.sport ?? .baseball }).count > 1
     }
 
     private var emptyState: some View {
@@ -481,7 +481,7 @@ struct PhotosView: View {
         // under both sports so toggling doesn't make them disappear.
         filtered = filtered.filter { photo in
             guard let season = photo.season else { return true }
-            return season.sport == activeSport
+            return (season.sport ?? .baseball) == activeSport
         }
 
         // Season filter

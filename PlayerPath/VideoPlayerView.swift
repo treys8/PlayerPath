@@ -625,6 +625,12 @@ struct VideoPlayerView: View {
         }
 
         await MainActor.run {
+            // Remove the periodic time observer from the player that issued its
+            // token BEFORE we swap `player`. Otherwise a later
+            // stopAutoShowObserver() would call removeTimeObserver on the NEW
+            // player with the OLD player's token → NSInvalidArgumentException
+            // (crash on retrim/version change of a coach-sourced clip).
+            stopAutoShowObserver()
             isLoading = true
             errorMessage = ""
             player = nil

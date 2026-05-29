@@ -62,7 +62,7 @@ struct VideoClipsView: View {
     /// sport-aware empty-state copy ("No Golf Videos Yet") so single-sport
     /// athletes see the original "No Videos Yet" wording.
     private var isMultiSport: Bool {
-        Set((athlete.seasons ?? []).map(\.sport)).count > 1
+        Set((athlete.seasons ?? []).map { $0.sport ?? .baseball }).count > 1
     }
 
     /// Clips that belong to the active sport, plus seasonless clips. Seasonless
@@ -71,7 +71,7 @@ struct VideoClipsView: View {
     private var videosForActiveSport: [VideoClip] {
         (athlete.videoClips ?? []).filter { clip in
             guard let season = clip.season else { return true }
-            return season.sport == activeSport
+            return (season.sport ?? .baseball) == activeSport
         }
     }
 
@@ -656,6 +656,8 @@ struct VideoClipsView: View {
         if let user = athlete.user, user.firebaseAuthUid != nil {
             do {
                 try await SyncCoordinator.shared.syncAll(for: user)
+            } catch is SyncCoordinatorError {
+                // Already syncing or signed out — expected, ignore.
             } catch {
                 ErrorHandlerService.shared.handle(error, context: "VideoClipsView.refreshable", showAlert: false)
             }

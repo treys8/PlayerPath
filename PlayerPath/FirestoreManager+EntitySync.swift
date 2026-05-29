@@ -9,6 +9,15 @@ import Foundation
 import FirebaseFirestore
 import os
 
+/// Errors surfaced by entity sync fetches.
+enum FirestoreSyncError: Error {
+    /// Some documents in a fetch failed to decode. We throw rather than return a
+    /// partial list so SyncCoordinator skips this entity's deletion pass this
+    /// cycle — a single corrupt/legacy doc must never be interpreted as a
+    /// remote-delete and wipe local data.
+    case partialDecode(entity: String, decoded: Int, total: Int)
+}
+
 extension FirestoreManager {
 
     // MARK: - Athletes Sync
@@ -71,26 +80,40 @@ extension FirestoreManager {
     func fetchAthletes(userId: String) async throws -> [FirestoreAthlete] {
 
         do {
-            let snapshot = try await db
+            var athletes: [FirestoreAthlete] = []
+            var lastDoc: QueryDocumentSnapshot?
+            var totalSeen = 0
+            let baseQuery = db
                 .collection(FC.users)
                 .document(userId)
                 .collection(FC.athletes)
                 .whereField("isDeleted", isEqualTo: false)
                 .order(by: "createdAt", descending: false)
-                .limit(to: 100)
-                .getDocuments()
 
-            let athletes = snapshot.documents.compactMap { doc -> FirestoreAthlete? in
-                do {
-                    var athlete = try doc.data(as: FirestoreAthlete.self)
-                    athlete.id = doc.documentID
-                    return athlete
-                } catch {
-                    firestoreLog.warning("Failed to decode FirestoreAthlete from doc \(doc.documentID): \(error.localizedDescription)")
-                    return nil
-                }
+            while true {
+                var query = baseQuery.limit(to: 100)
+                if let lastDoc { query = query.start(afterDocument: lastDoc) }
+                let snapshot = try await query.getDocuments()
+                guard !snapshot.documents.isEmpty else { break }
+                lastDoc = snapshot.documents.last
+                totalSeen += snapshot.documents.count
+                athletes.append(contentsOf: snapshot.documents.compactMap { doc -> FirestoreAthlete? in
+                    do {
+                        var athlete = try doc.data(as: FirestoreAthlete.self)
+                        athlete.id = doc.documentID
+                        return athlete
+                    } catch {
+                        firestoreLog.warning("Failed to decode FirestoreAthlete from doc \(doc.documentID): \(error.localizedDescription)")
+                        return nil
+                    }
+                })
+                if snapshot.documents.count < 100 { break }
             }
 
+            if athletes.count < totalSeen {
+                firestoreLog.error("Partial decode in fetchAthletes: \(athletes.count)/\(totalSeen) — skipping to avoid sync deletion")
+                throw FirestoreSyncError.partialDecode(entity: "Athlete", decoded: athletes.count, total: totalSeen)
+            }
             return athletes
         } catch {
             firestoreLog.error("Failed to load athletes: \(error.localizedDescription)")
@@ -184,26 +207,40 @@ extension FirestoreManager {
     func fetchSeasons(userId: String) async throws -> [FirestoreSeason] {
 
         do {
-            let snapshot = try await db
+            var seasons: [FirestoreSeason] = []
+            var lastDoc: QueryDocumentSnapshot?
+            var totalSeen = 0
+            let baseQuery = db
                 .collection(FC.users)
                 .document(userId)
                 .collection(FC.seasons)
                 .whereField("isDeleted", isEqualTo: false)
                 .order(by: "createdAt", descending: true)
-                .limit(to: 100)
-                .getDocuments()
 
-            let seasons = snapshot.documents.compactMap { doc -> FirestoreSeason? in
-                do {
-                    var season = try doc.data(as: FirestoreSeason.self)
-                    season.id = doc.documentID
-                    return season
-                } catch {
-                    firestoreLog.warning("Failed to decode FirestoreSeason from doc \(doc.documentID): \(error.localizedDescription)")
-                    return nil
-                }
+            while true {
+                var query = baseQuery.limit(to: 100)
+                if let lastDoc { query = query.start(afterDocument: lastDoc) }
+                let snapshot = try await query.getDocuments()
+                guard !snapshot.documents.isEmpty else { break }
+                lastDoc = snapshot.documents.last
+                totalSeen += snapshot.documents.count
+                seasons.append(contentsOf: snapshot.documents.compactMap { doc -> FirestoreSeason? in
+                    do {
+                        var season = try doc.data(as: FirestoreSeason.self)
+                        season.id = doc.documentID
+                        return season
+                    } catch {
+                        firestoreLog.warning("Failed to decode FirestoreSeason from doc \(doc.documentID): \(error.localizedDescription)")
+                        return nil
+                    }
+                })
+                if snapshot.documents.count < 100 { break }
             }
 
+            if seasons.count < totalSeen {
+                firestoreLog.error("Partial decode in fetchSeasons: \(seasons.count)/\(totalSeen) — skipping to avoid sync deletion")
+                throw FirestoreSyncError.partialDecode(entity: "Season", decoded: seasons.count, total: totalSeen)
+            }
             return seasons
         } catch {
             firestoreLog.error("Failed to fetch seasons: \(error.localizedDescription)")
@@ -311,26 +348,40 @@ extension FirestoreManager {
     func fetchGames(userId: String) async throws -> [FirestoreGame] {
 
         do {
-            let snapshot = try await db
+            var games: [FirestoreGame] = []
+            var lastDoc: QueryDocumentSnapshot?
+            var totalSeen = 0
+            let baseQuery = db
                 .collection(FC.users)
                 .document(userId)
                 .collection(FC.games)
                 .whereField("isDeleted", isEqualTo: false)
                 .order(by: "date", descending: true)
-                .limit(to: 200)
-                .getDocuments()
 
-            let games = snapshot.documents.compactMap { doc -> FirestoreGame? in
-                do {
-                    var game = try doc.data(as: FirestoreGame.self)
-                    game.id = doc.documentID
-                    return game
-                } catch {
-                    firestoreLog.warning("Failed to decode FirestoreGame from doc \(doc.documentID): \(error.localizedDescription)")
-                    return nil
-                }
+            while true {
+                var query = baseQuery.limit(to: 100)
+                if let lastDoc { query = query.start(afterDocument: lastDoc) }
+                let snapshot = try await query.getDocuments()
+                guard !snapshot.documents.isEmpty else { break }
+                lastDoc = snapshot.documents.last
+                totalSeen += snapshot.documents.count
+                games.append(contentsOf: snapshot.documents.compactMap { doc -> FirestoreGame? in
+                    do {
+                        var game = try doc.data(as: FirestoreGame.self)
+                        game.id = doc.documentID
+                        return game
+                    } catch {
+                        firestoreLog.warning("Failed to decode FirestoreGame from doc \(doc.documentID): \(error.localizedDescription)")
+                        return nil
+                    }
+                })
+                if snapshot.documents.count < 100 { break }
             }
 
+            if games.count < totalSeen {
+                firestoreLog.error("Partial decode in fetchGames: \(games.count)/\(totalSeen) — skipping to avoid sync deletion")
+                throw FirestoreSyncError.partialDecode(entity: "Game", decoded: games.count, total: totalSeen)
+            }
             return games
         } catch {
             firestoreLog.error("Failed to fetch games: \(error.localizedDescription)")
@@ -445,26 +496,40 @@ extension FirestoreManager {
     func fetchPractices(userId: String) async throws -> [FirestorePractice] {
 
         do {
-            let snapshot = try await db
+            var practices: [FirestorePractice] = []
+            var lastDoc: QueryDocumentSnapshot?
+            var totalSeen = 0
+            let baseQuery = db
                 .collection(FC.users)
                 .document(userId)
                 .collection(FC.practices)
                 .whereField("isDeleted", isEqualTo: false)
                 .order(by: "date", descending: true)
-                .limit(to: 200)
-                .getDocuments()
 
-            let practices = snapshot.documents.compactMap { doc -> FirestorePractice? in
-                do {
-                    var practice = try doc.data(as: FirestorePractice.self)
-                    practice.id = doc.documentID
-                    return practice
-                } catch {
-                    firestoreLog.warning("Failed to decode FirestorePractice from doc \(doc.documentID): \(error.localizedDescription)")
-                    return nil
-                }
+            while true {
+                var query = baseQuery.limit(to: 100)
+                if let lastDoc { query = query.start(afterDocument: lastDoc) }
+                let snapshot = try await query.getDocuments()
+                guard !snapshot.documents.isEmpty else { break }
+                lastDoc = snapshot.documents.last
+                totalSeen += snapshot.documents.count
+                practices.append(contentsOf: snapshot.documents.compactMap { doc -> FirestorePractice? in
+                    do {
+                        var practice = try doc.data(as: FirestorePractice.self)
+                        practice.id = doc.documentID
+                        return practice
+                    } catch {
+                        firestoreLog.warning("Failed to decode FirestorePractice from doc \(doc.documentID): \(error.localizedDescription)")
+                        return nil
+                    }
+                })
+                if snapshot.documents.count < 100 { break }
             }
 
+            if practices.count < totalSeen {
+                firestoreLog.error("Partial decode in fetchPractices: \(practices.count)/\(totalSeen) — skipping to avoid sync deletion")
+                throw FirestoreSyncError.partialDecode(entity: "Practice", decoded: practices.count, total: totalSeen)
+            }
             return practices
         } catch {
             firestoreLog.error("Failed to load practices: \(error.localizedDescription)")
@@ -536,23 +601,41 @@ extension FirestoreManager {
     }
 
     func fetchPracticeNotes(userId: String, practiceFirestoreId: String) async throws -> [FirestorePracticeNote] {
-        let snapshot = try await db
+        var notes: [FirestorePracticeNote] = []
+        var lastDoc: QueryDocumentSnapshot?
+        var totalSeen = 0
+        let baseQuery = db
             .collection(FC.users).document(userId)
             .collection(FC.practices).document(practiceFirestoreId)
             .collection(FC.notes)
             .whereField("isDeleted", isEqualTo: false)
-            .limit(to: 100)
-            .getDocuments()
-        return snapshot.documents.compactMap { doc -> FirestorePracticeNote? in
-            do {
-                var note = try doc.data(as: FirestorePracticeNote.self)
-                note.id = doc.documentID
-                return note
-            } catch {
-                firestoreLog.warning("Failed to decode FirestorePracticeNote from doc \(doc.documentID): \(error.localizedDescription)")
-                return nil
-            }
+            .order(by: "__name__")
+
+        while true {
+            var query = baseQuery.limit(to: 100)
+            if let lastDoc { query = query.start(afterDocument: lastDoc) }
+            let snapshot = try await query.getDocuments()
+            guard !snapshot.documents.isEmpty else { break }
+            lastDoc = snapshot.documents.last
+            totalSeen += snapshot.documents.count
+            notes.append(contentsOf: snapshot.documents.compactMap { doc -> FirestorePracticeNote? in
+                do {
+                    var note = try doc.data(as: FirestorePracticeNote.self)
+                    note.id = doc.documentID
+                    return note
+                } catch {
+                    firestoreLog.warning("Failed to decode FirestorePracticeNote from doc \(doc.documentID): \(error.localizedDescription)")
+                    return nil
+                }
+            })
+            if snapshot.documents.count < 100 { break }
         }
+
+        if notes.count < totalSeen {
+            firestoreLog.error("Partial decode in fetchPracticeNotes: \(notes.count)/\(totalSeen) — skipping to avoid sync deletion")
+            throw FirestoreSyncError.partialDecode(entity: "PracticeNote", decoded: notes.count, total: totalSeen)
+        }
+        return notes
     }
 
     // MARK: - Photos Sync
@@ -651,22 +734,40 @@ extension FirestoreManager {
     }
 
     func fetchCoaches(userId: String, athleteFirestoreId: String) async throws -> [FirestoreCoach] {
-        let snapshot = try await db
+        var coaches: [FirestoreCoach] = []
+        var lastDoc: QueryDocumentSnapshot?
+        var totalSeen = 0
+        let baseQuery = db
             .collection(FC.users).document(userId)
             .collection(FC.athletes).document(athleteFirestoreId)
             .collection(FC.coaches)
             .whereField("isDeleted", isEqualTo: false)
-            .limit(to: 50)
-            .getDocuments()
-        return snapshot.documents.compactMap { doc -> FirestoreCoach? in
-            do {
-                var coach = try doc.data(as: FirestoreCoach.self)
-                coach.id = doc.documentID
-                return coach
-            } catch {
-                firestoreLog.warning("Failed to decode FirestoreCoach from doc \(doc.documentID): \(error.localizedDescription)")
-                return nil
-            }
+            .order(by: "__name__")
+
+        while true {
+            var query = baseQuery.limit(to: 100)
+            if let lastDoc { query = query.start(afterDocument: lastDoc) }
+            let snapshot = try await query.getDocuments()
+            guard !snapshot.documents.isEmpty else { break }
+            lastDoc = snapshot.documents.last
+            totalSeen += snapshot.documents.count
+            coaches.append(contentsOf: snapshot.documents.compactMap { doc -> FirestoreCoach? in
+                do {
+                    var coach = try doc.data(as: FirestoreCoach.self)
+                    coach.id = doc.documentID
+                    return coach
+                } catch {
+                    firestoreLog.warning("Failed to decode FirestoreCoach from doc \(doc.documentID): \(error.localizedDescription)")
+                    return nil
+                }
+            })
+            if snapshot.documents.count < 100 { break }
         }
+
+        if coaches.count < totalSeen {
+            firestoreLog.error("Partial decode in fetchCoaches: \(coaches.count)/\(totalSeen) — skipping to avoid sync deletion")
+            throw FirestoreSyncError.partialDecode(entity: "Coach", decoded: coaches.count, total: totalSeen)
+        }
+        return coaches
     }
 }

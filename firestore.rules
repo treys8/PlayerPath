@@ -164,8 +164,10 @@ service cloud.firestore {
                     && request.resource.data.coachSubscriptionTier == resource.data.coachSubscriptionTier
                     && (!('coachAthleteCount' in resource.data)
                         || request.resource.data.coachAthleteCount == resource.data.coachAthleteCount)
+                    && (!('coachAthleteLimit' in resource.data)
+                        || request.resource.data.coachAthleteLimit == resource.data.coachAthleteLimit)
                     && !request.resource.data.diff(resource.data).affectedKeys()
-                        .hasAny(['athleteTierSource']);
+                        .hasAny(['athleteTierSource', 'coachAthleteLimit']);
 
       // Profiles are deleted via Firebase Auth / Cloud Functions, not directly
       allow delete: if false;
@@ -304,10 +306,17 @@ service cloud.firestore {
                     && (resource.data.ownerAthleteID == request.auth.uid
                         || request.auth.uid in resource.data.sharedWithCoachIDs);
 
-      // Only athletes with Pro tier can create shared folders
+      // Only athletes with Pro tier can create shared folders.
+      // Folders MUST be created empty — coach addition happens exclusively via
+      // Cloud Functions (Admin SDK) which enforce the coach athlete-limit
+      // transaction. Forbidding pre-seeded sharedWithCoachIDs/permissions at
+      // create closes the only client path that could bypass that gate.
       allow create: if isAuthenticated()
                     && hasProTier()
-                    && request.resource.data.ownerAthleteID == request.auth.uid;
+                    && request.resource.data.ownerAthleteID == request.auth.uid
+                    && request.resource.data.sharedWithCoachIDs.size() == 0
+                    && (!('permissions' in request.resource.data)
+                        || request.resource.data.permissions.size() == 0);
 
       // Folder owner can rename and remove coaches; coaches can also self-revoke
       // (leaving a folder during downgrade) or bump videoCount after upload/delete.

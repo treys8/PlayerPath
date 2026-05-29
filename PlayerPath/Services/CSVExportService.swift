@@ -241,7 +241,7 @@ final class CSVExportService {
             csv += "End Date,\(endDate.formatted(date: .abbreviated, time: .omitted))\n"
         }
         csv += "Status,\(season.isActive ? "Active" : "Completed")\n"
-        csv += "Sport,\(season.sport.displayName)\n"
+        csv += "Sport,\((season.sport ?? .baseball).displayName)\n"
         csv += "\n"
 
         // Season statistics

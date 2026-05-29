@@ -31,7 +31,14 @@ final class Season {
 
     /// Sport for this season (baseball, softball, or golf). Source of truth
     /// for a given game's sport: read `game.season?.sport`.
-    var sport: SportType = SportType.baseball
+    ///
+    /// Optional because seasons created before the `sport` column existed have
+    /// NULL in storage. Reading a non-Optional enum from NULL trips SwiftData's
+    /// KVC cast and hangs `modelContext.save()` (same footgun that forced
+    /// `Athlete.sport` to be optional — see Athlete.swift). The initializer
+    /// always supplies a concrete value, so only legacy rows read nil; all
+    /// readers fall back with `?? .baseball`.
+    var sport: SportType? = SportType.baseball
 
     // MARK: - Firestore Sync Metadata (Phase 2)
 
@@ -239,7 +246,7 @@ final class Season {
         // new seasons, and seasonless-content fallback all read athlete.sport
         // directly and would otherwise lag behind the active season.
         if let athlete = self.athlete,
-           let mapped = Sport(rawValue: sport.rawValue.lowercased()),
+           let mapped = Sport(rawValue: (sport ?? .baseball).rawValue.lowercased()),
            athlete.sport != mapped {
             athlete.sport = mapped
             athlete.needsSync = true
@@ -259,7 +266,7 @@ final class Season {
             "startDate": startDate ?? Date(),
             "endDate": endDate as Any,
             "isActive": isActive,
-            "sport": sport.rawValue,
+            "sport": (sport ?? .baseball).rawValue,
             "notes": notes,
             "createdAt": createdAt ?? Date(),
             "updatedAt": Date(),

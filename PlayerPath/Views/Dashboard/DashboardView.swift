@@ -406,6 +406,8 @@ struct DashboardView: View {
             if user.firebaseAuthUid != nil {
                 do {
                     try await SyncCoordinator.shared.syncAll(for: user)
+                } catch is SyncCoordinatorError {
+                    // Already syncing or signed out — expected, ignore.
                 } catch {
                     ErrorHandlerService.shared.handle(error, context: "DashboardView.refreshable", showAlert: false)
                 }
@@ -731,11 +733,11 @@ struct DashboardView: View {
         cachedSeasonCount = (athlete.seasons ?? []).filter { $0.sport == activeSport }.count
         cachedPracticeCount = (athlete.practices ?? []).filter { practice in
             guard let season = practice.season else { return true }
-            return season.sport == activeSport
+            return (season.sport ?? .baseball) == activeSport
         }.count
         cachedPhotoCount = (athlete.photos ?? []).filter { photo in
             guard let season = photo.season else { return true }
-            return season.sport == activeSport
+            return (season.sport ?? .baseball) == activeSport
         }.count
     }
 

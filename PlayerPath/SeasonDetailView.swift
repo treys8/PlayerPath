@@ -48,7 +48,7 @@ struct SeasonDetailView: View {
             // Overview Section
             Section {
                 HStack {
-                    Image(systemName: season.sport.icon)
+                    Image(systemName: (season.sport ?? .baseball).icon)
                         .font(.title)
                         .foregroundColor(.brandNavy)
 

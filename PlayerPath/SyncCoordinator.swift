@@ -113,21 +113,37 @@ final class SyncCoordinator {
     /// Times out after 2 minutes to prevent isSyncing from staying true indefinitely.
     func syncAll(for user: User) async throws {
         guard !isSyncing else {
-            return
+            throw SyncCoordinatorError.busy
+        }
+        guard let expectedUID = Auth.auth().currentUser?.uid else {
+            throw SyncCoordinatorError.notAuthenticated
         }
         isSyncing = true
         defer { isSyncing = false }
 
         let syncTask = Task { @MainActor in
+            // Between every step, bail if the 120s timeout cancelled us OR the
+            // signed-in identity changed mid-sync (sign-out + sign-in as a
+            // different user). Never write account A's data into account B's tree.
+            guard self.shouldContinueSync(expectedUID: expectedUID) else { return }
             await self.isolatedSync("Athletes")   { try await self.syncAthletes(for: user) }
+            guard self.shouldContinueSync(expectedUID: expectedUID) else { return }
             await self.isolatedSync("Seasons")    { try await self.syncSeasons(for: user) }
+            guard self.shouldContinueSync(expectedUID: expectedUID) else { return }
             await self.isolatedSync("Games")      { try await self.syncGames(for: user) }
+            guard self.shouldContinueSync(expectedUID: expectedUID) else { return }
             await self.isolatedSync("Practices")  { try await self.syncPractices(for: user) }
+            guard self.shouldContinueSync(expectedUID: expectedUID) else { return }
             await self.isolatedSync("HoleScores") { try await self.syncHoleScores(for: user) }
+            guard self.shouldContinueSync(expectedUID: expectedUID) else { return }
             await self.isolatedSync("Videos")     { try await self.syncVideos(for: user) }
+            guard self.shouldContinueSync(expectedUID: expectedUID) else { return }
             await self.isolatedSync("HighlightReels") { try await self.syncHighlightReels(for: user) }
+            guard self.shouldContinueSync(expectedUID: expectedUID) else { return }
             await self.isolatedSync("Notes")      { try await self.syncPracticeNotes(for: user) }
+            guard self.shouldContinueSync(expectedUID: expectedUID) else { return }
             await self.isolatedSync("Photos")     { try await self.syncPhotos(for: user) }
+            guard self.shouldContinueSync(expectedUID: expectedUID) else { return }
             await self.isolatedSync("Coaches")    { try await self.syncCoaches(for: user) }
         }
 
@@ -157,6 +173,20 @@ final class SyncCoordinator {
         }
     }
 
+    /// Gate checked between sync steps. Returns false — halting the remaining
+    /// chain — when the in-flight sync task was cancelled (the 120s timeout) or
+    /// the authenticated Firebase identity changed since the sync began. The
+    /// latter guards against a sign-out + sign-in-as-different-user race writing
+    /// one account's data into another account's Firestore tree.
+    private func shouldContinueSync(expectedUID: String) -> Bool {
+        if Task.isCancelled { return false }
+        if Auth.auth().currentUser?.uid != expectedUID {
+            syncLog.warning("Aborting sync — authenticated identity changed mid-sync")
+            return false
+        }
+        return true
+    }
+
     /// Appends a sync error, capping the list at 100 entries to prevent unbounded growth.
     func appendSyncError(_ error: SyncError) {
         syncErrors.append(error)
@@ -178,21 +208,32 @@ final class SyncCoordinator {
     /// to the next full sync. Used by the 5-minute periodic timer between full
     /// syncs to minimise Firestore reads and battery usage.
     func syncActiveAthlete(for user: User) async throws {
-        guard !isSyncing else { return }
+        guard !isSyncing else { throw SyncCoordinatorError.busy }
+        guard let expectedUID = Auth.auth().currentUser?.uid else {
+            throw SyncCoordinatorError.notAuthenticated
+        }
         isSyncing = true
         defer { isSyncing = false }
 
         let syncTask = Task { @MainActor in
             // Upload paths are cheap — only dirty items are processed, so run
             // them for ALL athletes to keep local changes flowing to Firestore.
+            // Bail between steps on timeout-cancellation or a mid-sync identity change.
+            guard self.shouldContinueSync(expectedUID: expectedUID) else { return }
             await self.isolatedSync("Athletes")   { try await self.syncAthletes(for: user) }
+            guard self.shouldContinueSync(expectedUID: expectedUID) else { return }
             await self.isolatedSync("Seasons")    { try await self.syncSeasons(for: user) }
+            guard self.shouldContinueSync(expectedUID: expectedUID) else { return }
             await self.isolatedSync("Games")      { try await self.syncGames(for: user) }
+            guard self.shouldContinueSync(expectedUID: expectedUID) else { return }
             await self.isolatedSync("Practices")  { try await self.syncPractices(for: user) }
+            guard self.shouldContinueSync(expectedUID: expectedUID) else { return }
             await self.isolatedSync("HoleScores") { try await self.syncHoleScores(for: user) }
 
             // Video download is the expensive per-athlete query — scope it.
+            guard self.shouldContinueSync(expectedUID: expectedUID) else { return }
             await self.isolatedSync("Videos")    { try await self.syncVideos(for: user, activeOnly: true) }
+            guard self.shouldContinueSync(expectedUID: expectedUID) else { return }
             await self.isolatedSync("HighlightReels") { try await self.syncHighlightReels(for: user) }
         }
 
@@ -242,6 +283,10 @@ final class SyncCoordinator {
             } else {
                 try await syncActiveAthlete(for: user)
             }
+        } catch let error as SyncCoordinatorError {
+            // A background tick colliding with a manual sync (.busy) or firing
+            // just after sign-out (.notAuthenticated) is expected — not an error.
+            syncLog.debug("Background sync skipped: \(String(describing: error))")
         } catch {
             syncLog.error("Background sync failed: \(error.localizedDescription)")
             syncErrors.append(SyncError(
@@ -275,11 +320,66 @@ final class SyncCoordinator {
         }
     }
 
+    /// Best-effort, time-boxed upload of all dirty local data. MUST be called
+    /// while the user is still authenticated — e.g. at the top of sign-out,
+    /// BEFORE `Auth.auth().signOut()` — so unsynced edits aren't lost by the
+    /// subsequent `clearLocalData()` wipe. Every failure is swallowed: a hung or
+    /// failing flush must never block or fail sign-out. Auth-expiry sign-outs
+    /// (no valid token) resolve no user and return immediately.
+    func flushPendingUploads(timeout: TimeInterval = 10) async {
+        guard let context = modelContext else { return }
+        guard Auth.auth().currentUser != nil,
+              let user = getCurrentUser(context: context) else { return }
+
+        let uploadTask = Task { @MainActor in
+            // Upload-only halves for the core entities; the combined sync
+            // functions for the rest (no upload-only variant exists). isolatedSync
+            // swallows per-entity errors so one failure doesn't abort the flush.
+            await self.isolatedSync("FlushAthletes")  { try await self.uploadLocalAthletes(user, context: context) }
+            if Task.isCancelled { return }
+            await self.isolatedSync("FlushSeasons")    { try await self.uploadLocalSeasons(user, context: context) }
+            if Task.isCancelled { return }
+            await self.isolatedSync("FlushGames")      { try await self.uploadLocalGames(user, context: context) }
+            if Task.isCancelled { return }
+            await self.isolatedSync("FlushPractices")  { try await self.uploadLocalPractices(user, context: context) }
+            if Task.isCancelled { return }
+            await self.isolatedSync("FlushVideos")     { try await self.uploadLocalVideoMetadata(user, context: context) }
+            if Task.isCancelled { return }
+            await self.isolatedSync("FlushNotes")      { try await self.syncPracticeNotes(for: user) }
+            if Task.isCancelled { return }
+            await self.isolatedSync("FlushHoleScores") { try await self.syncHoleScores(for: user) }
+            if Task.isCancelled { return }
+            await self.isolatedSync("FlushReels")      { try await self.syncHighlightReels(for: user) }
+            if Task.isCancelled { return }
+            await self.isolatedSync("FlushCoaches")    { try await self.syncCoaches(for: user) }
+        }
+
+        // Return as soon as EITHER the uploads finish OR the timeout elapses — a
+        // hung Firebase await must never block sign-out (cancellation can't
+        // interrupt an in-flight Firebase request, so we must not wait on it). A
+        // still-running uploadTask is cancelled; its in-flight await may complete
+        // detached afterwards, which is harmless.
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { await uploadTask.value }
+            group.addTask { try? await Task.sleep(for: .seconds(timeout)) }
+            await group.next()
+            group.cancelAll()
+        }
+        uploadTask.cancel()
+    }
+
     /// Deletes all local SwiftData records for the current user.
     /// Called on sign-out and account deletion to prevent data leakage between accounts.
     /// - Parameter fallbackContext: Used when SyncCoordinator hasn't been configured
     ///   (e.g. coach users who skip athlete sync setup).
     func clearLocalData(fallbackContext: ModelContext? = nil) {
+        // Cancel any in-flight background downloads FIRST so a completing download
+        // can't write `updateFilePath`/`saveContext` into a context we're about to
+        // wipe (use-after-delete on a removed SwiftData object). Idempotent — the
+        // sign-out path also calls stopPeriodicSync(), but account deletion does not.
+        pendingDownloadTasks.values.forEach { $0.cancel() }
+        pendingDownloadTasks.removeAll()
+
         guard let context = modelContext ?? fallbackContext else {
             syncLog.warning("clearLocalData: no modelContext available")
             return
@@ -341,6 +441,16 @@ final class SyncCoordinator {
 }
 
 // MARK: - Supporting Types
+
+/// Control-flow errors thrown by the sync entry points. Distinct from `SyncError`
+/// (which is a UI-display record) so callers can branch on them — e.g. background
+/// ticks ignore `.busy`/`.notAuthenticated` rather than surfacing them.
+enum SyncCoordinatorError: Error {
+    /// A sync is already running; the caller's request was not started.
+    case busy
+    /// No authenticated Firebase user; syncing was skipped.
+    case notAuthenticated
+}
 
 /// Represents a sync error for UI display
 struct SyncError: Identifiable {

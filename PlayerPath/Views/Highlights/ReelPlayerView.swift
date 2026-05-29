@@ -181,7 +181,11 @@ struct ReelPlayerView: View {
         statusObservations = items.map { item in
             item.observe(\.status, options: [.new]) { _, _ in
                 DispatchQueue.main.async {
-                    guard let queue = player else { return }
+                    // Capture the concrete queue, not the `player` @State, which
+                    // isn't assigned until after these observers are wired. Reading
+                    // `player` here would early-return on any failure that lands
+                    // before that assignment. teardownPlayer() invalidates these
+                    // observers, so the closure can't fire after we're done.
                     let remaining = queue.items()
                     if !remaining.isEmpty, remaining.allSatisfy({ $0.status == .failed }) {
                         teardownPlayer()  // player = nil → unavailableView (didResolve is already true)

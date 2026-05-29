@@ -29,6 +29,7 @@ struct GameCreationView: View {
     @State private var didInitSeason = false
     @State private var showingValidationError = false
     @State private var validationMessage = ""
+    @State private var isSaving = false
     /// Golf single-live confirmation before starting a new live tournament
     /// while another golf activity is live.
     @State private var showingSingleLiveConfirm = false
@@ -62,7 +63,7 @@ struct GameCreationView: View {
         let opponents = (athlete.games ?? [])
             .filter { game in
                 guard let season = game.season else { return activeSport == .baseball }
-                return season.sport == activeSport
+                return (season.sport ?? .baseball) == activeSport
             }
             .map { $0.opponent }
             .filter { !$0.isEmpty }
@@ -230,7 +231,7 @@ struct GameCreationView: View {
                     Button("Save") {
                         saveGame()
                     }
-                    .disabled(!canSave)
+                    .disabled(!canSave || isSaving)
                 }
             }
             .onAppear {
@@ -303,6 +304,28 @@ struct GameCreationView: View {
             }
         }
 
+        // Golf par/score bounds — both fields are optional, but when present
+        // they must be sensible. Mirrors EnterScoreSheet's thresholds so the
+        // two entry paths agree (par 1–199, score in holes...299).
+        if isGolf {
+            let parTrimmed = golfParText.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !parTrimmed.isEmpty {
+                guard let par = Int(parTrimmed), par > 0, par < 200 else {
+                    validationMessage = "Par must be a number between 1 and 199."
+                    showingValidationError = true
+                    return
+                }
+            }
+            let scoreTrimmed = golfScoreText.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !scoreTrimmed.isEmpty {
+                guard let total = Int(scoreTrimmed), total >= golfHoles, total < 300 else {
+                    validationMessage = "Total score must be a number between \(golfHoles) and 299."
+                    showingValidationError = true
+                    return
+                }
+            }
+        }
+
         // Golf single-live guard: if this tournament would go live and another
         // golf activity (tournament or practice) already is, confirm the
         // replacement first. Baseball keeps GameService's silent auto-end.
@@ -316,6 +339,9 @@ struct GameCreationView: View {
     }
 
     private func commitSave() {
+        // Terminal save path — guard against a double-tap committing twice.
+        guard !isSaving else { return }
+        isSaving = true
         #if DEBUG
         print("🎮 GameCreationView: Saving game | Opponent: '\(opponent.trimmingCharacters(in: .whitespacesAndNewlines))' | makeGameLive: \(makeGameLive) | season: \(selectedSeason?.name ?? "none") | isGolf: \(isGolf)")
         #endif

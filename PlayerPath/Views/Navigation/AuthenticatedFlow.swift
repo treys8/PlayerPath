@@ -233,6 +233,8 @@ struct AuthenticatedFlow: View {
                     if let user = currentUser, user.firebaseAuthUid != nil {
                         do {
                             try await SyncCoordinator.shared.syncAll(for: user)
+                        } catch is SyncCoordinatorError {
+                            // Already syncing or signed out — expected, ignore.
                         } catch {
                             ErrorHandlerService.shared.handle(error, context: "AuthenticatedFlow.initialSync", showAlert: false)
                         }

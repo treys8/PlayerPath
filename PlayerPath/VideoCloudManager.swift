@@ -221,8 +221,11 @@ class VideoCloudManager: ObservableObject {
     /// - Parameters:
     ///   - url: The cloud storage URL (from videoClip.cloudURL)
     ///   - localPath: Local file path where the video should be saved
-    ///   - clipId: Optional UUID for progress tracking (defaults to new UUID)
-    func downloadVideo(from url: String, to localPath: String, clipId: UUID = UUID()) async throws {
+    ///   - clipId: The clip's UUID — required for progress tracking and for
+    ///     deduplicating concurrent downloads to the same destination. Must be
+    ///     the stable clip id (not a fresh UUID), or the stale-download cancel
+    ///     logic below can never match.
+    func downloadVideo(from url: String, to localPath: String, clipId: UUID) async throws {
         // --- Validation phase: all throwing work happens BEFORE we touch shared state,
         // so an early throw here can never corrupt tracking dictionaries. ---
         guard ConnectivityMonitor.shared.isConnected else {

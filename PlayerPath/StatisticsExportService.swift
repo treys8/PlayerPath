@@ -70,7 +70,7 @@ final class StatisticsExportService {
         if let season = athlete.activeSeason {
             csv += "Active Season\n"
             csv += "Season Name,\(escapeCSV(season.displayName))\n"
-            csv += "Sport,\(escapeCSV(season.sport.displayName))\n"
+            csv += "Sport,\(escapeCSV((season.sport ?? .baseball).displayName))\n"
             csv += "Start Date,\(season.startDate?.formatted(date: .long, time: .omitted) ?? "N/A")\n"
             csv += "\n"
         }
@@ -182,7 +182,7 @@ final class StatisticsExportService {
                     title: "Season Information",
                     items: [
                         ("Season", season.displayName),
-                        ("Sport", season.sport.displayName),
+                        ("Sport", (season.sport ?? .baseball).displayName),
                         ("Start Date", season.startDate?.formatted(date: .long, time: .omitted) ?? "N/A"),
                         ("Games", "\(season.completedGames)")
                     ],

@@ -152,7 +152,7 @@ class GameService {
         }
     }
 
-    func createGame(for athlete: Athlete, opponent: String, date: Date, isLive: Bool, season: Season? = nil, allowWithoutSeason: Bool = false) async -> Result<Game, GameCreationError> {
+    func createGame(for athlete: Athlete, opponent: String, date: Date, isLive: Bool, season: Season? = nil, allowWithoutSeason: Bool = false, golfDetails: GolfRoundDetails? = nil, location: String? = nil) async -> Result<Game, GameCreationError> {
         // Resolve target season: caller-supplied override wins, otherwise active.
         let resolvedSeason = season ?? athlete.activeSeason
         let hasSeason = resolvedSeason != nil
@@ -183,6 +183,7 @@ class GameService {
         if isLive && (resolvedSeason?.isActive ?? true) {
             (athlete.games ?? []).filter { $0.isLive }.forEach {
                 $0.isLive = false
+                $0.needsSync = true
                 GameAlertService.shared.cancelEndGameReminder(for: $0)
             }
             // v6.1 golf single-live spans practices: a new live tournament also
@@ -198,6 +199,20 @@ class GameService {
         if isLive { game.liveStartDate = Date() }
         game.athlete = athlete
         game.season = resolvedSeason // Will be nil if no season available and allowWithoutSeason
+
+        // Apply golf/location fields up front so they land in the same save as
+        // the rest of the game. Persisting them here (rather than in a second
+        // save by the caller) ensures the sync Task spawned below serializes a
+        // complete doc — otherwise par/score could be missing on the first push
+        // and only reach Firestore on a later unrelated sync trigger.
+        if let golf = golfDetails {
+            game.holes = golf.holes
+            game.par = golf.par
+            game.totalScore = golf.totalScore
+        }
+        if let location {
+            game.location = location
+        }
 
         // Create and link statistics
         let stats = GameStatistics()
@@ -324,6 +339,7 @@ class GameService {
         // End other live games of this athlete
         for otherGame in athlete.games ?? [] where otherGame.isLive && otherGame != game {
             otherGame.isLive = false
+            otherGame.needsSync = true
             GameAlertService.shared.cancelEndGameReminder(for: otherGame)
         }
         // v6.1: golf tournaments also end live practices (single-live invariant).
@@ -426,6 +442,7 @@ class GameService {
         // End other live games of this athlete
         for otherGame in athlete.games ?? [] where otherGame.isLive && otherGame != game {
             otherGame.isLive = false
+            otherGame.needsSync = true
             GameAlertService.shared.cancelEndGameReminder(for: otherGame)
         }
         // v6.1: golf tournaments also end live practices (single-live invariant).

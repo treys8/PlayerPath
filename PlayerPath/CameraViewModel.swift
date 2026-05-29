@@ -159,6 +159,7 @@ class CameraViewModel: NSObject, ObservableObject {
 
         // Capture all settings values before crossing the actor boundary
         let qualityPreset = settings.quality.avPreset
+        let targetResolution = settings.quality.resolution
         let targetFrameRate = settings.frameRate.fps
         let audioEnabled = settings.audioEnabled
         let stabilizationMode = settings.stabilizationMode.avMode
@@ -175,7 +176,7 @@ class CameraViewModel: NSObject, ObservableObject {
             if self.captureSession.canSetSessionPreset(qualityPreset) {
                 self.captureSession.sessionPreset = qualityPreset
             }
-            self.setupCamera(targetFrameRate: targetFrameRate)
+            self.setupCamera(targetFrameRate: targetFrameRate, targetResolution: targetResolution)
             self.setupAudio(audioEnabled: audioEnabled)
             self.setupOutput(stabilizationMode: stabilizationMode, codec: videoCodec)
 
@@ -194,6 +195,7 @@ class CameraViewModel: NSObject, ObservableObject {
         guard hasStartedSession, !isRecording else { return }
 
         let qualityPreset = settings.quality.avPreset
+        let targetResolution = settings.quality.resolution
         let targetFrameRate = settings.frameRate.fps
         let audioEnabled = settings.audioEnabled
         let stabilizationMode = settings.stabilizationMode.avMode
@@ -208,7 +210,7 @@ class CameraViewModel: NSObject, ObservableObject {
                 self.captureSession.sessionPreset = qualityPreset
             }
 
-            self.setupCamera(targetFrameRate: targetFrameRate)
+            self.setupCamera(targetFrameRate: targetFrameRate, targetResolution: targetResolution)
             self.setupAudio(audioEnabled: audioEnabled)
             self.setupOutput(stabilizationMode: stabilizationMode, codec: videoCodec)
 
@@ -341,7 +343,7 @@ class CameraViewModel: NSObject, ObservableObject {
 
     // MARK: - Camera Setup
 
-    nonisolated private func setupCamera(targetFrameRate: Int) {
+    nonisolated private func setupCamera(targetFrameRate: Int, targetResolution: CGSize) {
         // Remove existing video input
         if let existingInput = videoInput {
             captureSession.removeInput(existingInput)
@@ -365,19 +367,39 @@ class CameraViewModel: NSObject, ObservableObject {
         do {
             try camera.lockForConfiguration()
 
-            // Pick highest-resolution format matching the target fps.
-            let matchingFormats = camera.formats.filter { format in
+            // Choose a format matching BOTH the requested frame rate and resolution.
+            // Assigning `activeFormat` forces the session to `.inputPriority`,
+            // overriding `sessionPreset` — so the format picked here, not the preset,
+            // determines the recorded resolution.
+            let targetW = Int(max(targetResolution.width, targetResolution.height))
+            let targetH = Int(min(targetResolution.width, targetResolution.height))
+
+            func dimensions(_ format: AVCaptureDevice.Format) -> (w: Int, h: Int) {
+                let d = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
+                return (Int(max(d.width, d.height)), Int(min(d.width, d.height)))
+            }
+            func area(_ format: AVCaptureDevice.Format) -> Int {
+                let d = dimensions(format); return d.w * d.h
+            }
+
+            let fpsMatches = camera.formats.filter { format in
                 format.videoSupportedFrameRateRanges.contains(where: { range in
                     range.minFrameRate <= Double(targetFrameRate) &&
                     range.maxFrameRate >= Double(targetFrameRate)
                 })
             }
-            if let bestFormat = matchingFormats.max(by: { a, b in
-                let aDims = CMVideoFormatDescriptionGetDimensions(a.formatDescription)
-                let bDims = CMVideoFormatDescriptionGetDimensions(b.formatDescription)
-                return Int(aDims.width) * Int(aDims.height) < Int(bDims.width) * Int(bDims.height)
-            }) {
-                camera.activeFormat = bestFormat
+
+            // Prefer an exact resolution match; else the largest format that does not
+            // exceed the target; else the smallest format that supports the fps
+            // (high slow-mo rates may only exist at lower resolutions — honor the fps
+            // and drop resolution rather than fail).
+            let chosenFormat =
+                fpsMatches.first(where: { dimensions($0).w == targetW && dimensions($0).h == targetH })
+                ?? fpsMatches.filter { dimensions($0).w <= targetW }.max(by: { area($0) < area($1) })
+                ?? fpsMatches.min(by: { area($0) < area($1) })
+
+            if let chosenFormat {
+                camera.activeFormat = chosenFormat
                 camera.activeVideoMinFrameDuration = CMTime(value: 1, timescale: CMTimeScale(targetFrameRate))
                 camera.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: CMTimeScale(targetFrameRate))
             }
@@ -597,12 +619,13 @@ class CameraViewModel: NSObject, ObservableObject {
         currentZoom = 1.0
 
         let targetFrameRate = settings.frameRate.fps
+        let targetResolution = settings.quality.resolution
 
         sessionQueue.async { [weak self] in
             guard let self = self else { return }
 
             self.captureSession.beginConfiguration()
-            self.setupCamera(targetFrameRate: targetFrameRate)
+            self.setupCamera(targetFrameRate: targetFrameRate, targetResolution: targetResolution)
             self.captureSession.commitConfiguration()
         }
 

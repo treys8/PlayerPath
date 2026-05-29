@@ -25,6 +25,7 @@ struct AddGameView: View {
     @State private var errorMessage = ""
     @State private var isSeasonError = false
     @State private var shouldPresentSeasonsOnDismiss = false
+    @State private var isSaving = false
 
     init(athlete: Athlete? = nil) {
         self.athlete = athlete
@@ -88,7 +89,7 @@ struct AddGameView: View {
                     Button("Save") {
                         saveGame()
                     }
-                    .disabled(!isValidOpponent)
+                    .disabled(!isValidOpponent || isSaving)
                 }
             }
             .onAppear {
@@ -170,6 +171,10 @@ struct AddGameView: View {
         let gameService = GameService(modelContext: modelContext)
         // Removed tournament parameter from call
 
+        // Guard against a double-tap spawning two concurrent createGame calls.
+        guard !isSaving else { return }
+        isSaving = true
+
         Task {
             let result = await gameService.createGame(
                 for: athlete,
@@ -187,6 +192,7 @@ struct AddGameView: View {
                 case .failure(let error):
                     log.warning("Game creation failed: \(error.localizedDescription), isSeasonError: \(error == .noActiveSeason)")
                     // Show error alert
+                    isSaving = false
                     errorMessage = error.localizedDescription
                     isSeasonError = (error == .noActiveSeason)
                     showingError = true
@@ -213,6 +219,9 @@ struct AddGameView: View {
         // Use GameService with allowWithoutSeason flag
         let gameService = GameService(modelContext: modelContext)
 
+        guard !isSaving else { return }
+        isSaving = true
+
         Task {
             let result = await gameService.createGame(
                 for: athlete,
@@ -229,6 +238,7 @@ struct AddGameView: View {
                     dismiss()
                 case .failure(let error):
                     // Show error alert
+                    isSaving = false
                     errorMessage = error.localizedDescription
                     isSeasonError = false
                     showingError = true

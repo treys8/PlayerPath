@@ -108,23 +108,10 @@ final class GamesViewModel: ObservableObject {
         // activates a different sport. Ensure an active season exists first.
         let resolvedSeason = season ?? athlete.activeSeason ?? SeasonManager.ensureActiveSeason(for: athlete, in: modelContext)
         Task {
-            let result = await gameService.createGame(for: athlete, opponent: opponent, date: date, isLive: isLive, season: resolvedSeason)
+            let result = await gameService.createGame(for: athlete, opponent: opponent, date: date, isLive: isLive, season: resolvedSeason, golfDetails: golfDetails, location: location)
             switch result {
-            case .success(let game):
-                if golfDetails != nil || location != nil {
-                    await MainActor.run {
-                        if let golf = golfDetails {
-                            game.holes = golf.holes
-                            game.par = golf.par
-                            game.totalScore = golf.totalScore
-                        }
-                        if let location {
-                            game.location = location
-                        }
-                        game.needsSync = true
-                        ErrorHandlerService.shared.saveContext(modelContext, caller: "GamesViewModel.create.postCreateFields")
-                    }
-                }
+            case .success:
+                break
             case .failure(let error):
                 onError(error.localizedDescription)
             }

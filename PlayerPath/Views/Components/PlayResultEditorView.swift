@@ -276,6 +276,7 @@ struct PlayResultEditorView: View {
         let prevType = clip.playResult?.type
         let prevHighlight = clip.isHighlight
         let prevClub = clip.club
+        let prevNeedsSync = clip.needsSync
 
         if let selected = selectedResult {
             if let existing = clip.playResult {
@@ -300,8 +301,14 @@ struct PlayResultEditorView: View {
         }()
         if clip.isHighlight != newHighlight {
             clip.isHighlight = newHighlight
-            clip.needsSync = true
         }
+
+        // Any branch above may have mutated the play result, club, or highlight
+        // flag. Mark dirty unconditionally so SyncCoordinator pushes the edit —
+        // gating this on the isHighlight change alone dropped type changes and
+        // removals that left isHighlight unchanged. Matches ClubPickerEditorView /
+        // GameLinkerView.
+        clip.needsSync = true
 
         do {
             try modelContext.save()
@@ -333,6 +340,7 @@ struct PlayResultEditorView: View {
             }
             clip.club = prevClub
             clip.isHighlight = prevHighlight
+            clip.needsSync = prevNeedsSync
             Haptics.warning()
             errorMessage = "Could not save play result. Please try again."
             showingError = true

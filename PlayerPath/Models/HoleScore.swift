@@ -80,7 +80,7 @@ final class HoleScore {
             "createdAt": createdAt ?? Date(),
             "updatedAt": Date(),
             "version": version,
-            "isDeleted": false
+            "isDeleted": isDeletedRemotely
         ]
         if let putts = putts {
             data["putts"] = putts

@@ -20,7 +20,7 @@ struct EditAthleteView: View {
     /// Sports this athlete tracks — distinct seasons' sports, falling back to
     /// the athlete's primary-sport hint. Mirrors AthleteCard.athleteSports.
     private var currentSports: [Season.SportType] {
-        let set = Set((athlete.seasons ?? []).map(\.sport))
+        let set = Set((athlete.seasons ?? []).map { $0.sport ?? .baseball })
         let sorted = set.sorted { $0.rawValue < $1.rawValue }
         if !sorted.isEmpty { return sorted }
         if let hint = Season.SportType(rawValue: (athlete.sport ?? .baseball).rawValue.capitalized) {

@@ -182,7 +182,7 @@ struct ActiveSeasonCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Image(systemName: season.sport.icon)
+                Image(systemName: (season.sport ?? .baseball).icon)
                     .font(.title2)
                     .foregroundColor(.brandNavy)
 
@@ -249,7 +249,7 @@ struct SeasonHistoryRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Image(systemName: season.sport.icon)
+                Image(systemName: (season.sport ?? .baseball).icon)
                     .foregroundStyle(.secondary)
 
                 Text(season.displayName)

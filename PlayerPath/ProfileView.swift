@@ -742,7 +742,7 @@ struct AthleteProfileRow: View {
     @State private var showingAddSport = false
 
     private var athleteSports: [Season.SportType] {
-        let set = Set((athlete.seasons ?? []).map(\.sport))
+        let set = Set((athlete.seasons ?? []).map { $0.sport ?? .baseball })
         let sorted = set.sorted { $0.rawValue < $1.rawValue }
         if !sorted.isEmpty { return sorted }
         if let hint = Season.SportType(rawValue: (athlete.sport ?? .baseball).rawValue.capitalized) {

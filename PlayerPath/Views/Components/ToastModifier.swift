@@ -55,13 +55,16 @@ private struct ToastModifier: ViewModifier {
                         .background(.ultraThinMaterial, in: Capsule())
                         .padding(.bottom, 100)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
-                        .onAppear {
+                        // .task(id:) auto-cancels when the toast disappears, so a
+                        // stale auto-dismiss timer from a previous toast can't close
+                        // a freshly-shown one within the original duration window.
+                        .task(id: isPresenting) {
+                            guard isPresenting else { return }
                             type.fireHaptic()
-                            Task {
-                                try? await Task.sleep(for: .seconds(duration))
-                                withAnimation(.standard) {
-                                    isPresenting = false
-                                }
+                            try? await Task.sleep(for: .seconds(duration))
+                            guard !Task.isCancelled else { return }
+                            withAnimation(.standard) {
+                                isPresenting = false
                             }
                         }
                 }

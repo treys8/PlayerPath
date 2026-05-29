@@ -18,7 +18,7 @@ struct SeasonIndicatorView: View {
             showingSeasonManagement = true
         } label: {
             HStack(spacing: 8) {
-                Image(systemName: athlete.activeSeason?.sport.icon ?? "calendar")
+                Image(systemName: athlete.activeSeason.map { ($0.sport ?? .baseball).icon } ?? "calendar")
                     .font(.caption)
                     .foregroundColor(.brandNavy)
                 

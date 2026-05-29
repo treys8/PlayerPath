@@ -99,6 +99,11 @@ struct ModernTextField: View {
             .onSubmit {
                 onSubmit?()
             }
+            .onChange(of: text) { _, newValue in
+                // Re-mask when the field is cleared so a revealed password isn't
+                // shown in plain text the next time the user starts typing.
+                if newValue.isEmpty { showPassword = false }
+            }
 
             // Trailing icons
             HStack(spacing: 8) {

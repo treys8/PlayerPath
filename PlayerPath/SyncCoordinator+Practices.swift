@@ -52,14 +52,23 @@ extension SyncCoordinator {
             return
         }
 
-        var syncedPractices: [Practice] = []
+        // See uploadLocalAthletes for the rollback rationale.
+        var rollback: [(practice: Practice, needsSync: Bool, version: Int, lastSyncDate: Date?)] = []
 
         for practice in dirtyPractices {
+            // A tombstoned practice still needs its remote delete propagated — see
+            // the dedicated handling below rather than silently skipping.
             if practice.isDeletedRemotely {
+                await propagatePracticeTombstone(practice, user: user, context: context)
                 continue
             }
 
+            let priorNeedsSync = practice.needsSync
+            let priorVersion = practice.version
+            let priorLastSync = practice.lastSyncDate
             do {
+                // Bump version BEFORE serialization so the written doc carries it.
+                practice.version += 1
                 if let firestoreId = practice.firestoreId {
                     // Update existing
                     try await FirestoreManager.shared.updatePractice(
@@ -79,10 +88,10 @@ extension SyncCoordinator {
 
                 practice.needsSync = false
                 practice.lastSyncDate = Date()
-                practice.version += 1
-                syncedPractices.append(practice)
+                rollback.append((practice, priorNeedsSync, priorVersion, priorLastSync))
 
             } catch {
+                practice.version = priorVersion
                 appendSyncError(SyncError(
                     type: .uploadFailed,
                     entityId: practice.id.uuidString,
@@ -91,12 +100,16 @@ extension SyncCoordinator {
             }
         }
 
-        // Save all changes to SwiftData — re-dirty on failure so next sync retries
+        // Save all changes to SwiftData — on failure restore every mutated sync field.
         if context.hasChanges {
             do {
                 try context.save()
             } catch {
-                for practice in syncedPractices { practice.needsSync = true }
+                for entry in rollback {
+                    entry.practice.needsSync = true
+                    entry.practice.version = entry.version
+                    entry.practice.lastSyncDate = entry.lastSyncDate
+                }
                 throw error
             }
         }
@@ -220,11 +233,16 @@ extension SyncCoordinator {
                     if let h = remoteData.holes { local.holes = h }
                     // Live-activity state (SchemaV26). A round/session started
                     // on another device surfaces as live here; End on either
-                    // device clears it.
-                    local.isLive = remoteData.isLive ?? false
-                    local.liveStartDate = remoteData.liveStartDate
+                    // device clears it. Only overwrite when the remote doc
+                    // explicitly carries the field — an older/partial doc that
+                    // omits isLive must NOT flip an active local session to false.
+                    if let isLive = remoteData.isLive {
+                        local.isLive = isLive
+                        local.liveStartDate = remoteData.liveStartDate
+                    }
                     local.course = remoteData.course
-                    local.lastSyncDate = Date()
+                    // Anchor to remote write time, not Date() — see uploadLocalAthletes.
+                    local.lastSyncDate = remoteData.updatedAt ?? Date()
                     local.version = remoteData.version
                     local.needsSync = false
                 }
@@ -263,5 +281,29 @@ extension SyncCoordinator {
 
     func resolvePracticeConflicts(user: User, context: ModelContext) async throws {
         // For now, local changes win (already marked needsSync)
+    }
+
+    /// Propagates a locally-tombstoned practice's deletion to Firestore, then
+    /// clears its dirty flag so it doesn't re-enter the upload loop on every sync.
+    /// Mirrors the soft-delete-then-clear branch in +HighlightReels. Best-effort:
+    /// a failed remote delete leaves `needsSync` set so the next pass retries.
+    /// (`Practice.isDeletedRemotely` is currently only ever false in shipping code;
+    /// this keeps the latent tombstone path correct rather than silently looping.)
+    private func propagatePracticeTombstone(_ practice: Practice, user: User, context: ModelContext) async {
+        guard let firestoreId = practice.firestoreId else {
+            // Never synced remotely — nothing to delete; just clear the flag.
+            practice.needsSync = false
+            return
+        }
+        do {
+            try await FirestoreManager.shared.deletePractice(
+                userId: (user.firebaseAuthUid ?? user.id.uuidString),
+                practiceId: firestoreId
+            )
+            practice.needsSync = false
+        } catch {
+            syncLog.error("Failed to propagate practice tombstone \(firestoreId): \(error.localizedDescription)")
+            // Leave needsSync set so the next sync retries the remote delete.
+        }
     }
 }

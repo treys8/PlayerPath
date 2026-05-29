@@ -41,10 +41,23 @@ extension SyncCoordinator {
         }
 
 
-        var syncedAthletes: [Athlete] = []
+        // Pre-upload sync-state snapshot per athlete so a failed BATCH save can roll
+        // back ALL mutated sync fields, not just needsSync. Without this the inflated
+        // version + advanced lastSyncDate ship on the retry, and the advanced
+        // lastSyncDate makes downloadRemoteAthletes skip genuinely-newer remote
+        // updates. firestoreId is intentionally NOT rolled back: for new athletes it
+        // is already persisted by the immediate saveContext below, and undoing it
+        // would orphan the freshly-created Firestore doc.
+        var rollback: [(athlete: Athlete, needsSync: Bool, version: Int, lastSyncDate: Date?)] = []
 
         for athlete in dirtyAthletes {
+            let priorNeedsSync = athlete.needsSync
+            let priorVersion = athlete.version
+            let priorLastSync = athlete.lastSyncDate
             do {
+                // Bump version BEFORE serialization so the written doc carries the
+                // incremented version (not the stale pre-bump value).
+                athlete.version += 1
                 if let firestoreId = athlete.firestoreId {
                     try await FirestoreManager.shared.updateAthlete(
                         userId: (user.firebaseAuthUid ?? user.id.uuidString),
@@ -63,10 +76,11 @@ extension SyncCoordinator {
 
                 athlete.needsSync = false
                 athlete.lastSyncDate = Date()
-                athlete.version += 1
-                syncedAthletes.append(athlete)
+                rollback.append((athlete, priorNeedsSync, priorVersion, priorLastSync))
 
             } catch {
+                // Upload failed — undo this athlete's optimistic version bump.
+                athlete.version = priorVersion
                 appendSyncError(SyncError(
                     type: .uploadFailed,
                     entityId: athlete.id.uuidString,
@@ -75,12 +89,17 @@ extension SyncCoordinator {
             }
         }
 
-        // Save all changes to SwiftData — re-dirty on failure so next sync retries
+        // Save all changes to SwiftData — on failure restore every mutated sync
+        // field so the next sync retries from a consistent state.
         if context.hasChanges {
             do {
                 try context.save()
             } catch {
-                for athlete in syncedAthletes { athlete.needsSync = true }
+                for entry in rollback {
+                    entry.athlete.needsSync = true
+                    entry.athlete.version = entry.version
+                    entry.athlete.lastSyncDate = entry.lastSyncDate
+                }
                 throw error
             }
         }
@@ -194,7 +213,11 @@ extension SyncCoordinator {
                     }
                     if local.version != remoteData.version { local.version = remoteData.version; changed = true }
                     if changed {
-                        local.lastSyncDate = Date()
+                        // Anchor lastSyncDate to the remote write time, NOT Date(). Using
+                        // "now" makes a later third-device write with a slightly older
+                        // updatedAt look stale and get skipped. Fall back to now only when
+                        // the remote doc has no updatedAt (legacy docs).
+                        local.lastSyncDate = remoteData.updatedAt ?? Date()
                     }
                 }
 
@@ -233,14 +256,22 @@ extension SyncCoordinator {
             }
         }
 
-        // Check for locally deleted athletes that still exist remotely
-        let remoteAthleteIds = Set(remoteAthletes.compactMap { $0.id })
-        for localAthlete in user.athletes ?? [] {
-            if let firestoreId = localAthlete.firestoreId,
-               !remoteAthleteIds.contains(firestoreId) {
-                // Athlete was deleted on another device
-                localAthlete.isDeletedRemotely = true
+        // Mark locally-present athletes that vanished from the remote set as
+        // deleted-on-another-device. Gated on connectivity: Firestore's persistent
+        // cache can return a stale/empty set OFFLINE without throwing, and a blip
+        // must never flip an entire multi-athlete account (Plus=3, Pro=5) to
+        // deleted. Matches the destructive-reconciliation gate in +HoleScores /
+        // +HighlightReels.
+        if ConnectivityMonitor.shared.isConnected {
+            let remoteAthleteIds = Set(remoteAthletes.compactMap { $0.id })
+            for localAthlete in user.athletes ?? [] {
+                if let firestoreId = localAthlete.firestoreId,
+                   !remoteAthleteIds.contains(firestoreId) {
+                    localAthlete.isDeletedRemotely = true
+                }
             }
+        } else {
+            syncLog.warning("Skipping athlete deletion pass — offline (would risk wiping synced athletes)")
         }
 
         // Save all changes

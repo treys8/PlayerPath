@@ -7,6 +7,7 @@
 
 import Foundation
 import AVFoundation
+import UIKit
 
 // MARK: - Video Recording Settings Model
 
@@ -140,6 +141,19 @@ final class VideoRecordingSettings {
         }
 
         isInitializing = false
+
+        // Flush any pending debounced save before the app can be suspended/killed.
+        // `queue: nil` delivers synchronously on the posting thread — UIApplication
+        // lifecycle notifications post on the main thread, so the save completes
+        // before the app resigns (an enqueued/async handler could miss suspension).
+        // The singleton lives for the app's lifetime, so the observer is never removed.
+        _ = NotificationCenter.default.addObserver(
+            forName: UIApplication.willResignActiveNotification,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.saveImmediately() }
+        }
     }
     
     // MARK: - Persistence

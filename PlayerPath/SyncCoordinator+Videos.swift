@@ -2,6 +2,7 @@ import Foundation
 import SwiftData
 import FirebaseAuth
 import FirebaseFirestore
+import FirebaseStorage
 import UIKit
 import os
 
@@ -46,6 +47,7 @@ extension SyncCoordinator {
 
         var newVideos: [(VideoClip, Athlete)] = []
         var updatedVideos: [VideoClip] = []
+        var orphanedClips: [(VideoClip, Athlete)] = []
 
         for athlete in athletes {
             let videos = athlete.videoClips ?? []
@@ -57,7 +59,27 @@ extension SyncCoordinator {
                 } else if clip.needsSync && clip.firestoreId != nil && clip.isUploaded {
                     // Existing clip with dirty metadata (e.g. isHighlight or note changed)
                     updatedVideos.append(clip)
+                } else if clip.isUploaded && clip.cloudURL == nil && clip.firestoreId == nil {
+                    // Orphan: the process was killed between the Storage upload
+                    // succeeding and the SwiftData save, so isUploaded stuck true
+                    // but neither cloudURL nor firestoreId was persisted. Such a
+                    // clip is invisible to both branches above — a leaked blob.
+                    orphanedClips.append((clip, athlete))
                 }
+            }
+        }
+
+        // Recover orphaned clips by re-driving them through the normal upload
+        // pipeline when the local file survives (a fresh Storage object + metadata
+        // doc; the original leaked blob is left for server-side GC). If the local
+        // file is gone too, the footage is unrecoverable from here — log it.
+        for (clip, athlete) in orphanedClips {
+            if FileManager.default.fileExists(atPath: clip.resolvedFilePath) {
+                clip.isUploaded = false  // reflect reality so enqueue() accepts it
+                UploadQueueManager.shared.enqueue(clip, athlete: athlete, priority: .normal)
+                syncLog.info("Recovered orphaned clip \(clip.id) — re-enqueued for upload")
+            } else {
+                syncLog.error("Orphaned clip \(clip.id) has no local file and no cloudURL — cannot recover")
             }
         }
 
@@ -162,10 +184,11 @@ extension SyncCoordinator {
             // or partial query results (e.g., query returned 50 of 150 clips).
             let remoteVideoIds = Set(remoteVideos.map { $0.id })
             let syncedLocalClips = localClips.filter { $0.firestoreId != nil }
-            let remoteReturnedTooFew = !syncedLocalClips.isEmpty
-                && remoteVideoIds.count < syncedLocalClips.count / 2
-            if remoteReturnedTooFew {
-                syncLog.warning("Remote returned \(remoteVideoIds.count) videos but \(syncedLocalClips.count) synced clips exist locally — skipping deletion pass to prevent data loss from partial fetch")
+            // Gate destructive reconciliation on connectivity (see +HoleScores): an
+            // offline/partial cached fetch must not drive clip deletions, which take
+            // their PlayResults, coach annotations, and isHighlight flags with them.
+            if !ConnectivityMonitor.shared.isConnected {
+                syncLog.warning("Skipping video deletion pass — offline (would risk wiping synced clips)")
             } else {
                 for localClip in syncedLocalClips where !remoteVideoIds.contains(localClip.id) {
                     // Track affected game + athlete before the delete — accessing
@@ -271,7 +294,10 @@ extension SyncCoordinator {
                     localClip.drawingCount = dc
                 }
                 localClip.cloudURL = remoteVideo.downloadURL
-                localClip.lastSyncDate = Date()
+                // Anchor to the remote write time, not Date() — using "now" makes a
+                // later third-device write with a slightly older updatedAt look stale
+                // and get skipped. See uploadLocalAthletes.
+                localClip.lastSyncDate = remoteVideo.updatedAt
             }
 
             // Find videos that exist remotely but not locally — skip deleted ones
@@ -449,15 +475,33 @@ extension SyncCoordinator {
                 }
             }
 
-            // Delete the ghost record (and its PlayResult) so it gets re-created and
-            // re-downloaded on the next sync cycle. Without this, the clip persists
-            // with an empty filePath and no retry path.
-            if let playResult = clip.playResult {
-                context.delete(playResult)
+            if isObjectGoneRemotely(error) {
+                // Permanent: Storage reports the object no longer exists. Delete the
+                // ghost record (and its PlayResult) so it doesn't linger forever with
+                // an empty filePath and no retry path.
+                if let playResult = clip.playResult {
+                    context.delete(playResult)
+                }
+                context.delete(clip)
+                ErrorHandlerService.shared.saveContext(context, caller: "SyncCoordinator.downloadVideo.objectGone")
+            } else {
+                // Transient (offline, timeout, unknown): KEEP the clip. Its filePath
+                // stays empty, so the next sync's `fileExists` check re-attempts the
+                // download. Deleting here would discard coach annotations, the
+                // isHighlight flag, and denormalized notes on a mere network blip.
+                syncLog.info("Keeping clip \(clip.id) after transient download failure — will retry next sync")
             }
-            context.delete(clip)
-            ErrorHandlerService.shared.saveContext(context, caller: "SyncCoordinator.downloadVideo.cleanup")
         }
+    }
+
+    /// True only when Firebase Storage reports the blob is genuinely gone
+    /// (objectNotFound). Everything else — offline, timeout, URL-layer errors,
+    /// unknown — is treated as transient so the clip (and its metadata) survives.
+    /// Mirrors the objectNotFound check used throughout VideoCloudManager.
+    private func isObjectGoneRemotely(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        return nsError.domain == "FIRStorageErrorDomain"
+            && nsError.code == StorageErrorCode.objectNotFound.rawValue
     }
 
     // MARK: - Read-Before-Write Helper

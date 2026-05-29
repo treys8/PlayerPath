@@ -56,7 +56,7 @@ struct PracticesView: View {
     /// sport-aware empty-state copy ("No Golf Practices Yet") so single-sport
     /// athletes keep the original wording.
     private var isMultiSport: Bool {
-        Set((athlete?.seasons ?? []).map(\.sport)).count > 1
+        Set((athlete?.seasons ?? []).map { $0.sport ?? .baseball }).count > 1
     }
 
     // Check if filters are active
@@ -75,7 +75,7 @@ struct PracticesView: View {
     private var practicesForActiveSport: [Practice] {
         (athlete?.practices ?? []).filter { practice in
             guard let season = practice.season else { return true }
-            return season.sport == activeSport
+            return (season.sport ?? .baseball) == activeSport
         }
     }
 
