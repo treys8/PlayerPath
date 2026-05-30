@@ -3034,6 +3034,33 @@ export const enforceAthleteLimit = functions.firestore
           `⚠️ Athlete limit exceeded: ${count}/${limit} (tier=${tier}). Deleting athlete document.`
         );
         await snap.ref.delete();
+        return;
+      }
+
+      // Dual-sport abuse guard. A personGroupID group represents ONE person
+      // playing multiple sports — it is capped at one profile per sport
+      // (Sport.allCases = baseball/softball/golf = 3) and may not contain two
+      // profiles of the same sport. Solo athletes (no personGroupID) are their
+      // own singleton group and are exempt. This is a server-side backstop;
+      // Athlete.canAddSportProfile is the primary client gate.
+      const newGroupID = snap.data().personGroupID as string | undefined;
+      if (newGroupID) {
+        const SPORT_CAP = 3; // baseball, softball, golf
+        const groupDocs = athletesSnap.docs.filter(
+          (d) => (d.data().personGroupID as string | undefined) === newGroupID
+        );
+        const newSport = (snap.data().sport as string | undefined) ?? 'baseball';
+        const sameSportCount = groupDocs.filter(
+          (d) => ((d.data().sport as string | undefined) ?? 'baseball') === newSport
+        ).length;
+        const duplicateSport = sameSportCount > 1;
+        if (groupDocs.length > SPORT_CAP || duplicateSport) {
+          console.warn(
+            `⚠️ personGroup ${newGroupID} guard tripped (size=${groupDocs.length}, ` +
+            `sport=${newSport}, duplicateSport=${duplicateSport}). Deleting athlete document.`
+          );
+          await snap.ref.delete();
+        }
       }
     } catch (error) {
       console.error('❌ enforceAthleteLimit failed:', error);
@@ -3665,7 +3692,7 @@ export const dailyStorageCleanup = functions.pubsub
  * Pass { dryRun: true } first to see counts before writing.
  */
 const ALLOWED_ADMIN_UIDS: string[] = [
-  // Populate before invocation.
+  'dnLLmgNqBAgSRdWJBsqYc7MrryF2', // Trey (treyschill@gmail.com)
 ];
 
 export const backfillFolderAthleteUUID = functions.https.onCall(async (data, context) => {
@@ -3823,4 +3850,102 @@ export const migrateRevocationDocIDsToDeterministic = functions.https.onCall(asy
     removedDuplicates,
     dryRun,
   };
+});
+
+/**
+ * One-shot: backfills `personGroupID` on legacy sharedFolders so the coach
+ * dedup key can collapse a dual-sport person's two folders into ONE coach slot
+ * (PR-C/PR-D). New folders self-stamp personGroupID at creation; this only
+ * touches pre-PR-A docs.
+ *
+ * Resolution: a folder's `ownerAthleteID` is the owning account UID and
+ * `athleteUUID` is the athlete profile's UUID (Athlete.id). Athlete docs use
+ * random auto-doc-ids with the UUID stored in the `id` FIELD, so we QUERY
+ * users/{ownerAthleteID}/athletes where id == athleteUUID (a doc-get by UUID
+ * would resolve nothing). We write `personGroupID = athleteDoc.personGroupID ??
+ * athleteUUID` — i.e. the group ID for grouped profiles, or the athlete's own
+ * UUID for solo athletes (identical to the PR-C fallback, written explicitly).
+ *
+ * Folders missing athleteUUID are left unresolved (logged): the PR-C key falls
+ * back to athleteUUID || ownerAthleteID, so an absent personGroupID is safe —
+ * we do not guess. MUST complete before PR-C/PR-D flip the coach dedup key.
+ *
+ * Invocation: callable, restricted to caller UID in ALLOWED_ADMIN_UIDS.
+ * Pass { dryRun: true } first to see counts before writing.
+ */
+export const backfillFolderPersonGroupID = functions.https.onCall(async (data, context) => {
+  if (!context.auth || !ALLOWED_ADMIN_UIDS.includes(context.auth.uid)) {
+    throw new functions.https.HttpsError('permission-denied', 'Admin only');
+  }
+  const dryRun = data?.dryRun !== false;
+  const db = admin.firestore();
+
+  const foldersSnap = await db.collection('sharedFolders').get();
+  let scanned = 0;
+  let alreadySet = 0;
+  let resolvedGrouped = 0; // athlete had a personGroupID (real dual-sport collapse)
+  let resolvedSolo = 0; // personGroupID defaulted to athleteUUID
+  let unresolvable = 0;
+  const writes: Array<{ ref: FirebaseFirestore.DocumentReference; personGroupID: string }> = [];
+
+  for (const folderDoc of foldersSnap.docs) {
+    scanned++;
+    const folder = folderDoc.data();
+    if (typeof folder.personGroupID === 'string' && folder.personGroupID.length > 0) {
+      alreadySet++;
+      continue;
+    }
+    const ownerAthleteID = folder.ownerAthleteID as string | undefined; // owning account UID
+    const athleteUUID = folder.athleteUUID as string | undefined; // Athlete profile UUID
+    if (!ownerAthleteID || !athleteUUID) {
+      unresolvable++;
+      console.warn(
+        `personGroupID backfill: folder ${folderDoc.id} missing ownerAthleteID/athleteUUID — skipped`
+      );
+      continue;
+    }
+
+    // Athlete docs have random IDs; the UUID lives in the `id` field.
+    const athleteQuery = await db.collection('users').doc(ownerAthleteID)
+      .collection('athletes')
+      .where('id', '==', athleteUUID)
+      .limit(1)
+      .get();
+
+    let personGroupID = athleteUUID; // solo default
+    let grouped = false;
+    if (!athleteQuery.empty) {
+      const a = athleteQuery.docs[0].data();
+      const pg = a.personGroupID;
+      if (typeof pg === 'string' && pg.length > 0) {
+        personGroupID = pg;
+        grouped = true;
+      }
+    } else {
+      console.warn(
+        `personGroupID backfill: folder ${folderDoc.id} owner ${ownerAthleteID} has no athlete ` +
+        `doc matching ${athleteUUID}; defaulting personGroupID=athleteUUID`
+      );
+    }
+
+    if (grouped) {
+      resolvedGrouped++;
+    } else {
+      resolvedSolo++;
+    }
+    writes.push({ ref: folderDoc.ref, personGroupID });
+  }
+
+  if (!dryRun) {
+    const batchSize = 400;
+    for (let i = 0; i < writes.length; i += batchSize) {
+      const batch = db.batch();
+      for (const w of writes.slice(i, i + batchSize)) {
+        batch.update(w.ref, { personGroupID: w.personGroupID });
+      }
+      await batch.commit();
+    }
+  }
+
+  return { scanned, alreadySet, resolvedGrouped, resolvedSolo, unresolvable, dryRun };
 });
