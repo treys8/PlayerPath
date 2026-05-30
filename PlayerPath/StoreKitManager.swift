@@ -35,14 +35,6 @@ class StoreKitManager: ObservableObject {
     @Published private(set) var currentCoachTier: CoachSubscriptionTier = .free
     @Published private(set) var coachTierExpirationDate: Date?
 
-    /// Per-product intro-offer eligibility, refreshed after products load and
-    /// after every entitlement update. Used by the paywall to know whether to
-    /// frame the CTA as "Start Free Trial" — StoreKit considers a user
-    /// ineligible if they've already redeemed a trial on the same subscription
-    /// group, so this needs to be checked against StoreKit, not assumed from
-    /// the product config.
-    @Published private(set) var introOfferEligibility: [String: Bool] = [:]
-
     /// Subscription is past its expiration date but Apple is still honoring it
     /// during the publisher-grace window (only applies if the subscription
     /// group is configured for grace periods in App Store Connect).
@@ -117,11 +109,6 @@ class StoreKitManager: ObservableObject {
         }
 
         isLoading = false
-
-        // Eligibility depends on transaction history, which may not be hydrated
-        // yet on first launch — keep this best-effort and let updateEntitlements
-        // re-run it once entitlements are resolved.
-        await refreshIntroOfferEligibility()
     }
 
     func clearError() {
@@ -330,8 +317,6 @@ class StoreKitManager: ObservableObject {
             inGracePeriod: resolvedGracePeriod,
             inBillingRetry: resolvedBillingRetry
         )
-
-        await refreshIntroOfferEligibility()
     }
 
     /// Compute the current `winBackOpportunity`, suppressing it if the user
@@ -381,24 +366,6 @@ class StoreKitManager: ObservableObject {
     }
 
     private static let winBackDismissKey = "winBack_dismissedProductID"
-
-    /// Query StoreKit for each product's intro-offer eligibility and cache the
-    /// result so the paywall can render synchronously.
-    private func refreshIntroOfferEligibility() async {
-        var map: [String: Bool] = [:]
-        for product in products {
-            guard let subscription = product.subscription else { continue }
-            guard subscription.introductoryOffer != nil else { continue }
-            map[product.id] = await subscription.isEligibleForIntroOffer
-        }
-        introOfferEligibility = map
-    }
-
-    /// True if `product` advertises an intro offer AND the current account is
-    /// still eligible (hasn't redeemed it on this subscription group).
-    func isEligibleForIntroOffer(_ product: Product) -> Bool {
-        introOfferEligibility[product.id] ?? false
-    }
 
     // MARK: - Transaction Listening
 

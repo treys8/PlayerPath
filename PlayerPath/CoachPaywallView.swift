@@ -410,11 +410,6 @@ struct CoachPaywallView: View {
     }
 
     private var ctaButtonTitle: String {
-        if selectedTier != .free, selectedTier != .academy,
-           let product = selectedCoachProduct,
-           storeManager.isEligibleForIntroOffer(product) {
-            return "Start 7-Day Free Trial"
-        }
         switch selectedTier {
         case .free:          return "Keep Free"
         case .instructor:    return "Get Instructor"
@@ -444,17 +439,10 @@ struct CoachPaywallView: View {
     private var termsSection: some View {
         VStack(spacing: 6) {
             if selectedTier != .free && selectedTier != .academy, let product = selectedCoachProduct {
-                if storeManager.isEligibleForIntroOffer(product) {
-                    Text("7 days free, then \(product.displayPrice) / \(isAnnual ? "1 year" : "1 month"). Cancel anytime.")
-                        .font(.caption)
-                        .fontWeight(.medium)
-                        .foregroundStyle(.primary)
-                } else {
-                    Text("\(product.displayName) — \(product.displayPrice) / \(isAnnual ? "1 year" : "1 month")")
-                        .font(.caption)
-                        .fontWeight(.medium)
-                        .foregroundStyle(.primary)
-                }
+                Text("\(product.displayName) — \(product.displayPrice) / \(isAnnual ? "1 year" : "1 month")")
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .foregroundStyle(.primary)
             }
             Text("Subscription automatically renews unless cancelled at least 24 hours before the end of the current period. Payment will be charged to your Apple ID account at confirmation of purchase. Manage or cancel anytime in Settings > Subscriptions.")
                 .font(.caption)
