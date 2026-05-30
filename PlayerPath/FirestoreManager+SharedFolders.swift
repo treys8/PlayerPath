@@ -40,6 +40,7 @@ extension FirestoreManager {
         ownerAthleteID: String,
         ownerAthleteName: String? = nil,
         athleteUUID: String? = nil,
+        personGroupID: String? = nil,
         permissions: [String: FolderPermissions] = [:],
         folderType: String? = nil
     ) async throws -> String {
@@ -57,6 +58,9 @@ extension FirestoreManager {
         }
         if let athleteUUID {
             folderData["athleteUUID"] = athleteUUID
+        }
+        if let personGroupID {
+            folderData["personGroupID"] = personGroupID
         }
         if let folderType {
             folderData["folderType"] = folderType

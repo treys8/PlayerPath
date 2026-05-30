@@ -46,6 +46,10 @@ struct SharedFolder: Codable, Identifiable, Hashable {
     /// Stable per-athlete UUID (`Athlete.id.uuidString`) identifying which of the owner's athletes this folder is for.
     /// Optional for legacy folders created before per-athlete scoping; migration backfills in production.
     var athleteUUID: String? = nil
+    /// Person-group key (`(athlete.personGroupID ?? athlete.id).uuidString`) so a dual-sport
+    /// person's two profiles collapse to ONE coach slot. Equals `athleteUUID` for solo athletes.
+    /// Optional for legacy folders created before this field; backfilled server-side.
+    var personGroupID: String? = nil
     let sharedWithCoachIDs: [String]
     var sharedWithCoachNames: [String: String]? = nil
     let permissions: [String: [String: Bool]]
@@ -77,6 +81,7 @@ extension SharedFolder {
         ownerAthleteID = try c.decodeIfPresent(String.self, forKey: .ownerAthleteID) ?? ""
         ownerAthleteName = try c.decodeIfPresent(String.self, forKey: .ownerAthleteName)
         athleteUUID = try c.decodeIfPresent(String.self, forKey: .athleteUUID)
+        personGroupID = try c.decodeIfPresent(String.self, forKey: .personGroupID)
         sharedWithCoachIDs = try c.decodeIfPresent([String].self, forKey: .sharedWithCoachIDs) ?? []
         sharedWithCoachNames = try c.decodeIfPresent([String: String].self, forKey: .sharedWithCoachNames)
         permissions = try c.decodeIfPresent([String: [String: Bool]].self, forKey: .permissions) ?? [:]
@@ -267,6 +272,9 @@ struct CoachInvitation: Codable, Identifiable {
     var folderName: String?
     var athleteID: String
     var athleteName: String
+    /// Person-group key so a dual-sport person collapses to ONE coach slot.
+    /// Equals `athleteUUID` for solo athletes; nil for legacy invitations.
+    var personGroupID: String? = nil
     var coachEmail: String
     var permissions: FolderPermissions?
     var createdAt: Date?
@@ -303,6 +311,9 @@ struct CoachToAthleteInvitation: Codable, Identifiable {
     let folderID: String?
     let folderName: String?
     let athleteUserID: String?
+    /// Person-group key so a dual-sport person collapses to ONE coach slot.
+    /// Stamped server-side at acceptance (the coach doesn't know it at send time).
+    var personGroupID: String? = nil
     var acceptedAt: Date?
     var declinedAt: Date?
     var cancelledAt: Date?

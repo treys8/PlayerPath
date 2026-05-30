@@ -43,6 +43,7 @@ extension FirestoreManager {
         athleteID: String,
         athleteName: String,
         athleteUUID: String,
+        personGroupID: String? = nil,
         coachEmail: String,
         folderID: String? = nil,
         folderName: String? = nil,
@@ -61,6 +62,7 @@ extension FirestoreManager {
             "sentAt": FieldValue.serverTimestamp(),
             "expiresAt": Date().addingTimeInterval(invitationExpirationInterval)
         ]
+        if let personGroupID { invitationData["personGroupID"] = personGroupID }
         if let folderID { invitationData["folderID"] = folderID }
         if let folderName { invitationData["folderName"] = folderName }
 
@@ -396,7 +398,8 @@ extension FirestoreManager {
         invitationID: String,
         athleteUserID: String,
         athleteName: String,
-        athleteUUID: String
+        athleteUUID: String,
+        personGroupID: String? = nil
     ) async throws -> (gamesFolderID: String?, lessonsFolderID: String?) {
         guard let user = Auth.auth().currentUser else {
             throw NSError(domain: "FirestoreManager", code: -1,
@@ -411,11 +414,12 @@ extension FirestoreManager {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.timeoutInterval = 30
 
-        let payload: [String: Any] = [
+        var payload: [String: Any] = [
             "invitationID": invitationID,
             "athleteName": athleteName,
             "athleteUUID": athleteUUID,
         ]
+        if let personGroupID { payload["personGroupID"] = personGroupID }
         let body: [String: Any] = ["data": payload]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
@@ -573,7 +577,8 @@ extension FirestoreManager {
             let data = doc.data()
             let uuid = (data["athleteUUID"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             let accountUID = (data["athleteUserID"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-            return CoachAthleteRef(athleteUUID: uuid, athleteUserID: accountUID)
+            let personGroupID = (data["personGroupID"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            return CoachAthleteRef(athleteUUID: uuid, athleteUserID: accountUID, personGroupID: personGroupID)
         }
     }
 

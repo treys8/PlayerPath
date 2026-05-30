@@ -19,6 +19,10 @@ import SwiftUI
 struct CoachAthleteRef {
     let athleteUUID: String?
     let athleteUserID: String?
+    /// Person-group key carried from the invitation doc so a dual-sport person
+    /// can collapse to ONE coach slot. Read in PR-A but not yet consulted by
+    /// `canonicalKey` — PR-D promotes it to the highest-priority dedup axis.
+    let personGroupID: String?
 
     /// Canonical per-athlete key: prefer the stable Athlete UUID, fall back to account UID.
     var canonicalKey: String? { athleteUUID ?? athleteUserID }

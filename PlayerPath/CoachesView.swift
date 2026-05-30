@@ -240,6 +240,7 @@ struct CoachesView: View {
                     athleteID: userID,
                     athleteName: athlete.name,
                     athleteUUID: athlete.id.uuidString,
+                    personGroupID: (athlete.personGroupID ?? athlete.id).uuidString,
                     coachEmail: coach.email.lowercased()
                 )
 

@@ -156,6 +156,7 @@ struct CreateFolderView: View {
             return
         }
         let athleteUUID = athlete.id.uuidString
+        let personGroupID = (athlete.personGroupID ?? athlete.id).uuidString
         let athleteName = athlete.name
 
         isCreating = true
@@ -169,6 +170,7 @@ struct CreateFolderView: View {
                 forAthlete: userID,
                 athleteName: athleteName,
                 athleteUUID: athleteUUID,
+                personGroupID: personGroupID,
                 hasCoachingAccess: authManager.hasCoachingAccess
             )
 
@@ -179,6 +181,7 @@ struct CreateFolderView: View {
                 athleteID: userID,
                 athleteName: athleteName,
                 athleteUUID: athleteUUID,
+                personGroupID: personGroupID,
                 folderName: name,
                 permissions: permissions
             )
@@ -343,6 +346,7 @@ struct InviteCoachView: View {
                 athleteID: athleteID,
                 athleteName: athleteName,
                 athleteUUID: athleteUUID,
+                personGroupID: folder.personGroupID ?? athleteUUID,
                 folderName: folder.name,
                 permissions: permissions
             )

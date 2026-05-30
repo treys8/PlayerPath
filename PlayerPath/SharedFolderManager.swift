@@ -52,6 +52,7 @@ class SharedFolderManager {
         forAthlete athleteID: String,
         athleteName: String? = nil,
         athleteUUID: String,
+        personGroupID: String? = nil,
         hasCoachingAccess: Bool
     ) async throws -> String {
         // Verify tier server-side rather than trusting the caller's boolean alone
@@ -69,6 +70,7 @@ class SharedFolderManager {
             ownerAthleteID: athleteID,
             ownerAthleteName: athleteName,
             athleteUUID: athleteUUID,
+            personGroupID: personGroupID,
             permissions: [:]
         )
         
@@ -98,6 +100,7 @@ class SharedFolderManager {
         athleteID: String,
         athleteName: String,
         athleteUUID: String,
+        personGroupID: String? = nil,
         folderName: String,
         permissions: FolderPermissions
     ) async throws {
@@ -123,6 +126,7 @@ class SharedFolderManager {
             athleteID: athleteID,
             athleteName: athleteName,
             athleteUUID: athleteUUID,
+            personGroupID: personGroupID,
             coachEmail: cleanEmail,
             folderID: folderID,
             folderName: folderName,
