@@ -545,9 +545,10 @@ class CoachVideoPlayerViewModel {
     // MARK: - Telestration
 
     /// Saves a PencilKit drawing as a "drawing" annotation at the given timestamp.
-    /// Returns `true` on success so the caller can dismiss the overlay. The
-    /// live listener drives `annotations`, so no local append is needed.
-    /// Athlete push fires from the server-side `onNewAnnotation` CF.
+    /// Returns `nil` on success (so the caller can dismiss the overlay) or a
+    /// user-facing error message on failure. The live listener drives
+    /// `annotations`, so no local append is needed. Athlete push fires from the
+    /// server-side `onNewAnnotation` CF.
     @discardableResult
     func addDrawingAnnotation(
         drawing: PKDrawing,
@@ -556,7 +557,7 @@ class CoachVideoPlayerViewModel {
         canvasSize: CGSize,
         userID: String,
         userName: String
-    ) async -> Bool {
+    ) async -> String? {
         do {
             _ = try await DrawingAnnotationSaver.save(
                 videoID: video.id,
@@ -569,11 +570,14 @@ class CoachVideoPlayerViewModel {
             )
             Haptics.success()
             ReviewPromptManager.shared.requestReviewIfAppropriate()
-            return true
+            return nil
         } catch {
-            errorMessage = error.localizedDescription
+            // Surface the underlying reason — DrawingAnnotationSaver distinguishes
+            // "too complex" (size cap) from network failures — instead of a
+            // generic "try simplifying it" message. Not routed through the shared
+            // `errorMessage` channel (that drives the player-load error overlay).
             ErrorHandlerService.shared.handle(error, context: "CoachVideoPlayerViewModel.addDrawingAnnotation", showAlert: false)
-            return false
+            return error.localizedDescription
         }
     }
 

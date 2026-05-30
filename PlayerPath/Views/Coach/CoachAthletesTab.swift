@@ -29,13 +29,18 @@ struct CoachAthletesTab: View {
     @State private var searchDebounceTask: Task<Void, Never>?
 
     var body: some View {
-        Group {
-            if sharedFolderManager.isLoading && sharedFolderManager.coachFolders.isEmpty {
-                ProgressView("Loading athletes...")
-            } else if sharedFolderManager.coachFolders.isEmpty {
-                CoachEmptyStateView(showingInvitations: $showingInvitations)
-            } else {
-                athletesList
+        VStack(spacing: 0) {
+            if let listenerError = sharedFolderManager.listenerError {
+                folderErrorBanner(listenerError)
+            }
+            Group {
+                if sharedFolderManager.isLoading && sharedFolderManager.coachFolders.isEmpty {
+                    ProgressView("Loading athletes...")
+                } else if sharedFolderManager.coachFolders.isEmpty {
+                    CoachEmptyStateView(showingInvitations: $showingInvitations)
+                } else {
+                    athletesList
+                }
             }
         }
         .navigationTitle("Athletes")
@@ -131,6 +136,32 @@ struct CoachAthletesTab: View {
         .onAppear {
             AnalyticsService.shared.trackScreenView(screenName: "Coach Athletes", screenClass: "CoachAthletesTab")
         }
+    }
+
+    // MARK: - Folder Error Banner
+
+    /// Surfaces a stale-data warning when the shared-folders listener fails, so
+    /// coaches don't make navigation decisions against silently cached folders.
+    /// Retry re-runs the one-shot load.
+    @ViewBuilder
+    private func folderErrorBanner(_ message: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+            Text(message)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+            Spacer(minLength: 8)
+            Button("Retry") {
+                Haptics.light()
+                Task { await reloadData() }
+            }
+            .font(.subheadline.weight(.semibold))
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.orange.opacity(0.1))
     }
 
     // MARK: - Athletes List

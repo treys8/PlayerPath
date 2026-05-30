@@ -14,33 +14,18 @@ struct NotificationInboxView: View {
     @ObservedObject private var service = ActivityNotificationService.shared
 
     var body: some View {
-        Group {
-            if service.recentNotifications.isEmpty {
-                ContentUnavailableView(
-                    "No notifications",
-                    systemImage: "bell.slash",
-                    description: Text("You're all caught up. New activity from coaches and athletes will appear here.")
-                )
-            } else {
-                List {
-                    ForEach(service.recentNotifications) { notification in
-                        Button {
-                            handleTap(notification)
-                        } label: {
-                            NotificationInboxRow(notification: notification)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .listStyle(.plain)
+        VStack(spacing: 0) {
+            if let listenerError = service.listenerError {
+                listenerErrorBanner(listenerError)
             }
+            inboxContent
         }
+        // Note: opening the inbox no longer marks everything read — doing so
+        // wiped the unread state before the user could scan it. Rows mark
+        // themselves read on tap (handleTap); "Mark All Read" is the explicit
+        // bulk action.
         .navigationTitle("Notifications")
         .navigationBarTitleDisplayMode(.inline)
-        .task(id: authManager.userID) {
-            guard let userID = authManager.userID else { return }
-            await service.markAllRead(forUserID: userID)
-        }
         .toolbar {
             if service.unreadCount > 0, let userID = authManager.userID {
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -52,6 +37,53 @@ struct NotificationInboxView: View {
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private var inboxContent: some View {
+        if service.recentNotifications.isEmpty {
+            ContentUnavailableView(
+                "No notifications",
+                systemImage: "bell.slash",
+                description: Text("You're all caught up. New activity from coaches and athletes will appear here.")
+            )
+        } else {
+            List {
+                ForEach(service.recentNotifications) { notification in
+                    Button {
+                        handleTap(notification)
+                    } label: {
+                        NotificationInboxRow(notification: notification)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .listStyle(.plain)
+        }
+    }
+
+    /// Surfaces a real-time listener failure (which leaves the unread counts
+    /// stale) with a manual retry that re-attaches the snapshot listener via
+    /// the service's revive path.
+    @ViewBuilder
+    private func listenerErrorBanner(_ message: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+            Text(message)
+                .font(.bodySmall)
+                .foregroundColor(.secondary)
+            Spacer(minLength: 8)
+            Button("Retry") {
+                Haptics.light()
+                service.noteAppDidBecomeActive()
+            }
+            .font(.bodyMedium)
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.orange.opacity(0.1))
     }
 
     private func handleTap(_ notification: ActivityNotification) {

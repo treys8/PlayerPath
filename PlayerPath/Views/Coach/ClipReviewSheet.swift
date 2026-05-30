@@ -96,7 +96,9 @@ struct ClipReviewSheet: View {
                     videoAspectRatio: videoAspectRatio,
                     onSave: { drawing, shapes, timestamp, canvasSize in
                         guard let userID = authManager.userID,
-                              let userName = authManager.userDisplayName ?? authManager.userEmail else { return false }
+                              let userName = authManager.userDisplayName ?? authManager.userEmail else {
+                            return "You're signed out. Sign in again to save this drawing."
+                        }
                         let saved = await saveDrawing(
                             drawing: drawing,
                             shapes: shapes,
@@ -105,8 +107,11 @@ struct ClipReviewSheet: View {
                             userID: userID,
                             userName: userName
                         )
-                        if saved { showingTelestration = false }
-                        return saved
+                        if saved {
+                            showingTelestration = false
+                            return nil
+                        }
+                        return "Drawing couldn't be saved. Check your connection and try again."
                     },
                     onCancel: { showingTelestration = false },
                     frameImage: telestrationFrameImage

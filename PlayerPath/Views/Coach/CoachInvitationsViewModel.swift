@@ -94,7 +94,10 @@ class CoachInvitationsViewModel {
         isLoading = false
     }
 
-    func acceptInvitation(_ invitation: CoachInvitation, authManager: ComprehensiveAuthManager? = nil) async {
+    /// Returns true only on a genuine accept (not a limit block or error), so
+    /// the view can show a success confirmation toast.
+    @discardableResult
+    func acceptInvitation(_ invitation: CoachInvitation, authManager: ComprehensiveAuthManager? = nil) async -> Bool {
         do {
             try await SharedFolderManager.shared.acceptInvitation(invitation, authManager: authManager)
 
@@ -108,13 +111,16 @@ class CoachInvitationsViewModel {
                 await loadInvitations(forCoachEmail: email, coachID: coachID)
             }
             Haptics.success()
+            return true
 
         } catch SharedFolderError.coachAthleteLimitReached {
             limitReached = true
             ErrorHandlerService.shared.handle(SharedFolderError.coachAthleteLimitReached, context: "CoachInvitationsViewModel.acceptInvitation.limitReached", showAlert: false)
+            return false
         } catch {
             errorMessage = invitationErrorMessage(error, action: "accept")
             ErrorHandlerService.shared.handle(error, context: "CoachInvitationsViewModel.acceptInvitation", showAlert: false)
+            return false
         }
     }
 

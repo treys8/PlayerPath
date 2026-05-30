@@ -12,7 +12,9 @@ import PencilKit
 struct TelestrationOverlayView: View {
     let timestamp: Double
     let videoAspectRatio: CGFloat
-    let onSave: (PKDrawing, [TelestrationShape], Double, CGSize) async -> Bool
+    /// Returns `nil` on success (the parent dismisses the overlay) or a
+    /// user-facing error message to display while keeping the overlay open.
+    let onSave: (PKDrawing, [TelestrationShape], Double, CGSize) async -> String?
     let onCancel: () -> Void
     /// Freeze-frame rendered behind the canvas when the overlay is presented
     /// full-screen (e.g. from ClipReviewSheet). Nil when another video view
@@ -239,10 +241,13 @@ struct TelestrationOverlayView: View {
         let capturedSize = canvasSize
         let capturedShapes = shapes
         Task {
-            let success = await onSave(drawing, capturedShapes, timestamp, capturedSize)
+            // nil → success (the parent dismisses the overlay). Non-nil → the
+            // real failure reason (size cap vs. network); keep the overlay open
+            // so the coach can retry without redrawing.
+            let failureMessage = await onSave(drawing, capturedShapes, timestamp, capturedSize)
             isSaving = false
-            if !success {
-                saveError = "Drawing could not be saved. Try simplifying it."
+            if let failureMessage {
+                saveError = failureMessage
             }
         }
     }

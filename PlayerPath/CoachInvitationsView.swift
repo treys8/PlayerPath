@@ -15,6 +15,8 @@ struct CoachInvitationsView: View {
     @State private var lastFetchDate: Date?
     @State private var showingError = false
     @State private var selectedTab: InvitationTab = .received
+    @State private var showAcceptedToast = false
+    @State private var acceptedAthleteName = ""
 
     enum InvitationTab: String, CaseIterable {
         case received = "Received"
@@ -45,6 +47,7 @@ struct CoachInvitationsView: View {
         }
         .navigationTitle("Invitations")
         .navigationBarTitleDisplayMode(.inline)
+        .toast(isPresenting: $showAcceptedToast, message: "\(acceptedAthleteName) added")
         .task {
             if let coachID = authManager.userID {
                 await ActivityNotificationService.shared.markInvitationNotificationsRead(forUserID: coachID)
@@ -102,10 +105,13 @@ struct CoachInvitationsView: View {
                                 invitation: invitation,
                                 isAtLimit: viewModel.isAtAthleteLimit,
                                 onAccept: {
-                                    await viewModel.acceptInvitation(invitation, authManager: authManager)
+                                    let accepted = await viewModel.acceptInvitation(invitation, authManager: authManager)
                                     if viewModel.limitReached {
                                         showingPaywall = true
                                         viewModel.limitReached = false
+                                    } else if accepted {
+                                        acceptedAthleteName = invitation.athleteName
+                                        showAcceptedToast = true
                                     }
                                 },
                                 onDecline: {

@@ -26,6 +26,9 @@ struct CoachVideoPlayerView: View {
     @State private var showingTelestration = false
     @State private var isVerifyingDrawPermission = false
     @State private var drillCards: [DrillCard] = []
+    /// True when the drill-card fetch failed, so the Drill Card tab can show a
+    /// retry affordance instead of an empty state indistinguishable from "none".
+    @State private var drillCardsLoadFailed = false
     /// Guard so the "athlete viewed this clip" write only fires once per open.
     @State private var hasMarkedViewed = false
     private var templateService: CoachTemplateService { .shared }
@@ -229,8 +232,10 @@ struct CoachVideoPlayerView: View {
             // (async let can crash the runtime if the view is dismissed mid-flight)
             await viewModel.loadAnnotations()
             do {
+                drillCardsLoadFailed = false
                 drillCards = try await FirestoreManager.shared.fetchDrillCards(forVideo: video.id)
             } catch {
+                drillCardsLoadFailed = true
                 ErrorHandlerService.shared.handle(error, context: "CoachVideoPlayer.loadDrillCards", showAlert: false)
             }
             if let coachID = authManager.userID {
@@ -281,6 +286,35 @@ struct CoachVideoPlayerView: View {
                     // which fires on drillCards subcollection creation.
                 }
             )
+        }
+    }
+
+    @ViewBuilder
+    private var drillCardLoadErrorView: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.title)
+                .foregroundColor(.secondary)
+            Text("Couldn't load drill cards")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+            Button("Try Again") {
+                Task { await reloadDrillCards() }
+            }
+            .buttonStyle(.bordered)
+            .tint(.brandNavy)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding()
+    }
+
+    private func reloadDrillCards() async {
+        drillCardsLoadFailed = false
+        do {
+            drillCards = try await FirestoreManager.shared.fetchDrillCards(forVideo: video.id)
+        } catch {
+            drillCardsLoadFailed = true
+            ErrorHandlerService.shared.handle(error, context: "CoachVideoPlayer.reloadDrillCards", showAlert: false)
         }
     }
 
@@ -407,8 +441,10 @@ struct CoachVideoPlayerView: View {
                         videoAspectRatio: videoAspectRatio,
                         onSave: { drawing, shapes, timestamp, canvasSize in
                             guard let userID = authManager.userID,
-                                  let userName = authManager.userDisplayName ?? authManager.userEmail else { return false }
-                            let saved = await viewModel.addDrawingAnnotation(
+                                  let userName = authManager.userDisplayName ?? authManager.userEmail else {
+                                return "You're signed out. Sign in again to save this drawing."
+                            }
+                            let saveFailure = await viewModel.addDrawingAnnotation(
                                 drawing: drawing,
                                 shapes: shapes,
                                 timestamp: timestamp,
@@ -416,10 +452,10 @@ struct CoachVideoPlayerView: View {
                                 userID: userID,
                                 userName: userName
                             )
-                            if saved {
+                            if saveFailure == nil {
                                 showingTelestration = false
                             }
-                            return saved
+                            return saveFailure
                         },
                         onCancel: {
                             showingTelestration = false
@@ -508,11 +544,15 @@ struct CoachVideoPlayerView: View {
                         }
                     )
                 case .drillCard:
-                    DrillCardTabView(
-                        drillCards: drillCards,
-                        canComment: canComment,
-                        onAdd: { showingDrillCardEditor = true }
-                    )
+                    if drillCardsLoadFailed && drillCards.isEmpty {
+                        drillCardLoadErrorView
+                    } else {
+                        DrillCardTabView(
+                            drillCards: drillCards,
+                            canComment: canComment,
+                            onAdd: { showingDrillCardEditor = true }
+                        )
+                    }
                 case .info:
                     VideoInfoTabView(video: video)
                 }
