@@ -528,6 +528,7 @@ struct AthleteFolderDetailContent: View {
                     folder: folder,
                     videos: viewModel.videos,
                     unreadVideoIDs: activityNotifService.unreadVideoIDs,
+                    feedbackVideoIDs: activityNotifService.unreadFeedbackVideoIDs,
                     targetVideoID: targetVideoID
                 ) {
                     await viewModel.loadVideos()

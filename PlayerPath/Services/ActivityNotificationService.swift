@@ -155,6 +155,13 @@ final class ActivityNotificationService: ObservableObject {
     @Published private(set) var unreadCountByFolder: [String: Int] = [:]
     /// Set of videoIDs that have unread coach feedback.
     @Published private(set) var unreadVideoIDs: Set<String> = []
+    /// Subset of `unreadVideoIDs` limited to coach *feedback* (comments,
+    /// drawings, drill cards, coach-note updates — all delivered as the
+    /// `coach_comment` notification type). Excludes brand-new clip uploads
+    /// (`new_video`), so the athlete clip list can show a distinct
+    /// "New Feedback" badge for feedback that arrived after they last opened
+    /// a clip, separate from the generic "New" badge for unseen clips.
+    @Published private(set) var unreadFeedbackVideoIDs: Set<String> = []
     @Published private(set) var recentNotifications: [ActivityNotification] = []
     /// Most-recently-arrived notification, used to drive the in-app banner.
     @Published private(set) var incomingBanner: ActivityNotification?
@@ -248,13 +255,20 @@ final class ActivityNotificationService: ObservableObject {
                     let videoRelatedUnread = unread.filter { $0.type == .coachComment || $0.type == .newVideo || $0.type == .uploadFailed }
                     var folderCounts: [String: Int] = [:]
                     var videoIDs: Set<String> = []
+                    var feedbackVideoIDs: Set<String> = []
                     for n in videoRelatedUnread {
                         let fid = n.folderID ?? (n.targetType == .folder ? n.targetID : nil)
                         if let fid { folderCounts[fid, default: 0] += 1 }
-                        if let vid = n.targetID, n.targetType == .video { videoIDs.insert(vid) }
+                        if let vid = n.targetID, n.targetType == .video {
+                            videoIDs.insert(vid)
+                            // coach_comment = comment/drawing/drill-card/note feedback,
+                            // as opposed to new_video (a freshly uploaded clip).
+                            if n.type == .coachComment { feedbackVideoIDs.insert(vid) }
+                        }
                     }
                     self.unreadCountByFolder = folderCounts
                     self.unreadVideoIDs = videoIDs
+                    self.unreadFeedbackVideoIDs = feedbackVideoIDs
 
                     // Surface in-app banner for any genuinely new (unseen) notification.
                     // Suppress banners for notifications that arrived before the most
@@ -294,6 +308,7 @@ final class ActivityNotificationService: ObservableObject {
         unreadFolderVideoCount = 0
         unreadCountByFolder = [:]
         unreadVideoIDs = []
+        unreadFeedbackVideoIDs = []
         Self.syncAppIconBadge(to: 0)
     }
 
