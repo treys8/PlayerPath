@@ -37,7 +37,7 @@ struct GameRow: View {
         .shadow(color: .black.opacity(0.06), radius: 8, x: 0, y: 2)
         .shadow(color: .black.opacity(0.04), radius: 2, x: 0, y: 1)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(isGolf ? "Tournament at \(game.opponent)" : "Game against \(game.opponent)")
+        .accessibilityLabel(isGolf ? "Round at \(game.opponent)" : "Game against \(game.opponent)")
         .accessibilityValue(accessibilityStatus)
     }
 
@@ -64,13 +64,13 @@ struct GameRow: View {
 
         var body: some View {
             HStack(spacing: 10) {
-                if isGolf, let score = game.totalScore {
+                if isGolf, let score = game.effectiveTotalScore {
                     VStack(alignment: .trailing, spacing: 2) {
                         Text("\(score)")
                             .font(.ppStatSmall)
                             .monospacedDigit()
                             .foregroundColor(.primary)
-                        if let par = game.par {
+                        if let par = game.effectivePar {
                             let diff = score - par
                             Text(diff == 0 ? "E" : (diff > 0 ? "+\(diff)" : "\(diff)"))
                                 .font(.labelSmall)

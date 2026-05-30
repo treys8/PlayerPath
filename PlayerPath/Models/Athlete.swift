@@ -65,6 +65,7 @@ final class Athlete {
     var sport: Sport? = Sport.baseball
     @Relationship(inverse: \Season.athlete) var seasons: [Season]?
     @Relationship(inverse: \Game.athlete) var games: [Game]?
+    @Relationship(inverse: \GolfTournament.athlete) var golfTournaments: [GolfTournament]?
     @Relationship(inverse: \Practice.athlete) var practices: [Practice]?
     @Relationship(inverse: \VideoClip.athlete) var videoClips: [VideoClip]?
     @Relationship(inverse: \AthleteStatistics.athlete) var statistics: AthleteStatistics?
@@ -147,7 +148,7 @@ final class Athlete {
         // Delete all games (and their video clips, stats)
         for game in games ?? [] {
             for clip in game.videoClips ?? [] {
-                clip.delete(in: context)
+                clip.delete(in: context, cleanupReels: false)
                 deletedClipIDs.insert(clip.id)
             }
             if let gameStats = game.gameStats {
@@ -159,7 +160,7 @@ final class Athlete {
         // Delete all practices (and their video clips, notes)
         for practice in practices ?? [] {
             for clip in practice.videoClips ?? [] where !deletedClipIDs.contains(clip.id) {
-                clip.delete(in: context)
+                clip.delete(in: context, cleanupReels: false)
                 deletedClipIDs.insert(clip.id)
             }
             for note in practice.notes ?? [] {
@@ -170,12 +171,18 @@ final class Athlete {
 
         // Delete remaining standalone video clips (not attached to a game or practice)
         for clip in videoClips ?? [] where !deletedClipIDs.contains(clip.id) {
-            clip.delete(in: context)
+            clip.delete(in: context, cleanupReels: false)
         }
 
         // Delete all photos (handles local files and cloud)
         for photo in photos ?? [] {
             photo.delete(in: context)
+        }
+
+        // Delete golf tournaments (SchemaV27). Rounds are deleted by the games
+        // loop above, so a plain delete is enough here — no need to unlink.
+        for tournament in golfTournaments ?? [] {
+            context.delete(tournament)
         }
 
         // Delete seasons and their statistics

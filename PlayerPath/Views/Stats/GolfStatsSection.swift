@@ -27,9 +27,18 @@ struct GolfStatsSection: View {
         } else {
             pool = athlete?.games ?? []
         }
-        return pool
-            .filter { $0.season?.sport == .golf && $0.totalScore != nil }
-            .sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
+        // Exclude in-progress (live) rounds and partially-scored rounds from
+        // averages — only complete rounds count (isGolfRoundScored), so a round
+        // ended after 3 of 18 holes doesn't show up as a "best" of 12. The
+        // value displayed for a counted round still comes from effectiveTotalScore.
+        // Broken into an explicit closure so the type-checker doesn't time out
+        // on the chained filter/sorted with optional unwraps.
+        let scored = pool.filter { (game: Game) -> Bool in
+            guard game.season?.sport == .golf else { return false }
+            guard !game.isLive else { return false }
+            return game.isGolfRoundScored
+        }
+        return scored.sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
     }
 
     /// Golf practice rounds with at least one scored hole. Season filter
@@ -52,7 +61,7 @@ struct GolfStatsSection: View {
 
     // MARK: - Derived metrics
 
-    private var tournamentScores: [Int] { tournamentRounds.compactMap { $0.totalScore } }
+    private var tournamentScores: [Int] { tournamentRounds.compactMap { $0.effectiveTotalScore } }
     private var practiceScores: [Int] {
         practiceRounds.map { practice in
             (practice.holeScores ?? []).reduce(0) { $0 + $1.score }
@@ -113,7 +122,7 @@ struct GolfStatsSection: View {
                 statTile(label: "Best", value: "\(best)", color: .green)
             }
             if let avg = tournamentAverage {
-                statTile(label: "Tournament Avg", value: String(format: "%.1f", avg))
+                statTile(label: "Round Avg", value: String(format: "%.1f", avg))
             }
             // Practice avg hides when zero practice rounds exist so a
             // tournament-only golfer doesn't see a stranded "—".
@@ -154,7 +163,7 @@ struct GolfStatsSection: View {
                     .foregroundColor(.secondary)
             } else {
                 Chart(Array(recent.enumerated()), id: \.element.id) { _, round in
-                    if let score = round.totalScore, let date = round.date {
+                    if let score = round.effectiveTotalScore, let date = round.date {
                         LineMark(
                             x: .value("Date", date),
                             y: .value("Score", score)

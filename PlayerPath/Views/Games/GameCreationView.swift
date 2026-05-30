@@ -19,7 +19,10 @@ struct GolfRoundDetails: Equatable {
 struct GameCreationView: View {
     @Environment(\.dismiss) private var dismiss
     let athlete: Athlete?
-    let onSave: (String, Date, Bool, Season?, GolfRoundDetails?, String?) -> Void
+    /// When set, this round is being added from a tournament's detail screen —
+    /// the tournament link is fixed and shown read-only (no picker). SchemaV27.
+    var preselectedTournament: GolfTournament? = nil
+    let onSave: (String, Date, Bool, Season?, GolfRoundDetails?, String?, GolfTournament?) -> Void
     private var activeSport: Season.SportType { athlete?.sportType ?? .baseball }
 
     @State private var opponent = ""
@@ -39,11 +42,21 @@ struct GameCreationView: View {
     @State private var golfParText: String = ""
     @State private var golfScoreText: String = ""
     @State private var golfLocation: String = ""
+    /// Tournament this round joins (golf only). Initialized from
+    /// `preselectedTournament`; otherwise chosen via the picker.
+    @State private var selectedTournament: GolfTournament?
+    @State private var didInitTournament = false
 
     private var isGolf: Bool { activeSport == .golf }
     private var primaryLabel: String { isGolf ? "Course" : "Opponent" }
-    private var sectionTitle: String { isGolf ? "Tournament Details" : "Game Details" }
-    private var titleText: String { isGolf ? "New Tournament" : "New Game" }
+    private var sectionTitle: String { isGolf ? "Round Details" : "Game Details" }
+    private var titleText: String { isGolf ? "New Round" : "New Game" }
+
+    /// Existing tournaments for this athlete, newest first — picker options.
+    private var availableTournaments: [GolfTournament] {
+        (athlete?.golfTournaments ?? [])
+            .sorted { ($0.startDate ?? $0.createdAt ?? .distantPast) > ($1.startDate ?? $1.createdAt ?? .distantPast) }
+    }
     private var recentLabel: String { isGolf ? "Recent Courses" : "Recent Opponents" }
     private var validationSubject: String { isGolf ? "Course" : "Opponent" }
     private var liveLabel: String { isGolf ? "Start as Live Round" : "Start as Live Game" }
@@ -163,6 +176,24 @@ struct GameCreationView: View {
                                 .frame(width: 100)
                         }
                     }
+
+                    // Tournament link (SchemaV27). Read-only when added from a
+                    // tournament's detail screen; otherwise an optional picker
+                    // among the athlete's existing tournaments.
+                    if let preselectedTournament {
+                        Section("Tournament") {
+                            LabeledContent("Tournament", value: preselectedTournament.name)
+                        }
+                    } else if !availableTournaments.isEmpty {
+                        Section("Tournament") {
+                            Picker("Tournament", selection: $selectedTournament) {
+                                Text("None").tag(GolfTournament?.none)
+                                ForEach(availableTournaments) { tournament in
+                                    Text(tournament.name).tag(GolfTournament?.some(tournament))
+                                }
+                            }
+                        }
+                    }
                 }
 
                 // Opponent Suggestions — show when there are matches and at least one differs from the current input.
@@ -259,9 +290,14 @@ struct GameCreationView: View {
                 }
             }
             .onAppear {
-                guard !didInitSeason else { return }
-                selectedSeason = athlete?.activeSeason
-                didInitSeason = true
+                if !didInitSeason {
+                    selectedSeason = athlete?.activeSeason
+                    didInitSeason = true
+                }
+                if !didInitTournament {
+                    selectedTournament = preselectedTournament
+                    didInitTournament = true
+                }
             }
             .onChange(of: selectedSeason) { _, newValue in
                 // Live mode is only valid on the active season
@@ -379,7 +415,10 @@ struct GameCreationView: View {
         let locationTrimmed = golfLocation.trimmingCharacters(in: .whitespacesAndNewlines)
         let location: String? = (isGolf && !locationTrimmed.isEmpty) ? locationTrimmed : nil
 
-        onSave(opponent.trimmingCharacters(in: .whitespacesAndNewlines), date, makeGameLive, selectedSeason, golf, location)
+        // Tournament link (SchemaV27): preselected wins, else the picker choice.
+        let tournament: GolfTournament? = isGolf ? (preselectedTournament ?? selectedTournament) : nil
+
+        onSave(opponent.trimmingCharacters(in: .whitespacesAndNewlines), date, makeGameLive, selectedSeason, golf, location, tournament)
         dismiss()
     }
 }

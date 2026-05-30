@@ -95,7 +95,11 @@ final class AutoHighlightSettings: ObservableObject {
         var changed = 0
         for clip in clips {
             guard let playResult = clip.playResult else {
-                // No play result — unmark any existing highlight flag
+                // No play result. Golf clips are manual-only highlights (golf
+                // never sets playResult), so a rescan must NOT clear them —
+                // skip without touching isHighlight/needsSync. Baseball clips
+                // with no play result still get unmarked as before.
+                if Self.clipIsGolf(clip) { continue }
                 if clip.isHighlight { clip.isHighlight = false; clip.needsSync = true; changed += 1 }
                 continue
             }
@@ -110,5 +114,15 @@ final class AutoHighlightSettings: ObservableObject {
         }
         if changed > 0 { try context.save() }
         return changed
+    }
+
+    /// True when a clip belongs to golf — by club tag or by golf-season
+    /// context. Used to exempt golf clips from the baseball rescan rules.
+    private static func clipIsGolf(_ clip: VideoClip) -> Bool {
+        if clip.club != nil { return true }
+        if clip.game?.season?.sport == .golf { return true }
+        if clip.practice?.season?.sport == .golf { return true }
+        if clip.season?.sport == .golf { return true }
+        return false
     }
 }

@@ -459,37 +459,5 @@ private func formatThreeDecimal(_ value: Double) -> String {
     formatBattingAverage(value)
 }
 
-// MARK: - Locked Feature Placeholder (entitlement guard)
-
-private struct LockedFeaturePlaceholder: View {
-    let message: String
-    @State private var showingPaywall = false
-    @EnvironmentObject private var authManager: ComprehensiveAuthManager
-
-    var body: some View {
-        VStack(spacing: 20) {
-            Spacer()
-            Image(systemName: "crown.fill")
-                .font(.system(size: 56))
-                .foregroundStyle(.yellow)
-            Text("Plus Feature")
-                .font(.displayMedium)
-            Text(message)
-                .font(.bodyMedium)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
-            Button("View Plans") { showingPaywall = true }
-                .buttonStyle(.borderedProminent)
-                .padding(.top, 4)
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(.systemGroupedBackground))
-        .sheet(isPresented: $showingPaywall) {
-            if let user = authManager.localUser {
-                ImprovedPaywallView(user: user)
-            }
-        }
-    }
-}
+// `LockedFeaturePlaceholder` lives in ComparisonComponents.swift — shared with
+// the golf comparison view.

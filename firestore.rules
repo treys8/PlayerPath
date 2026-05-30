@@ -208,6 +208,20 @@ service cloud.firestore {
       }
 
       // ======================================================================
+      // GOLF TOURNAMENTS SUBCOLLECTION (SchemaV27 — multi-round grouping)
+      // ======================================================================
+      //
+      // Per-athlete container that groups golf rounds (games carrying a
+      // `tournamentId`). Owner-only, mirroring seasons — no coach access; golf
+      // scoring/grouping is athlete-side in v6.x. No sport-lock needed.
+      match /golfTournaments/{tournamentID} {
+        allow read:   if isAuthenticated() && isOwner(userID);
+        allow create: if isAuthenticated() && isOwner(userID);
+        allow update: if isAuthenticated() && isOwner(userID);
+        allow delete: if isAuthenticated() && isOwner(userID);
+      }
+
+      // ======================================================================
       // GAMES SUBCOLLECTION
       // ======================================================================
 
@@ -248,7 +262,7 @@ service cloud.firestore {
         }
 
         // Per-hole golf scoring subcollection for practice rounds
-        // (SchemaV25). Wired up for PR3 when `practiceType` accepts
+        // (SchemaV25). Active in PR3 for practices whose `practiceType` is
         // "practice_round" — rules are owner-only either way.
         match /holes/{holeNumber} {
           allow read:   if isAuthenticated() && isOwner(userID);

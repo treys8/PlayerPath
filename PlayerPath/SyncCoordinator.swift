@@ -130,6 +130,8 @@ final class SyncCoordinator {
             guard self.shouldContinueSync(expectedUID: expectedUID) else { return }
             await self.isolatedSync("Seasons")    { try await self.syncSeasons(for: user) }
             guard self.shouldContinueSync(expectedUID: expectedUID) else { return }
+            await self.isolatedSync("GolfTournaments") { try await self.syncGolfTournaments(for: user) }
+            guard self.shouldContinueSync(expectedUID: expectedUID) else { return }
             await self.isolatedSync("Games")      { try await self.syncGames(for: user) }
             guard self.shouldContinueSync(expectedUID: expectedUID) else { return }
             await self.isolatedSync("Practices")  { try await self.syncPractices(for: user) }
@@ -223,6 +225,8 @@ final class SyncCoordinator {
             await self.isolatedSync("Athletes")   { try await self.syncAthletes(for: user) }
             guard self.shouldContinueSync(expectedUID: expectedUID) else { return }
             await self.isolatedSync("Seasons")    { try await self.syncSeasons(for: user) }
+            guard self.shouldContinueSync(expectedUID: expectedUID) else { return }
+            await self.isolatedSync("GolfTournaments") { try await self.syncGolfTournaments(for: user) }
             guard self.shouldContinueSync(expectedUID: expectedUID) else { return }
             await self.isolatedSync("Games")      { try await self.syncGames(for: user) }
             guard self.shouldContinueSync(expectedUID: expectedUID) else { return }
@@ -338,6 +342,8 @@ final class SyncCoordinator {
             await self.isolatedSync("FlushAthletes")  { try await self.uploadLocalAthletes(user, context: context) }
             if Task.isCancelled { return }
             await self.isolatedSync("FlushSeasons")    { try await self.uploadLocalSeasons(user, context: context) }
+            if Task.isCancelled { return }
+            await self.isolatedSync("FlushGolfTournaments") { try await self.uploadLocalGolfTournaments(user, context: context) }
             if Task.isCancelled { return }
             await self.isolatedSync("FlushGames")      { try await self.uploadLocalGames(user, context: context) }
             if Task.isCancelled { return }

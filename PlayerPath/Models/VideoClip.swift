@@ -194,8 +194,14 @@ final class VideoClip {
         return thumbnailPath
     }
 
-    /// Properly delete video clip with all associated files and data
-    @MainActor func delete(in context: ModelContext) {
+    /// Properly delete video clip with all associated files and data.
+    ///
+    /// `cleanupReels` (default true) strips this clip's id from any referencing
+    /// HighlightReel and soft-deletes a reel left empty (v6.1 S2). Pass `false`
+    /// from cascade/sync paths that already manage reels wholesale — notably the
+    /// remote-tombstone sync paths, where re-running cleanup would double-dirty
+    /// the same reel and race the inbound edit cross-device.
+    @MainActor func delete(in context: ModelContext, cleanupReels: Bool = true) {
         // Capture paths and file size before any deletion to avoid races.
         // Thumbnail path may be stored relative (new clips) or absolute (legacy) —
         // use the resolver so the file deletion targets an actual filesystem path.
@@ -274,6 +280,14 @@ final class VideoClip {
             }
         }
 
+        // v6.1 S2: drop this clip from any HighlightReel that references it, and
+        // soft-delete a reel left with no clips so it stops rendering an empty,
+        // user-undeletable card. Skipped on cascade/sync deletes (cleanupReels
+        // == false) that already manage reels wholesale — see those call sites.
+        if cleanupReels {
+            removeFromReferencingReels(in: context)
+        }
+
         // Delete associated play result. Stats recalculation is the caller's
         // responsibility — after `context.save()`, callers must call
         // `StatisticsService.recalculateGameStatistics` (if the clip had a game)
@@ -284,5 +298,32 @@ final class VideoClip {
 
         // Delete video clip database record
         context.delete(self)
+    }
+
+    /// Removes this clip's id from every HighlightReel that references it and
+    /// soft-deletes any reel left empty. Reels store clip ids as a denormalized
+    /// `[String]` with no SwiftData relationship, so we fetch flat and filter in
+    /// memory — the same idiom as ScoreHoleSheet.upsertReelIfNeeded. Each touched
+    /// reel is re-dirtied (version bump + needsSync) so the edit propagates; the
+    /// caller's save() persists it.
+    @MainActor
+    private func removeFromReferencingReels(in context: ModelContext) {
+        let clipIDString = id.uuidString
+        let referencing: [HighlightReel]
+        do {
+            let all = try context.fetch(FetchDescriptor<HighlightReel>())
+            referencing = all.filter { $0.clipIDs.contains(clipIDString) }
+        } catch {
+            modelsLog.error("Failed to fetch HighlightReels for clip-delete cleanup: \(error.localizedDescription)")
+            return
+        }
+        for reel in referencing {
+            reel.clipIDs.removeAll { $0 == clipIDString }
+            reel.version += 1
+            reel.needsSync = true
+            if reel.clipIDs.isEmpty {
+                reel.isDeletedRemotely = true
+            }
+        }
     }
 }

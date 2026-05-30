@@ -197,11 +197,15 @@ final class CoachSessionManager {
         }
     }
 
-    /// Transitions a scheduled session to live, ending any existing live session first.
+    /// Transitions a scheduled session to live, ending any existing active session first.
     func startScheduledSession(sessionID: String) async throws {
-        // End any existing live session to enforce one-active-session constraint
-        if let existing = activeSession, let existingID = existing.id, existing.status == .live {
-            try await endSession(sessionID: existingID)
+        // Complete any existing active session (live OR reviewing) so the newly started
+        // session is the only active one. The prior `== .live` check let a `.reviewing`
+        // session slip through, leaving two concurrent active sessions on the dashboard.
+        // status.isActive covers both states; completing preserves clips (already in the
+        // folder) — only the ability to resume recording into the old session is dropped.
+        if let existing = activeSession, let existingID = existing.id, existing.status.isActive {
+            try await completeSession(sessionID: existingID)
         }
 
         let now = Date()

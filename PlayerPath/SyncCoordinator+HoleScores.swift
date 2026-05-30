@@ -7,8 +7,9 @@
 //  rows. Keyed by (parent, holeNumber) — the Firestore doc id is the hole
 //  number string, so re-scoring is an upsert rather than a duplicate.
 //
-//  Practice-round sync is wired up but gated on `practiceType == "practice_round"`,
-//  which lands in PR3.
+//  Practice-round sync is active (PR3): hole rows are synced for practices
+//  whose `practiceType == "practice_round"`; range sessions and baseball
+//  practices carry no hole rows.
 //
 
 import Foundation

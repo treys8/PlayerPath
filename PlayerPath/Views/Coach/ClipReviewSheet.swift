@@ -158,13 +158,21 @@ struct ClipReviewSheet: View {
                             onTapDrawing: { drawing in showDrawing(for: drawing) }
                         )
 
-                        if video.createdAt != nil || (video.fileSize ?? 0) > 0 {
+                        if video.club != nil || video.holeNumber != nil || video.createdAt != nil || (video.fileSize ?? 0) > 0 {
                             VStack(spacing: 0) {
+                                if let club = video.club {
+                                    infoRow(label: "Club", value: club)
+                                }
+                                if let hole = video.holeNumber {
+                                    if video.club != nil { Divider().padding(.leading) }
+                                    infoRow(label: "Hole", value: "\(hole)")
+                                }
                                 if let createdAt = video.createdAt {
+                                    if video.club != nil || video.holeNumber != nil { Divider().padding(.leading) }
                                     infoRow(label: "Recorded", value: createdAt.formatted(date: .abbreviated, time: .shortened))
                                 }
                                 if let fileSize = video.fileSize, fileSize > 0 {
-                                    if video.createdAt != nil { Divider().padding(.leading) }
+                                    if video.club != nil || video.holeNumber != nil || video.createdAt != nil { Divider().padding(.leading) }
                                     infoRow(label: "Size", value: ByteCountFormatter.string(fromByteCount: fileSize, countStyle: .file))
                                 }
                             }

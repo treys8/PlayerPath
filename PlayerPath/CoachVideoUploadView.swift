@@ -665,7 +665,7 @@ struct VideoPickerTransferable: Transferable {
         FileRepresentation(contentType: .movie) { video in
             SentTransferredFile(video.url)
         } importing: { received in
-            let copy = URL.documentsDirectory.appending(path: "imported_\(UUID().uuidString).mov")
+            let copy = FileManager.default.temporaryDirectory.appending(path: "imported_\(UUID().uuidString).mov")
             try FileManager.default.copyItem(at: received.file, to: copy)
             return Self(url: copy)
         }

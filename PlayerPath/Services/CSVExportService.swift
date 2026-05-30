@@ -32,6 +32,9 @@ final class CSVExportService {
         guard StoreKitManager.shared.currentTier >= .plus else {
             throw CSVExportError.subscriptionRequired
         }
+        if athlete.sport == .golf {
+            return golfScoringCSV(for: athlete)
+        }
         var csv = "Athlete Statistics Export\n"
         csv += "Generated: \(Date().formatted(date: .long, time: .standard))\n\n"
 
@@ -108,6 +111,10 @@ final class CSVExportService {
     func exportGameLog(for athlete: Athlete, season: Season? = nil) throws -> String {
         guard StoreKitManager.shared.currentTier >= .plus else {
             throw CSVExportError.subscriptionRequired
+        }
+        let isGolf = season.map { $0.sport == .golf } ?? (athlete.sport == .golf)
+        if isGolf {
+            return golfRoundLogCSV(for: athlete, season: season)
         }
         var csv = "Game Log Export\n"
         csv += "Generated: \(Date().formatted(date: .long, time: .standard))\n"
@@ -229,6 +236,9 @@ final class CSVExportService {
         guard StoreKitManager.shared.currentTier >= .plus else {
             throw CSVExportError.subscriptionRequired
         }
+        if season.sport == .golf {
+            return golfSeasonSummaryCSV(for: season)
+        }
         var csv = "Season Summary Export\n"
         csv += "Generated: \(Date().formatted(date: .long, time: .standard))\n\n"
 
@@ -287,6 +297,100 @@ final class CSVExportService {
             }
         }
 
+        return csv
+    }
+
+    // MARK: - Golf CSV
+
+    private func golfScoringCSV(for athlete: Athlete) -> String {
+        var csv = "Golf Scoring Export\n"
+        csv += "Generated: \(Date().formatted(date: .long, time: .standard))\n\n"
+        csv += "Athlete Name,\(escapeCSV(athlete.name))\n"
+        if let createdAt = athlete.createdAt {
+            csv += "Profile Created,\(createdAt.formatted(date: .abbreviated, time: .omitted))\n"
+        }
+        csv += "\n"
+
+        let summary = GolfExportData.summary(for: athlete, season: nil)
+        csv += "Scoring Summary\n"
+        csv += "Metric,Value\n"
+        csv += "Total Rounds,\(summary.totalRounds)\n"
+        csv += "Best Score,\(summary.bestScore.map { "\($0)" } ?? "—")\n"
+        csv += "Worst Score,\(summary.worstScore.map { "\($0)" } ?? "—")\n"
+        csv += "Tournament Average,\(summary.tournamentAverage.map { String(format: "%.1f", $0) } ?? "—")\n"
+        csv += "Practice Average,\(summary.practiceAverage.map { String(format: "%.1f", $0) } ?? "—")\n"
+        csv += "\n"
+
+        let tournaments = GolfExportData.tournamentRounds(for: athlete, season: nil)
+        if !tournaments.isEmpty {
+            csv += "Tournament Rounds\n"
+            csv += golfRoundsTable(tournaments)
+            csv += "\n"
+        }
+
+        let practices = GolfExportData.practiceRounds(for: athlete, season: nil)
+        if !practices.isEmpty {
+            csv += "Practice Rounds\n"
+            csv += golfRoundsTable(practices)
+        }
+        return csv
+    }
+
+    private func golfRoundLogCSV(for athlete: Athlete, season: Season?) -> String {
+        var csv = "Golf Round Log\n"
+        csv += "Generated: \(Date().formatted(date: .long, time: .standard))\n"
+        csv += "Athlete: \(escapeCSV(athlete.name))\n"
+        if let season { csv += "Season: \(escapeCSV(season.displayName))\n" }
+        csv += "\n"
+        csv += golfRoundsTable(GolfExportData.tournamentRounds(for: athlete, season: season))
+        return csv
+    }
+
+    private func golfSeasonSummaryCSV(for season: Season) -> String {
+        var csv = "Golf Season Summary\n"
+        csv += "Generated: \(Date().formatted(date: .long, time: .standard))\n\n"
+        csv += "Season Name,\(escapeCSV(season.displayName))\n"
+        if let startDate = season.startDate {
+            csv += "Start Date,\(startDate.formatted(date: .abbreviated, time: .omitted))\n"
+        }
+        if let endDate = season.endDate {
+            csv += "End Date,\(endDate.formatted(date: .abbreviated, time: .omitted))\n"
+        }
+        csv += "Status,\(season.isActive ? "Active" : "Completed")\n"
+        csv += "Sport,\((season.sport ?? .baseball).displayName)\n\n"
+
+        if let athlete = season.athlete {
+            let summary = GolfExportData.summary(for: athlete, season: season)
+            csv += "Scoring Summary\n"
+            csv += "Metric,Value\n"
+            csv += "Total Rounds,\(summary.totalRounds)\n"
+            csv += "Best Score,\(summary.bestScore.map { "\($0)" } ?? "—")\n"
+            csv += "Worst Score,\(summary.worstScore.map { "\($0)" } ?? "—")\n"
+            csv += "Tournament Average,\(summary.tournamentAverage.map { String(format: "%.1f", $0) } ?? "—")\n"
+            csv += "Practice Average,\(summary.practiceAverage.map { String(format: "%.1f", $0) } ?? "—")\n\n"
+
+            let tournaments = GolfExportData.tournamentRounds(for: athlete, season: season)
+            if !tournaments.isEmpty {
+                csv += "Tournament Rounds\n"
+                csv += golfRoundsTable(tournaments)
+            }
+        }
+        return csv
+    }
+
+    /// Renders a golf rounds block: header row + one line per round.
+    private func golfRoundsTable(_ rounds: [GolfRoundRow]) -> String {
+        var csv = "Date,Course,Holes,Par,Score,To Par,Putts\n"
+        for r in rounds {
+            let dateStr = r.date?.formatted(date: .abbreviated, time: .omitted) ?? "Unknown"
+            csv += "\(dateStr),"
+            csv += "\(escapeCSV(r.course)),"
+            csv += "\(r.holes),"
+            csv += "\(r.par.map { "\($0)" } ?? "-"),"
+            csv += "\(r.score.map { "\($0)" } ?? "-"),"
+            csv += "\(r.toParString),"
+            csv += "\(r.putts.map { "\($0)" } ?? "-")\n"
+        }
         return csv
     }
 

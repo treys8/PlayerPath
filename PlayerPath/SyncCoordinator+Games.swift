@@ -118,6 +118,7 @@ extension SyncCoordinator {
             (athlete.seasons?.flatMap { $0.games ?? [] } ?? []) + (athlete.games ?? [])
         }
         let allLocalSeasons = athletes.flatMap { $0.seasons ?? [] }
+        let allLocalTournaments = athletes.flatMap { $0.golfTournaments ?? [] }
 
         // Detect games deleted on another device. Cascade matches GameService.deleteGameDeep:
         // videoClips, photos, and gameStats are removed locally. Firestore deletion is not
@@ -146,7 +147,10 @@ extension SyncCoordinator {
                 if let athlete = localGame.athlete {
                     athletesAffectedByGameDeletion.insert(athlete.persistentModelID)
                 }
-                for clip in localGame.videoClips ?? [] { clip.delete(in: context) }
+                // cleanupReels: false — the originating device already stripped
+                // these clips from their reels and synced that edit; re-running
+                // cleanup here would re-dirty the same reel and race the tombstone.
+                for clip in localGame.videoClips ?? [] { clip.delete(in: context, cleanupReels: false) }
                 for photo in localGame.photos ?? [] { photo.delete(in: context) }
                 if let gameStats = localGame.gameStats { context.delete(gameStats) }
                 context.delete(localGame)
@@ -180,6 +184,15 @@ extension SyncCoordinator {
             let parentSeason = allLocalSeasons.first {
                 if let seasonId = remoteGame.seasonId {
                     return $0.id.uuidString == seasonId || $0.firestoreId == seasonId
+                }
+                return false
+            }
+
+            // Find parent golf tournament by tournamentId (optional, SchemaV27).
+            // Resolves like parentSeason — by local UUID or firestoreId.
+            let parentTournament = allLocalTournaments.first {
+                if let tournamentId = remoteGame.tournamentId {
+                    return $0.id.uuidString == tournamentId || $0.firestoreId == tournamentId
                 }
                 return false
             }
@@ -248,6 +261,20 @@ extension SyncCoordinator {
                     if local.holes != remoteGame.holes { local.holes = remoteGame.holes; changed = true }
                     if local.par != remoteGame.par { local.par = remoteGame.par; changed = true }
                     if local.totalScore != remoteGame.totalScore { local.totalScore = remoteGame.totalScore; changed = true }
+                    if local.roundNumber != remoteGame.roundNumber { local.roundNumber = remoteGame.roundNumber; changed = true }
+                    // Re-link tournament (SchemaV27): attach when the parent is
+                    // resolved locally, detach only when the remote explicitly
+                    // cleared it. If the remote points at a tournament not yet
+                    // downloaded, leave local untouched — GolfTournaments sync
+                    // runs before Games, so the next pass resolves it.
+                    let localTournamentId = local.tournament?.firestoreId ?? local.tournament?.id.uuidString
+                    if remoteGame.tournamentId != localTournamentId {
+                        if let parentTournament {
+                            local.tournament = parentTournament; changed = true
+                        } else if remoteGame.tournamentId == nil {
+                            local.tournament = nil; changed = true
+                        }
+                    }
                     if local.version != remoteGame.version { local.version = remoteGame.version; changed = true }
                     applyRemoteStats(remoteGame, to: local, context: context)
                     if changed {
@@ -271,12 +298,14 @@ extension SyncCoordinator {
                 newGame.holes = remoteGame.holes
                 newGame.par = remoteGame.par
                 newGame.totalScore = remoteGame.totalScore
+                newGame.roundNumber = remoteGame.roundNumber
                 newGame.createdAt = remoteGame.createdAt
                 newGame.lastSyncDate = Date()
                 newGame.needsSync = false
                 newGame.version = remoteGame.version
                 newGame.athlete = athlete
                 newGame.season = parentSeason
+                newGame.tournament = parentTournament
                 context.insert(newGame)
                 newGamesThisPass.append(newGame)
                 applyRemoteStats(remoteGame, to: newGame, context: context)

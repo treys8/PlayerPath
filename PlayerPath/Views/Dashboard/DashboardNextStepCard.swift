@@ -35,7 +35,7 @@ struct DashboardNextStepCard: View {
 
         func title(for sport: Season.SportType) -> String {
             switch self {
-            case .createGame: return sport == .golf ? "Log Your First Tournament" : "Log Your First Game"
+            case .createGame: return sport == .golf ? "Log Your First Round" : "Log Your First Game"
             case .recordVideo: return "Record Your First Video"
             }
         }
@@ -44,7 +44,7 @@ struct DashboardNextStepCard: View {
             switch self {
             case .createGame:
                 return sport == .golf
-                    ? "Start tracking your rounds and scores by creating a tournament"
+                    ? "Start tracking your scores by logging a round"
                     : "Start tracking your at-bats and stats by creating a game"
             case .recordVideo: return "Record your swing to review your mechanics"
             }

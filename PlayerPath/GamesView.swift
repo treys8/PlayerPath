@@ -25,6 +25,9 @@ struct GamesView: View {
     // Query games for the current athlete only — avoids loading all games across athletes
     private let athleteID: UUID?
     @Query private var allGames: [Game]
+    /// Golf tournaments for this athlete (SchemaV27). Rendered as cards above the
+    /// standalone rounds when the athlete is in golf mode.
+    @Query private var golfTournaments: [GolfTournament]
 
     init(athlete: Athlete?) {
         self.athlete = athlete
@@ -35,8 +38,13 @@ struct GamesView: View {
                 filter: #Predicate<Game> { $0.athlete?.id == id },
                 sort: [SortDescriptor(\Game.date, order: .reverse)]
             )
+            self._golfTournaments = Query(
+                filter: #Predicate<GolfTournament> { $0.athlete?.id == id },
+                sort: [SortDescriptor(\GolfTournament.startDate, order: .reverse)]
+            )
         } else {
             self._allGames = Query(sort: [SortDescriptor(\Game.date, order: .reverse)])
+            self._golfTournaments = Query(sort: [SortDescriptor(\GolfTournament.startDate, order: .reverse)])
         }
     }
     
@@ -62,6 +70,8 @@ struct GamesView: View {
     
     // Game creation states
     @State private var showingGameCreation = false
+    /// Presents the multi-round tournament creation sheet (golf only, SchemaV27).
+    @State private var showingTournamentCreation = false
 
     // Season check states
     @State private var showingSeasonCreation = false
@@ -89,7 +99,8 @@ struct GamesView: View {
     private var hasGames: Bool {
         guard let vm = viewModelHolder.viewModel else { return false }
         return !vm.liveGames.isEmpty || !vm.upcomingGames.isEmpty ||
-               !vm.pastGames.isEmpty || !vm.completedGames.isEmpty
+               !vm.pastGames.isEmpty || !vm.completedGames.isEmpty ||
+               (isGolf && !golfTournaments.isEmpty)
     }
 
     // Check if filters are active
@@ -98,9 +109,27 @@ struct GamesView: View {
         !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    // Check if we have any filtered results
+    // Check if we have any filtered results. Golf tournaments count too — a
+    // golf athlete whose only content is a tournament (no standalone rounds)
+    // must still see the list (with its tournament cards), not the empty state.
     private var hasFilteredResults: Bool {
+        (isGolf && !visibleTournaments.isEmpty) ||
         !cachedLiveGames.isEmpty || !cachedUpcomingGames.isEmpty || !cachedPastGames.isEmpty || !cachedCompletedGames.isEmpty
+    }
+
+    /// Tournaments shown in the list — the @Query set narrowed by the search box
+    /// so a search that matches no tournament/round correctly reaches the
+    /// "no results" state. Season filter is intentionally not applied:
+    /// tournaments are a season-agnostic grouping (SchemaV27).
+    private var visibleTournaments: [GolfTournament] {
+        guard isGolf else { return [] }
+        let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return golfTournaments }
+        let query = trimmed.lowercased()
+        return golfTournaments.filter { tournament in
+            tournament.name.lowercased().contains(query) ||
+            (tournament.location?.lowercased().contains(query) ?? false)
+        }
     }
 
     private func updateFilteredGames() {
@@ -133,8 +162,8 @@ struct GamesView: View {
     private var gameCreationSheet: some View {
         GameCreationView(
             athlete: athlete,
-            onSave: { opponent, date, isLive, season, golf, location in
-                createGame(opponent: opponent, date: date, isLive: isLive, season: season, golf: golf, location: location)
+            onSave: { opponent, date, isLive, season, golf, location, tournament in
+                createGame(opponent: opponent, date: date, isLive: isLive, season: season, golf: golf, location: location, tournament: tournament)
             }
         )
     }
@@ -160,6 +189,16 @@ struct GamesView: View {
             // No-season games match when active sport equals the athlete's hint.
             let hint = Season.SportType(rawValue: (game.athlete?.sport ?? .baseball).rawValue.capitalized) ?? .baseball
             return hint == activeSport
+        }
+
+        // Golf rounds that belong to a tournament are shown under their
+        // tournament card (TournamentDetailView), not in the flat round list —
+        // exclude them here so they don't double-appear (SchemaV27). A LIVE
+        // tournament round is exempt: it still surfaces in the Live section so
+        // it can be resumed from the most discoverable place (it also remains
+        // reachable inside its tournament card).
+        if isGolf {
+            filtered = filtered.filter { $0.tournament == nil || $0.isLive }
         }
 
         // Filter by season
@@ -252,7 +291,10 @@ struct GamesView: View {
         var parts: [String] = []
 
         if isGolf {
-            let scored = cachedCompletedGames.compactMap { $0.totalScore }
+            // Only complete rounds count; value derives from per-hole rows when present.
+            let scored = cachedCompletedGames
+                .filter { $0.isGolfRoundScored }
+                .compactMap { $0.effectiveTotalScore }
             guard !scored.isEmpty else { return nil }
             let total = scored.reduce(0, +)
             let avg = Double(total) / Double(scored.count)
@@ -318,6 +360,18 @@ struct GamesView: View {
             .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)
             .listRowInsets(EdgeInsets(top: 0, leading: 4, bottom: 0, trailing: 4))
+        }
+
+        // Tournaments Section (golf only) — multi-round containers above the
+        // standalone rounds. Sorted newest-first by the @Query (SchemaV27).
+        if isGolf && !visibleTournaments.isEmpty {
+            Section("Tournaments") {
+                ForEach(visibleTournaments) { tournament in
+                    NavigationLink(destination: TournamentDetailView(tournament: tournament)) {
+                        TournamentRow(tournament: tournament)
+                    }
+                }
+            }
         }
 
         // Live Games Section
@@ -478,10 +532,30 @@ struct GamesView: View {
             .searchable(text: $searchText, prompt: searchPrompt)
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
+                    if isGolf {
+                        // Golf now has two creatable things: a standalone round
+                        // or a multi-round tournament (SchemaV27).
+                        Menu {
+                            Button {
+                                handleAddGame()
+                            } label: {
+                                Label("New Round", systemImage: "flag")
+                            }
+                            Button {
+                                showingTournamentCreation = true
+                            } label: {
+                                Label("New Tournament", systemImage: "trophy")
+                            }
+                        } label: {
+                            Image(systemName: "plus")
+                        }
+                        .accessibilityLabel("Add new round or tournament")
+                    } else {
                     Button(action: { handleAddGame() }) {
                         Image(systemName: "plus")
                     }
                     .accessibilityLabel(addAccessibilityLabel)
+                    }
                 }
 
                 if hasGames {
@@ -557,6 +631,9 @@ struct GamesView: View {
             .sheet(isPresented: $showingSeasonCreation) {
                 seasonCreationSheet
             }
+            .sheet(isPresented: $showingTournamentCreation) {
+                TournamentCreationView(athlete: athlete)
+            }
             .alert(item: $activeAlert) { alertType in
                 switch alertType {
                 case .error:
@@ -580,7 +657,7 @@ struct GamesView: View {
                 handleAddGame()
             }
             .confirmationDialog(
-                isGolf ? "Delete Tournament" : "Delete Game",
+                isGolf ? "Delete Round" : "Delete Game",
                 isPresented: $showingDeleteGameConfirmation,
                 presenting: gameToDelete
             ) { game in
@@ -620,7 +697,7 @@ struct GamesView: View {
         refreshGames()
     }
     
-    private func createGame(opponent: String, date: Date, isLive: Bool, season: Season? = nil, golf: GolfRoundDetails? = nil, location: String? = nil) {
+    private func createGame(opponent: String, date: Date, isLive: Bool, season: Season? = nil, golf: GolfRoundDetails? = nil, location: String? = nil, tournament: GolfTournament? = nil) {
         viewModelHolder.viewModel?.create(
             opponent: opponent,
             date: date,
@@ -628,6 +705,7 @@ struct GamesView: View {
             season: season,
             golfDetails: golf,
             location: location,
+            tournament: tournament,
             onError: { errorMessage in
                 showError(errorMessage)
             }

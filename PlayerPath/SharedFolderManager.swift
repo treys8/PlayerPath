@@ -515,6 +515,7 @@ class SharedFolderManager {
         pitchSpeed: Double? = nil,
         pitchType: String? = nil,
         club: String? = nil,
+        holeNumber: Int? = nil,
         seasonName: String? = nil,
         athleteName: String? = nil,
         isHighlight: Bool = false,
@@ -550,6 +551,7 @@ class SharedFolderManager {
             pitchSpeed: pitchSpeed,
             pitchType: pitchType,
             club: club,
+            holeNumber: holeNumber,
             seasonName: seasonName,
             athleteName: athleteName,
             isHighlight: isHighlight

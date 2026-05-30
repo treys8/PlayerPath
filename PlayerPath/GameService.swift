@@ -51,7 +51,7 @@ class GameService {
         // Delete all video clips — VideoClip.delete handles local files, thumbnails,
         // cloud storage, and play results. SwiftData handles inverse relationship cleanup.
         for clip in game.videoClips ?? [] {
-            clip.delete(in: modelContext)
+            clip.delete(in: modelContext, cleanupReels: false)
         }
 
         // Delete all photos associated with this game — Photo.delete handles local files
@@ -152,7 +152,7 @@ class GameService {
         }
     }
 
-    func createGame(for athlete: Athlete, opponent: String, date: Date, isLive: Bool, season: Season? = nil, allowWithoutSeason: Bool = false, golfDetails: GolfRoundDetails? = nil, location: String? = nil) async -> Result<Game, GameCreationError> {
+    func createGame(for athlete: Athlete, opponent: String, date: Date, isLive: Bool, season: Season? = nil, allowWithoutSeason: Bool = false, golfDetails: GolfRoundDetails? = nil, location: String? = nil, tournament: GolfTournament? = nil) async -> Result<Game, GameCreationError> {
         // Resolve target season: caller-supplied override wins, otherwise active.
         let resolvedSeason = season ?? athlete.activeSeason
         let hasSeason = resolvedSeason != nil
@@ -212,6 +212,16 @@ class GameService {
         }
         if let location {
             game.location = location
+        }
+
+        // Multi-round tournament link (SchemaV27). When this round joins a
+        // tournament, assign the next round number (max existing + 1) so rounds
+        // order stably even if added out of sequence.
+        if let tournament {
+            game.tournament = tournament
+            let maxRound = (tournament.rounds ?? []).compactMap { $0.roundNumber }.max() ?? 0
+            game.roundNumber = maxRound + 1
+            tournament.needsSync = true
         }
 
         // Create and link statistics

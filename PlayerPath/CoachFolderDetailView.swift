@@ -745,9 +745,14 @@ private struct FolderSheetsModifier: ViewModifier {
                     await viewModel.loadVideos()
                 }
             }) {
-                VideoTagEditor(selectedTags: $editingTags, drillType: $editingDrillType, onSave: {
-                    tagEditorDidSave = true
-                })
+                VideoTagEditor(
+                    selectedTags: $editingTags,
+                    drillType: $editingDrillType,
+                    isGolf: editingVideoTags.map { $0.club != nil || $0.holeNumber != nil } ?? false,
+                    onSave: {
+                        tagEditorDidSave = true
+                    }
+                )
             }
     }
 }

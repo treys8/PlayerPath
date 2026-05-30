@@ -45,6 +45,10 @@ final class CoachVideoCacheService {
         // Download with progress tracking
         downloadProgress = 0
         let (tempURL, response) = try await URLSession.shared.download(from: signedURL)
+        // URLSession writes a temp file the caller owns. On any throw below (expired URL,
+        // bad status) we'd leak it until the OS reclaims temp; clean it up unconditionally.
+        // After a successful moveItem the temp is gone, so this is a no-op on the happy path.
+        defer { try? FileManager.default.removeItem(at: tempURL) }
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw URLError(.badServerResponse)

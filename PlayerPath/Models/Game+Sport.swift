@@ -20,4 +20,14 @@ extension Game {
 
     /// Full prefixed label, e.g. "at SCC" or "vs Rangers".
     var opponentLabel: String { "\(opponentPrefix) \(opponent)" }
+
+    /// User-facing noun for a single event. A golf game is a "Round" — the word
+    /// "Tournament" now belongs to the multi-round `GolfTournament` container
+    /// (SchemaV27), so a standalone golf game must NOT be called a tournament.
+    /// Baseball/softball keep "Game". (Scoped down-payment on the A1 SportLabels
+    /// refactor — route single-event label sites through this.)
+    var eventNoun: String { isGolf ? "Round" : "Game" }
+
+    /// Lowercased variant for mid-sentence copy ("delete this round").
+    var eventNounLowercased: String { eventNoun.lowercased() }
 }

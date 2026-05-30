@@ -1,0 +1,216 @@
+//
+//  GolfExportData.swift
+//  PlayerPath
+//
+//  Single source of golf scoring rows + summary for the CSV/PDF export
+//  stacks. Mirrors GolfStatsSection's round pools and Stream A's derived
+//  totals so an exported document never disagrees with the in-app Stats
+//  screen. No rendering here — the CSV/PDF services format these values.
+//
+
+import Foundation
+
+/// One golf round's exportable scoring line. Greens-in-regulation and
+/// fairways-hit are not tracked yet (no model fields); when they land they
+/// become two more stored properties here and two more rendered columns —
+/// callers don't change shape. That's the reason this is a struct, not a
+/// pile of parallel arrays.
+struct GolfRoundRow {
+    let date: Date?
+    let course: String
+    let holes: Int
+    let par: Int?
+    let score: Int?
+    let putts: Int?
+
+    /// Signed strokes relative to par; nil when either side is unknown.
+    var toPar: Int? {
+        guard let score, let par else { return nil }
+        return score - par
+    }
+
+    /// "E" / "+3" / "-2" / "—" for display.
+    var toParString: String {
+        guard let toPar else { return "—" }
+        if toPar == 0 { return "E" }
+        return toPar > 0 ? "+\(toPar)" : "\(toPar)"
+    }
+}
+
+/// Career/season scoring roll-up — same five numbers GolfStatsSection shows.
+struct GolfExportSummary {
+    let totalRounds: Int
+    let bestScore: Int?
+    let worstScore: Int?
+    let tournamentAverage: Double?
+    let practiceAverage: Double?
+}
+
+/// Per-season golf roll-up for the season-comparison view. Computed over
+/// 18-hole tournament rounds only: comparing a 9-hole average against an
+/// 18-hole one is meaningless, and practice rounds aren't competitive scores.
+/// Every value is nil when the season has no qualifying rounds so the UI can
+/// show an empty state rather than a misleading zero.
+struct GolfSeasonSummary {
+    let rounds: Int
+    let bestScore: Int?
+    let avgScore: Double?
+    let avgToPar: Double?
+    let avgPutts: Double?
+    let birdiesPerRound: Double?
+}
+
+/// One scoring-distribution bucket for the per-hole chart. `order` drives both
+/// the x-axis sort and Identifiable so two equal labels can't collide.
+struct GolfScoreBucket: Identifiable {
+    let order: Int
+    let label: String
+    let count: Int
+    var id: Int { order }
+}
+
+enum GolfExportData {
+    /// Scored tournament rounds (golf-season `Game`s), newest first. Matches
+    /// GolfStatsSection.tournamentRounds: golf season, not live, fully scored.
+    /// When `season` is non-nil only that season's games count.
+    static func tournamentRounds(for athlete: Athlete, season: Season?) -> [GolfRoundRow] {
+        let pool: [Game] = season?.games ?? athlete.games ?? []
+        let scored = pool.filter { (g: Game) -> Bool in
+            guard g.season?.sport == .golf else { return false }
+            guard !g.isLive else { return false }
+            return g.isGolfRoundScored
+        }
+        return scored
+            .sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
+            .map { game in
+                GolfRoundRow(
+                    date: game.date,
+                    course: game.opponent.isEmpty ? "Unknown Course" : game.opponent,
+                    holes: game.holes ?? (game.holeScores ?? []).count,
+                    par: game.effectivePar,
+                    score: game.effectiveTotalScore,
+                    putts: puttsTotal(game.holeScores)
+                )
+            }
+    }
+
+    /// Golf practice rounds with ≥1 scored hole, newest first. Mirrors
+    /// GolfStatsSection.practiceRounds. Practice has no course-par field, so
+    /// par is derived from the per-hole pars.
+    static func practiceRounds(for athlete: Athlete, season: Season?) -> [GolfRoundRow] {
+        let pool: [Practice] = season?.practices ?? athlete.practices ?? []
+        let scored = pool.filter { (p: Practice) -> Bool in
+            p.practiceType == PracticeType.practiceRound.rawValue
+                && !(p.holeScores ?? []).isEmpty
+        }
+        return scored
+            .sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
+            .map { practice in
+                let holes = practice.holeScores ?? []
+                return GolfRoundRow(
+                    date: practice.date,
+                    course: practice.course ?? "Practice Round",
+                    holes: practice.holes ?? holes.count,
+                    par: parTotal(practice.holeScores),
+                    score: holes.reduce(0) { $0 + $1.score },
+                    putts: puttsTotal(practice.holeScores)
+                )
+            }
+    }
+
+    /// Five-number scoring summary across both pools (matches GolfStatsSection).
+    static func summary(for athlete: Athlete, season: Season?) -> GolfExportSummary {
+        let tScores = tournamentRounds(for: athlete, season: season).compactMap { $0.score }
+        let pScores = practiceRounds(for: athlete, season: season).compactMap { $0.score }
+        let all = tScores + pScores
+        return GolfExportSummary(
+            totalRounds: all.count,
+            bestScore: all.min(),
+            worstScore: all.max(),
+            tournamentAverage: tScores.isEmpty ? nil
+                : Double(tScores.reduce(0, +)) / Double(tScores.count),
+            practiceAverage: pScores.isEmpty ? nil
+                : Double(pScores.reduce(0, +)) / Double(pScores.count)
+        )
+    }
+
+    // MARK: - Charts & comparison support (golf Plus parity)
+
+    /// Scored, non-live tournament `Game`s for the pool, newest first — the
+    /// same membership test as `tournamentRounds`, but returning the models so
+    /// callers can reach per-hole `holeScores`. Pass `holes: 18` to drop
+    /// 9-hole rounds when an average must stay on one scale.
+    static func scoredTournamentGames(for athlete: Athlete, season: Season?, holes: Int? = nil) -> [Game] {
+        let pool: [Game] = season?.games ?? athlete.games ?? []
+        let scored = pool.filter { (g: Game) -> Bool in
+            guard g.season?.sport == .golf else { return false }
+            guard !g.isLive else { return false }
+            guard g.isGolfRoundScored else { return false }
+            guard let holes else { return true }
+            return holeCount(of: g) == holes
+        }
+        return scored.sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
+    }
+
+    /// Hole count for a round: the declared `holes`, else the number of scored
+    /// holes. Pulled out so `scoredTournamentGames`' filter type-checks fast.
+    private static func holeCount(of game: Game) -> Int {
+        if let holes = game.holes { return holes }
+        return (game.holeScores ?? []).count
+    }
+
+    /// Comparison roll-up for one season, over 18-hole tournament rounds only.
+    static func seasonSummary(for athlete: Athlete, season: Season?) -> GolfSeasonSummary {
+        let games = scoredTournamentGames(for: athlete, season: season, holes: 18)
+        let scores = games.compactMap { $0.effectiveTotalScore }
+        let toPars: [Int] = games.compactMap { g in
+            guard let s = g.effectiveTotalScore, let p = g.effectivePar else { return nil }
+            return s - p
+        }
+        let puttRounds = games.compactMap { puttsTotal($0.holeScores) }
+        let birdieCounts = games.map { g in (g.holeScores ?? []).filter { $0.isBirdieOrBetter }.count }
+
+        func avg(_ xs: [Int]) -> Double? {
+            xs.isEmpty ? nil : Double(xs.reduce(0, +)) / Double(xs.count)
+        }
+
+        return GolfSeasonSummary(
+            rounds: games.count,
+            bestScore: scores.min(),
+            avgScore: avg(scores),
+            avgToPar: avg(toPars),
+            avgPutts: avg(puttRounds),
+            birdiesPerRound: birdieCounts.isEmpty ? nil
+                : Double(birdieCounts.reduce(0, +)) / Double(birdieCounts.count)
+        )
+    }
+
+    /// Buckets every scored hole into Eagle+/Birdie/Par/Bogey/Double+ for the
+    /// distribution chart. Per-hole, so 9- and 18-hole rounds pool safely.
+    static func scoreDistribution(_ holeScores: [HoleScore]) -> [GolfScoreBucket] {
+        var counts = [0, 0, 0, 0, 0] // eagle+, birdie, par, bogey, double+
+        for h in holeScores where h.score > 0 {
+            switch h.diff {
+            case ...(-2): counts[0] += 1
+            case -1:      counts[1] += 1
+            case 0:       counts[2] += 1
+            case 1:       counts[3] += 1
+            default:      counts[4] += 1
+            }
+        }
+        let labels = ["Eagle+", "Birdie", "Par", "Bogey", "Double+"]
+        return labels.enumerated().map {
+            GolfScoreBucket(order: $0.offset, label: $0.element, count: counts[$0.offset])
+        }
+    }
+
+    private static func parTotal(_ holeScores: [HoleScore]?) -> Int? {
+        let holes = holeScores ?? []
+        return holes.isEmpty ? nil : holes.reduce(0) { $0 + $1.par }
+    }
+
+    private static func puttsTotal(_ holeScores: [HoleScore]?) -> Int? {
+        let recorded = (holeScores ?? []).compactMap { $0.putts }
+        return recorded.isEmpty ? nil : recorded.reduce(0, +)
+    }
+}

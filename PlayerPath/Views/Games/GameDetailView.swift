@@ -29,8 +29,10 @@ struct GameDetailView: View {
     @State private var scoreHoleTarget: ScoreHoleTarget? = nil
 
     private var isGolf: Bool { game.season?.sport == .golf }
-    private var unitNoun: String { isGolf ? "Tournament" : "Game" }
-    private var unitNounLower: String { isGolf ? "tournament" : "game" }
+    // A single golf game is a "Round" — "Tournament" now means the multi-round
+    // GolfTournament container (SchemaV27).
+    private var unitNoun: String { isGolf ? "Round" : "Game" }
+    private var unitNounLower: String { isGolf ? "round" : "game" }
 
     // Bulk import from Photos — state owned by BulkImportAttach modifier.
     @State private var importTrigger = false
@@ -48,17 +50,20 @@ struct GameDetailView: View {
         (game.holeScores ?? []).sorted { $0.holeNumber < $1.holeNumber }
     }
 
-    /// Next unscored hole (1…holes), used for the live "Score Hole X" CTA.
-    private var nextHoleNumber: Int {
+    /// First unscored hole in 1…holes, or nil once every hole is scored. Drives
+    /// the live "Score Hole X" CTA, which is hidden when this is nil so a
+    /// finished round can't gain a 19th hole. Returns the first *gap* (not
+    /// max+1) so a skipped middle hole is offered before the round is done.
+    private var nextHoleNumber: Int? {
         let total = game.holes ?? 18
-        let scoredMax = holeScores.last?.holeNumber ?? 0
-        return min(scoredMax + 1, total)
+        let scored = Set(holeScores.map(\.holeNumber))
+        return (1...total).first { !scored.contains($0) }
     }
 
     var body: some View {
         List {
             // Game Info Section
-            Section(isGolf ? "Tournament Details" : "Game Details") {
+            Section(isGolf ? "Round Details" : "Game Details") {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack {
                         Text(isGolf ? "Course" : "Opponent")
@@ -152,7 +157,7 @@ struct GameDetailView: View {
                                 .monospacedDigit()
                                 .foregroundColor(.secondary)
                         }
-                        if let par = game.par {
+                        if let par = game.effectivePar {
                             HStack {
                                 Text("Par")
                                     .font(.headingMedium)
@@ -162,7 +167,7 @@ struct GameDetailView: View {
                                     .foregroundColor(.secondary)
                             }
                         }
-                        if let score = game.totalScore {
+                        if let score = game.effectiveTotalScore {
                             HStack {
                                 Text("Total Score")
                                     .font(.headingMedium)
@@ -170,7 +175,7 @@ struct GameDetailView: View {
                                 Text("\(score)")
                                     .monospacedDigit()
                                     .foregroundColor(.primary)
-                                if let par = game.par {
+                                if let par = game.effectivePar {
                                     let diff = score - par
                                     Text(diff == 0 ? "E" : (diff > 0 ? "+\(diff)" : "\(diff)"))
                                         .font(.labelSmall)
@@ -221,11 +226,11 @@ struct GameDetailView: View {
                     // Score Hole is promoted above Record Video for golf live
                     // tournaments — entering a score is the primary action on
                     // each hole, and clip attribution depends on it.
-                    if isGolf {
+                    if isGolf, let next = nextHoleNumber {
                         Button(action: {
-                            scoreHoleTarget = ScoreHoleTarget(holeNumber: nextHoleNumber)
+                            scoreHoleTarget = ScoreHoleTarget(holeNumber: next)
                         }) {
-                            Label("Score Hole \(nextHoleNumber)", systemImage: "flag.checkered")
+                            Label("Score Hole \(next)", systemImage: "flag.checkered")
                         }
                     }
                     Button(action: { showingVideoRecorder = true }) {
@@ -257,7 +262,7 @@ struct GameDetailView: View {
                     Button(action: { showingManualStats = true }) {
                         Label("Enter Statistics", systemImage: "chart.bar.doc.horizontal")
                     }
-                } else if game.totalScore != nil {
+                } else if game.effectiveTotalScore != nil {
                     Button(action: { showingScoreEntry = true }) {
                         Label("Edit Score", systemImage: "pencil.line")
                     }
@@ -280,7 +285,7 @@ struct GameDetailView: View {
                         Haptics.warning()
                         showingDeleteConfirmation = true
                     } label: {
-                        Label(isGolf ? "Delete Tournament" : "Delete Game", systemImage: "trash")
+                        Label(isGolf ? "Delete Round" : "Delete Game", systemImage: "trash")
                     }
                 }
             }
@@ -397,7 +402,7 @@ struct GameDetailView: View {
         } message: {
             Text("Are you sure you want to end this \(unitNounLower)? You won't be able to record more videos for it.")
         }
-        .alert(isGolf ? "Delete Tournament" : "Delete Game", isPresented: $showingDeleteConfirmation) {
+        .alert(isGolf ? "Delete Round" : "Delete Game", isPresented: $showingDeleteConfirmation) {
             Button("Cancel", role: .cancel) { }
             Button("Delete", role: .destructive) {
                 Haptics.heavy()
@@ -467,11 +472,11 @@ struct GameDetailView: View {
                         Label(isGolf ? "Start Round" : "Start Game", systemImage: "play.circle")
                     }
                 case .live:
-                    if isGolf {
+                    if isGolf, let next = nextHoleNumber {
                         Button(action: {
-                            scoreHoleTarget = ScoreHoleTarget(holeNumber: nextHoleNumber)
+                            scoreHoleTarget = ScoreHoleTarget(holeNumber: next)
                         }) {
-                            Label("Score Hole \(nextHoleNumber)", systemImage: "flag.checkered")
+                            Label("Score Hole \(next)", systemImage: "flag.checkered")
                         }
                     }
                     Button(action: { showingVideoRecorder = true }) {
@@ -501,7 +506,7 @@ struct GameDetailView: View {
                     }
                 } else {
                     Button(action: { showingScoreEntry = true }) {
-                        Label(game.totalScore == nil ? "Enter Score" : "Edit Score", systemImage: "pencil.line")
+                        Label(game.effectiveTotalScore == nil ? "Enter Score" : "Edit Score", systemImage: "pencil.line")
                     }
                 }
 
@@ -519,7 +524,7 @@ struct GameDetailView: View {
                 if !game.isLive {
                     if !game.isComplete { Divider() }
                     Button(role: .destructive, action: { showingDeleteConfirmation = true }) {
-                        Label(isGolf ? "Delete Tournament" : "Delete Game", systemImage: "trash")
+                        Label(isGolf ? "Delete Round" : "Delete Game", systemImage: "trash")
                     }
                 }
             } label: {

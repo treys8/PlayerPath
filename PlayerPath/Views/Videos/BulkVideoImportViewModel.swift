@@ -67,6 +67,15 @@ final class BulkVideoImportViewModel {
         // cap, syncHighlightsOnly). Fetched once — preferences don't change mid-import.
         let preferences = (try? modelContext.fetch(FetchDescriptor<UserPreferences>()).first)
 
+        // Stamp the live golf hole onto mid-round imports so they join that
+        // hole's auto-highlight reel (built at score-save by ScoreHoleSheet),
+        // mirroring ClipPersistenceService.saveClip. Captured once: no scoring
+        // happens during an import, so the next-unscored hole is stable across
+        // the batch. Nil outside a live golf round (and for non-golf), leaving
+        // holeNumber unset exactly as before.
+        let liveHole = LiveHoleTracker.shared.currentHole(for: game)
+            ?? LiveHoleTracker.shared.currentHole(for: practice)
+
         for (index, item) in items.enumerated() {
             if isCancelled || Task.isCancelled { break }
             status = .importing(current: index + 1, total: total)
@@ -143,6 +152,7 @@ final class BulkVideoImportViewModel {
             clip.createdAt = originalDate.addingTimeInterval(Double(index) / 1_000_000.0)
             clip.game = game
             clip.practice = practice
+            clip.holeNumber = liveHole
             // Denormalize game/practice display fields so data survives cross-device sync
             // even if the relationships can't be re-linked. Matches ClipPersistenceService.
             clip.gameOpponent = game?.opponent

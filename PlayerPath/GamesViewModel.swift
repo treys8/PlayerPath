@@ -100,7 +100,7 @@ final class GamesViewModel: ObservableObject {
         }
     }
     
-    func create(opponent: String, date: Date, isLive: Bool, season: Season? = nil, golfDetails: GolfRoundDetails? = nil, location: String? = nil, onError: @escaping (String) -> Void) {
+    func create(opponent: String, date: Date, isLive: Bool, season: Season? = nil, golfDetails: GolfRoundDetails? = nil, location: String? = nil, tournament: GolfTournament? = nil, onError: @escaping (String) -> Void) {
         guard let athlete = self.athlete else { return }
         // Guarantee a season assignment. Seasonless games take their sport from
         // athlete.sport (a hint), which now flips with each sport activation —
@@ -108,7 +108,7 @@ final class GamesViewModel: ObservableObject {
         // activates a different sport. Ensure an active season exists first.
         let resolvedSeason = season ?? athlete.activeSeason ?? SeasonManager.ensureActiveSeason(for: athlete, in: modelContext)
         Task {
-            let result = await gameService.createGame(for: athlete, opponent: opponent, date: date, isLive: isLive, season: resolvedSeason, golfDetails: golfDetails, location: location)
+            let result = await gameService.createGame(for: athlete, opponent: opponent, date: date, isLive: isLive, season: resolvedSeason, golfDetails: golfDetails, location: location, tournament: tournament)
             switch result {
             case .success:
                 break

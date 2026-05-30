@@ -359,10 +359,10 @@ final class PushNotificationService: NSObject, ObservableObject {
             repeats: false
         )
 
-        let title = isGolf ? "Tournament Starting Soon! ⛳" : "Game Starting Soon! ⚾"
+        let title = isGolf ? "Round Starting Soon! ⛳" : "Game Starting Soon! ⚾"
         let body: String = {
             if isGolf {
-                return "Your tournament at \(opponent) starts in \(reminderMinutes) minutes. Ready to record?"
+                return "Your round at \(opponent) starts in \(reminderMinutes) minutes. Ready to record?"
             } else {
                 return "Your game vs \(opponent) starts in \(reminderMinutes) minutes. Ready to record?"
             }

@@ -310,7 +310,7 @@ extension FirestoreManager {
     func updateGame(userId: String, gameId: String, data: [String: Any]) async throws {
 
         let allowedFields: Set<String> = [
-            "id", "athleteId", "seasonId", "tournamentId", "opponent", "date",
+            "id", "athleteId", "seasonId", "tournamentId", "roundNumber", "opponent", "date",
             "year", "isLive", "isComplete", "location", "notes", "version",
             // Golf-only fields (nil for baseball/softball)
             "holes", "par", "totalScore",

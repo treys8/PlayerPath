@@ -163,20 +163,20 @@ struct DashboardView: View {
     // Golf scoring summary computed inline. SwiftData observes property reads
     // in body, so this re-evaluates when a score is entered or a round is added.
     private var golfRoundsWithScores: [Game] {
-        (athlete.games ?? []).filter { $0.season?.sport == .golf && $0.totalScore != nil }
+        (athlete.games ?? []).filter { $0.season?.sport == .golf && !$0.isLive && $0.isGolfRoundScored }
     }
 
     private var golfRoundCount: Int { golfRoundsWithScores.count }
 
     private var golfAverageScoreText: String {
-        let scores = golfRoundsWithScores.compactMap { $0.totalScore }
+        let scores = golfRoundsWithScores.compactMap { $0.effectiveTotalScore }
         guard !scores.isEmpty else { return "—" }
         let avg = Double(scores.reduce(0, +)) / Double(scores.count)
         return String(format: "%.1f", avg)
     }
 
     private var golfBestScoreText: String {
-        let scores = golfRoundsWithScores.compactMap { $0.totalScore }
+        let scores = golfRoundsWithScores.compactMap { $0.effectiveTotalScore }
         return scores.min().map(String.init) ?? "—"
     }
 
@@ -636,7 +636,7 @@ struct DashboardView: View {
                 Button {
                     createNewGame()
                 } label: {
-                    Text(activeSport == .golf ? "+ New Tournament" : "+ New Game")
+                    Text(activeSport == .golf ? "+ New Round" : "+ New Game")
                         .font(.headingSmall)
                         .foregroundColor(.brandGold)
                 }

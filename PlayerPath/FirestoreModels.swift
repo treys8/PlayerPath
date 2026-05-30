@@ -466,6 +466,60 @@ extension FirestoreSeason {
     }
 }
 
+/// Multi-round golf tournament for Firestore sync (SchemaV27). Lives at
+/// `users/{uid}/golfTournaments/{id}`. Mirrors FirestoreSeason — a per-athlete
+/// top-level grouping entity. Rounds are plain games carrying `tournamentId`.
+struct FirestoreGolfTournament: Codable, Identifiable {
+    var id: String?           // Firestore document ID (auto-generated, not encoded)
+    let swiftDataId: String   // Original SwiftData UUID
+    let name: String
+    let athleteId: String
+    let location: String?
+    let startDate: Date?
+    let endDate: Date?
+    var notes: String?
+    let createdAt: Date?
+    let updatedAt: Date?
+    let version: Int
+    let isDeleted: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case swiftDataId = "id"  // Maps to "id" field in Firestore document
+        case name
+        case athleteId
+        case location
+        case startDate
+        case endDate
+        case notes
+        case createdAt
+        case updatedAt
+        case version
+        case isDeleted
+    }
+}
+
+extension FirestoreGolfTournament {
+    /// Custom decoder so docs missing later-added optional fields decode with
+    /// sane defaults instead of throwing — a swallowed throw here would drop the
+    /// doc from the fetch and let SyncCoordinator wipe it locally. Mirrors
+    /// FirestoreSeason.init(from:).
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = nil
+        swiftDataId = try c.decode(String.self, forKey: .swiftDataId)
+        name = try c.decode(String.self, forKey: .name)
+        athleteId = try c.decode(String.self, forKey: .athleteId)
+        location = try c.decodeIfPresent(String.self, forKey: .location)
+        startDate = try c.decodeIfPresent(Date.self, forKey: .startDate)
+        endDate = try c.decodeIfPresent(Date.self, forKey: .endDate)
+        notes = try c.decodeIfPresent(String.self, forKey: .notes)
+        createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt)
+        updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt)
+        version = try c.decode(Int.self, forKey: .version)
+        isDeleted = try c.decode(Bool.self, forKey: .isDeleted)
+    }
+}
+
 /// Game model for Firestore sync
 struct FirestoreGame: Codable, Identifiable {
     var id: String?           // Firestore document ID (auto-generated, not encoded)
@@ -473,6 +527,7 @@ struct FirestoreGame: Codable, Identifiable {
     let athleteId: String
     let seasonId: String?
     let tournamentId: String?
+    let roundNumber: Int?
     let opponent: String
     let date: Date?
     let year: Int
@@ -523,6 +578,7 @@ struct FirestoreGame: Codable, Identifiable {
         case athleteId
         case seasonId
         case tournamentId
+        case roundNumber
         case opponent
         case date
         case year

@@ -292,6 +292,25 @@ struct CoachVideoCard: View {
                         }
                     }
                 }
+
+                if let club = video.club {
+                    let clubColor = Club(rawValue: club)?.category.color ?? .brandNavy
+                    HStack(spacing: 4) {
+                        Text(club)
+                            .font(.caption2)
+                            .fontWeight(.medium)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(clubColor.opacity(0.15))
+                            .foregroundColor(clubColor)
+                            .cornerRadius(4)
+                        if let hole = video.holeNumber {
+                            Text("Hole \(hole)")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)

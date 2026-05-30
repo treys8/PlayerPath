@@ -37,4 +37,5 @@ enum FC {
     static let items = "items"
     static let holes = "holes"
     static let highlightReels = "highlightReels"
+    static let golfTournaments = "golfTournaments"
 }

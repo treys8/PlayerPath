@@ -668,7 +668,15 @@ struct VideoInfoTabView: View {
                 if let context = video.contextLabel {
                     InfoRow(label: "Context", value: context)
                 }
-                
+
+                if let club = video.club {
+                    InfoRow(label: "Club", value: club)
+                }
+
+                if let hole = video.holeNumber {
+                    InfoRow(label: "Hole", value: "\(hole)")
+                }
+
                 if let opponent = video.gameOpponent {
                     InfoRow(label: "Opponent", value: opponent)
                 }

@@ -24,6 +24,8 @@ struct StatisticsExportView: View {
     @State private var showError = false
     @State private var errorMessage = ""
 
+    private var isGolfAthlete: Bool { selectedAthlete?.sport == .golf }
+
     var body: some View {
         Form {
             // Athlete Selection
@@ -45,8 +47,8 @@ struct StatisticsExportView: View {
                 // Report Type Selection
                 Section("Report Type") {
                     Picker("Report", selection: $selectedReportType) {
-                        ForEach(ReportType.allCases) { type in
-                            Label(type.displayName, systemImage: type.icon)
+                        ForEach(ReportType.cases(isGolf: isGolfAthlete)) { type in
+                            Label(type.displayName(isGolf: isGolfAthlete), systemImage: type.icon(isGolf: isGolfAthlete))
                                 .tag(type)
                         }
                     }
@@ -112,7 +114,7 @@ struct StatisticsExportView: View {
                                 Text("Report:")
                                     .font(.labelSmall)
                                     .foregroundColor(.secondary)
-                                Text(selectedReportType.shortName)
+                                Text(selectedReportType.shortName(isGolf: isGolfAthlete))
                                     .font(.labelLarge)
                             }
                         }
@@ -185,6 +187,12 @@ struct StatisticsExportView: View {
             }
         }
         .navigationTitle("Export Statistics")
+        .onChange(of: selectedAthlete) { _, newAthlete in
+            let golf = newAthlete?.sport == .golf
+            if !ReportType.cases(isGolf: golf).contains(selectedReportType) {
+                selectedReportType = .athleteStatistics
+            }
+        }
         .sheet(isPresented: $showShareSheet) {
             if let url = exportURL {
                 ShareSheet(items: [url])
@@ -303,31 +311,40 @@ enum ReportType: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    var displayName: String {
+    var displayName: String { displayName(isGolf: false) }
+    func displayName(isGolf: Bool) -> String {
         switch self {
-        case .athleteStatistics: return "Athlete Statistics Report"
-        case .gameLog: return "Game-by-Game Log"
+        case .athleteStatistics: return isGolf ? "Scoring Report" : "Athlete Statistics Report"
+        case .gameLog: return isGolf ? "Round-by-Round Log" : "Game-by-Game Log"
         case .seasonSummary: return "Season Summary"
         case .playByPlay: return "Play-by-Play Report"
         }
     }
 
-    var shortName: String {
+    var shortName: String { shortName(isGolf: false) }
+    func shortName(isGolf: Bool) -> String {
         switch self {
-        case .athleteStatistics: return "Stats Report"
-        case .gameLog: return "Game Log"
+        case .athleteStatistics: return isGolf ? "Scoring" : "Stats Report"
+        case .gameLog: return isGolf ? "Round Log" : "Game Log"
         case .seasonSummary: return "Season Summary"
         case .playByPlay: return "Play by Play"
         }
     }
 
-    var icon: String {
+    var icon: String { icon(isGolf: false) }
+    func icon(isGolf: Bool) -> String {
         switch self {
-        case .athleteStatistics: return "chart.bar.fill"
-        case .gameLog: return "baseball.diamond.bases"
+        case .athleteStatistics: return isGolf ? "figure.golf" : "chart.bar.fill"
+        case .gameLog: return isGolf ? "figure.golf" : "baseball.diamond.bases"
         case .seasonSummary: return "calendar.badge.checkmark"
         case .playByPlay: return "list.bullet.clipboard"
         }
+    }
+
+    /// Play-by-Play is baseball-only (golf clips carry a club, not a play
+    /// result), so it's dropped for golf athletes.
+    static func cases(isGolf: Bool) -> [ReportType] {
+        isGolf ? [.athleteStatistics, .gameLog, .seasonSummary] : allCases
     }
 
     var description: String {

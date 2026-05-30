@@ -476,12 +476,33 @@ enum SchemaV26: VersionedSchema {
     }
 }
 
+// MARK: - Schema V27 (2026-05-30 — Multi-round golf tournaments)
+//
+//  Changes from V26:
+//    • GolfTournament (new @Model) added — groups multiple golf rounds (Games)
+//      into one tournament with aggregate stroke-play scoring. Per-athlete
+//      top-level entity, mirrors Season.
+//    • Game.tournament (GolfTournament? = nil) added — optional parent link;
+//      nil for standalone rounds and non-golf games.
+//    • Game.roundNumber (Int? = nil) added — order within a tournament.
+//    • Athlete.golfTournaments ([GolfTournament]? ) relationship added.
+//
+//  New @Model type plus new optional properties / relationship on existing
+//  models → lightweight migration is sufficient.
+
+enum SchemaV27: VersionedSchema {
+    static var versionIdentifier = Schema.Version(27, 0, 0)
+    static var models: [any PersistentModel.Type] {
+        SchemaV1.models + [HoleScore.self, HighlightReel.self, GolfTournament.self]
+    }
+}
+
 // MARK: - Migration Plan
 
 enum PlayerPathMigrationPlan: SchemaMigrationPlan {
     /// All schema versions in chronological order (oldest first).
     static var schemas: [any VersionedSchema.Type] {
-        [SchemaV1.self, SchemaV2.self, SchemaV3.self, SchemaV4.self, SchemaV5.self, SchemaV6.self, SchemaV7.self, SchemaV8.self, SchemaV9.self, SchemaV10.self, SchemaV11.self, SchemaV12.self, SchemaV13.self, SchemaV14.self, SchemaV15.self, SchemaV16.self, SchemaV17.self, SchemaV18.self, SchemaV19.self, SchemaV20.self, SchemaV21.self, SchemaV22.self, SchemaV23.self, SchemaV24.self, SchemaV25.self, SchemaV26.self]
+        [SchemaV1.self, SchemaV2.self, SchemaV3.self, SchemaV4.self, SchemaV5.self, SchemaV6.self, SchemaV7.self, SchemaV8.self, SchemaV9.self, SchemaV10.self, SchemaV11.self, SchemaV12.self, SchemaV13.self, SchemaV14.self, SchemaV15.self, SchemaV16.self, SchemaV17.self, SchemaV18.self, SchemaV19.self, SchemaV20.self, SchemaV21.self, SchemaV22.self, SchemaV23.self, SchemaV24.self, SchemaV25.self, SchemaV26.self, SchemaV27.self]
     }
 
     /// Migration stages between consecutive versions.
@@ -511,7 +532,8 @@ enum PlayerPathMigrationPlan: SchemaMigrationPlan {
             .lightweight(fromVersion: SchemaV22.self, toVersion: SchemaV23.self),
             .lightweight(fromVersion: SchemaV23.self, toVersion: SchemaV24.self),
             .lightweight(fromVersion: SchemaV24.self, toVersion: SchemaV25.self),
-            .lightweight(fromVersion: SchemaV25.self, toVersion: SchemaV26.self)
+            .lightweight(fromVersion: SchemaV25.self, toVersion: SchemaV26.self),
+            .lightweight(fromVersion: SchemaV26.self, toVersion: SchemaV27.self)
         ]
     }
 }

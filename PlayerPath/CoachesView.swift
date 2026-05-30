@@ -353,8 +353,10 @@ struct CoachesView: View {
                         )
                     case .declined:
                         coach.lastInvitationStatus = "declined"
+                        coach.needsSync = true
                     case .rejectedLimit:
                         coach.lastInvitationStatus = "rejected_limit"
+                        coach.needsSync = true
                     case .pending, .cancelled:
                         break
                     }

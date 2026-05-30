@@ -47,6 +47,14 @@ struct StatisticsView: View {
         return availableSeasons.first { $0.id.uuidString == id }
     }
 
+    /// Golf has no `AthleteStatistics`, so its charts/comparison buttons can't
+    /// ride the `statistics != nil` toolbar block — they gate on real rounds.
+    private var hasGolfRounds: Bool {
+        guard isGolf, let athlete else { return false }
+        if !GolfExportData.tournamentRounds(for: athlete, season: selectedSeason).isEmpty { return true }
+        return !GolfExportData.practiceRounds(for: athlete, season: selectedSeason).isEmpty
+    }
+
     // Get all available seasons (active + archived)
     private var availableSeasons: [Season] {
         var seasons: [Season] = []
@@ -128,6 +136,32 @@ struct StatisticsView: View {
                     }
                 }
 
+                // Golf charts + comparison. Golf has no AthleteStatistics, so
+                // these can't live in the `statistics != nil` block above and
+                // gate on real scored rounds instead. Charts are free (parity
+                // with baseball's free charts); comparison stays Plus-gated.
+                if isGolf && hasGolfRounds {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button {
+                            showingCharts = true
+                        } label: {
+                            Label("View Charts", systemImage: "chart.xyaxis.line")
+                        }
+                        .accessibilityLabel("View golf charts")
+                    }
+
+                    if currentTier >= .plus {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button {
+                                showingSeasonComparison = true
+                            } label: {
+                                Label("Compare Seasons", systemImage: "chart.line.uptrend.xyaxis")
+                            }
+                            .accessibilityLabel("Compare golf seasons")
+                        }
+                    }
+                }
+
                 if let ath = athlete {
                     // Actions menu (always available)
                     ToolbarItem(placement: .primaryAction) {
@@ -194,25 +228,35 @@ struct StatisticsView: View {
             }
             .sheet(isPresented: $showingSeasonComparison) {
                 if let ath = athlete {
-                    SeasonComparisonView(athlete: ath)
+                    if isGolf {
+                        GolfSeasonComparisonView(athlete: ath)
+                    } else {
+                        SeasonComparisonView(athlete: ath)
+                    }
                 }
             }
             .sheet(isPresented: $showingCharts) {
                 if let ath = athlete {
                     NavigationStack {
-                        StatisticsChartsView(
-                            athlete: ath,
-                            initialSeason: selectedSeasonFilter.flatMap { id in
-                                availableSeasons.first { $0.id.uuidString == id }
-                            }
-                        )
-                            .toolbar {
-                                ToolbarItem(placement: .cancellationAction) {
-                                    Button("Done") {
-                                        showingCharts = false
+                        Group {
+                            if isGolf {
+                                GolfChartsView(athlete: ath, initialSeason: selectedSeason)
+                            } else {
+                                StatisticsChartsView(
+                                    athlete: ath,
+                                    initialSeason: selectedSeasonFilter.flatMap { id in
+                                        availableSeasons.first { $0.id.uuidString == id }
                                     }
+                                )
+                            }
+                        }
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("Done") {
+                                    showingCharts = false
                                 }
                             }
+                        }
                     }
                 }
             }
@@ -322,6 +366,13 @@ struct StatisticsView: View {
             ScrollView {
                 LazyVStack(spacing: 20) {
                     GolfStatsSection(athlete: athlete, season: selectedSeason)
+
+                    // Free charts — parity with baseball's ChartsPromptCard.
+                    if hasGolfRounds {
+                        ChartsPromptCard {
+                            showingCharts = true
+                        }
+                    }
                 }
                 .padding(horizontalSizeClass == .regular ? 32 : 16)
             }

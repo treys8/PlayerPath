@@ -248,6 +248,15 @@ final class ClipPersistenceService {
         game: Game?,
         practice: Practice?
     ) async throws -> VideoClip {
+        // v6.1 S4: enforce the playResult/club XOR at the single clip-creation
+        // choke point. A clip carries either a play result (baseball/softball)
+        // or a club (golf), never both — see VideoClip.isTagged /
+        // VideoClip+DisplayTag. Both set would corrupt stats (addPlayResult
+        // below runs) and mis-display (displayTagName prefers club). No current
+        // caller passes both; this assert is a debug tripwire for a future one.
+        assert(playResult == nil || club == nil,
+               "VideoClip XOR violated: a clip cannot carry both a playResult and a club")
+
         // Capture the live golf hole NOW, before any awaits. The remaining
         // work (file copy, asset load, verifyVideoPlayability, thumbnail) can
         // take seconds, during which a score tap landing between MainActor

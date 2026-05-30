@@ -195,7 +195,11 @@ extension SyncCoordinator {
                     // SwiftData properties after `context.delete` is undefined.
                     if let game = localClip.game { gamesWithDeletedClips.insert(game.id) }
                     athletesWithDeletedClips.insert(athlete.persistentModelID)
-                    localClip.delete(in: context)
+                    // cleanupReels: false — this clip was deleted on another
+                    // device, whose clip-delete already stripped + synced the
+                    // referencing reel; re-stripping here would double-dirty it
+                    // and ping-pong the reel edit back cross-device.
+                    localClip.delete(in: context, cleanupReels: false)
                 }
             }
 

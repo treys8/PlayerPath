@@ -26,6 +26,9 @@ final class PDFReportGenerator {
     /// - Parameter athlete: The athlete to generate report for
     /// - Returns: PDF document ready for sharing
     func generateAthleteReport(for athlete: Athlete) -> PDFDocument {
+        if athlete.sport == .golf {
+            return generateGolfReport(for: athlete)
+        }
         let pdfMetaData = [
             kCGPDFContextTitle: "PlayerPath Statistics Report",
             kCGPDFContextAuthor: "PlayerPath",
@@ -93,6 +96,10 @@ final class PDFReportGenerator {
     ///   - season: Optional season filter (nil = all games)
     /// - Returns: PDF document ready for sharing
     func generateGameLogReport(for athlete: Athlete, season: Season? = nil) -> PDFDocument {
+        let isGolf = season.map { $0.sport == .golf } ?? (athlete.sport == .golf)
+        if isGolf {
+            return generateGolfRoundLogReport(for: athlete, season: season)
+        }
         let pdfMetaData = [
             kCGPDFContextTitle: "PlayerPath Game Log",
             kCGPDFContextAuthor: "PlayerPath",
@@ -151,6 +158,9 @@ final class PDFReportGenerator {
     /// - Parameter season: The season to export
     /// - Returns: PDF document ready for sharing
     func generateSeasonSummaryReport(for season: Season) -> PDFDocument {
+        if season.sport == .golf {
+            return generateGolfSeasonSummaryReport(for: season)
+        }
         let pdfMetaData = [
             kCGPDFContextTitle: "PlayerPath Season Summary",
             kCGPDFContextAuthor: "PlayerPath",
@@ -431,6 +441,142 @@ final class PDFReportGenerator {
         }
 
         return yPosition + 18
+    }
+
+    // MARK: - Golf Reports
+
+    func generateGolfReport(for athlete: Athlete) -> PDFDocument {
+        let format = UIGraphicsPDFRendererFormat()
+        format.documentInfo = [
+            kCGPDFContextTitle: "PlayerPath Golf Scoring Report",
+            kCGPDFContextAuthor: "PlayerPath",
+            kCGPDFContextSubject: "\(athlete.name) Golf Scoring"
+        ] as [String: Any]
+
+        let pageRect = CGRect(x: 0, y: 0, width: pageWidth, height: pageHeight)
+        let renderer = UIGraphicsPDFRenderer(bounds: pageRect, format: format)
+
+        let data = renderer.pdfData { context in
+            context.beginPage()
+            var y: CGFloat = margin
+            y = drawTitle("Golf Scoring Report", at: y, in: pageRect)
+            y += 10
+            y = drawSectionHeader("Athlete Information", at: y, in: pageRect)
+            y = drawText("Name: \(athlete.name)", at: y, in: pageRect, fontSize: 12)
+            y = drawText("Generated: \(Date().formatted(date: .long, time: .standard))", at: y, in: pageRect, fontSize: 12)
+            y += 20
+
+            y = drawGolfSummary(GolfExportData.summary(for: athlete, season: nil), at: y, in: pageRect)
+
+            let tournaments = GolfExportData.tournamentRounds(for: athlete, season: nil)
+            if !tournaments.isEmpty {
+                y = drawSectionHeader("Tournament Rounds", at: y, in: pageRect)
+                y = drawGolfRoundsTable(tournaments, at: y, in: pageRect, context: context)
+            }
+            let practices = GolfExportData.practiceRounds(for: athlete, season: nil)
+            if !practices.isEmpty {
+                if y > pageHeight - 120 { context.beginPage(); y = margin }
+                y = drawSectionHeader("Practice Rounds", at: y, in: pageRect)
+                y = drawGolfRoundsTable(practices, at: y, in: pageRect, context: context)
+            }
+        }
+        return PDFDocument(data: data) ?? PDFDocument()
+    }
+
+    func generateGolfRoundLogReport(for athlete: Athlete, season: Season?) -> PDFDocument {
+        let format = UIGraphicsPDFRendererFormat()
+        format.documentInfo = [
+            kCGPDFContextTitle: "PlayerPath Golf Round Log",
+            kCGPDFContextAuthor: "PlayerPath",
+            kCGPDFContextSubject: "\(athlete.name) Golf Round Log"
+        ] as [String: Any]
+        let pageRect = CGRect(x: 0, y: 0, width: pageWidth, height: pageHeight)
+        let renderer = UIGraphicsPDFRenderer(bounds: pageRect, format: format)
+        let data = renderer.pdfData { context in
+            context.beginPage()
+            var y: CGFloat = margin
+            y = drawTitle("Golf Round Log", at: y, in: pageRect)
+            y = drawText("Athlete: \(athlete.name)", at: y, in: pageRect, fontSize: 14, bold: true)
+            if let season { y = drawText("Season: \(season.displayName)", at: y, in: pageRect, fontSize: 14, bold: true) }
+            y += 20
+            y = drawGolfRoundsTable(GolfExportData.tournamentRounds(for: athlete, season: season), at: y, in: pageRect, context: context)
+        }
+        return PDFDocument(data: data) ?? PDFDocument()
+    }
+
+    func generateGolfSeasonSummaryReport(for season: Season) -> PDFDocument {
+        let format = UIGraphicsPDFRendererFormat()
+        format.documentInfo = [
+            kCGPDFContextTitle: "PlayerPath Golf Season Summary",
+            kCGPDFContextAuthor: "PlayerPath",
+            kCGPDFContextSubject: "\(season.displayName) Golf Summary"
+        ] as [String: Any]
+        let pageRect = CGRect(x: 0, y: 0, width: pageWidth, height: pageHeight)
+        let renderer = UIGraphicsPDFRenderer(bounds: pageRect, format: format)
+        let data = renderer.pdfData { context in
+            context.beginPage()
+            var y: CGFloat = margin
+            y = drawTitle("Golf Season Summary", at: y, in: pageRect)
+            y += 10
+            y = drawSectionHeader("Season Information", at: y, in: pageRect)
+            y = drawText("Season: \(season.displayName)", at: y, in: pageRect, fontSize: 12)
+            y = drawText("Status: \(season.isActive ? "Active" : "Completed")", at: y, in: pageRect, fontSize: 12)
+            y += 20
+            if let athlete = season.athlete {
+                y = drawGolfSummary(GolfExportData.summary(for: athlete, season: season), at: y, in: pageRect)
+                let tournaments = GolfExportData.tournamentRounds(for: athlete, season: season)
+                if !tournaments.isEmpty {
+                    y = drawSectionHeader("Tournament Rounds", at: y, in: pageRect)
+                    y = drawGolfRoundsTable(tournaments, at: y, in: pageRect, context: context)
+                }
+            }
+        }
+        return PDFDocument(data: data) ?? PDFDocument()
+    }
+
+    private func drawGolfSummary(_ s: GolfExportSummary, at yPosition: CGFloat, in pageRect: CGRect) -> CGFloat {
+        var y = drawSectionHeader("Scoring Summary", at: yPosition, in: pageRect)
+        y = drawText("Total Rounds: \(s.totalRounds)", at: y, in: pageRect)
+        y = drawText("Best: \(s.bestScore.map { "\($0)" } ?? "—")  |  Worst: \(s.worstScore.map { "\($0)" } ?? "—")", at: y, in: pageRect)
+        y = drawText("Tournament Avg: \(s.tournamentAverage.map { String(format: "%.1f", $0) } ?? "—")  |  Practice Avg: \(s.practiceAverage.map { String(format: "%.1f", $0) } ?? "—")", at: y, in: pageRect)
+        return y + 20
+    }
+
+    private func drawGolfRoundsHeader(at y: CGFloat, in pageRect: CGRect) -> CGFloat {
+        drawTableHeader(
+            headers: ["Date", "Course", "Holes", "Par", "Score", "+/-", "Putts"],
+            columnWidths: [70, 140, 45, 45, 55, 45, 50],
+            at: y, in: pageRect
+        )
+    }
+
+    private func drawGolfRoundsTable(_ rounds: [GolfRoundRow], at yPosition: CGFloat, in pageRect: CGRect, context: UIGraphicsPDFRendererContext) -> CGFloat {
+        var y = drawGolfRoundsHeader(at: yPosition, in: pageRect)
+        let widths: [CGFloat] = [70, 140, 45, 45, 55, 45, 50]
+        let font = UIFont.systemFont(ofSize: 9)
+        let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: UIColor.black]
+        for r in rounds {
+            if y > pageHeight - 60 {
+                context.beginPage()
+                y = margin
+                y = drawGolfRoundsHeader(at: y, in: pageRect)
+            }
+            let dateStr: String = r.date?.formatted(date: .numeric, time: .omitted) ?? "Unknown"
+            let courseStr: String = String(r.course.prefix(20))
+            let holesStr: String = "\(r.holes)"
+            let parStr: String = r.par.map { "\($0)" } ?? "-"
+            let scoreStr: String = r.score.map { "\($0)" } ?? "-"
+            let puttsStr: String = r.putts.map { "\($0)" } ?? "-"
+            let values: [String] = [dateStr, courseStr, holesStr, parStr, scoreStr, r.toParString, puttsStr]
+            var x = margin
+            for (i, v) in values.enumerated() {
+                NSAttributedString(string: v, attributes: attrs)
+                    .draw(in: CGRect(x: x, y: y, width: widths[i], height: 15))
+                x += widths[i]
+            }
+            y += 18
+        }
+        return y + 10
     }
 
     // MARK: - File Saving

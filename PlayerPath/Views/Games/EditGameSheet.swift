@@ -22,9 +22,9 @@ struct EditGameSheet: View {
 
     private var isGolf: Bool { game.season?.sport == .golf }
     private var primaryLabel: String { isGolf ? "Course" : "Opponent" }
-    private var sectionTitle: String { isGolf ? "Tournament Details" : "Game Details" }
-    private var navigationTitle: String { isGolf ? "Edit Tournament" : "Edit Game" }
-    private var notesPrompt: String { isGolf ? "Tournament notes" : "Game notes" }
+    private var sectionTitle: String { isGolf ? "Round Details" : "Game Details" }
+    private var navigationTitle: String { isGolf ? "Edit Round" : "Edit Game" }
+    private var notesPrompt: String { isGolf ? "Round notes" : "Game notes" }
     private var maxLen: Int { isGolf ? 80 : 50 }
 
     enum Field: Hashable { case opponent, location, notes }
@@ -148,7 +148,7 @@ struct EditGameSheet: View {
         if let season = game.season {
             let start = season.startDate ?? .distantPast
             let end = season.endDate ?? .distantFuture
-            let unit = isGolf ? "Tournament" : "Game"
+            let unit = isGolf ? "Round" : "Game"
             if date < start {
                 validationMessage = "\(unit) date is before the season starts."
                 showingValidationError = true

@@ -3,7 +3,8 @@
 //  PlayerPath
 //
 //  Reusable tag picker sheet for adding/removing tags on videos.
-//  Pre-populated with baseball-specific suggestions.
+//  Sport-aware: shows golf drill types / tag suggestions when `isGolf` is set,
+//  baseball ones otherwise (see VideoTagEditor+Golf.swift).
 //
 
 import SwiftUI
@@ -11,25 +12,38 @@ import SwiftUI
 struct VideoTagEditor: View {
     @Binding var selectedTags: [String]
     @Binding var drillType: String?
+    var isGolf: Bool = false
     var onSave: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
     @State private var customTag = ""
+
+    /// Drill options for the current sport, as (rawValue, displayName) pairs so
+    /// the row/selection logic stays sport-agnostic.
+    private var drillOptions: [(raw: String, name: String)] {
+        isGolf
+            ? GolfDrillType.allCases.map { ($0.rawValue, $0.displayName) }
+            : DrillType.allCases.map { ($0.rawValue, $0.displayName) }
+    }
+
+    private var tagSuggestions: [String] {
+        isGolf ? VideoTag.golfSuggestions : VideoTag.suggestions
+    }
 
     var body: some View {
         NavigationStack {
             List {
                 // Drill Type
                 Section("Drill Type") {
-                    ForEach(DrillType.allCases, id: \.self) { drill in
+                    ForEach(drillOptions, id: \.raw) { drill in
                         Button {
-                            drillType = drillType == drill.rawValue ? nil : drill.rawValue
+                            drillType = drillType == drill.raw ? nil : drill.raw
                             Haptics.selection()
                         } label: {
                             HStack {
-                                Text(drill.displayName)
+                                Text(drill.name)
                                     .foregroundColor(.primary)
                                 Spacer()
-                                if drillType == drill.rawValue {
+                                if drillType == drill.raw {
                                     Image(systemName: "checkmark")
                                         .foregroundColor(.brandNavy)
                                 }
@@ -41,7 +55,7 @@ struct VideoTagEditor: View {
                 // Quick Tags
                 Section("Tags") {
                     FlowLayout(spacing: 8) {
-                        ForEach(VideoTag.suggestions, id: \.self) { tag in
+                        ForEach(tagSuggestions, id: \.self) { tag in
                             TagChip(
                                 text: tag,
                                 isSelected: selectedTags.contains(tag),

@@ -249,26 +249,25 @@ struct ScoreHoleSheet: View {
             modelContext.insert(new)
         }
 
-        // Roll per-hole scores up into the parent Game's totalScore once the
-        // round is complete. GolfStatsSection keys tournament stats off
-        // Game.totalScore (filtering on totalScore != nil), so a tournament
-        // scored entirely via this sheet would otherwise never appear in
-        // averages/best/worst/chart. Only write once all holes are entered —
-        // matching EnterScoreSheet's "final score" semantics, keeping
-        // in-progress rounds out of the averages. Practices derive their total
-        // from holeScores directly, so no rollup is needed there.
+        // Mirror the per-hole running sum onto Game.totalScore on EVERY save,
+        // not only when all holes are entered. totalScore is the synced
+        // transport and the cross-device fallback read by effectiveTotalScore,
+        // so keeping it equal to the live hole sum means a second device shows a
+        // correct total even before the per-hole rows replicate — and a partial
+        // round is never invisible in GolfStatsSection / GameRow. Practices
+        // carry no totalScore scalar (they derive live), so only games mirror.
         //
         // Build the effective hole→score map explicitly (keyed by holeNumber)
-        // rather than counting `g.holeScores`: that count is both blind to
-        // duplicate rows and not guaranteed to reflect the row inserted above
-        // before save(). Folding in (holeNumber, score) here is dedupe-safe and
-        // insert-timing-safe.
-        if case .game(let g) = parent, let total = g.holes {
+        // rather than reading `g.holeScores` alone: that collection isn't
+        // guaranteed to reflect the row inserted above before save(). Folding in
+        // (holeNumber, score) here is dedupe-safe and insert-timing-safe.
+        if case .game(let g) = parent {
             var scoreByHole: [Int: Int] = [:]
             for h in (g.holeScores ?? []) { scoreByHole[h.holeNumber] = h.score }
             scoreByHole[holeNumber] = score
-            if scoreByHole.count == total {
-                g.totalScore = scoreByHole.values.reduce(0, +)
+            let sum = scoreByHole.values.reduce(0, +)
+            if g.totalScore != sum {
+                g.totalScore = sum
                 g.needsSync = true
             }
         }
@@ -308,6 +307,14 @@ struct ScoreHoleSheet: View {
         let course = parentCourse
         let isBirdieOrBetter = score > 0 && (score - par) <= -1
 
+        // Auto-highlights are a Plus+ feature — parity with baseball, where the
+        // auto-highlight rules panel in HighlightsView is gated to `>= .plus`.
+        // A free golfer scoring a birdie creates no reel. A reel that predates a
+        // downgrade is demoted by the else-branch below on the next re-score of
+        // its hole, so the feature stops producing highlights once the
+        // entitlement lapses rather than silently continuing.
+        let canAutoHighlight = StoreKitManager.shared.currentTier.hasAutoHighlights
+
         // Identify the parent for the reel's FK and the existing-reel lookup.
         // Exactly one of (gameID, practiceID) is set for a given reel.
         let parentGameID: UUID?
@@ -342,22 +349,36 @@ struct ScoreHoleSheet: View {
             return
         }
 
-        if isBirdieOrBetter && !clipsOnHole.isEmpty {
+        if canAutoHighlight && isBirdieOrBetter && !clipsOnHole.isEmpty {
             let clipIDStrings = clipsOnHole.map { $0.id.uuidString }
             let displayName = reelDisplayName(score: score, par: par)
 
             if let existing {
-                // Refresh the existing reel — covers both alive-edit (clip
-                // list might have grown) and undelete (was par, back to birdie).
-                existing.clipIDs = clipIDStrings
-                existing.score = score
-                existing.par = par
-                existing.displayName = displayName
-                existing.courseOrOpponent = course
-                existing.date = Date()
-                existing.isDeletedRemotely = false
-                existing.version += 1
-                existing.needsSync = true
+                // A3.1: refresh the existing reel only when something actually
+                // changed — covers alive-edit (clip list grew) and undelete
+                // (was par, back to birdie). A re-save with an identical clip
+                // set/score/par must NOT bump version + needsSync, or every
+                // idempotent re-score emits a redundant Firestore write. The
+                // soft-deleted state is part of the diff so an undelete always
+                // goes through. Compatible with syncHighlightReels' reconcile,
+                // which assumes version only ever increases on a real edit.
+                let differs = existing.clipIDs != clipIDStrings
+                    || existing.score != score
+                    || existing.par != par
+                    || existing.displayName != displayName
+                    || existing.courseOrOpponent != course
+                    || existing.isDeletedRemotely
+                if differs {
+                    existing.clipIDs = clipIDStrings
+                    existing.score = score
+                    existing.par = par
+                    existing.displayName = displayName
+                    existing.courseOrOpponent = course
+                    existing.date = Date()
+                    existing.isDeletedRemotely = false
+                    existing.version += 1
+                    existing.needsSync = true
+                }
             } else {
                 let reel = HighlightReel(
                     clipIDs: clipIDStrings,

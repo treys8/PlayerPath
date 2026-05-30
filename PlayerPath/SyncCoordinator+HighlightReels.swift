@@ -85,10 +85,47 @@ extension SyncCoordinator {
                     userId: userId,
                     athleteId: athleteID.uuidString
                 )
-                let existingFirestoreIds = Set(athleteReels.compactMap(\.firestoreId))
+                // Map firestoreId → local reel for both the exists-check and
+                // the S1 reconcile branch below.
+                let localByFirestoreId = Dictionary(
+                    athleteReels.compactMap { reel in reel.firestoreId.map { ($0, reel) } },
+                    uniquingKeysWith: { first, _ in first }
+                )
                 for remote in remoteReels {
                     guard let remoteId = remote.id else { continue }
-                    if existingFirestoreIds.contains(remoteId) { continue }
+
+                    if let local = localByFirestoreId[remoteId] {
+                        // S1: absorb remote field edits onto an existing local
+                        // reel. A clean local row (!needsSync) has already
+                        // pushed everything it holds, so it can never be newer
+                        // than the server — taking the remote is always correct
+                        // and converges the equal-version case a strict `>`
+                        // would leave diverged. HighlightReel stores no
+                        // `updatedAt`, so this replaces the reconcileHoles
+                        // version/updatedAt tiebreak. The fetch already excludes
+                        // remote-soft-deleted reels, so every `remote` here is
+                        // alive — tombstones are handled below. Content-diff
+                        // before assigning to avoid churning SwiftData
+                        // observation on no-op sync passes.
+                        guard !local.needsSync else { continue }
+                        guard (remote.version ?? 0) >= local.version else { continue }
+                        let differs = local.clipIDs != remote.clipIDs
+                            || local.score != remote.score
+                            || local.par != remote.par
+                            || local.displayName != remote.displayName
+                            || local.courseOrOpponent != remote.courseOrOpponent
+                        if differs {
+                            local.clipIDs = remote.clipIDs
+                            local.score = remote.score
+                            local.par = remote.par
+                            local.displayName = remote.displayName
+                            local.courseOrOpponent = remote.courseOrOpponent
+                            local.date = remote.date
+                            local.version = remote.version ?? 0
+                            local.lastSyncDate = Date()
+                        }
+                        continue
+                    }
 
                     let local = HighlightReel(
                         clipIDs: remote.clipIDs,

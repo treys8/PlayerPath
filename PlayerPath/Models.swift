@@ -104,8 +104,21 @@ final class Game {
     var holes: Int?
     /// Course par for golf rounds (e.g. 72).
     var par: Int?
-    /// Total score for a golf round.
+    /// Persisted golf total. For per-hole-scored rounds this is a *mirror* of
+    /// the live hole sum (kept current on every `ScoreHoleSheet` save); for
+    /// quick-entry rounds it's typed directly. Readers should prefer
+    /// `effectiveTotalScore`, which derives from `holeScores` when present and
+    /// falls back to this scalar — so a round is never blank just because the
+    /// per-hole rows haven't replicated to this device yet.
     var totalScore: Int?
+
+    /// Parent multi-round tournament (SchemaV27), or nil for a standalone golf
+    /// round. The inverse side is `GolfTournament.rounds`. Always nil for
+    /// baseball/softball games.
+    var tournament: GolfTournament?
+    /// Ordering of this round within its tournament (1-based). Nil for
+    /// standalone rounds and non-golf games.
+    var roundNumber: Int?
 
     var athlete: Athlete?
     var season: Season?
@@ -142,6 +155,54 @@ final class Game {
         // Auto-set year from date
         let calendar = Calendar.current
         self.year = calendar.component(.year, from: date)
+    }
+
+    // MARK: - Golf derived scoring
+
+    /// Sum of per-hole scores, or nil when no holes have been scored. The live
+    /// source of truth for a per-hole-scored round.
+    var holeScoreSum: Int? {
+        let holes = holeScores ?? []
+        return holes.isEmpty ? nil : holes.reduce(0) { $0 + $1.score }
+    }
+
+    /// Single read API for a round's total: the derived hole sum when scored
+    /// per hole, otherwise the quick-entry scalar. Prefer this over reading
+    /// `totalScore` directly so a device that has the per-hole rows always
+    /// renders a correct total even if its `totalScore` scalar is stale.
+    /// Use this for DISPLAY (it shows partial in-progress totals too).
+    var effectiveTotalScore: Int? { holeScoreSum ?? totalScore }
+
+    /// Sum of the pars of the holes actually scored, or nil when none are. The
+    /// par counterpart to `holeScoreSum` — pair them so a round's to-par counts
+    /// only holes that have been entered.
+    var holeParSum: Int? {
+        let holes = holeScores ?? []
+        return holes.isEmpty ? nil : holes.reduce(0) { $0 + $1.par }
+    }
+
+    /// Single read API for a round's par: the per-hole par sum when scored per
+    /// hole, otherwise the `par` scalar entered at setup. ALWAYS use this (not
+    /// `par`) to compute to-par for display — it keeps the figure consistent
+    /// with the per-hole grid (which colors each hole against its own par) and
+    /// correct mid-round (after one hole it compares stroke-1 against par-1, not
+    /// against the full course par). Quick-entry rounds fall back to the scalar.
+    var effectivePar: Int? { holeParSum ?? par }
+
+    /// Whether this golf round has a complete, stats-eligible score — used to
+    /// gate inclusion in averages/best/worst so a partial round (e.g. 3 of 18
+    /// holes, then ended) doesn't pollute scoring stats with a garbage-low
+    /// number. A per-hole round qualifies once every hole is entered; a
+    /// quick-entry round qualifies as soon as a total is typed. The
+    /// cross-device fallback (`totalScore != nil` when the per-hole rows
+    /// haven't synced yet) is intentionally lenient and self-heals once the
+    /// rows arrive.
+    var isGolfRoundScored: Bool {
+        let scored = holeScores ?? []
+        if !scored.isEmpty, let total = holes {
+            return scored.count >= total
+        }
+        return totalScore != nil
     }
 
     /// Whether this game's stats should be rolled into career/season totals.
@@ -202,6 +263,13 @@ final class Game {
         if let holes = holes { data["holes"] = holes }
         if let par = par { data["par"] = par }
         if let totalScore = totalScore { data["totalScore"] = totalScore }
+
+        // Multi-round tournament link (SchemaV27). Written unconditionally —
+        // NSNull when standalone — so removing a round from a tournament clears
+        // the server field (updateGame uses merge:true and would otherwise keep
+        // a stale id). roundNumber tracks order within the tournament.
+        data["tournamentId"] = tournament?.firestoreId ?? tournament?.id.uuidString ?? NSNull()
+        data["roundNumber"] = roundNumber ?? NSNull()
 
         // Inline GameStatistics counters onto the game doc ONLY when this game
         // is in manual-entry mode. Video-derived stats are re-derivable on any
@@ -333,9 +401,11 @@ final class Practice {
 
     /// Properly delete practice with all associated files and data
     @MainActor func delete(in context: ModelContext) {
-        // Delete video clips using their delete method for proper cleanup
+        // Delete video clips using their delete method for proper cleanup.
+        // cleanupReels: false — this method hard-deletes the practice's reels
+        // below, so per-clip reel stripping would be wasted work.
         for videoClip in (self.videoClips ?? []) {
-            videoClip.delete(in: context)
+            videoClip.delete(in: context, cleanupReels: false)
         }
 
         // Delete notes

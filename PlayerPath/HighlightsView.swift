@@ -355,8 +355,9 @@ struct HighlightsView: View {
             }
         }
 
-        // Auto-highlight settings (Plus+ only)
-        if currentTier >= .plus {
+        // Auto-highlight settings (Plus+, baseball/softball only — the panel
+        // is batting/pitching rules; golf is manual-highlights-only).
+        if currentTier >= .plus && athlete?.sport != .golf {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     Haptics.light()

@@ -326,6 +326,8 @@ struct ShareToCoachFolderView: View {
                 playResult: clip.playResult?.type.displayName,
                 pitchSpeed: clip.pitchSpeed,
                 pitchType: clip.pitchType,
+                club: clip.club?.rawValue,
+                holeNumber: clip.holeNumber,
                 seasonName: clip.seasonName ?? clip.season?.name,
                 athleteName: clip.athlete?.name,
                 isHighlight: clip.isHighlight,
