@@ -349,6 +349,18 @@ struct FolderRow: View {
         return "Updated \(Self.updatedFormatter.localizedString(for: date, relativeTo: Date()))"
     }
 
+    /// Comma-joined display names of coaches this folder is shared with, drawn
+    /// from the cached `sharedWithCoachNames` map (coachID → name) so no network
+    /// fetch is needed. IDs without a cached name are omitted; returns nil when
+    /// no named coaches remain so the row can hide the line entirely.
+    private var sharedCoachNames: String? {
+        let names = folder.sharedWithCoachIDs.compactMap { id in
+            folder.sharedWithCoachNames?[id]?.trimmingCharacters(in: .whitespaces)
+        }.filter { !$0.isEmpty }
+        guard !names.isEmpty else { return nil }
+        return names.joined(separator: ", ")
+    }
+
     private var folderIcon: String {
         switch folder.folderType {
         case "games":   return "baseball.fill"
@@ -393,6 +405,19 @@ struct FolderRow: View {
                             .foregroundColor(.secondary)
                     }
 
+                }
+
+                // Coaches this folder is shared with, by name. Lets the athlete
+                // see who has access without opening Manage Coaches three levels in.
+                if let sharedCoachNames {
+                    Label {
+                        Text("Shared with: \(sharedCoachNames)")
+                    } icon: {
+                        Image(systemName: "person.2.fill")
+                    }
+                    .font(.labelSmall)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
                 }
 
                 if let updatedLabel {
