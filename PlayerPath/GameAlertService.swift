@@ -39,7 +39,7 @@ final class GameAlertService {
     /// Schedules a local notification to fire after `staleDuration` if the game is never ended.
     func scheduleEndGameReminder(for game: Game) async {
         // Default true for users who haven't seen the toggle yet — preserves prior behavior.
-        let staleEnabled = UserDefaults.standard.object(forKey: "notif_staleGameReminders") as? Bool ?? true
+        let staleEnabled = UserDefaults.standard.object(forKey: NotificationPrefKeys.staleGameReminders) as? Bool ?? true
         guard staleEnabled else { return }
 
         // Capture @MainActor-isolated model values before async boundary

@@ -193,6 +193,18 @@ struct HighlightsView: View {
         !viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    private var isGolf: Bool { athlete?.sport == .golf }
+
+    /// First reel in the current feed — anchors the one-time golf reel-grouping
+    /// tip so it appears once content exists (when the "why is this one card?"
+    /// confusion actually surfaces), not on the empty state.
+    private var firstReelID: UUID? {
+        for item in viewModel.feed {
+            if case .reel(let reel) = item { return reel.id }
+        }
+        return nil
+    }
+
     // Check if we have any highlights at all (before filtering)
     private var hasAnyHighlights: Bool {
         guard let athlete = athlete, let videoClips = athlete.videoClips else { return false }
@@ -212,7 +224,7 @@ struct HighlightsView: View {
                 )
             } else {
                 // True empty state - no highlights at all
-                EmptyHighlightsView()
+                EmptyHighlightsView(sport: athlete?.sport)
             }
         } else {
             highlightGridView
@@ -305,6 +317,7 @@ struct HighlightsView: View {
                             },
                             isDimmed: editMode == .active
                         )
+                        .onboardingTip(GolfReelTip(), also: isGolf && reel.id == firstReelID)
                         .onAppear { viewModel.onItemAppear(.reel(reel)) }
                     }
                 }

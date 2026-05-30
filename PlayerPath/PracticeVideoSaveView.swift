@@ -35,19 +35,12 @@ struct PracticeVideoSaveView: View {
     @State private var isSaving = false
     @State private var thumbnail: UIImage?
     @State private var thumbnailTask: Task<Void, Never>?
-    @State private var bottomSafeArea: CGFloat = 0
     @State private var previousOrientationLock: UIInterfaceOrientationMask = .allButUpsideDown
     @FocusState private var noteIsFocused: Bool
 
     var body: some View {
         ZStack {
             // Thumbnail background
-            GeometryReader { geo in
-                Color.clear
-                    .onAppear { bottomSafeArea = geo.safeAreaInsets.bottom }
-            }
-            .ignoresSafeArea()
-
             Group {
                 if let image = thumbnail {
                     Image(uiImage: image)
@@ -132,18 +125,19 @@ struct PracticeVideoSaveView: View {
                 Spacer()
             }
 
-            // Bottom glass panel
-            VStack {
-                Spacer()
-                glassPanel
-                    .frame(maxWidth: isLandscape ? 520 : .infinity)
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, bottomSafeArea + 16)
-                    .onAppear {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                            showContent = true
-                        }
-                    }
+            // Bottom glass panel — scrollable so the keyboard pushes the
+            // Skip/Save buttons up instead of covering them.
+            Group {
+                if isLandscape {
+                    landscapePanel
+                } else {
+                    portraitPanel
+                }
+            }
+            .onAppear {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                    showContent = true
+                }
             }
 
             // Saving overlay
@@ -172,6 +166,42 @@ struct PracticeVideoSaveView: View {
         }
         .onTapGesture {
             noteIsFocused = false
+        }
+    }
+
+    // MARK: - Panels
+
+    // Portrait: a bottom-anchored ScrollView. The ScrollView owns keyboard
+    // avoidance, so the focused note field scrolls up over the keyboard while
+    // the top info header stays put (instead of the whole view shifting up and
+    // clipping the header).
+    private var portraitPanel: some View {
+        GeometryReader { geo in
+            ScrollView {
+                VStack {
+                    Spacer(minLength: 0)
+                    glassPanel
+                        .padding(.horizontal, 16)
+                }
+                .frame(minHeight: geo.size.height)
+            }
+            .scrollDismissesKeyboard(.interactively)
+        }
+        .safeAreaInset(edge: .bottom) { Color.clear.frame(height: 16) }
+    }
+
+    private var landscapePanel: some View {
+        HStack(spacing: 0) {
+            Spacer()
+            ScrollView(showsIndicators: false) {
+                glassPanel
+                    .frame(maxWidth: 520)
+                    .padding(.vertical, 8)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .frame(maxWidth: 520, maxHeight: .infinity)
+            .padding(.trailing, 16)
+            .padding(.vertical, 8)
         }
     }
 

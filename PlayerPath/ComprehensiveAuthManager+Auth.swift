@@ -379,6 +379,7 @@ extension ComprehensiveAuthManager {
         hasCompletedOnboarding = false
         clearPersistedUserDefaults()
 
+        PushNotificationService.shared.cancelAllPendingNotifications()
         ActivityNotificationService.shared.stopListening()
         ReviewQueueViewModel.shared.stopListening()
         CoachInvitationManager.shared.stopListening()

@@ -135,9 +135,9 @@ struct PlayerPathMainView: View {
             // this seed on every launch would overwrite user changes.
             let notifPrefsMigrationKey = "notif_prefs_migrated_to_swiftdata_v5"
             if !UserDefaults.standard.bool(forKey: notifPrefsMigrationKey) {
-                prefs.enableGameReminders = UserDefaults.standard.object(forKey: "notif_gameReminders") as? Bool ?? true
-                prefs.enableUploadNotifications = UserDefaults.standard.object(forKey: "notif_uploads") as? Bool ?? true
-                prefs.gameReminderMinutes = UserDefaults.standard.object(forKey: "notif_gameReminderMinutes") as? Int ?? 30
+                prefs.enableGameReminders = UserDefaults.standard.object(forKey: NotificationPrefKeys.gameReminders) as? Bool ?? true
+                prefs.enableUploadNotifications = UserDefaults.standard.object(forKey: NotificationPrefKeys.uploads) as? Bool ?? true
+                prefs.gameReminderMinutes = UserDefaults.standard.object(forKey: NotificationPrefKeys.gameReminderMinutes) as? Int ?? 30
                 UserDefaults.standard.set(true, forKey: notifPrefsMigrationKey)
             }
 

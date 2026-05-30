@@ -13,13 +13,13 @@ struct NotificationSettingsView: View {
 
     // notif_weeklyStats is single-source (UserDefaults only; WeeklySummaryScheduler
     // reads directly from UserDefaults), so @AppStorage stays.
-    @AppStorage("notif_weeklyStats") private var weeklyStats = true
+    @AppStorage(NotificationPrefKeys.weeklyStats) private var weeklyStats = true
 
     // Toggles read directly by services without a ModelContext
     // (GameAlertService, PushNotificationService, UserMainFlow banner gate).
-    @AppStorage("notif_staleGameReminders") private var staleGameReminders = true
-    @AppStorage("notif_coachActivity") private var coachActivity = true
-    @AppStorage("notif_athleteActivity") private var athleteActivity = true
+    @AppStorage(NotificationPrefKeys.staleGameReminders) private var staleGameReminders = true
+    @AppStorage(NotificationPrefKeys.coachActivity) private var coachActivity = true
+    @AppStorage(NotificationPrefKeys.athleteActivity) private var athleteActivity = true
 
     @Environment(\.modelContext) private var modelContext
     @Query private var allPrefs: [UserPreferences]

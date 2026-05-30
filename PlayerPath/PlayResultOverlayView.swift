@@ -28,6 +28,15 @@ struct PlayResultOverlayView: View {
     /// time. Surfaces through onSave so ClipPersistenceService can flip the
     /// flag without a separate trip into the Videos grid.
     @State private var markAsHighlight: Bool = false
+    /// Golf-only: how many times the in-flow highlight hint has been shown.
+    /// The toggle + reel grouping is non-obvious and can't be added after save,
+    /// so we coach it under the toggle for the athlete's first few rounds, then
+    /// retire it. Capped read in `showHighlightHint`.
+    @AppStorage("golfHighlightHintShows") private var golfHighlightHintShows = 0
+    /// Captured once when the golf panel appears so incrementing the counter
+    /// can't re-render the hint away mid-session.
+    @State private var showHighlightHint = false
+    private let highlightHintCap = 3
 
     @State private var thumbnail: UIImage?
     @State private var videoMetadata: VideoMetadata?
@@ -322,9 +331,28 @@ struct PlayResultOverlayView: View {
             // Highlight toggle — golf only. Athlete marks the shot in-flow so
             // they don't need a separate trip into the Videos grid post-save.
             if isGolf {
-                highlightToggleBar
-                    .opacity(showContent ? 1 : 0)
-                    .offset(y: showContent ? 0 : 20)
+                VStack(spacing: 6) {
+                    highlightToggleBar
+                    if showHighlightHint {
+                        Text("Tap to send this shot straight to Highlights. Birdie-or-better holes bundle their highlights into a reel.")
+                            .font(.bodySmall)
+                            .foregroundColor(.white.opacity(0.6))
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.horizontal, 4)
+                            .transition(.opacity)
+                    }
+                }
+                .opacity(showContent ? 1 : 0)
+                .offset(y: showContent ? 0 : 20)
+                .onAppear {
+                    // Guard on !showHighlightHint so a mid-session rebuild
+                    // (e.g. rotation) can't double-count one viewing.
+                    if !showHighlightHint && golfHighlightHintShows < highlightHintCap {
+                        showHighlightHint = true
+                        golfHighlightHintShows += 1
+                    }
+                }
             }
 
             // Recording Mode Picker — baseball/softball only
