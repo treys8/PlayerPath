@@ -514,7 +514,13 @@ struct GamesView: View {
             } else {
                 List {
                     gamesListContent
+                        .listRowBackground(Theme.surface)
+                        .listRowSeparator(.hidden)
+                        .listRowInsets(EdgeInsets(top: 5, leading: 18, bottom: 5, trailing: 18))
                 }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .background(Theme.surface)
                 .environment(\.editMode, $listEditMode)
                 .refreshable {
                     Haptics.light()
