@@ -66,4 +66,16 @@ enum Theme {
     static func tile(for index: Int) -> Color {
         mediaTiles[abs(index) % mediaTiles.count]
     }
+
+    /// Stable media-tile color for a string key (e.g. a feed entry id). Uses a
+    /// fixed FNV-1a hash rather than `String.hashValue`, whose seed is
+    /// randomized per process launch — so a given entry keeps the same tile
+    /// color across app restarts instead of flickering between palette colors.
+    static func tile(forKey key: String) -> Color {
+        var hash: UInt64 = 0xcbf29ce484222325
+        for byte in key.utf8 {
+            hash = (hash ^ UInt64(byte)) &* 0x100000001b3
+        }
+        return mediaTiles[Int(hash % UInt64(mediaTiles.count))]
+    }
 }

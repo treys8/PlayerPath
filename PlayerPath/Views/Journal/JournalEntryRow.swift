@@ -124,7 +124,7 @@ struct JournalEntryRow: View {
     private var media: some View {
         if let clip = entry.representativeClip {
             PPMediaTile(
-                tileColor: Theme.tile(for: entry.id.hashValue),
+                tileColor: Theme.tile(forKey: entry.id),
                 outcome: outcomeChip(for: clip),
                 isStarred: clip.isHighlight,
                 duration: durationText(clip.duration),
@@ -142,7 +142,7 @@ struct JournalEntryRow: View {
             }
         } else if entry.photoCount > 0 {
             PPMediaTile(
-                tileColor: Theme.tile(for: entry.id.hashValue),
+                tileColor: Theme.tile(forKey: entry.id),
                 glyph: "photo.on.rectangle.angled"
             )
         }

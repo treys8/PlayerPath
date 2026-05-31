@@ -108,7 +108,9 @@ enum MilestoneEngine {
             var threshold = ((before / countStep) + 1) * countStep
             while threshold <= running {
                 milestones.append(Milestone(
-                    id: "bb-\(idTag)-count-\(threshold)",
+                    // Game-qualified so the same threshold reached in two
+                    // different seasons (career view flattens both) stays unique.
+                    id: "bb-\(idTag)-count-\(threshold)-\(game.id.uuidString)",
                     kind: .milestone,
                     title: "\(ordinal(threshold)) \(noun) of the season",
                     detail: detail(for: game),
