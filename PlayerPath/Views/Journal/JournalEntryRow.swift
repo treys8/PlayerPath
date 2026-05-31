@@ -12,12 +12,19 @@ import SwiftUI
 
 struct JournalEntryRow: View {
     let entry: JournalEntry
+    /// Season milestones (for the auto-headline + the marker). Defaults empty
+    /// so previews / non-milestone callers fall back to the matchup headline.
+    var milestones: [Milestone] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: .spacingMedium) {
             dateRail
 
-            Text(entry.fallbackHeadline)
+            if let marker = entryMilestone?.markerLabel {
+                PPMilestoneMarker(label: marker)
+            }
+
+            Text(HeadlineBuilder.headline(for: entry, milestones: milestones))
                 .font(.ppTitle3)                       // Fraunces serif
                 .foregroundStyle(Theme.textPrimary)
                 .multilineTextAlignment(.leading)
@@ -37,6 +44,23 @@ struct JournalEntryRow: View {
         .padding(.spacingLarge)
         .frame(maxWidth: .infinity, alignment: .leading)
         .ppCard()
+    }
+
+    /// The most significant milestone linked to this entry's game, if any.
+    private var entryMilestone: Milestone? {
+        guard case .game(let game) = entry else { return nil }
+        return milestones
+            .filter { $0.gameID == game.id }
+            .max { rank($0.kind) < rank($1.kind) }
+    }
+
+    private func rank(_ kind: Milestone.Kind) -> Int {
+        switch kind {
+        case .seasonFirst:  return 4
+        case .personalBest: return 3
+        case .streak:       return 2
+        case .milestone:    return 1
+        }
     }
 
     // MARK: - Date rail

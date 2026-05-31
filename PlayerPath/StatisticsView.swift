@@ -47,6 +47,19 @@ struct StatisticsView: View {
         return availableSeasons.first { $0.id.uuidString == id }
     }
 
+    /// Milestones for the current selection: the chosen season, or — in the
+    /// career (All Seasons) view — every season of the active sport, flattened
+    /// and most-recent first. Pure compute via MilestoneEngine.
+    private var milestonesForSelection: [Milestone] {
+        if let season = selectedSeason {
+            return MilestoneEngine.milestones(for: season)
+        }
+        let seasons = (athlete?.seasons ?? []).filter { ($0.sport ?? .baseball) == activeSport }
+        return seasons
+            .flatMap { MilestoneEngine.milestones(for: $0) }
+            .sorted { $0.date > $1.date }
+    }
+
     /// Golf has no `AthleteStatistics`, so its charts/comparison buttons can't
     /// ride the `statistics != nil` toolbar block — they gate on real rounds.
     private var hasGolfRounds: Bool {
@@ -373,6 +386,8 @@ struct StatisticsView: View {
                             showingCharts = true
                         }
                     }
+
+                    MilestonesListSection(milestones: milestonesForSelection)
                 }
                 .padding(horizontalSizeClass == .regular ? 32 : 18)
             }
@@ -429,6 +444,8 @@ struct StatisticsView: View {
                     if stats.hasPitchingData {
                         PitchingStatsSection(statistics: stats, athlete: athlete)
                     }
+
+                    MilestonesListSection(milestones: milestonesForSelection)
                 }
                 .padding(horizontalSizeClass == .regular ? 32 : 18)
             }

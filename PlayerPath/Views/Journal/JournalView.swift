@@ -79,6 +79,19 @@ struct JournalView: View {
         )
     }
 
+    /// Milestones across every season represented in the feed — feeds the
+    /// per-row auto-headline and milestone marker. Pure compute (no Firestore).
+    private var milestones: [Milestone] {
+        var seenSeasonIDs = Set<UUID>()
+        var result: [Milestone] = []
+        for game in games {
+            guard let season = game.season,
+                  seenSeasonIDs.insert(season.id).inserted else { continue }
+            result += MilestoneEngine.milestones(for: season)
+        }
+        return result
+    }
+
     // MARK: - Body
 
     var body: some View {
@@ -101,7 +114,7 @@ struct JournalView: View {
                         NavigationLink {
                             destination(for: entry)
                         } label: {
-                            JournalEntryRow(entry: entry)
+                            JournalEntryRow(entry: entry, milestones: milestones)
                                 .padding(.horizontal, 18)
                         }
                         .buttonStyle(.plain)

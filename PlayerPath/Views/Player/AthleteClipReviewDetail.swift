@@ -24,6 +24,10 @@ struct AthleteClipReviewDetail: View {
     let drillCards: [DrillCard]
     let cueTags: [String]
 
+    /// Marker label for a milestone on this clip's game (e.g. "SEASON FIRST").
+    /// When nil, falls back to a plain "Highlight" marker for starred clips.
+    var milestoneLabel: String? = nil
+
     // Bottom-bar actions wired to existing host functionality.
     var isHighlight: Bool
     var onToggleHighlight: () -> Void
@@ -53,8 +57,8 @@ struct AthleteClipReviewDetail: View {
 
     private var headline: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if clip.isHighlight {
-                PPMilestoneMarker(label: "Highlight")
+            if let marker = milestoneLabel ?? (clip.isHighlight ? "Highlight" : nil) {
+                PPMilestoneMarker(label: marker)
             }
             Text(clip.displayTagName ?? "Unrecorded")
                 .font(.ppTitle2)

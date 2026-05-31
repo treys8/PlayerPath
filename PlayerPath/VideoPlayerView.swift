@@ -172,6 +172,26 @@ struct VideoPlayerView: View {
         }
     }
 
+    /// Milestone marker for this clip's game, if its season produced one. Pure
+    /// compute over existing data (MilestoneEngine); nil for clips with no game
+    /// or no qualifying milestone — the detail view then falls back to the
+    /// plain "Highlight" marker.
+    private var clipMilestoneLabel: String? {
+        guard let game = clip.game, let season = game.season else { return nil }
+        let linked = MilestoneEngine.milestones(for: season).filter { $0.gameID == game.id }
+        let top = linked.max { milestoneRank($0.kind) < milestoneRank($1.kind) }
+        return top?.markerLabel
+    }
+
+    private func milestoneRank(_ kind: Milestone.Kind) -> Int {
+        switch kind {
+        case .seasonFirst:  return 4
+        case .personalBest: return 3
+        case .streak:       return 2
+        case .milestone:    return 1
+        }
+    }
+
     private func toggleHighlight() {
         clip.isHighlight.toggle()
         clip.needsSync = true
@@ -512,6 +532,7 @@ struct VideoPlayerView: View {
                             coachNoteUpdatedAt: coachNoteUpdatedAt,
                             drillCards: coachDrillCards,
                             cueTags: coachCueTags,
+                            milestoneLabel: clipMilestoneLabel,
                             isHighlight: clip.isHighlight,
                             onToggleHighlight: toggleHighlight,
                             onSave: { saveToPhotos() },
