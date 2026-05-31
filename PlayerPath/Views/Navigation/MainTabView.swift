@@ -426,22 +426,20 @@ struct MainTabView: View {
 
     private var homeTab: some View {
         NavigationStack(path: $homePath) {
-            DashboardView(
+            JournalView(
                 user: user,
                 athlete: selectedAthlete,
-                authManager: authManager,
-                modelContext: modelContext,
                 homePath: $homePath
             )
             .id(homeAthleteID ?? selectedAthlete.id)
         }
         .modifier(InvitationBadgeModifier())
         .tabItem {
-            Label("Home", systemImage: "house.fill")
+            Label("Journal", systemImage: "book.closed.fill")
         }
         .tag(MainTab.home.rawValue)
-        .accessibilityLabel("Home tab")
-        .accessibilityHint("View your dashboard and quick actions")
+        .accessibilityLabel("Journal tab")
+        .accessibilityHint("Your reverse-chronological feed of games, practices, and clips")
     }
 
     private var gamesTab: some View {
