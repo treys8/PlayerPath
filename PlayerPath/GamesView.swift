@@ -377,9 +377,7 @@ struct GamesView: View {
         if !cachedLiveGames.isEmpty {
             Section("Live") {
                 ForEach(cachedLiveGames) { game in
-                    NavigationLink(destination: GameDetailView(game: game)) {
-                        GameRow(game: game, isSeasonFiltered: selectedSeasonFilter != nil)
-                    }
+                    gameNavigationRow(game)
                     .swipeActions(edge: .trailing) {
                         Button("End") {
                             endGame(game)
@@ -400,9 +398,7 @@ struct GamesView: View {
         if !cachedUpcomingGames.isEmpty {
             Section("Upcoming") {
                 ForEach(cachedUpcomingGames) { game in
-                    NavigationLink(destination: GameDetailView(game: game)) {
-                        GameRow(game: game, isSeasonFiltered: selectedSeasonFilter != nil)
-                    }
+                    gameNavigationRow(game)
                     .swipeActions(edge: .trailing) {
                         Button("Start") {
                             startGame(game)
@@ -431,9 +427,7 @@ struct GamesView: View {
         if !cachedPastGames.isEmpty {
             Section("Past Games") {
                 ForEach(cachedPastGames) { game in
-                    NavigationLink(destination: GameDetailView(game: game)) {
-                        GameRow(game: game, isSeasonFiltered: selectedSeasonFilter != nil)
-                    }
+                    gameNavigationRow(game)
                     .swipeActions(edge: .trailing) {
                         Button("Complete") {
                             completeGame(game)
@@ -463,9 +457,7 @@ struct GamesView: View {
             ForEach(completedSections, id: \.label) { bucket in
                 Section(bucket.label) {
                     ForEach(bucket.games) { game in
-                        NavigationLink(destination: GameDetailView(game: game)) {
-                            GameRow(game: game, isSeasonFiltered: selectedSeasonFilter != nil)
-                        }
+                        gameNavigationRow(game)
                         .onAppear {
                             if game.id == cachedCompletedGames.last?.id,
                                viewModelHolder.viewModel?.hasMoreCompleted == true {
@@ -485,6 +477,24 @@ struct GamesView: View {
         }
     }
     
+    /// A games-list row whose entire card navigates to the game detail.
+    /// `GameRow` already draws its own trailing chevron inside the card, so the
+    /// `NavigationLink` is embedded as a transparent fill *overlay* rather than as
+    /// the row's labeled content — when a `NavigationLink` is the row's direct
+    /// content, a `.plain` List adds a second, system disclosure chevron in the
+    /// trailing gutter (the double-chevron bug). `.combine` keeps it a single,
+    /// well-labeled actionable element for VoiceOver.
+    private func gameNavigationRow(_ game: Game) -> some View {
+        GameRow(game: game, isSeasonFiltered: selectedSeasonFilter != nil)
+            .overlay {
+                NavigationLink(destination: GameDetailView(game: game)) {
+                    Color.clear
+                }
+                .buttonStyle(.plain)
+            }
+            .accessibilityElement(children: .combine)
+    }
+
     private var seasonFilterMenu: some View {
         SeasonFilterMenu(
             selectedSeasonID: $selectedSeasonFilter,

@@ -499,10 +499,10 @@ struct MainTabView: View {
                                 if authManager.currentTier < .plus {
                                     Text("PLUS")
                                         .font(.custom("Inter18pt-Bold", size: 11, relativeTo: .caption2))
-                                        .foregroundColor(.orange)
+                                        .foregroundColor(Theme.accent)
                                         .padding(.horizontal, 5)
                                         .padding(.vertical, 2)
-                                        .background(Capsule().fill(.orange.opacity(0.12)))
+                                        .background(Capsule().fill(Theme.accent.opacity(0.12)))
                                 }
                             }
                         } icon: {
@@ -525,10 +525,10 @@ struct MainTabView: View {
                                 if authManager.currentTier != .pro {
                                     Text("PRO")
                                         .font(.custom("Inter18pt-Bold", size: 11, relativeTo: .caption2))
-                                        .foregroundColor(.orange)
+                                        .foregroundColor(Theme.accent)
                                         .padding(.horizontal, 5)
                                         .padding(.vertical, 2)
-                                        .background(Capsule().fill(.orange.opacity(0.12)))
+                                        .background(Capsule().fill(Theme.accent.opacity(0.12)))
                                 }
                             }
                         } icon: {
@@ -543,10 +543,10 @@ struct MainTabView: View {
                                 if authManager.currentTier != .pro {
                                     Text("PRO")
                                         .font(.custom("Inter18pt-Bold", size: 11, relativeTo: .caption2))
-                                        .foregroundColor(.orange)
+                                        .foregroundColor(Theme.accent)
                                         .padding(.horizontal, 5)
                                         .padding(.vertical, 2)
-                                        .background(Capsule().fill(.orange.opacity(0.12)))
+                                        .background(Capsule().fill(Theme.accent.opacity(0.12)))
                                 }
                                 Spacer()
                                 SharedFoldersBadge()
@@ -559,6 +559,8 @@ struct MainTabView: View {
                 }
 
             }
+            .scrollContentBackground(.hidden)
+            .background(Theme.surface)
             .navigationTitle("More")
             .navigationDestination(for: MoreDestination.self) { destination in
                 switch destination {
@@ -610,10 +612,10 @@ struct MainTabView: View {
             HStack(spacing: 14) {
                 ZStack {
                     Circle()
-                        .fill(Color.brandNavy.opacity(0.1))
+                        .fill(Theme.accent.opacity(0.15))
                         .frame(width: 48, height: 48)
                     Text(String(user.username.prefix(1)).uppercased())
-                        .font(.headingLarge).foregroundColor(.brandNavy)
+                        .font(.headingLarge).foregroundColor(Theme.accent)
                 }
                 VStack(alignment: .leading, spacing: 3) {
                     Text(user.username).font(.headingMedium).foregroundColor(.primary)
@@ -635,8 +637,8 @@ struct MainTabView: View {
 
     private var tierDisplayColor: Color {
         switch authManager.currentTier {
-        case .pro, .plus: return .brandNavy
-        default: return .secondary
+        case .pro, .plus: return Theme.accent
+        default: return Theme.textSecondary
         }
     }
     

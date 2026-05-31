@@ -379,6 +379,9 @@ struct GameDetailView: View {
                 }
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(Theme.surface)
+        .tint(Theme.accent)
         .navigationTitle("\(isGolf ? "at" : "vs") \(game.opponent)")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { primaryActionMenu }
