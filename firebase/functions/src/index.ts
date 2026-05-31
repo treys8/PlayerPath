@@ -1984,11 +1984,12 @@ export const acceptAthleteToCoachInvitation = functions.https.onCall(async (data
   const foldersSnap = await db.collection('sharedFolders')
     .where('sharedWithCoachIDs', 'array-contains', coachID)
     .get();
-  // Key by athleteUUID when present, falling back to ownerAthleteID. Matches the
-  // client's SubscriptionGate.fullConnectedAthleteCount so a parent account with
-  // multiple athlete profiles counts as N slots, not 1.
+  // Key by personGroupID (dual-sport person = one slot), falling back to
+  // athleteUUID then ownerAthleteID. Matches the client's
+  // SubscriptionGate.fullConnectedAthleteCount so a parent account with multiple
+  // distinct people counts as N slots, not 1.
   const connectedAthletes = new Set<string>(
-    foldersSnap.docs.map(d => (d.data().athleteUUID as string) || d.data().ownerAthleteID)
+    foldersSnap.docs.map(d => (d.data().personGroupID as string) || (d.data().athleteUUID as string) || d.data().ownerAthleteID)
   );
 
   const acceptedSnap = await db.collection('invitations')
@@ -1997,15 +1998,21 @@ export const acceptAthleteToCoachInvitation = functions.https.onCall(async (data
     .where('status', '==', 'accepted')
     .get();
   for (const doc of acceptedSnap.docs) {
-    const key = (doc.data().athleteUUID as string) || doc.data().athleteUserID;
+    const key = (doc.data().personGroupID as string) || (doc.data().athleteUUID as string) || doc.data().athleteUserID;
     if (key) connectedAthletes.add(key);
   }
 
   // Read the invitation to find the athlete for the "already connected" check
   const preCheckSnap = await db.collection('invitations').doc(invitationID).get();
   const preCheckData = preCheckSnap.data();
+  // Dual-sport key: re-read the athlete profile doc (authoritative) so two sport
+  // profiles of one person collapse to a single coach slot. athleteID = owning
+  // account UID. Falls back to athleteUUID for solo athletes.
+  const resolvedPersonGroupID = await resolveAthletePersonGroupID(
+    db, preCheckData?.athleteID, preCheckData?.athleteUUID, preCheckData?.personGroupID
+  );
   const connectionKey: string | undefined =
-    preCheckData?.athleteUUID || preCheckData?.athleteID || preCheckData?.athleteUserID;
+    resolvedPersonGroupID || preCheckData?.athleteUUID || preCheckData?.athleteID || preCheckData?.athleteUserID;
 
   if (connectionKey && !connectedAthletes.has(connectionKey) && connectedAthletes.size >= limit) {
     // Update invitation status before throwing so client UI shows "rejected" instead of "pending"
@@ -2053,9 +2060,11 @@ export const acceptAthleteToCoachInvitation = functions.https.onCall(async (data
 
     // Atomic limit check inside transaction. coachAthleteCount is maintained by
     // acceptance/revocation functions. Falls back to pre-check count for migration.
-    // Connection key prefers athleteUUID for parent-account-with-multiple-profiles cases.
+    // Connection key prefers personGroupID (dual-sport person = one slot), then
+    // athleteUUID for parent-account-with-multiple-profiles cases. Reuses the
+    // pre-transaction resolved value to stay consistent with connectedAthletes.
     const invConnectionKey: string | undefined =
-      inv.athleteUUID || inv.athleteID || inv.athleteUserID;
+      resolvedPersonGroupID || inv.athleteUUID || inv.athleteID || inv.athleteUserID;
     const isNewConnection = invConnectionKey && !connectedAthletes.has(invConnectionKey);
     if (isNewConnection) {
       const currentCount = coachSnap.data()?.coachAthleteCount ?? connectedAthletes.size;
@@ -2090,6 +2099,8 @@ export const acceptAthleteToCoachInvitation = functions.https.onCall(async (data
           sharedWithCoachIDs: admin.firestore.FieldValue.arrayUnion(coachID),
           [`sharedWithCoachNames.${coachID}`]: coachDisplayName,
           [`permissions.${coachID}`]: permissions,
+          // Backfill/refresh the dual-sport key on this legacy/client-made folder.
+          ...(resolvedPersonGroupID ? { personGroupID: resolvedPersonGroupID } : {}),
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
         // Clear any prior revocation so canAccessFolder doesn't deny the re-added coach.
@@ -2104,6 +2115,9 @@ export const acceptAthleteToCoachInvitation = functions.https.onCall(async (data
       status: 'accepted',
       acceptedAt: admin.firestore.FieldValue.serverTimestamp(),
       acceptedByCoachID: coachID,
+      // Stamp the dual-sport key so the accepted-invitation merge in the count
+      // sites agrees with the folder doc (same key → no double-count).
+      ...(resolvedPersonGroupID ? { personGroupID: resolvedPersonGroupID } : {}),
     });
   });
 
@@ -2135,6 +2149,7 @@ export const acceptAthleteToCoachInvitation = functions.https.onCall(async (data
   const { gamesFolderID, lessonsFolderID } = await reuseOrCreateSharedFolders(db, {
     coachID,
     athleteUUID,
+    personGroupID: resolvedPersonGroupID || athleteUUID,
     ownerAthleteID: athleteID,
     athleteName,
     coachPermissions: permissions,
@@ -2170,7 +2185,7 @@ export const acceptCoachToAthleteInvitation = functions.https.onCall(async (data
     throw new functions.https.HttpsError('unauthenticated', 'Must be authenticated');
   }
 
-  const { invitationID, athleteName: clientAthleteName, athleteUUID: clientAthleteUUID } = data;
+  const { invitationID, athleteName: clientAthleteName, athleteUUID: clientAthleteUUID, personGroupID: clientPersonGroupID } = data;
   if (!invitationID || typeof invitationID !== 'string') {
     throw new functions.https.HttpsError('invalid-argument', 'invitationID is required');
   }
@@ -2233,9 +2248,10 @@ export const acceptCoachToAthleteInvitation = functions.https.onCall(async (data
   const foldersSnap = await db.collection('sharedFolders')
     .where('sharedWithCoachIDs', 'array-contains', coachID)
     .get();
-  // Key by athleteUUID when present, falling back to ownerAthleteID (matches client).
+  // Key by personGroupID (dual-sport person = one slot), falling back to
+  // athleteUUID then ownerAthleteID (matches client).
   const connectedAthletes = new Set<string>(
-    foldersSnap.docs.map(d => (d.data().athleteUUID as string) || d.data().ownerAthleteID)
+    foldersSnap.docs.map(d => (d.data().personGroupID as string) || (d.data().athleteUUID as string) || d.data().ownerAthleteID)
   );
 
   const acceptedSnap = await db.collection('invitations')
@@ -2244,13 +2260,21 @@ export const acceptCoachToAthleteInvitation = functions.https.onCall(async (data
     .where('status', '==', 'accepted')
     .get();
   for (const doc of acceptedSnap.docs) {
-    const key = (doc.data().athleteUUID as string) || doc.data().athleteUserID;
+    const key = (doc.data().personGroupID as string) || (doc.data().athleteUUID as string) || doc.data().athleteUserID;
     if (key) connectedAthletes.add(key);
   }
 
-  // For this flow the incoming connection key is the resolved athleteUUID
-  // (validated above). Falls back to athleteUserID for safety.
-  const incomingKey = athleteUUID || athleteUserID;
+  // Dual-sport key: re-read the accepting athlete's profile doc (authoritative)
+  // so two sport profiles of one person collapse to a single coach slot. The
+  // caller (athleteUserID) is the owning account. Falls back to the resolved
+  // athleteUUID (validated above), then athleteUserID.
+  // Fallback prefers the client-supplied value (computed on the accepting
+  // athlete's own device) over the coach-set invitation value, covering the race
+  // where a just-created spinoff profile's personGroupID hasn't synced yet.
+  const resolvedPersonGroupID = await resolveAthletePersonGroupID(
+    db, athleteUserID, athleteUUID, clientPersonGroupID || invData.personGroupID
+  );
+  const incomingKey = resolvedPersonGroupID || athleteUUID || athleteUserID;
 
   if (!connectedAthletes.has(incomingKey) && connectedAthletes.size >= limit) {
     await db.collection('invitations').doc(invitationID).update({
@@ -2351,6 +2375,9 @@ export const acceptCoachToAthleteInvitation = functions.https.onCall(async (data
       acceptedAt: admin.firestore.FieldValue.serverTimestamp(),
       athleteUserID: athleteUserID,
       athleteUUID: athleteUUID,
+      // Stamp the dual-sport key so the accepted-invitation merge in the count
+      // sites agrees with the folder doc (same key → no double-count).
+      ...(resolvedPersonGroupID ? { personGroupID: resolvedPersonGroupID } : {}),
     });
   });
 
@@ -2366,6 +2393,7 @@ export const acceptCoachToAthleteInvitation = functions.https.onCall(async (data
   const { gamesFolderID, lessonsFolderID } = await reuseOrCreateSharedFolders(db, {
     coachID,
     athleteUUID,
+    personGroupID: resolvedPersonGroupID || athleteUUID,
     ownerAthleteID: athleteUserID,
     athleteName: name,
     coachPermissions: defaultPerms,
@@ -3259,8 +3287,10 @@ function getCoachAthleteLimit(tier: string): number {
  * Reconciliation is UUID-aware, NOT a flat both-axes union — see memory
  * project_athlete_count_reconcile. The same real athlete can appear keyed by an
  * `athleteUUID` in one source and only by an account ID in the other (legacy/
- * stale data); a naive union double-counts them. Rule: each distinct
- * `athleteUUID` is one slot (a parent account hosting N profiles counts as N),
+ * stale data); a naive union double-counts them. The dedup axis is
+ * `personGroupID || athleteUUID` so a dual-sport person (two profiles sharing one
+ * personGroupID) collapses to ONE slot. Rule: each distinct group/UUID key is one
+ * slot (a parent account hosting N distinct people counts as N),
  * plus one slot per account that NEVER carried a UUID anywhere (legacy data is
  * single-profile). An account that appears both with and without a UUID
  * reconciles onto the UUID.
@@ -3293,7 +3323,7 @@ async function computeCoachConnectionCount(
     .where('sharedWithCoachIDs', 'array-contains', coachID)
     .get();
   for (const d of foldersSnap.docs) {
-    consider(d.data().athleteUUID, d.data().ownerAthleteID);
+    consider(d.data().personGroupID || d.data().athleteUUID, d.data().ownerAthleteID);
   }
 
   const acceptedSnap = await db.collection('invitations')
@@ -3302,7 +3332,7 @@ async function computeCoachConnectionCount(
     .where('status', '==', 'accepted')
     .get();
   for (const doc of acceptedSnap.docs) {
-    consider(doc.data().athleteUUID, doc.data().athleteUserID);
+    consider(doc.data().personGroupID || doc.data().athleteUUID, doc.data().athleteUserID);
   }
 
   // Legacy accounts that never carried a UUID anywhere count once each;
@@ -3313,6 +3343,45 @@ async function computeCoachConnectionCount(
   }
 
   return uuids.size + legacyCount;
+}
+
+/**
+ * Authoritative resolution of an athlete's `personGroupID` — the dual-sport
+ * coach-billing key. A person who plays two sports is two `Athlete` rows sharing
+ * one `personGroupID` and must count as ONE coach slot. We re-read the athlete
+ * profile doc rather than trusting the invitation snapshot (which may predate the
+ * field or be stale): athlete docs have random IDs with the UUID in the `id`
+ * field, mirroring backfillFolderPersonGroupID. Falls back to the invitation's
+ * value, then to the athlete UUID itself (a solo athlete's group is their own
+ * UUID — the same value the count keys fall back to, so behavior is unchanged).
+ */
+async function resolveAthletePersonGroupID(
+  db: admin.firestore.Firestore,
+  ownerAccountID: unknown,
+  athleteUUID: unknown,
+  invitationPersonGroupID: unknown
+): Promise<string | undefined> {
+  const uuid = typeof athleteUUID === 'string' && athleteUUID.length > 0 ? athleteUUID : undefined;
+  const owner = typeof ownerAccountID === 'string' && ownerAccountID.length > 0 ? ownerAccountID : undefined;
+  if (owner && uuid) {
+    try {
+      const snap = await db.collection('users').doc(owner)
+        .collection('athletes')
+        .where('id', '==', uuid)
+        .limit(1)
+        .get();
+      if (!snap.empty) {
+        const pg = snap.docs[0].data().personGroupID;
+        if (typeof pg === 'string' && pg.length > 0) return pg;
+      }
+    } catch (e) {
+      console.warn('resolveAthletePersonGroupID: athlete lookup failed', e);
+    }
+  }
+  if (typeof invitationPersonGroupID === 'string' && invitationPersonGroupID.length > 0) {
+    return invitationPersonGroupID;
+  }
+  return uuid;
 }
 
 /**
@@ -3328,13 +3397,14 @@ async function reuseOrCreateSharedFolders(
   params: {
     coachID: string;
     athleteUUID: string;
+    personGroupID: string;
     ownerAthleteID: string;
     athleteName: string;
     coachPermissions: Record<string, boolean>;
     coachDisplayName?: string;
   }
 ): Promise<{ gamesFolderID: string | null; lessonsFolderID: string | null }> {
-  const { coachID, athleteUUID, ownerAthleteID, athleteName, coachPermissions, coachDisplayName } = params;
+  const { coachID, athleteUUID, personGroupID, ownerAthleteID, athleteName, coachPermissions, coachDisplayName } = params;
 
   const existingSnap = await db.collection('sharedFolders')
     .where('athleteUUID', '==', athleteUUID)
@@ -3349,6 +3419,7 @@ async function reuseOrCreateSharedFolders(
     ownerAthleteID,
     ownerAthleteName: athleteName,
     athleteUUID,
+    personGroupID,
     sharedWithCoachIDs: [coachID],
     permissions: { [coachID]: coachPermissions },
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -3366,6 +3437,8 @@ async function reuseOrCreateSharedFolders(
       const update: Record<string, unknown> = {
         sharedWithCoachIDs: admin.firestore.FieldValue.arrayUnion(coachID),
         [`permissions.${coachID}`]: coachPermissions,
+        // Backfill/refresh the dual-sport key on reused (possibly legacy) folders.
+        personGroupID,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       };
       if (coachDisplayName) update[`sharedWithCoachNames.${coachID}`] = coachDisplayName;
@@ -3412,14 +3485,15 @@ export const enforceCoachAthleteLimit = functions.firestore
       const coachTier = coachDoc.data()?.coachSubscriptionTier || 'coach_free';
       const limit = getCoachAthleteLimit(coachTier);
 
-      // Count unique athletes from shared folders. Keyed by athleteUUID when
-      // present, falling back to ownerAthleteID — matches client SubscriptionGate
-      // so a parent account with multiple athlete profiles counts as N slots.
+      // Count unique athletes from shared folders. Keyed by personGroupID (so a
+      // dual-sport person's two profiles count as ONE slot), falling back to
+      // athleteUUID then ownerAthleteID — matches client SubscriptionGate so a
+      // parent account with multiple distinct people counts as N slots.
       const foldersSnap = await db.collection('sharedFolders')
         .where('sharedWithCoachIDs', 'array-contains', coachID)
         .get();
       const folderAthletes = new Set<string>(
-        foldersSnap.docs.map(d => (d.data().athleteUUID as string) || d.data().ownerAthleteID)
+        foldersSnap.docs.map(d => (d.data().personGroupID as string) || (d.data().athleteUUID as string) || d.data().ownerAthleteID)
       );
 
       // Count pending outbound invitations (exclude the one that just triggered)
@@ -3437,7 +3511,7 @@ export const enforceCoachAthleteLimit = functions.firestore
         .where('status', '==', 'accepted')
         .get();
       for (const doc of acceptedSnap.docs) {
-        const athleteUID = (doc.data().athleteUUID as string) || doc.data().athleteUserID;
+        const athleteUID = (doc.data().personGroupID as string) || (doc.data().athleteUUID as string) || doc.data().athleteUserID;
         if (athleteUID) folderAthletes.add(athleteUID);
       }
 
@@ -3948,4 +4022,123 @@ export const backfillFolderPersonGroupID = functions.https.onCall(async (data, c
   }
 
   return { scanned, alreadySet, resolvedGrouped, resolvedSolo, unresolvable, dryRun };
+});
+
+/**
+ * One-shot companion to backfillFolderPersonGroupID: stamps `personGroupID` on
+ * pre-PR-A invitation docs. Required because the coach count sites (PR-C) merge
+ * ACCEPTED invitations alongside folders — if a dual-sport person's folder keys
+ * by personGroupID (G) but its accepted invitation only carries athleteUUID (U),
+ * the merge re-splits the person into two slots. New accepts now stamp the
+ * invitation in-transaction; this closes the gap for invitations accepted before
+ * that change. Pending coach_to_athlete invitations lack an owning account UID
+ * until accepted, so they self-stamp on accept and are skipped here.
+ *
+ * Resolution mirrors the folder backfill: owner account = athleteUserID (coach→
+ * athlete, set on accept) ?? athleteID (athlete→coach); profile UUID = athleteUUID.
+ * Query users/{owner}/athletes where id == athleteUUID; write
+ * personGroupID = athleteDoc.personGroupID ?? athleteUUID.
+ *
+ * Invocation: callable, restricted to ALLOWED_ADMIN_UIDS. Pass { dryRun: true }
+ * first. Run AFTER backfillFolderPersonGroupID and BEFORE relying on PR-C counts.
+ */
+export const backfillInvitationPersonGroupID = functions.https.onCall(async (data, context) => {
+  if (!context.auth || !ALLOWED_ADMIN_UIDS.includes(context.auth.uid)) {
+    throw new functions.https.HttpsError('permission-denied', 'Admin only');
+  }
+  const dryRun = data?.dryRun !== false;
+  const db = admin.firestore();
+
+  const invSnap = await db.collection('invitations').get();
+  let scanned = 0;
+  let alreadySet = 0;
+  let resolvedGrouped = 0; // athlete had a personGroupID (real dual-sport collapse)
+  let resolvedSolo = 0; // personGroupID defaulted to athleteUUID
+  let unresolvable = 0; // no owner account or no athleteUUID yet (e.g. pending coach→athlete)
+  const writes: Array<{ ref: FirebaseFirestore.DocumentReference; personGroupID: string }> = [];
+  const diag: Array<Record<string, unknown>> = []; // dryRun-only breakdown of unresolvable docs
+
+  for (const invDoc of invSnap.docs) {
+    scanned++;
+    const inv = invDoc.data();
+    if (typeof inv.personGroupID === 'string' && inv.personGroupID.length > 0) {
+      alreadySet++;
+      continue;
+    }
+    const ownerAccountID = (inv.athleteUserID as string | undefined) || (inv.athleteID as string | undefined);
+    const athleteUUID = inv.athleteUUID as string | undefined;
+    const folderID = inv.folderID as string | undefined;
+
+    let personGroupID: string | undefined;
+    let grouped = false;
+
+    // Path 1 (authoritative): the athlete profile doc, when the invitation
+    // carries both a profile UUID and an owning account.
+    if (ownerAccountID && athleteUUID) {
+      const athleteQuery = await db.collection('users').doc(ownerAccountID)
+        .collection('athletes')
+        .where('id', '==', athleteUUID)
+        .limit(1)
+        .get();
+      if (!athleteQuery.empty) {
+        const pg = athleteQuery.docs[0].data().personGroupID;
+        if (typeof pg === 'string' && pg.length > 0) {
+          personGroupID = pg;
+          grouped = true;
+        }
+      }
+      if (!personGroupID) personGroupID = athleteUUID; // solo default
+    }
+
+    // Path 2: derive from the already-stamped folder. Covers accepted v5.0-era
+    // invitations that never recorded athleteUUID on the invitation doc — the
+    // folder carries personGroupID (set by backfillFolderPersonGroupID). Without
+    // this the accepted-invitation merge keys such a doc by athleteUserID while
+    // its folder keys by personGroupID, re-splitting a dual-sport person.
+    if (!personGroupID && folderID) {
+      const fSnap = await db.collection('sharedFolders').doc(folderID).get();
+      const f = fSnap.data();
+      const fpg = f?.personGroupID as string | undefined;
+      if (typeof fpg === 'string' && fpg.length > 0) {
+        personGroupID = fpg;
+        grouped = fpg !== (f?.athleteUUID as string | undefined);
+      }
+    }
+
+    if (!personGroupID) {
+      unresolvable++;
+      if (dryRun && diag.length < 20) {
+        diag.push({
+          id: invDoc.id,
+          type: inv.type ?? null,
+          status: inv.status ?? null,
+          hasAthleteUUID: !!inv.athleteUUID,
+          hasAthleteUserID: !!inv.athleteUserID,
+          hasAthleteID: !!inv.athleteID,
+          hasFolderID: !!inv.folderID,
+        });
+      }
+      continue;
+    }
+
+    if (grouped) {
+      resolvedGrouped++;
+    } else {
+      resolvedSolo++;
+    }
+    writes.push({ ref: invDoc.ref, personGroupID });
+  }
+
+  if (!dryRun) {
+    const batchSize = 400;
+    for (let i = 0; i < writes.length; i += batchSize) {
+      const batch = db.batch();
+      for (const w of writes.slice(i, i + batchSize)) {
+        batch.update(w.ref, { personGroupID: w.personGroupID });
+      }
+      await batch.commit();
+    }
+  }
+
+  return { scanned, alreadySet, resolvedGrouped, resolvedSolo, unresolvable, dryRun, diag };
 });
