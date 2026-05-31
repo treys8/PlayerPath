@@ -529,8 +529,9 @@ struct VideoClipsView: View {
 
     private var uploadStatusFilterPicker: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 12) {
+            HStack(spacing: .spacingSmall) {
                 ForEach(visibleFilters, id: \.self) { filter in
+                    let isSelected = viewModel.selectedFilter == filter
                     Button {
                         withAnimation {
                             viewModel.selectedFilter = filter
@@ -540,40 +541,29 @@ struct VideoClipsView: View {
                         HStack(spacing: 6) {
                             Image(systemName: filter.icon)
                                 .font(.caption)
-
                             Text(filter.rawValue)
-                                .font(viewModel.selectedFilter == filter ? .headingSmall : .bodyMedium)
+                                .font(.ppCallout)
                         }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
+                        .foregroundStyle(isSelected ? Theme.surface : Theme.textSecondary)
+                        .padding(.horizontal, .spacingLarge)
+                        .padding(.vertical, .spacingSmall)
                         .background(
-                            viewModel.selectedFilter == filter ?
-                                filter.color.opacity(0.2) :
-                                Color.gray.opacity(0.1)
+                            Capsule().fill(isSelected ? Theme.textPrimary : Color.clear)
                         )
-                        .foregroundColor(
-                            viewModel.selectedFilter == filter ?
-                                filter.color :
-                                .secondary
-                        )
-                        .cornerRadius(20)
                         .overlay(
-                            RoundedRectangle(cornerRadius: 20)
-                                .stroke(
-                                    viewModel.selectedFilter == filter ?
-                                        filter.color :
-                                        Color.clear,
-                                    lineWidth: 1.5
-                                )
+                            Capsule().strokeBorder(
+                                isSelected ? Color.clear : Theme.pillBorder,
+                                lineWidth: 1
+                            )
                         )
                     }
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal)
+            .padding(.horizontal, 18)
             .padding(.vertical, 12)
         }
-        .background(Color(uiColor: .systemBackground))
+        .background(Theme.surface)
     }
 
     private var videoListView: some View {
@@ -638,9 +628,10 @@ struct VideoClipsView: View {
                     }
                 }
                 .padding(.vertical)
-                .padding(.horizontal, horizontalSizeClass == .regular ? 32 : 16)
+                .padding(.horizontal, horizontalSizeClass == .regular ? 32 : 18)
             }
         }
+        .background(Theme.surface)
         .refreshable {
             await refreshVideos()
         }
