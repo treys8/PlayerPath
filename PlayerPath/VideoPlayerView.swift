@@ -46,6 +46,10 @@ struct VideoPlayerView: View {
     @State private var coachNoteText: String = ""
     @State private var coachNoteAuthorName: String?
     @State private var coachNoteUpdatedAt: Date?
+    /// Coach-authored quick-cue tags + drill cards on the source coach video,
+    /// surfaced read-only in the editorial detail below the player.
+    @State private var coachCueTags: [String] = []
+    @State private var coachDrillCards: [DrillCard] = []
     /// Guard so the "athlete viewed this clip" write only fires once per open.
     @State private var hasMarkedViewed = false
     /// Auto-show coach drawings: track which have already auto-popped this
@@ -88,10 +92,7 @@ struct VideoPlayerView: View {
         }
 
         Button {
-            clip.isHighlight.toggle()
-            clip.needsSync = true
-            ErrorHandlerService.shared.saveContext(modelContext, caller: "VideoPlayerView.toggleHighlight")
-            Haptics.medium()
+            toggleHighlight()
         } label: {
             Label(
                 clip.isHighlight ? "Remove from Highlights" : "Add to Highlights",
@@ -160,6 +161,24 @@ struct VideoPlayerView: View {
         }
     }
 
+    /// Non-interactive outcome chip floated over the player (portrait only) so
+    /// the tagged play reads at a glance without blocking playback controls.
+    @ViewBuilder
+    private var outcomeOverlay: some View {
+        if vSizeClass != .compact, let result = clip.playResult?.type {
+            PPOutcomeChip(result: result, overMedia: true, highlighted: clip.isHighlight)
+                .padding(.spacingMedium)
+                .allowsHitTesting(false)
+        }
+    }
+
+    private func toggleHighlight() {
+        clip.isHighlight.toggle()
+        clip.needsSync = true
+        ErrorHandlerService.shared.saveContext(modelContext, caller: "VideoPlayerView.toggleHighlight")
+        Haptics.medium()
+    }
+
     private var closeButton: some View {
         Button {
             dismiss()
@@ -220,7 +239,7 @@ struct VideoPlayerView: View {
     }
 
     private var loadingView: some View {
-        Color.black
+        Theme.tileNavyDark
             .overlay(
                 VStack(spacing: 12) {
                     if isDownloadingFromCloud {
@@ -402,7 +421,11 @@ struct VideoPlayerView: View {
                     coachNoteText = video.coachNote ?? ""
                     coachNoteAuthorName = video.coachNoteAuthorName
                     coachNoteUpdatedAt = video.coachNoteUpdatedAt
+                    coachCueTags = video.tags ?? []
                 }
+            }
+            if let cards = try? await FirestoreManager.shared.fetchDrillCards(forVideo: sourceID) {
+                await MainActor.run { coachDrillCards = cards }
             }
         }
 
@@ -442,7 +465,7 @@ struct VideoPlayerView: View {
     }
 
     private var errorView: some View {
-        Color.black
+        Theme.tileNavyDark
             .overlay(
                 VStack(spacing: 8) {
                     Image(systemName: "exclamationmark.triangle.fill")
@@ -478,18 +501,23 @@ struct VideoPlayerView: View {
                 VStack(spacing: 0) {
                     videoPlayerContent
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(Color.black)
+                        .background(Theme.tileNavyDark)
+                        .overlay(alignment: .topLeading) { outcomeOverlay }
 
                     if vSizeClass != .compact {
-                        if !coachNoteText.isEmpty {
-                            CoachNoteCard(
-                                text: coachNoteText,
-                                authorName: coachNoteAuthorName,
-                                updatedAt: coachNoteUpdatedAt
-                            )
-                        }
-                        VideoClipInfoCard(clip: clip)
-                            .padding(.bottom, 8)
+                        AthleteClipReviewDetail(
+                            clip: clip,
+                            coachNoteText: coachNoteText,
+                            coachNoteAuthorName: coachNoteAuthorName,
+                            coachNoteUpdatedAt: coachNoteUpdatedAt,
+                            drillCards: coachDrillCards,
+                            cueTags: coachCueTags,
+                            isHighlight: clip.isHighlight,
+                            onToggleHighlight: toggleHighlight,
+                            onSave: { saveToPhotos() },
+                            shareURL: FileManager.default.fileExists(atPath: clip.resolvedFilePath) ? clip.resolvedFileURL : nil
+                        )
+                        .frame(maxHeight: 380)
                     }
                 }
 
@@ -497,6 +525,7 @@ struct VideoPlayerView: View {
                     landscapeControls
                 }
             }
+            .background(Theme.surface)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(vSizeClass == .compact ? .hidden : .visible, for: .navigationBar)
             .toolbar {
@@ -803,49 +832,4 @@ struct VideoPlayerView: View {
 #Preview {
     let mock = VideoClip(fileName: "mock.mov", filePath: "/tmp/mock.mov")
     return VideoPlayerView(clip: mock)
-}
-
-// MARK: - Video Clip Info Card
-struct VideoClipInfoCard: View {
-    let clip: VideoClip
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
-            if let tag = clip.displayTagName {
-                Text(tag)
-                    .font(.headingLarge)
-            } else {
-                Text("Unrecorded")
-                    .font(.headingLarge)
-                    .foregroundColor(.secondary)
-            }
-
-            if let game = clip.game {
-                Text(game.opponentLabel)
-                    .font(.bodyMedium)
-                    .foregroundColor(.secondary)
-            } else if clip.practice != nil {
-                Text("Practice")
-                    .font(.bodyMedium)
-                    .foregroundColor(.secondary)
-            }
-
-            Spacer()
-
-            if clip.isHighlight {
-                Image(systemName: "star.fill")
-                    .foregroundColor(.yellow)
-                    .font(.body)
-            }
-
-            if let createdAt = clip.createdAt {
-                Text(createdAt, format: .dateTime.month(.abbreviated).day().year())
-                    .font(.bodyMedium)
-                    .foregroundColor(.secondary)
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .background(Color(uiColor: .systemBackground))
-    }
 }
