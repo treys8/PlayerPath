@@ -207,17 +207,19 @@ struct TelestrationToolbar: View {
                         .foregroundColor(.white)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 8)
-                        .background(Color.brandNavy)
+                        .background(Theme.accent)
                         .clipShape(Capsule())
                 }
                 .disabled(elementCount == 0)
                 .opacity(elementCount == 0 ? 0.5 : 1)
             }
         }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .background(Theme.tileNavyDark.opacity(0.55), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(.ultraThinMaterial.opacity(0.9))
-        .background(Color.black.opacity(0.5))
+        .padding(.top, 8)
         .confirmationDialog("Clear Drawing?", isPresented: $showingClearConfirm) {
             Button("Clear All", role: .destructive) { onClear() }
             Button("Cancel", role: .cancel) {}

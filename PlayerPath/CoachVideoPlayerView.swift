@@ -31,6 +31,11 @@ struct CoachVideoPlayerView: View {
     @State private var drillCardsLoadFailed = false
     /// Guard so the "athlete viewed this clip" write only fires once per open.
     @State private var hasMarkedViewed = false
+    /// Quick-cue texts currently applied to this clip (a subset of video.tags),
+    /// edited live by the coach via the inline cue picker.
+    @State private var selectedCueTags: [String] = []
+    @State private var isSendingToAthlete = false
+    @State private var didSendToAthlete = false
     private var templateService: CoachTemplateService { .shared }
     @Environment(\.modelContext) private var modelContext
     @Environment(\.verticalSizeClass) private var vSizeClass
@@ -86,7 +91,7 @@ struct CoachVideoPlayerView: View {
                             markReviewed()
                         } label: {
                             Image(systemName: "checkmark.circle")
-                                .foregroundColor(.brandNavy)
+                                .foregroundColor(Theme.accent)
                         }
                         .disabled(isMarkingReviewed)
                         .accessibilityLabel("Mark as reviewed")
@@ -105,7 +110,7 @@ struct CoachVideoPlayerView: View {
                                 ProgressView().scaleEffect(0.8)
                             } else {
                                 Image(systemName: "pencil.tip")
-                                    .foregroundColor(.brandNavy)
+                                    .foregroundColor(Theme.accent)
                             }
                         }
                         .disabled(!viewModel.isPlayerReady || isVerifyingDrawPermission)
@@ -126,7 +131,7 @@ struct CoachVideoPlayerView: View {
                                     .foregroundColor(.green)
                             } else {
                                 Image(systemName: "folder.fill.badge.plus")
-                                    .foregroundColor(.brandNavy)
+                                    .foregroundColor(Theme.accent)
                             }
                         }
                         .disabled(viewModel.isSavingToMyVideos || !viewModel.isPlayerReady || viewModel.alreadySavedToMyVideos)
@@ -141,7 +146,7 @@ struct CoachVideoPlayerView: View {
                             ProgressView().scaleEffect(0.8)
                         } else {
                             Image(systemName: "square.and.arrow.down")
-                                .foregroundColor(.brandNavy)
+                                .foregroundColor(Theme.accent)
                         }
                     }
                     .disabled(viewModel.isSaving || !viewModel.isPlayerReady)
@@ -156,10 +161,10 @@ struct CoachVideoPlayerView: View {
                                 .font(.subheadline)
                                 .fontWeight(.semibold)
                                 .monospacedDigit()
-                                .foregroundColor(.brandNavy)
+                                .foregroundColor(Theme.accent)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 4)
-                                .background(Color.brandNavy.opacity(0.12))
+                                .background(Theme.accent.opacity(0.12))
                                 .clipShape(Capsule())
                         }
                         .accessibilityLabel("Playback speed: \(viewModel.playbackRate)x")
@@ -169,6 +174,7 @@ struct CoachVideoPlayerView: View {
         }
         .toast(isPresenting: $viewModel.didSaveSuccessfully, message: "Video Saved")
         .toast(isPresenting: $viewModel.didSaveToMyVideosSuccessfully, message: "Added to Your Videos")
+        .toast(isPresenting: $didSendToAthlete, message: "Sent to \(athleteFirstName)")
         .alert("Save Failed", isPresented: .init(
             get: { viewModel.saveError != nil },
             set: { if !$0 { viewModel.saveError = nil } }
@@ -240,6 +246,12 @@ struct CoachVideoPlayerView: View {
             }
             if let coachID = authManager.userID {
                 await templateService.loadDrillTemplates(coachID: coachID)
+                // The inline cue picker is coach-only; seed it from the clip's
+                // existing tags and load the coach's reusable cue templates.
+                if canEditCoachNote {
+                    selectedCueTags = video.tags
+                    await templateService.loadQuickCues(coachID: coachID)
+                }
             }
 
             // Mark this video's notifications as read (athlete viewing coach feedback)
@@ -302,7 +314,7 @@ struct CoachVideoPlayerView: View {
                 Task { await reloadDrillCards() }
             }
             .buttonStyle(.bordered)
-            .tint(.brandNavy)
+            .tint(Theme.accent)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding()
@@ -370,9 +382,10 @@ struct CoachVideoPlayerView: View {
             playerContent
                 .frame(height: playerHeight)
             athleteNoteCard
-            coachNoteCard
+            coachNoteSection
             annotationPanel
         }
+        .background(Theme.surface)
     }
 
     private var wideLayout: some View {
@@ -389,10 +402,29 @@ struct CoachVideoPlayerView: View {
                 playbackRate: viewModel.playbackRate,
                 onRateChanged: { viewModel.setPlaybackRate($0) },
                 athleteNote: { athleteNoteCard },
-                coachNote: { coachNoteCard },
+                coachNote: { coachNoteSection },
                 annotationPanel: { annotationPanel }
             )
             .frame(width: isIPad ? 360 : 320)
+            .background(Theme.surface)
+        }
+    }
+
+    /// Coach note + (coach-only) the cue picker / Send / view-receipt bar.
+    @ViewBuilder
+    private var coachNoteSection: some View {
+        coachNoteCard
+        if canEditCoachNote {
+            CoachReviewActionsBar(
+                athleteName: athleteFirstName,
+                quickCues: templateService.quickCues,
+                appliedCues: selectedCueTags,
+                viewedAt: athleteViewedAt,
+                isSending: isSendingToAthlete,
+                onToggleCue: toggleCue,
+                onAddCue: addCue,
+                onSend: sendToAthlete
+            )
         }
     }
 
@@ -476,13 +508,13 @@ struct CoachVideoPlayerView: View {
             }
         } else if viewModel.isLoading {
             ZStack {
-                Color.black
+                Theme.tileNavyDark
                 ProgressView("Loading video...")
                     .tint(.white)
             }
         } else if viewModel.errorMessage != nil {
             ZStack {
-                Color(white: 0.3)
+                Theme.tileNavyDark
                 VStack(spacing: 16) {
                     Image(systemName: "exclamationmark.triangle")
                         .font(.system(size: 36))
@@ -500,7 +532,7 @@ struct CoachVideoPlayerView: View {
                             .fontWeight(.semibold)
                             .padding(.horizontal, 24)
                             .padding(.vertical, 10)
-                            .background(Color.brandNavy)
+                            .background(Theme.accent)
                             .foregroundColor(.white)
                             .cornerRadius(10)
                     }
@@ -508,7 +540,7 @@ struct CoachVideoPlayerView: View {
             }
         } else {
             ZStack {
-                Color.black
+                Theme.tileNavyDark
                 ProgressView("Buffering...")
                     .tint(.white)
             }
@@ -667,6 +699,79 @@ struct CoachVideoPlayerView: View {
                 markReviewedError = error.localizedDescription
             }
             isMarkingReviewed = false
+        }
+    }
+
+    // MARK: - Coach review actions
+
+    /// First name of the folder-owning athlete, for the "Send to …" button.
+    private var athleteFirstName: String {
+        guard let name = folder.ownerAthleteName,
+              let first = name.split(separator: " ").first else { return "athlete" }
+        return String(first)
+    }
+
+    /// When the athlete last opened this clip (their view receipt), if ever.
+    private var athleteViewedAt: Date? {
+        video.viewedBy?[folder.ownerAthleteID]
+    }
+
+    /// Apply or remove a cue from the clip's tags and persist. Optimistic —
+    /// local state flips immediately; a write failure is logged silently and
+    /// the cue is rolled back so the chip never lies about what's saved.
+    private func toggleCue(_ text: String) {
+        let previous = selectedCueTags
+        if selectedCueTags.contains(text) {
+            selectedCueTags.removeAll { $0 == text }
+        } else {
+            selectedCueTags.append(text)
+        }
+        Haptics.light()
+        persistCueTags(rollbackTo: previous)
+    }
+
+    /// Create a reusable quick cue and apply it to this clip.
+    private func addCue(_ text: String) {
+        guard let coachID = authManager.userID else { return }
+        let previous = selectedCueTags
+        if !selectedCueTags.contains(text) { selectedCueTags.append(text) }
+        Haptics.light()
+        persistCueTags(rollbackTo: previous)
+        Task {
+            _ = try? await templateService.addQuickCue(coachID: coachID, text: text, category: .mechanics)
+        }
+    }
+
+    private func persistCueTags(rollbackTo previous: [String]) {
+        let tags = selectedCueTags
+        Task {
+            do {
+                try await FirestoreManager.shared.updateVideoTags(
+                    videoID: video.id,
+                    tags: tags,
+                    drillType: video.drillType
+                )
+            } catch {
+                selectedCueTags = previous
+                ErrorHandlerService.shared.handle(error, context: "CoachVideoPlayer.updateCueTags", showAlert: false)
+            }
+        }
+    }
+
+    /// Explicit "review complete" confirmation. Coach feedback is already
+    /// delivered automatically by Cloud Functions as it's authored; this marks
+    /// the clip reviewed (bookkeeping + nudge) and confirms with a toast.
+    private func sendToAthlete() {
+        guard let coachID = authManager.userID else { return }
+        isSendingToAthlete = true
+        Task {
+            do {
+                try await viewModel.markReviewed(coachID: coachID)
+                didSendToAthlete = true
+            } catch {
+                markReviewedError = error.localizedDescription
+            }
+            isSendingToAthlete = false
         }
     }
 
