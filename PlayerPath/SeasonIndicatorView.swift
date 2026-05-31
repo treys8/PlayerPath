@@ -88,6 +88,11 @@ struct SeasonRecommendationBanner: View {
         switch recommendation {
         case .createFirst where activeSport == .golf:
             return "Create your first season to start tracking tournaments and videos"
+        case .noActiveSeason:
+            // Sport-scope the copy: the check is filtered to the current sport
+            // (checkSeasonStatus(for:sport:)), so a globally-worded "No active
+            // season" reads as wrong when another sport's season is active.
+            return "No active \(activeSport.displayName.lowercased()) season. Create a new season or reactivate an old one"
         default:
             return recommendation.message
         }

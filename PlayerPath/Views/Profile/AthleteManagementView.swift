@@ -95,7 +95,9 @@ struct AthleteManagementView: View {
     @State private var sortedAthletes: [Athlete] = []
 
     private var canAddMoreAthletes: Bool {
-        (user.athletes ?? []).count < authManager.currentTier.athleteLimit
+        // Use the canonical slot count: linked sport-variant profiles
+        // (same personGroupID) count as ONE slot, matching the tier gate.
+        user.athleteSlotsUsed < authManager.currentTier.athleteLimit
     }
 
     var body: some View {

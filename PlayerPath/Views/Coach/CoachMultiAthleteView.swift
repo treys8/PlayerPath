@@ -19,11 +19,12 @@ struct CoachMultiAthleteView: View {
     @State private var athleteGroups: [AthleteComparisonData] = []
 
     private func recomputeAthleteGroups() {
-        // Group per athlete (UUID where present, account UID for legacy folders) so multi-athlete
-        // parent accounts surface as separate rows.
+        // Group per person (personGroupID collapses a dual-sport person's profiles;
+        // then UUID, then account UID for legacy) so multi-athlete parent accounts
+        // still surface as separate rows.
         let grouped = Dictionary(grouping: sharedFolderManager.coachFolders.filter {
             !archiveManager.isArchived($0.id ?? "")
-        }) { $0.athleteUUID ?? $0.ownerAthleteID }
+        }) { $0.personGroupID ?? $0.athleteUUID ?? $0.ownerAthleteID }
 
         athleteGroups = grouped.map { athleteID, folders in
             AthleteComparisonData(

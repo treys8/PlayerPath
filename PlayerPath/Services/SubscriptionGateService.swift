@@ -20,12 +20,14 @@ struct CoachAthleteRef {
     let athleteUUID: String?
     let athleteUserID: String?
     /// Person-group key carried from the invitation doc so a dual-sport person
-    /// can collapse to ONE coach slot. Read in PR-A but not yet consulted by
-    /// `canonicalKey` — PR-D promotes it to the highest-priority dedup axis.
+    /// collapses to ONE coach slot: both sport profiles share one personGroupID,
+    /// making it the highest-priority dedup axis. Equals `athleteUUID` for solo
+    /// athletes, so promoting it is behavior-preserving for the common case.
     let personGroupID: String?
 
-    /// Canonical per-athlete key: prefer the stable Athlete UUID, fall back to account UID.
-    var canonicalKey: String? { athleteUUID ?? athleteUserID }
+    /// Canonical per-athlete key: prefer the person-group key (collapses a
+    /// dual-sport person's profiles), then the stable Athlete UUID, then account UID.
+    var canonicalKey: String? { personGroupID ?? athleteUUID ?? athleteUserID }
 }
 
 /// Stateless helper for subscription gate checks.
@@ -63,10 +65,14 @@ enum SubscriptionGate {
     /// UUID isn't available to compare (legacy folder or UUID-less invitation), where
     /// legacy data is inherently single-profile so account reconciliation is safe.
     static func unmatchedInvitationRefs(folders: [SharedFolder], invitationRefs: [CoachAthleteRef]) -> [CoachAthleteRef] {
+        var folderPersonGroupIDs = Set<String>()       // personGroupIDs present on folders
         var folderUUIDs = Set<String>()                // athleteUUIDs present on folders
         var folderAccountIDs = Set<String>()           // all folder owner account UIDs
         var legacyFolderAccountIDs = Set<String>()      // owner UIDs of folders that have no UUID
         for folder in folders {
+            if let group = folder.personGroupID, !group.isEmpty {
+                folderPersonGroupIDs.insert(group)
+            }
             if let uuid = folder.athleteUUID, !uuid.isEmpty {
                 folderUUIDs.insert(uuid)
             } else {
@@ -78,6 +84,7 @@ enum SubscriptionGate {
         var result: [CoachAthleteRef] = []
         for ref in invitationRefs {
             if isRepresentedByFolder(ref,
+                                     folderPersonGroupIDs: folderPersonGroupIDs,
                                      folderUUIDs: folderUUIDs,
                                      folderAccountIDs: folderAccountIDs,
                                      legacyFolderAccountIDs: legacyFolderAccountIDs) {
@@ -92,9 +99,18 @@ enum SubscriptionGate {
     /// Whether an accepted invitation already corresponds to an existing folder.
     /// See `unmatchedInvitationRefs` for the reconciliation rationale.
     private static func isRepresentedByFolder(_ ref: CoachAthleteRef,
+                                              folderPersonGroupIDs: Set<String>,
                                               folderUUIDs: Set<String>,
                                               folderAccountIDs: Set<String>,
                                               legacyFolderAccountIDs: Set<String>) -> Bool {
+        // Highest-priority axis: the person-group key. A dual-sport person's
+        // profiles all carry one personGroupID, so an invitation for either sport
+        // is "already known" if any folder in the group exists. Fall through to the
+        // UUID/account axes when no folder is backfilled with this group yet.
+        if let group = ref.personGroupID, !group.isEmpty,
+           folderPersonGroupIDs.contains(group) {
+            return true
+        }
         if let uuid = ref.athleteUUID, !uuid.isEmpty {
             if folderUUIDs.contains(uuid) { return true }
             // No UUID-matching folder: only a legacy (UUID-less) folder for the same
@@ -112,8 +128,9 @@ enum SubscriptionGate {
     /// accepted coach→athlete invitations. The single source of truth for the
     /// athlete-count used by limit checks and the coach UI.
     static func connectedAthleteKeys(folders: [SharedFolder], invitationRefs: [CoachAthleteRef]) -> Set<String> {
-        // One slot per real athlete: prefer the stable Athlete UUID, fall back to account UID.
-        var keys = Set(folders.map { $0.athleteUUID ?? $0.ownerAthleteID })
+        // One slot per real person: prefer the person-group key (collapses a
+        // dual-sport person's two folders), then the Athlete UUID, then account UID.
+        var keys = Set(folders.map { $0.personGroupID ?? $0.athleteUUID ?? $0.ownerAthleteID })
         for ref in unmatchedInvitationRefs(folders: folders, invitationRefs: invitationRefs) {
             if let key = ref.canonicalKey { keys.insert(key) }
         }

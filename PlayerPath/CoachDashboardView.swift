@@ -635,7 +635,7 @@ struct CoachDashboardView: View {
     /// any change observer that affects the inputs. The result is cached so
     /// the body doesn't iterate + Dictionary(grouping:) + sort every render.
     private func recomputeRecentAthleteCards() {
-        let grouped = Dictionary(grouping: cachedRecentFolders) { $0.athleteUUID ?? $0.ownerAthleteID }
+        let grouped = Dictionary(grouping: cachedRecentFolders) { $0.personGroupID ?? $0.athleteUUID ?? $0.ownerAthleteID }
         cachedRecentAthleteCards = grouped.map { athleteID, folders in
             let name = folders.first?.ownerAthleteName ?? "Athlete"
             let videos = folders.reduce(0) { $0 + ($1.videoCount ?? 0) }
@@ -908,7 +908,7 @@ struct CoachDashboardView: View {
     }
 
     private var uniqueAthleteCount: Int {
-        Set(sharedFolderManager.coachFolders.map { $0.athleteUUID ?? $0.ownerAthleteID }).count
+        Set(sharedFolderManager.coachFolders.map { $0.personGroupID ?? $0.athleteUUID ?? $0.ownerAthleteID }).count
     }
 
     private var totalVideoCount: Int {

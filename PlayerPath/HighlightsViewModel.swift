@@ -141,11 +141,14 @@ final class HighlightsViewModel {
         // - Season: resolve via the parent game (if locatable in allVideoClips).
         // - Type: reels are game-origin in PR2, so .game and .all pass; .practice excludes.
         // - Search: match on displayName / course / hole label.
+        // Multiple clips share a game, so the same game.id appears repeatedly.
+        // Use uniquingKeysWith (not uniqueKeysWithValues, which traps on duplicate keys).
         let gamesByID: [UUID: Game] = Dictionary(
-            uniqueKeysWithValues: allVideoClips.compactMap { clip -> (UUID, Game)? in
+            allVideoClips.compactMap { clip -> (UUID, Game)? in
                 guard let game = clip.game else { return nil }
                 return (game.id, game)
-            }
+            },
+            uniquingKeysWith: { current, _ in current }
         )
 
         var filteredReels: [HighlightReel] = allReels.filter { !$0.isDeletedRemotely }
