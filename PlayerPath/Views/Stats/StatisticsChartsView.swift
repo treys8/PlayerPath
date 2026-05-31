@@ -61,7 +61,7 @@ struct StatisticsChartsView: View {
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 12) {
-                    ForEach(StatMetric.allCases) { metric in
+                    ForEach(StatMetric.selectableCases) { metric in
                         MetricChip(
                             metric: metric,
                             isSelected: selectedMetric == metric
@@ -652,6 +652,13 @@ enum StatMetric: String, CaseIterable, Identifiable {
     case runs = "runs"
 
     var id: String { rawValue }
+
+    /// Metrics offered in the chart picker. Excludes RBIs and runs — they need
+    /// game context that isn't tracked per-athlete (visual-overhaul:
+    /// derivable-stats-only). Cases remain for data/sync compatibility.
+    static var selectableCases: [StatMetric] {
+        allCases.filter { $0 != .rbis && $0 != .runs }
+    }
 
     var displayName: String {
         switch self {

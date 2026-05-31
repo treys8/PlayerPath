@@ -136,7 +136,7 @@ struct SeasonDetailView: View {
                         LabeledContent("At Bats", value: "\(stats.atBats)")
                         LabeledContent("Hits", value: "\(stats.hits)")
                         LabeledContent("Home Runs", value: "\(stats.homeRuns)")
-                        LabeledContent("RBIs", value: "\(stats.rbis)")
+                        // RBIs omitted — derivable-stats-only (no game context).
                         LabeledContent("Walks", value: "\(stats.walks)")
                         LabeledContent("Strikeouts", value: "\(stats.strikeouts)")
                     }

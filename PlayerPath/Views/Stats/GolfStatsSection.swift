@@ -189,7 +189,7 @@ struct GolfStatsSection: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: .cornerLarge, style: .continuous)
-                .fill(Color(uiColor: .secondarySystemGroupedBackground))
+                .fill(Theme.card)
         )
     }
 }

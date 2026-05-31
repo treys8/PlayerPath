@@ -61,7 +61,7 @@ struct BattingChartSection: View {
                 .padding(.horizontal, horizontalSizeClass == .regular ? 24 : 16)
                 .background(
                     RoundedRectangle(cornerRadius: .cornerXLarge, style: .continuous)
-                        .fill(Color(uiColor: .secondarySystemGroupedBackground))
+                        .fill(Theme.card)
                 )
                 .shadow(color: .black.opacity(0.04), radius: 8, x: 0, y: 2)
                 .opacity(isVisible ? 1 : 0)
@@ -79,7 +79,7 @@ struct BattingChartSection: View {
                 .frame(maxWidth: .infinity)
                 .background(
                     RoundedRectangle(cornerRadius: .cornerXLarge, style: .continuous)
-                        .fill(Color(uiColor: .secondarySystemGroupedBackground))
+                        .fill(Theme.card)
                 )
             }
         }

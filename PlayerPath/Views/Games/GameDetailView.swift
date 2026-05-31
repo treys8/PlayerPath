@@ -337,18 +337,7 @@ struct GameDetailView: View {
                         Text("\(stats.hits)")
                             .font(.headingMedium)
                     }
-                    HStack {
-                        Text("Runs")
-                        Spacer()
-                        Text("\(stats.runs)")
-                            .font(.headingMedium)
-                    }
-                    HStack {
-                        Text("RBIs")
-                        Spacer()
-                        Text("\(stats.rbis)")
-                            .font(.headingMedium)
-                    }
+                    // Runs and RBIs omitted — derivable-stats-only (no game context).
                     HStack {
                         Text("Strikeouts")
                         Spacer()

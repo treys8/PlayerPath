@@ -151,7 +151,7 @@ struct ComparisonStatCard: View {
         .background(
             ZStack {
                 RoundedRectangle(cornerRadius: .cornerXLarge, style: .continuous)
-                    .fill(Color(uiColor: .secondarySystemGroupedBackground))
+                    .fill(Theme.card)
 
                 // Subtle gradient accent
                 RoundedRectangle(cornerRadius: .cornerXLarge, style: .continuous)

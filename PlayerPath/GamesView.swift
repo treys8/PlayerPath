@@ -310,7 +310,6 @@ struct GamesView: View {
             let totalAB = withStats.reduce(0) { $0 + $1.atBats }
             let totalH  = withStats.reduce(0) { $0 + $1.hits }
             let totalHR = withStats.reduce(0) { $0 + $1.homeRuns }
-            let totalRBI = withStats.reduce(0) { $0 + $1.rbis }
             let totalPitches = withStats.reduce(0) { $0 + $1.totalPitches }
             let totalK = withStats.reduce(0) { $0 + $1.pitchingStrikeouts }
             let totalBB = withStats.reduce(0) { $0 + $1.pitchingWalks }
@@ -322,7 +321,7 @@ struct GamesView: View {
                 let avg = StatisticsService.shared.formatBattingAverage(Double(totalH) / Double(totalAB))
                 parts.append(avg)
                 if totalHR > 0 { parts.append("\(totalHR) HR") }
-                if totalRBI > 0 { parts.append("\(totalRBI) RBI") }
+                // RBI intentionally omitted — derivable-stats-only (no game context).
             } else if totalPitches > 0 {
                 parts.append("\(totalK) K")
                 parts.append("\(totalBB) BB")

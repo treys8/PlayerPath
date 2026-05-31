@@ -95,7 +95,7 @@ struct StatisticsView: View {
 
     var body: some View {
         contentView
-            .navigationTitle("Statistics")
+            .navigationTitle("The Numbers.")
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 if statistics != nil {
@@ -374,11 +374,20 @@ struct StatisticsView: View {
                         }
                     }
                 }
-                .padding(horizontalSizeClass == .regular ? 32 : 16)
+                .padding(horizontalSizeClass == .regular ? 32 : 18)
             }
+            .background(Theme.surface)
         } else if let stats = statistics {
             ScrollView {
                 LazyVStack(spacing: 20) {
+                    // "The Numbers." hero — slash line + metric grid.
+                    StatsHeroCard(
+                        statistics: stats,
+                        label: selectedSeasonFilter
+                            .flatMap { id in availableSeasons.first(where: { $0.id.uuidString == id }) }?
+                            .displayName ?? "Batting Line"
+                    )
+
                     // Charts Prompt Card
                     ChartsPromptCard {
                         showingCharts = true
@@ -421,8 +430,9 @@ struct StatisticsView: View {
                         PitchingStatsSection(statistics: stats, athlete: athlete)
                     }
                 }
-                .padding(horizontalSizeClass == .regular ? 32 : 16)
+                .padding(horizontalSizeClass == .regular ? 32 : 18)
             }
+            .background(Theme.surface)
         } else {
             EmptyStatisticsView(
                 isQuickEntryEnabled: hasLiveGame,
@@ -459,16 +469,11 @@ struct SectionHeader: View {
             if let icon = icon {
                 Image(systemName: icon)
                     .font(.subheadline)
-                    .foregroundStyle(
-                        LinearGradient(
-                            colors: [.blue, .blue.opacity(0.6)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
+                    .foregroundStyle(Theme.accent)
             }
             Text(title)
-                .font(.headingLarge)
+                .font(.ppTitle2)              // Fraunces serif
+                .foregroundStyle(Theme.textPrimary)
         }
     }
 }
@@ -490,7 +495,7 @@ extension View {
             .padding(12)
             .background(
                 RoundedRectangle(cornerRadius: .cornerLarge, style: .continuous)
-                    .fill(Color(uiColor: .secondarySystemGroupedBackground))
+                    .fill(Theme.card)
             )
     }
 }
