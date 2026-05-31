@@ -31,6 +31,13 @@ struct AthleteSelectionView: View {
         return athletes.filter { $0.name.lowercased().contains(q) }
     }
 
+    /// Filtered athletes collapsed to one entry per person (linked sport-variant
+    /// profiles share a card). Multi-sport people render a `MultiSportPersonCard`
+    /// with a sport switcher; everyone else stays a plain `AthleteCard`.
+    private var filteredGroups: [AthletePersonGroup] {
+        filteredAthletes.groupedByPerson()
+    }
+
     var body: some View {
         NavigationStack {
             VStack {
@@ -92,12 +99,21 @@ struct AthleteSelectionView: View {
                         } else {
                             ScrollView {
                                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 16)], spacing: 16) {
-                                    ForEach(filteredAthletes) { athlete in
-                                        AthleteCard(athlete: athlete) {
-                                            selectedAthlete = athlete
-                                            onDismiss?()
-                                        } onAddSport: {
-                                            spinoffSource = athlete
+                                    ForEach(filteredGroups) { group in
+                                        if group.isMultiSport {
+                                            MultiSportPersonCard(group: group) { profile in
+                                                selectedAthlete = profile
+                                                onDismiss?()
+                                            } onAddSport: {
+                                                spinoffSource = group.profiles.first
+                                            }
+                                        } else if let athlete = group.profiles.first {
+                                            AthleteCard(athlete: athlete) {
+                                                selectedAthlete = athlete
+                                                onDismiss?()
+                                            } onAddSport: {
+                                                spinoffSource = athlete
+                                            }
                                         }
                                     }
                                 }
