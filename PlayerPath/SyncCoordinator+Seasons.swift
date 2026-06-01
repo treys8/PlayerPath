@@ -206,6 +206,15 @@ extension SyncCoordinator {
             }
         }
 
+        // Close the sync-down desync vector: the loop above writes Season.isActive/
+        // sport straight from the cloud doc, bypassing Season.activate(), so a remote
+        // can leave a season active in a sport other than the athlete's pinned sport
+        // (or leave several active). Reconcile each athlete back to a single
+        // pinned-sport active season — the pinned sport is authoritative.
+        for athlete in athletes {
+            SeasonManager.reconcileActiveSeasonToPinnedSport(for: athlete, in: context)
+        }
+
         if context.hasChanges { try context.save() }
     }
 

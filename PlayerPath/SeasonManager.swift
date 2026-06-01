@@ -29,21 +29,7 @@ struct SeasonManager {
 
         // Create a default season based on current date
         let now = Date()
-        let calendar = Calendar.current
-        let year = calendar.component(.year, from: now)
-        let month = calendar.component(.month, from: now)
-
-        // Determine season name based on current month
-        let seasonName: String
-        if month >= 2 && month <= 6 {
-            seasonName = "Spring \(year)"
-        } else if month >= 7 && month <= 10 {
-            seasonName = "Fall \(year)"
-        } else if month == 1 {
-            seasonName = "Winter \(year)"
-        } else {
-            seasonName = "Winter \(year + 1)"
-        }
+        let seasonName = defaultSeasonName(for: now)
 
         // Infer sport: most recent season's sport, else the athlete's primary
         // hint (so spinoff profiles with no seasons honor their declared sport),
@@ -73,6 +59,82 @@ struct SeasonManager {
         }
 
         return newSeason
+    }
+
+    /// Default season name derived from the calendar month
+    /// (Spring/Fall/Winter + year).
+    static func defaultSeasonName(for date: Date) -> String {
+        let calendar = Calendar.current
+        let year = calendar.component(.year, from: date)
+        let month = calendar.component(.month, from: date)
+        if month >= 2 && month <= 6 { return "Spring \(year)" }
+        if month >= 7 && month <= 10 { return "Fall \(year)" }
+        if month == 1 { return "Winter \(year)" }
+        return "Winter \(year + 1)"
+    }
+
+    /// Heals the active-season ↔ pinned-sport desync for one athlete.
+    ///
+    /// The pinned sport (`athlete.sport`, surfaced as `athlete.sportType`) is the
+    /// authoritative sport for a profile. `Season.activate()` is the only writer
+    /// that keeps the pin aligned with the active season, but Firestore sync-down
+    /// (`SyncCoordinator+Seasons.downloadRemoteSeasons`) writes `Season.isActive`/
+    /// `sport` straight from the cloud doc, bypassing `activate()` — so a remote can
+    /// leave a season active in a *different* sport than the pin, or leave several
+    /// seasons active at once. This collapses the athlete back to at most one active
+    /// season in the pinned sport WITHOUT touching `athlete.sport` (we heal toward
+    /// the pin; we never repin to follow a stray season).
+    ///
+    /// If a pinned-sport season exists (active or archived) it becomes the sole
+    /// active one. If none exists, the stray active season(s) are simply deactivated
+    /// and the athlete is left with no active season — the dashboard then nudges them
+    /// to create one in their real sport. We deliberately do NOT auto-create a season
+    /// here: creating inside the sync-down path races other devices into duplicate
+    /// seasons, and would surprise users who intentionally abandoned a sport.
+    ///
+    /// Safe for dual-sport spinoff profiles (`personGroupID != nil`) without the
+    /// `personGroupID == nil` scope the reverted df2fc7b reconcile needed: that one
+    /// rewrote `athlete.sport` from the active season (season → pin), which would
+    /// corrupt a spinoff's fixed sport. This heals the opposite direction (pin →
+    /// season) and never writes `athlete.sport`, so each profile is only ever
+    /// realigned toward its own pinned sport.
+    ///
+    /// Idempotent: a no-op when the athlete already has a single pinned-sport active
+    /// season. Mutate-only — the caller is responsible for `modelContext.save()`.
+    /// - Returns: `true` if it changed anything.
+    @discardableResult
+    static func reconcileActiveSeasonToPinnedSport(for athlete: Athlete, in modelContext: ModelContext) -> Bool {
+        let pinned = athlete.sportType
+        let seasons = athlete.seasons ?? []
+        let activeSeasons = seasons.filter { $0.isActive }
+        let pinnedActive = activeSeasons.filter { ($0.sport ?? .baseball) == pinned }
+        let strayActive  = activeSeasons.filter { ($0.sport ?? .baseball) != pinned }
+
+        // Healthy: at most one active season, and any active one is the pinned sport.
+        guard !strayActive.isEmpty || pinnedActive.count > 1 else { return false }
+
+        // The pinned-sport season to keep active: the most-recent already-active
+        // one, else the most-recent archived one to revive. Never created here.
+        let newer: (Season, Season) -> Bool = {
+            ($0.startDate ?? .distantPast) < ($1.startDate ?? .distantPast)
+        }
+        let keep = pinnedActive.max(by: newer)
+            ?? seasons.filter { ($0.sport ?? .baseball) == pinned }.max(by: newer)
+
+        if let keep {
+            // activate() deactivates every OTHER active season (strays + duplicate
+            // pinned) and flips `keep` active. Its athlete.sport realignment is a
+            // guaranteed no-op because `keep` already matches the pin, so the pinned
+            // sport is preserved.
+            keep.activate()
+        } else {
+            // No pinned-sport season exists at all — deactivate the stray active
+            // season(s) without repinning. archive() sets isActive=false + dirties
+            // for upload but never touches athlete.sport.
+            for stray in strayActive { stray.archive() }
+        }
+        log.info("Reconciled drifted active season to pinned sport: \(pinned.rawValue)")
+        return true
     }
 
     /// Links a practice to the athlete's active season.

@@ -145,6 +145,11 @@ struct PlayerPathMainView: View {
             // so recalculateGameStatistics doesn't wipe them on the next video sync.
             ManualStatsBackfill.runIfNeeded(context: modelContext)
 
+            // Launch heal (idempotent): realign any athlete whose active season
+            // drifted to a different sport than its pinned sport. The durable close
+            // for the drift vector lives in SyncCoordinator+Seasons.downloadRemoteSeasons.
+            ActiveSeasonSportHeal.run(context: modelContext)
+
             // Check for forced updates and What's New content
             await updateManager.checkOnLaunch()
         }
