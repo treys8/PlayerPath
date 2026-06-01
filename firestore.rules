@@ -821,21 +821,29 @@ service cloud.firestore {
                       (resource.data.type == "athlete_to_coach"
                        && resource.data.athleteID == request.auth.uid
                        && request.resource.data.status in ['cancelled']) ||
-                      //   Coach (recipient) can accept or decline
+                      //   Coach (recipient) can ONLY decline via client write.
+                      //   Acceptance is server-only (acceptAthleteToCoachInvitation
+                      //   via Admin SDK, which bypasses these rules); allowing
+                      //   'accepted' here would let the recipient bypass the
+                      //   Cloud Function's atomic athlete-limit transaction.
                       (resource.data.type == "athlete_to_coach"
                        && resource.data.coachEmail == getUserEmail()
                        && request.auth.token.email_verified == true
-                       && request.resource.data.status in ['accepted', 'declined']) ||
+                       && request.resource.data.status in ['declined']) ||
                       // Coach-to-athlete flow:
                       //   Coach (sender) can ONLY cancel
                       (resource.data.type == "coach_to_athlete"
                        && resource.data.coachID == request.auth.uid
                        && request.resource.data.status in ['cancelled']) ||
-                      //   Athlete (recipient) can accept or decline
+                      //   Athlete (recipient) can ONLY decline via client write.
+                      //   Acceptance is server-only (acceptCoachToAthleteInvitation
+                      //   via Admin SDK, which bypasses these rules); allowing
+                      //   'accepted' here would let the recipient self-accept and
+                      //   durably burn a coach athlete-limit slot with no folder.
                       (resource.data.type == "coach_to_athlete"
                        && resource.data.athleteEmail == getUserEmail()
                        && request.auth.token.email_verified == true
-                       && request.resource.data.status in ['accepted', 'declined'])
+                       && request.resource.data.status in ['declined'])
                     );
 
       // Only the sender can delete

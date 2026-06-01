@@ -1008,13 +1008,9 @@ final class UploadQueueManager {
 
         do {
             // Compress video before upload to reduce bandwidth and storage costs.
-            // Non-fatal: if compression fails, upload the original file.
+            // Non-fatal: compressForUpload keeps the original on any failure.
             // Safe to compress in-place here — localURL is a staging copy in coach_pending_uploads/.
-            do {
-                _ = try await VideoCompressionService.shared.compressForUpload(at: localURL)
-            } catch {
-                uploadLog.warning("Coach video compression failed, uploading original: \(error.localizedDescription)")
-            }
+            await VideoCompressionService.shared.compressForUpload(at: localURL)
 
             let cloudManager = VideoCloudManager.shared
 

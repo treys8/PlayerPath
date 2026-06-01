@@ -570,10 +570,10 @@ class SharedFolderManager {
                 .appendingPathExtension(videoURL.pathExtension)
             do {
                 try FileManager.default.copyItem(at: videoURL, to: tempCopy)
-                _ = try await VideoCompressionService.shared.compressForUpload(at: tempCopy)
+                await VideoCompressionService.shared.compressForUpload(at: tempCopy)
                 uploadURL = tempCopy
             } catch {
-                folderLog.warning("Video compression failed, uploading original: \(error.localizedDescription)")
+                folderLog.warning("Video copy/compression failed, uploading original: \(error.localizedDescription)")
                 try? FileManager.default.removeItem(at: tempCopy)
             }
 

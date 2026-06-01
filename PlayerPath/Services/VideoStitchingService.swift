@@ -13,12 +13,6 @@ import os
 
 private let stitchLog = Logger(subsystem: "com.playerpath.app", category: "VideoStitchingService")
 
-private final class SessionBox: @unchecked Sendable {
-    nonisolated(unsafe) let session: AVAssetExportSession
-    init(_ session: AVAssetExportSession) { self.session = session }
-    nonisolated func cancel() { session.cancelExport() }
-}
-
 enum VideoStitchingService {
     enum StitchError: LocalizedError {
         case noClips
@@ -166,7 +160,7 @@ enum VideoStitchingService {
             session.videoComposition = videoComposition
         }
 
-        let box = SessionBox(session)
+        let box = AVExportSessionBox(session)
 
         // Drive periodic progress updates on the MainActor while the export runs.
         let progressTask = Task { @MainActor in

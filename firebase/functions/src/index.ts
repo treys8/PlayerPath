@@ -2156,15 +2156,27 @@ export const acceptAthleteToCoachInvitation = functions.https.onCall(async (data
     coachDisplayName,
   });
 
+  // Folder creation failed entirely — don't leave the coach "accepted + slot
+  // consumed + no folder + no retry". Roll the acceptance back to pending and
+  // surface a retryable error instead of returning a phantom success. (A partial
+  // success — one folder created — is left as a usable connection.)
+  if (!gamesFolderID && !lessonsFolderID) {
+    await rollbackAcceptedInvitationOnFolderFailure(db, invitationID, coachID, ['acceptedByCoachID']);
+    throw new functions.https.HttpsError(
+      'unavailable',
+      'Could not set up the shared folders for this connection. Please try again.'
+    );
+  }
+
   // Link folder IDs back to the invitation
   const primaryFolderID = gamesFolderID || lessonsFolderID;
   const primaryFolderName = gamesFolderID ? `${athleteName}'s Games` : `${athleteName}'s Lessons`;
   if (primaryFolderID) {
     try {
-      await db.collection('invitations').doc(invitationID).update({
+      await withRetry(() => db.collection('invitations').doc(invitationID).update({
         folderID: primaryFolderID,
         folderName: primaryFolderName,
-      });
+      }));
     } catch (e) {
       console.error('Failed to update invitation with folder IDs:', e);
     }
@@ -2400,15 +2412,27 @@ export const acceptCoachToAthleteInvitation = functions.https.onCall(async (data
     coachDisplayName,
   });
 
+  // Folder creation failed entirely — don't leave the connection "accepted + slot
+  // consumed + no folder + no retry". Roll the acceptance back to pending and
+  // surface a retryable error instead of returning a phantom success. (A partial
+  // success — one folder created — is left as a usable connection.)
+  if (!gamesFolderID && !lessonsFolderID) {
+    await rollbackAcceptedInvitationOnFolderFailure(db, invitationID, coachID, ['athleteUserID']);
+    throw new functions.https.HttpsError(
+      'unavailable',
+      'Could not set up the shared folders for this connection. Please try again.'
+    );
+  }
+
   // Link folder IDs back to the invitation document
   const folderID = gamesFolderID || lessonsFolderID;
   const folderName = gamesFolderID ? `${name}'s Games` : lessonsFolderID ? `${name}'s Lessons` : null;
   if (folderID && folderName) {
     try {
-      await db.collection('invitations').doc(invitationID).update({
+      await withRetry(() => db.collection('invitations').doc(invitationID).update({
         folderID,
         folderName,
-      });
+      }));
     } catch (e) {
       console.error('Failed to update invitation with folder IDs:', e);
     }
@@ -3385,6 +3409,65 @@ async function resolveAthletePersonGroupID(
 }
 
 /**
+ * Retries a best-effort async write a few times with short exponential backoff,
+ * rethrowing the last error only if every attempt fails. Used for the transient
+ * Firestore writes during invitation acceptance (folder create/reattach and the
+ * folderID link-back) so a momentary blip doesn't strand a connection.
+ */
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  attempts = 3,
+  baseDelayMs = 200
+): Promise<T> {
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      lastErr = e;
+      if (i < attempts - 1) {
+        await new Promise<void>(resolve => setTimeout(resolve, baseDelayMs * Math.pow(2, i)));
+      }
+    }
+  }
+  throw lastErr;
+}
+
+/**
+ * Rolls back an invitation acceptance whose shared-folder creation failed
+ * entirely, so the connection isn't left "accepted + slot consumed + no folder +
+ * no recovery". Reverts the invitation to `pending` (re-acceptable, and also drops
+ * it out of the accepted-invitation count) and clears the accept-only fields, then
+ * re-trues the coach's athlete counter from ground truth via
+ * computeCoachConnectionCount. The caller throws a retryable error afterward.
+ */
+async function rollbackAcceptedInvitationOnFolderFailure(
+  db: admin.firestore.Firestore,
+  invitationID: string,
+  coachID: string,
+  clearFields: string[]
+): Promise<void> {
+  const revert: Record<string, unknown> = {
+    status: 'pending',
+    acceptedAt: admin.firestore.FieldValue.delete(),
+  };
+  for (const f of clearFields) revert[f] = admin.firestore.FieldValue.delete();
+  // Retry the revert — this is the critical write that re-enables re-accept; a
+  // transient failure here is what would re-strand the connection.
+  await withRetry(() => db.collection('invitations').doc(invitationID).update(revert));
+
+  // Re-true the stored counter from current state (the now-pending invite and the
+  // failed folders are both excluded). Best-effort: if this throws, the counter
+  // self-heals on the next accept/revoke/restore recompute.
+  try {
+    const trueCount = await computeCoachConnectionCount(db, coachID);
+    await db.collection('users').doc(coachID).update({ coachAthleteCount: trueCount });
+  } catch (e) {
+    console.warn(`Failed to recompute coachAthleteCount after folder-failure rollback for ${coachID}:`, e);
+  }
+}
+
+/**
  * Reattaches a coach to an athlete's existing Games/Lessons folders, creating
  * only the ones that don't yet exist. Athlete folders (and their clips) survive
  * coach removal, so a re-invite must reuse them — unconditionally creating a new
@@ -3443,15 +3526,18 @@ async function reuseOrCreateSharedFolders(
       };
       if (coachDisplayName) update[`sharedWithCoachNames.${coachID}`] = coachDisplayName;
       try {
-        await existing.ref.update(update);
-        await db.collection('coach_access_revocations').doc(`${existing.id}_${coachID}`).delete();
+        // The reattach is the meaningful op — record success immediately so a
+        // best-effort revocation-cleanup hiccup can't falsely null an
+        // already-reattached folder (which would trip the caller's rollback).
+        await withRetry(() => existing.ref.update(update));
         result[folderType] = existing.id;
+        await withRetry(() => db.collection('coach_access_revocations').doc(`${existing.id}_${coachID}`).delete());
       } catch (e) {
         console.error(`Failed to reattach coach to ${folderType} folder:`, e);
       }
     } else {
       try {
-        const ref = await db.collection('sharedFolders').add({ ...folderBase, name, folderType });
+        const ref = await withRetry(() => db.collection('sharedFolders').add({ ...folderBase, name, folderType }));
         result[folderType] = ref.id;
       } catch (e) {
         console.error(`Failed to create ${folderType} folder:`, e);

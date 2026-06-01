@@ -53,8 +53,8 @@ enum OrientationLocker {
             // the interface's right edge is up (UIInterface.landscapeRight), and
             // vice-versa. Using the same-named case here produced a 180° rotation
             // — the "upside down" symptom after recording landscape.
-            let current = UIDevice.current.orientation
-            switch current {
+            let device = UIDevice.current.orientation
+            switch device {
             case .landscapeLeft:
                 mask = .landscape
                 target = .landscapeRight
@@ -62,8 +62,21 @@ enum OrientationLocker {
                 mask = .landscape
                 target = .landscapeLeft
             default:
+                // Device orientation is unavailable (.unknown when orientation
+                // notifications aren't being generated — e.g. on the save screen
+                // after the camera VM tore down — or .faceUp/.faceDown when the
+                // phone is flat). Fall back to the interface orientation actually
+                // drawn on screen. interfaceOrientation is already a
+                // UIInterfaceOrientation, so map name-for-name (no device→interface
+                // inversion here, unlike the cases above).
                 mask = .landscape
-                target = .landscapeRight
+                let interface = UIApplication.shared.connectedScenes
+                    .compactMap { $0 as? UIWindowScene }.first?.interfaceOrientation
+                switch interface {
+                case .landscapeLeft:  target = .landscapeLeft
+                case .landscapeRight: target = .landscapeRight
+                default:              target = .landscapeRight   // last resort
+                }
             }
         }
         PlayerPathAppDelegate.orientationLock = mask

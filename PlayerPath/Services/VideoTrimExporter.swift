@@ -13,26 +13,19 @@ import os
 
 private let trimExportLog = Logger(subsystem: "com.playerpath.app", category: "VideoTrimExporter")
 
-// AVAssetExportSession isn't Sendable, but `cancelExport()` is documented as
-// thread-safe. Wrap it so the Task cancellation handler closure compiles
-// cleanly under strict concurrency.
-private final class SessionBox: @unchecked Sendable {
-    nonisolated(unsafe) let session: AVAssetExportSession
-    init(_ session: AVAssetExportSession) { self.session = session }
-    nonisolated func cancel() { session.cancelExport() }
-}
-
 enum VideoTrimExporter {
     enum ExportError: LocalizedError {
         case sessionCreationFailed
         case exportFailed(String)
         case cancelled
+        case invalidTimeRange
 
         var errorDescription: String? {
             switch self {
             case .sessionCreationFailed: return "Export session could not be created."
             case .exportFailed(let message): return message
             case .cancelled: return "Export was cancelled"
+            case .invalidTimeRange: return "Invalid trim range."
             }
         }
     }
@@ -54,6 +47,12 @@ enum VideoTrimExporter {
         startTime: Double,
         endTime: Double
     ) async throws -> URL {
+        // Reject degenerate ranges up front — a zero/negative-length or non-finite
+        // range produces an undefined CMTimeRange and a garbage/empty export.
+        guard startTime.isFinite, endTime.isFinite, startTime >= 0, endTime > startTime else {
+            throw ExportError.invalidTimeRange
+        }
+
         let asset = AVURLAsset(url: sourceURL)
         guard let session = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetHighestQuality) else {
             throw ExportError.sessionCreationFailed
@@ -92,6 +91,14 @@ enum VideoTrimExporter {
                 // preferredTransform. The prior check (b != 0 || c != 0) only caught
                 // pure rotation and silently dropped mirror/flip/scale transforms
                 // (e.g. front-camera mirrored captures and some Photos imports).
+                //
+                // TRADEOFF: routing through a composition re-renders at a fixed
+                // frameDuration, which flattens slow-motion time mappings. So a
+                // front-camera *mirrored* slow-mo clip loses its slow-mo here. This is
+                // deliberate — for selfie-style clips, mirror correctness matters more
+                // than slow-mo, and identity-transform slow-mo (the common case) still
+                // takes the fast path above. Don't "fix" this by widening the fast path
+                // to include mirrored transforms without also restoring the mirror.
                 let needsComposition = !transform.isIdentity
                 if needsComposition {
                     let size = naturalSize.applying(transform)
@@ -100,6 +107,9 @@ enum VideoTrimExporter {
                     // so 60fps and slow-motion (120/240fps) videos export at their native rate.
                     let fps = Int32((nominalFrameRate ?? 30).rounded())
                     let frameDuration = CMTime(value: 1, timescale: CMTimeScale(max(fps, 1)))
+                    // Full asset duration on purpose: the composition instruction must
+                    // span everything session.timeRange might read. session.timeRange
+                    // (set above) does the actual [start, end] trim.
                     let timeRange = CMTimeRangeMake(start: .zero, duration: assetDuration)
 
                     if #available(iOS 26.0, *) {
@@ -136,7 +146,7 @@ enum VideoTrimExporter {
         // Honor task cancellation: if the caller's Task is cancelled mid-export
         // (e.g. user backs out of the trim sheet), tell the session to stop so
         // CPU/battery don't keep churning until the export finishes on its own.
-        let box = SessionBox(session)
+        let box = AVExportSessionBox(session)
         return try await withTaskCancellationHandler {
             if #available(iOS 18.0, *) {
                 do {
