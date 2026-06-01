@@ -75,34 +75,6 @@ struct SeasonManager {
         return newSeason
     }
 
-    /// Heals a standalone profile's primary `sport` to match its active season.
-    ///
-    /// `Season.activate()` is normally the sole writer that keeps `athlete.sport`
-    /// aligned with the active season. Paths that mark a season active WITHOUT it
-    /// — notably Firestore sync-down (`SyncCoordinator+Seasons`), which writes
-    /// `isActive`/`sport` straight from the cloud doc — can leave `athlete.sport`
-    /// pointing at a different sport than the active season. That desync makes the
-    /// dashboard's sport filter hide the active season (0-count + "create your
-    /// first season" banner) while the unfiltered Seasons screen still shows it,
-    /// and leaves the tab chrome on the wrong sport.
-    ///
-    /// Scoped to standalone profiles (`personGroupID == nil`). Dual-sport spinoff
-    /// profiles deliberately pin their sport and hold only their own sport's
-    /// seasons (see MainTabView), so they are never realigned here.
-    ///
-    /// Idempotent: no-ops when already aligned or when there's no active season.
-    /// Marks `needsSync` so the corrected value heals the cloud row on next push.
-    static func reconcileAthleteSportToActiveSeason(for athlete: Athlete, in modelContext: ModelContext) {
-        guard athlete.personGroupID == nil,
-              let activeSeasonSport = athlete.activeSeason?.sport,
-              let mapped = Sport(rawValue: activeSeasonSport.rawValue.lowercased()),
-              athlete.sport != mapped else { return }
-
-        athlete.sport = mapped
-        athlete.needsSync = true
-        ErrorHandlerService.shared.saveContext(modelContext, caller: "SeasonManager.reconcileAthleteSportToActiveSeason")
-    }
-
     /// Links a practice to the athlete's active season.
     /// - Note: Caller is responsible for calling `modelContext.save()` after this function.
     static func linkPracticeToActiveSeason(_ practice: Practice, for athlete: Athlete, in modelContext: ModelContext) {
