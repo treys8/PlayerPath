@@ -25,7 +25,11 @@ struct CreateSeasonView: View {
 
     init(athlete: Athlete, initialSport: Season.SportType? = nil) {
         self.athlete = athlete
-        _selectedSport = State(initialValue: initialSport ?? .baseball)
+        // Seasons are locked to the profile's own sport. Tracking another sport
+        // means a separate linked profile (AddSportProfileSheet), not a
+        // cross-sport season on this row. initialSport is retained only as an
+        // explicit override and is normally nil.
+        _selectedSport = State(initialValue: initialSport ?? athlete.sportType)
     }
 
     private var isCreatingPastSeason: Bool {
@@ -109,15 +113,15 @@ struct CreateSeasonView: View {
                 }
 
                 Section {
-                    Picker("Sport", selection: $selectedSport) {
-                        ForEach(Season.SportType.allCases, id: \.self) { sport in
-                            Label(sport.displayName, systemImage: sport.icon)
-                                .tag(sport)
-                        }
+                    HStack {
+                        Label(selectedSport.displayName, systemImage: selectedSport.icon)
+                        Spacer()
                     }
-                    .pickerStyle(.segmented)
+                    .foregroundStyle(.secondary)
                 } header: {
                     Text("Sport")
+                } footer: {
+                    Text("Seasons use this profile's sport. To track another sport, add a sport profile from the athlete's settings.")
                 }
 
                 if athlete.activeSeason != nil {

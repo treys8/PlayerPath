@@ -17,7 +17,7 @@ enum WeeklySummaryScheduler {
     /// Window is the 7 days ending at the next Sunday 6 PM fire time,
     /// so games played late in the week are counted correctly.
     static func schedule(for athlete: Athlete) async {
-        guard UserDefaults.standard.object(forKey: "notif_weeklyStats") as? Bool ?? true else { return }
+        guard UserDefaults.standard.object(forKey: NotificationPrefKeys.weeklyStats) as? Bool ?? true else { return }
 
         let calendar = Calendar.current
         var fireComponents = DateComponents()

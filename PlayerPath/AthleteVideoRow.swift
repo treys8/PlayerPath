@@ -12,6 +12,10 @@ import SwiftUI
 struct AthleteVideoRow: View {
     let video: CoachVideoItem
     var isUnread: Bool = false
+    /// True when the unread signal is specifically *new coach feedback*
+    /// (comment/drawing/drill card/note) rather than a brand-new clip. Drives
+    /// the distinct "New Feedback" badge and takes priority over `isUnread`.
+    var hasNewFeedback: Bool = false
     var isHighlighted: Bool = false
 
     var body: some View {
@@ -31,7 +35,16 @@ struct AthleteVideoRow: View {
                         .foregroundColor(.primary)
                         .lineLimit(1)
 
-                    if isUnread {
+                    if hasNewFeedback {
+                        Label("New Feedback", systemImage: "bubble.left.fill")
+                            .labelStyle(.titleAndIcon)
+                            .font(.custom("Inter18pt-Bold", size: 11, relativeTo: .caption2))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 1)
+                            .background(Color.brandNavy)
+                            .clipShape(Capsule())
+                    } else if isUnread {
                         Text("New")
                             .font(.custom("Inter18pt-Bold", size: 11, relativeTo: .caption2))
                             .foregroundColor(.white)
@@ -85,6 +98,9 @@ struct AthleteVideoListView: View {
     let folder: SharedFolder
     let videos: [CoachVideoItem]
     var unreadVideoIDs: Set<String> = []
+    /// VideoIDs whose unread signal is coach feedback specifically (vs. a new
+    /// clip). Subset of `unreadVideoIDs`; drives the "New Feedback" badge.
+    var feedbackVideoIDs: Set<String> = []
     var targetVideoID: String? = nil
     let onRefresh: () async -> Void
 
@@ -110,6 +126,7 @@ struct AthleteVideoListView: View {
                             AthleteVideoRow(
                                 video: video,
                                 isUnread: unreadVideoIDs.contains(video.id),
+                                hasNewFeedback: feedbackVideoIDs.contains(video.id),
                                 isHighlighted: highlightedVideoID == video.id
                             )
                         }

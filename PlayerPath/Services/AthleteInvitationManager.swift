@@ -104,6 +104,7 @@ class AthleteInvitationManager {
         }
         let athleteName = athlete.name
         let athleteUUID = athlete.id.uuidString
+        let personGroupID = (athlete.personGroupID ?? athlete.id).uuidString
 
         // 2. Accept invitation + create folders server-side via Cloud Function.
         //    Folders are created regardless of athlete subscription tier (Admin SDK
@@ -112,7 +113,8 @@ class AthleteInvitationManager {
             invitationID: invitationID,
             athleteUserID: userID,
             athleteName: athleteName,
-            athleteUUID: athleteUUID
+            athleteUUID: athleteUUID,
+            personGroupID: personGroupID
         )
 
         // 3. Create or update Coach record in SwiftData

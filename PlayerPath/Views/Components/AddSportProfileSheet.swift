@@ -38,19 +38,10 @@ struct AddSportProfileSheet: View {
         newName.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// Sports already represented in this person's group — used to disable
-    /// picking a sport that would create a duplicate profile. Includes the
-    /// source's own sport plus any prior spinoffs.
-    private var sportsAlreadyInGroup: Set<Season.SportType> {
-        let groupID = sourceAthlete.personGroupID ?? sourceAthlete.id
-        let siblings = (sourceAthlete.user?.athletes ?? []).filter {
-            ($0.personGroupID ?? $0.id) == groupID
-        }
-        return Set(siblings.map(\.sportType))
-    }
-
     private func isSportTaken(_ sport: Season.SportType) -> Bool {
-        sportsAlreadyInGroup.contains(sport)
+        // Sports already represented in this person's group (source + prior
+        // spinoffs) — disables picking a sport that would duplicate a profile.
+        sourceAthlete.personGroupSports.contains(sport)
     }
 
     private var isValid: Bool {

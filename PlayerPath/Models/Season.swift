@@ -201,6 +201,11 @@ final class Season {
         let stamped = endDate ?? Date()
         self.endDate = Calendar.current.date(bySettingHour: 23, minute: 59, second: 59, of: stamped) ?? stamped
         self.isActive = false
+        // Mark dirty + bump version so the deactivation uploads; otherwise a
+        // stale remote (still isActive) re-activates this on the next sync
+        // download. Same invariant the activate() loop protects.
+        self.needsSync = true
+        self.version += 1
 
         // Calculate and save season statistics
         let stats = seasonStatistics ?? AthleteStatistics()
@@ -231,15 +236,26 @@ final class Season {
             let now = Date()
             let endOfToday = Calendar.current.date(bySettingHour: 23, minute: 59, second: 59, of: now) ?? now
             for season in (athlete.seasons ?? []) where season.id != self.id {
-                if season.isActive && season.endDate == nil {
+                // Only touch seasons we actually deactivate. Mark them dirty +
+                // bump version so the deactivation uploads; otherwise a stale
+                // remote (still isActive) re-activates them on the next sync
+                // download, leaving duplicate active seasons.
+                guard season.isActive else { continue }
+                if season.endDate == nil {
                     season.endDate = endOfToday
                 }
                 season.isActive = false
+                season.needsSync = true
+                season.version += 1
             }
         }
 
         self.isActive = true
         self.endDate = nil
+        // Ensure the activation itself is uploadable even if the caller forgets
+        // to mark it — without this, sync can revert the activation.
+        self.needsSync = true
+        self.version += 1
 
         // Keep athlete.sport in sync with the active season. Without this the
         // hint goes stale after a sport switch — tab chrome, default sport for

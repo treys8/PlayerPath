@@ -354,8 +354,11 @@ final class PushNotificationService: NSObject, ObservableObject {
         let reminderDate = scheduledTime.addingTimeInterval(-TimeInterval(reminderMinutes * 60))
         guard reminderDate > Date() else { return }
 
-        let trigger = UNCalendarNotificationTrigger(
-            dateMatching: Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: reminderDate),
+        // Absolute-time trigger anchored to the event. A calendar trigger built from
+        // date components would re-interpret in the device's timezone at fire time, so
+        // a DST/timezone change between scheduling and firing would shift the moment.
+        let trigger = UNTimeIntervalNotificationTrigger(
+            timeInterval: reminderDate.timeIntervalSinceNow,
             repeats: false
         )
 
@@ -419,6 +422,16 @@ final class PushNotificationService: NSObject, ObservableObject {
         cancelNotifications(withIdentifiers: [Self.reviewReminderID])
     }
 
+    /// Cancels ALL pending and delivered local notifications. Call on sign-out so
+    /// the repeating coach review reminder and per-athlete weekly summaries from the
+    /// previous account don't keep firing on a device that may sign into a different
+    /// account.
+    func cancelAllPendingNotifications() {
+        notificationCenter.removeAllPendingNotificationRequests()
+        notificationCenter.removeAllDeliveredNotifications()
+        logger.info("Cancelled all pending/delivered local notifications")
+    }
+
     /// Reschedules the review reminder if enabled in settings. Call on app launch.
     func rescheduleReviewReminderIfNeeded() async {
         let enabled = UserDefaults.standard.bool(forKey: ReviewReminderKeys.enabled)
@@ -459,7 +472,7 @@ final class PushNotificationService: NSObject, ObservableObject {
         // Build a data-aware message
         let body: String
         if gamesThisWeek > 0, let avg = battingAverage, avg > 0 {
-            let avgFormatted = String(format: ".%03.0f", avg * 1000)
+            let avgFormatted = StatisticsService.shared.formatBattingAverage(avg)
             body = "You logged \(gamesThisWeek) game\(gamesThisWeek == 1 ? "" : "s") this week. Batting \(avgFormatted). Keep it up!"
         } else if gamesThisWeek > 0 {
             body = "You logged \(gamesThisWeek) game\(gamesThisWeek == 1 ? "" : "s") this week. Open the app to see your stats!"
@@ -740,13 +753,13 @@ extension PushNotificationService: UNUserNotificationCenterDelegate {
         // User-preference suppression. Default true so existing users keep current behavior
         // until they explicitly opt out.
         if notifType == "coach_comment" || notifType == "drill_card" {
-            let coachActivity = UserDefaults.standard.object(forKey: "notif_coachActivity") as? Bool ?? true
+            let coachActivity = UserDefaults.standard.object(forKey: NotificationPrefKeys.coachActivity) as? Bool ?? true
             if !coachActivity {
                 completionHandler([])
                 return
             }
         } else if notifType == "new_video" {
-            let athleteActivity = UserDefaults.standard.object(forKey: "notif_athleteActivity") as? Bool ?? true
+            let athleteActivity = UserDefaults.standard.object(forKey: NotificationPrefKeys.athleteActivity) as? Bool ?? true
             if !athleteActivity {
                 completionHandler([])
                 return

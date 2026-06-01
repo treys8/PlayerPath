@@ -206,33 +206,58 @@ struct DashboardView: View {
         .toolbar {
             ToolbarItem(placement: .principal) {
                 Menu {
-                    // Show all athletes with checkmark for current. Each entry
-                    // carries a sport icon so same-named spinoffs (e.g. two
-                    // "Zain" profiles in different sports) are distinguishable.
-                    ForEach((user.athletes ?? []).sorted(by: { $0.name < $1.name })) { ath in
-                        Button {
-                            // Switch to this athlete
-                            NotificationCenter.default.post(
-                                name: Notification.Name.switchAthlete,
-                                object: ath
-                            )
-                            Haptics.light()
-                            athletePickerTip.invalidate(reason: .actionPerformed)
-                        } label: {
-                            Label {
-                                HStack(spacing: 6) {
-                                    Text(ath.name)
-                                    Text("·")
-                                        .foregroundStyle(.secondary)
-                                    Text(ath.sportType.displayName)
-                                        .foregroundStyle(.secondary)
-                                    if ath.id == athlete.id {
-                                        Spacer(minLength: 8)
-                                        Image(systemName: "checkmark")
+                    // One entry per person. Linked sport-variant profiles (same
+                    // personGroupID) collapse into a submenu so two "Zain"
+                    // profiles read as one athlete; solo profiles stay a direct
+                    // button. The active profile carries the checkmark.
+                    ForEach((user.athletes ?? []).groupedByPerson()) { group in
+                        if group.isMultiSport {
+                            Menu {
+                                ForEach(group.profiles) { ath in
+                                    Button {
+                                        NotificationCenter.default.post(
+                                            name: Notification.Name.switchAthlete,
+                                            object: ath
+                                        )
+                                        Haptics.light()
+                                        athletePickerTip.invalidate(reason: .actionPerformed)
+                                    } label: {
+                                        Label {
+                                            HStack(spacing: 6) {
+                                                Text(ath.sportType.displayName)
+                                                if ath.id == athlete.id {
+                                                    Spacer(minLength: 8)
+                                                    Image(systemName: "checkmark")
+                                                }
+                                            }
+                                        } icon: {
+                                            Image(systemName: ath.sportType.icon)
+                                        }
                                     }
                                 }
-                            } icon: {
-                                Image(systemName: ath.sportType.icon)
+                            } label: {
+                                Label(group.displayName, systemImage: "person.2.fill")
+                            }
+                        } else if let ath = group.profiles.first {
+                            Button {
+                                NotificationCenter.default.post(
+                                    name: Notification.Name.switchAthlete,
+                                    object: ath
+                                )
+                                Haptics.light()
+                                athletePickerTip.invalidate(reason: .actionPerformed)
+                            } label: {
+                                Label {
+                                    HStack(spacing: 6) {
+                                        Text(ath.name)
+                                        if ath.id == athlete.id {
+                                            Spacer(minLength: 8)
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
+                                } icon: {
+                                    Image(systemName: ath.sportType.icon)
+                                }
                             }
                         }
                     }

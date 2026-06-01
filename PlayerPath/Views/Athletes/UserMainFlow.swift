@@ -32,8 +32,8 @@ struct UserMainFlow: View {
 
     // Suppress the in-app banner when the user has disabled that activity stream.
     // Defaults true preserve the existing behavior for users who haven't opted out.
-    @AppStorage("notif_coachActivity") private var coachActivity = true
-    @AppStorage("notif_athleteActivity") private var athleteActivity = true
+    @AppStorage(NotificationPrefKeys.coachActivity) private var coachActivity = true
+    @AppStorage(NotificationPrefKeys.athleteActivity) private var athleteActivity = true
 
     // Quick Actions manager
     @ObservedObject private var quickActionsManager = QuickActionsManager.shared

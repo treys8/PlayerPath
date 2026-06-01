@@ -19,6 +19,7 @@ struct CoachDashboardView: View {
     private var sessionManager: CoachSessionManager { .shared }
     @State private var showingStartSession = false
     @State private var showingInviteAthlete = false
+    @State private var showingInvitations = false
     /// Flag set when the StartSessionSheet is dismissing toward the invite
     /// flow. Consumed by the start sheet's onDismiss callback to present the
     /// next sheet without timer-based chaining.
@@ -77,6 +78,11 @@ struct CoachDashboardView: View {
                             .filter { $0 > Date() }
                             .min()
                     )
+
+                    // Received invitations (athletes inviting this coach) — the
+                    // most action-worthy item, surfaced here so it isn't buried
+                    // in the Athletes tab. Self-gates on pendingInvitationsCount.
+                    PendingInvitationsBanner(showingInvitations: $showingInvitations)
 
                     // Stale data warning
                     if let listenerError = sharedFolderManager.listenerError {
@@ -162,6 +168,12 @@ struct CoachDashboardView: View {
         }
         .sheet(isPresented: $showingInviteAthlete) {
             InviteAthleteSheet()
+        }
+        .sheet(isPresented: $showingInvitations) {
+            NavigationStack {
+                CoachInvitationsView()
+                    .environmentObject(authManager)
+            }
         }
         .sheet(isPresented: $showingCompletedSessions) {
             CompletedSessionsListView(
@@ -623,7 +635,7 @@ struct CoachDashboardView: View {
     /// any change observer that affects the inputs. The result is cached so
     /// the body doesn't iterate + Dictionary(grouping:) + sort every render.
     private func recomputeRecentAthleteCards() {
-        let grouped = Dictionary(grouping: cachedRecentFolders) { $0.athleteUUID ?? $0.ownerAthleteID }
+        let grouped = Dictionary(grouping: cachedRecentFolders) { $0.personGroupID ?? $0.athleteUUID ?? $0.ownerAthleteID }
         cachedRecentAthleteCards = grouped.map { athleteID, folders in
             let name = folders.first?.ownerAthleteName ?? "Athlete"
             let videos = folders.reduce(0) { $0 + ($1.videoCount ?? 0) }
@@ -896,7 +908,7 @@ struct CoachDashboardView: View {
     }
 
     private var uniqueAthleteCount: Int {
-        Set(sharedFolderManager.coachFolders.map { $0.athleteUUID ?? $0.ownerAthleteID }).count
+        Set(sharedFolderManager.coachFolders.map { $0.personGroupID ?? $0.athleteUUID ?? $0.ownerAthleteID }).count
     }
 
     private var totalVideoCount: Int {

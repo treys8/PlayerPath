@@ -490,7 +490,7 @@ struct ProfileView: View {
                 }
                 .padding(.vertical, 4)
             } else {
-                Text("\((user.athletes ?? []).count) of \(authManager.currentTier.athleteLimit) athlete\(authManager.currentTier.athleteLimit == 1 ? "" : "s") used")
+                Text("\(user.athleteSlotsUsed) of \(authManager.currentTier.athleteLimit) athlete\(authManager.currentTier.athleteLimit == 1 ? "" : "s") used")
                     .font(.bodySmall)
                     .foregroundColor(.secondary)
             }
@@ -751,11 +751,6 @@ struct AthleteProfileRow: View {
         return [.baseball]
     }
 
-    private var nextMissingSport: Season.SportType? {
-        let present = Set(athleteSports)
-        return Season.SportType.allCases.first { !present.contains($0) }
-    }
-
     var body: some View {
         HStack(spacing: 12) {
             Button(action: onSelect) {
@@ -811,7 +806,7 @@ struct AthleteProfileRow: View {
             .accessibilityHint("Select this athlete")
             .accessibilityValue(isSelected ? "Selected" : "Not selected")
 
-            if nextMissingSport != nil {
+            if athlete.canAddSportProfile {
                 Button {
                     Haptics.light()
                     showingAddSport = true
@@ -824,7 +819,7 @@ struct AthleteProfileRow: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Add a sport for \(athlete.name)")
-                .accessibilityHint("Start a season in a new sport")
+                .accessibilityHint("Add a separate linked profile in a new sport")
             }
 
             Button {
@@ -853,7 +848,11 @@ struct AthleteProfileRow: View {
             NavigationStack { EditAthleteView(athlete: athlete) }
         }
         .sheet(isPresented: $showingAddSport) {
-            CreateSeasonView(athlete: athlete, initialSport: nextMissingSport)
+            NavigationStack {
+                AddSportProfileSheet(sourceAthlete: athlete)
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
         }
     }
 }
