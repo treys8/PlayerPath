@@ -114,12 +114,22 @@ struct ReelPlayerView: View {
             return
         }
 
+        // Match on the stored UUID keypath, not `clip.id.uuidString`: the latter
+        // cannot be lowered to SQL and traps with a fatal assertion *inside* the
+        // fetch (bypassing the do/catch below). Resolve to UUIDs up front.
+        let clipUUIDs: [UUID] = clipIDStrings.compactMap { UUID(uuidString: $0) }
+        guard !clipUUIDs.isEmpty else {
+            player = nil
+            didResolve = true
+            return
+        }
+
         // Single fetch over all clips referenced by this reel.
         let fetchedClips: [VideoClip]
         do {
             let descriptor = FetchDescriptor<VideoClip>(
                 predicate: #Predicate<VideoClip> { clip in
-                    clipIDStrings.contains(clip.id.uuidString)
+                    clipUUIDs.contains(clip.id)
                 }
             )
             fetchedClips = try modelContext.fetch(descriptor)

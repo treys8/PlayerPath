@@ -139,10 +139,16 @@ struct HighlightReelCard: View {
         guard coverClip == nil else { return }
         let ids = reel.clipIDs
         guard !ids.isEmpty else { return }
+        // Compare UUID-to-UUID inside the predicate. Calling `.uuidString` on the
+        // `clip.id` keypath cannot be lowered to SQL by SwiftData; it traps with a
+        // fatal assertion *inside* the fetch (bypassing this do/catch), so resolve
+        // the reel's string ids to UUIDs up front and match on the stored keypath.
+        let uuids: [UUID] = ids.compactMap { UUID(uuidString: $0) }
+        guard !uuids.isEmpty else { return }
         do {
             let descriptor = FetchDescriptor<VideoClip>(
                 predicate: #Predicate<VideoClip> { clip in
-                    ids.contains(clip.id.uuidString)
+                    uuids.contains(clip.id)
                 }
             )
             let clips = try modelContext.fetch(descriptor)
