@@ -16,23 +16,17 @@ struct ChartsPromptCard: View {
         Button(action: action) {
             HStack(spacing: 16) {
                 Image(systemName: "chart.xyaxis.line")
-                    .font(.system(size: 40))
-                    .foregroundStyle(
-                        LinearGradient(
-                            colors: [.blue, .purple],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
+                    .font(.system(size: 34))
+                    .foregroundStyle(Theme.accent)
 
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Visualize Your Performance")
-                        .font(.headingLarge)
-                        .foregroundColor(.primary)
+                        .font(.ppTitle3)
+                        .foregroundStyle(Theme.textPrimary)
 
                     Text("View interactive charts and trends")
-                        .font(.bodyMedium)
-                        .foregroundColor(.secondary)
+                        .font(.ppSubheadline)
+                        .foregroundStyle(Theme.textSecondary)
                 }
 
                 Spacer()
@@ -40,33 +34,10 @@ struct ChartsPromptCard: View {
                 Image(systemName: "chevron.right")
                     .font(.caption)
                     .fontWeight(.semibold)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(Theme.accent)
             }
             .padding()
-            .background(
-                RoundedRectangle(cornerRadius: .cornerXLarge, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color.blue.opacity(0.1),
-                                Color.purple.opacity(0.1)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: .cornerXLarge, style: .continuous)
-                    .strokeBorder(
-                        LinearGradient(
-                            colors: [.blue.opacity(0.3), .purple.opacity(0.3)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        lineWidth: 1
-                    )
-            )
+            .ppCard()
         }
         .buttonStyle(.plain)
         .padding(.horizontal)
