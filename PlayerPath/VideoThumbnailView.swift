@@ -361,7 +361,7 @@ struct VideoThumbnailView: View {
             .foregroundColor(.white)
             .padding(.horizontal, 7)
             .padding(.vertical, 3)
-            .background(.ultraThinMaterial, in: Capsule())
+            .background(.black.opacity(0.55), in: Capsule())
             .accessibilityLabel(a11yLabel)
     }
 
