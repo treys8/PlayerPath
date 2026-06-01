@@ -24,7 +24,14 @@ struct DashboardView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    private var activeSport: Season.SportType { athlete.sportType }
+    /// The sport the dashboard scopes to. Prefers the active season's sport so a
+    /// standalone profile whose `athlete.sport` drifted from its active season
+    /// (e.g. a season created or synced in a different sport without going through
+    /// `Season.activate()`) still scopes to what the user is actually working in,
+    /// instead of hiding the active season behind a stale filter. Falls back to
+    /// the athlete's primary sport when there's no active season.
+    /// `updateCachedStats()` writes the healed sport back to `athlete.sport`.
+    private var activeSport: Season.SportType { athlete.activeSeason?.sport ?? athlete.sportType }
 
     @StateObject private var viewModel: GamesDashboardViewModel
     @ObservedObject private var activityNotifService = ActivityNotificationService.shared
@@ -732,6 +739,11 @@ struct DashboardView: View {
     }
 
     private func updateCachedStats() {
+        // Heal a standalone profile whose primary sport drifted from its active
+        // season before reading the sport-scoped values below, so the tab chrome
+        // (which reads athlete.sport) and the cloud row realign too — not just the
+        // dashboard's read-time activeSport. No-ops once aligned (see SeasonManager).
+        SeasonManager.reconcileAthleteSportToActiveSeason(for: athlete, in: modelContext)
         seasonRecommendation = SeasonManager.checkSeasonStatus(for: athlete, sport: activeSport)
         if let stats = athlete.statistics {
             cachedBA = StatisticsService.shared.formatBattingAverage(stats.battingAverage)

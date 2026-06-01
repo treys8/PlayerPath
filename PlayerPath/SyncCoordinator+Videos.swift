@@ -176,7 +176,18 @@ extension SyncCoordinator {
             let remoteVideos = try await VideoCloudManager.shared.syncVideos(for: athlete)
 
             let localClips = athlete.videoClips ?? []
-            let localClipsByID = Dictionary(uniqueKeysWithValues: localClips.map { ($0.id, $0) })
+            // `id` is each clip's own UUID and should be unique, but the app's
+            // known multi-device row duplication can leave two clips sharing one
+            // id. Collapse rather than trap in Dictionary(uniqueKeysWithValues:)
+            // — any winner is valid for lookup — and log if it ever fires so the
+            // underlying corruption stays observable.
+            let localClipsByID = Dictionary(
+                localClips.map { ($0.id, $0) },
+                uniquingKeysWith: { existing, _ in existing }
+            )
+            if localClipsByID.count != localClips.count {
+                syncLog.warning("Collapsed \(localClips.count - localClipsByID.count) duplicate local VideoClip id(s) for athlete \(athlete.id)")
+            }
 
             // Detect clips deleted on another device — remote set no longer contains them.
             // Safety: skip deletion pass if the remote count is suspiciously low compared

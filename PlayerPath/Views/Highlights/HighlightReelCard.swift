@@ -147,9 +147,11 @@ struct HighlightReelCard: View {
             )
             let clips = try modelContext.fetch(descriptor)
             // Prefer the first in chronological reel order — find it in `ids`
-            // and pick whichever clip in `clips` matches it first.
+            // and pick whichever clip in `clips` matches it first. Tolerate
+            // duplicate ids (multi-device row duplication) rather than trapping.
             let clipsByID: [String: VideoClip] = Dictionary(
-                uniqueKeysWithValues: clips.map { ($0.id.uuidString, $0) }
+                clips.map { ($0.id.uuidString, $0) },
+                uniquingKeysWith: { existing, _ in existing }
             )
             coverClip = ids.compactMap { clipsByID[$0] }.first
         } catch {

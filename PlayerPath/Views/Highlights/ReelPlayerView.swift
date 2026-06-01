@@ -135,9 +135,11 @@ struct ReelPlayerView: View {
         }
 
         // Restore the reel's chronological order — predicate fetch ordering
-        // is unspecified, so we re-index against clipIDs.
+        // is unspecified, so we re-index against clipIDs. Tolerate duplicate ids
+        // (multi-device row duplication) rather than trapping; either row plays.
         let clipsByID: [String: VideoClip] = Dictionary(
-            uniqueKeysWithValues: fetchedClips.map { ($0.id.uuidString, $0) }
+            fetchedClips.map { ($0.id.uuidString, $0) },
+            uniquingKeysWith: { existing, _ in existing }
         )
         let orderedClips: [VideoClip] = clipIDStrings.compactMap { clipsByID[$0] }
 
