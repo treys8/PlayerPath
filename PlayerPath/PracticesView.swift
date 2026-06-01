@@ -147,18 +147,21 @@ struct PracticesView: View {
                 if !viewModel.filteredPractices.isEmpty {
                     HStack {
                         Image(systemName: "chart.bar.fill")
-                            .foregroundStyle(.green)
+                            .foregroundStyle(Theme.accent)
                             .font(.caption)
 
                         Text(viewModel.practicesSummary)
                             .font(.bodySmall)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Theme.textSecondary)
                             .lineLimit(1)
                             .truncationMode(.tail)
                             .minimumScaleFactor(0.8)
 
                         Spacer()
                     }
+                    .listRowBackground(Theme.surface)
+                    .listRowSeparator(.hidden)
+                    .listRowInsets(EdgeInsets(top: 5, leading: 18, bottom: 5, trailing: 18))
                 }
 
                 ForEach(viewModel.filteredPractices, id: \.persistentModelID) { practice in
@@ -173,6 +176,9 @@ struct PracticesView: View {
                         }
                     }
                 }
+                .listRowBackground(Theme.surface)
+                .listRowSeparator(.hidden)
+                .listRowInsets(EdgeInsets(top: 5, leading: 18, bottom: 5, trailing: 18))
 
                 if viewModel.hasMore {
                     Button {
@@ -184,12 +190,18 @@ struct PracticesView: View {
                             Image(systemName: "arrow.down.circle")
                         }
                         .font(.labelLarge)
-                        .foregroundColor(.brandNavy)
+                        .foregroundColor(Theme.accent)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
                     }
+                    .listRowBackground(Theme.surface)
+                    .listRowSeparator(.hidden)
+                    .listRowInsets(EdgeInsets(top: 5, leading: 18, bottom: 5, trailing: 18))
                 }
             }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(Theme.surface)
             .refreshable {
                 await refreshPractices()
             }
