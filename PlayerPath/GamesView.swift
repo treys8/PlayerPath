@@ -80,6 +80,11 @@ struct GamesView: View {
     @State private var gameToDelete: Game?
     @State private var showingDeleteGameConfirmation = false
 
+    // Row tap → push game detail. Driving the push with navigationDestination(item:)
+    // means the rows are plain Buttons, not NavigationLinks, so the List never adds
+    // a system disclosure chevron beside GameRow's own in-card chevron.
+    @State private var selectedGame: Game?
+
     // Alert state
     private enum AlertType: Identifiable {
         case error
@@ -477,22 +482,20 @@ struct GamesView: View {
         }
     }
     
-    /// A games-list row whose entire card navigates to the game detail.
-    /// `GameRow` already draws its own trailing chevron inside the card, so the
-    /// `NavigationLink` is embedded as a transparent fill *overlay* rather than as
-    /// the row's labeled content — when a `NavigationLink` is the row's direct
-    /// content, a `.plain` List adds a second, system disclosure chevron in the
-    /// trailing gutter (the double-chevron bug). `.combine` keeps it a single,
-    /// well-labeled actionable element for VoiceOver.
+    /// A games-list row whose entire card pushes the game detail. Uses a plain
+    /// `Button` (driving `navigationDestination(item:)`) rather than a
+    /// `NavigationLink`, because a List decorates every NavigationLink row with a
+    /// system disclosure chevron — which would sit beside GameRow's own in-card
+    /// chevron (the double-chevron bug). A Button gets no such chevron, and the
+    /// whole card stays one actionable, well-labeled element for VoiceOver (GameRow
+    /// already combines its children).
     private func gameNavigationRow(_ game: Game) -> some View {
-        GameRow(game: game, isSeasonFiltered: selectedSeasonFilter != nil)
-            .overlay {
-                NavigationLink(destination: GameDetailView(game: game)) {
-                    Color.clear
-                }
-                .buttonStyle(.plain)
-            }
-            .accessibilityElement(children: .combine)
+        Button {
+            selectedGame = game
+        } label: {
+            GameRow(game: game, isSeasonFiltered: selectedSeasonFilter != nil)
+        }
+        .buttonStyle(.plain)
     }
 
     private var seasonFilterMenu: some View {
@@ -544,6 +547,9 @@ struct GamesView: View {
         mainContent
             .navigationTitle(navigationTitle)
             .navigationBarTitleDisplayMode(.large)
+            .navigationDestination(item: $selectedGame) { game in
+                GameDetailView(game: game)
+            }
             .searchable(text: $searchText, prompt: searchPrompt)
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
