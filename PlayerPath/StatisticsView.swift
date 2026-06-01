@@ -392,7 +392,7 @@ struct StatisticsView: View {
                 .padding(horizontalSizeClass == .regular ? 32 : 18)
             }
             .background(Theme.surface)
-        } else if let stats = statistics {
+        } else if let stats = statistics, stats.atBats > 0 || stats.hasPitchingData {
             ScrollView {
                 LazyVStack(spacing: 20) {
                     // "The Numbers." hero — slash line + metric grid.

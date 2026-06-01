@@ -188,20 +188,44 @@ struct JournalView: View {
     // MARK: - Empty state
 
     private var emptyState: some View {
-        VStack(spacing: .spacingSmall) {
+        VStack(spacing: .spacingMedium) {
             Image(systemName: "book.closed")
                 .font(.system(size: 36))
                 .foregroundStyle(Theme.textTertiary)
-            Text("Your journal is empty")
-                .font(.ppTitle3)
-                .foregroundStyle(Theme.textPrimary)
-            Text("Games, practices, and clips will appear here.")
-                .font(.ppSubheadline)
-                .foregroundStyle(Theme.textSecondary)
-                .multilineTextAlignment(.center)
+
+            VStack(spacing: .spacingXSmall) {
+                Text("Start your journal")
+                    .font(.ppTitle3)
+                    .foregroundStyle(Theme.textPrimary)
+                Text("Record your first clip or log a game.")
+                    .font(.ppSubheadline)
+                    .foregroundStyle(Theme.textSecondary)
+                    .multilineTextAlignment(.center)
+            }
+
+            Button {
+                Haptics.medium()
+                NotificationCenter.default.post(name: .switchTab, object: MainTab.games.rawValue)
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.body)
+                    Text("Log a Game")
+                        .font(.ppHeadline)
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 22)
+                .padding(.vertical, 13)
+                .background(Capsule().fill(Theme.accent))
+            }
+            .buttonStyle(.plain)
+            .padding(.top, .spacingSmall)
         }
         .frame(maxWidth: .infinity)
-        .padding(.top, 60)
+        .padding(.vertical, .spacingXLarge)
+        .padding(.horizontal, .spacingLarge)
+        .ppCard()
         .padding(.horizontal, 18)
+        .padding(.top, 40)
     }
 }
