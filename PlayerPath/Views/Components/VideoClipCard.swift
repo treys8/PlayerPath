@@ -394,7 +394,7 @@ struct VideoClipCard: View {
         if let game = video.game {
             Text(game.opponentLabel)
                 .font(.bodySmall)
-                .foregroundColor(.brandNavy)
+                .foregroundStyle(Theme.textPrimary)
         } else if video.practice != nil {
             Text("Practice")
                 .font(.bodySmall)
