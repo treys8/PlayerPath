@@ -54,7 +54,7 @@ struct MainTabView: View {
     // One sport per athlete — multi-sport athletes use separate profiles.
     private var isGolfActive: Bool { selectedAthlete.sportType == .golf }
     private var gamesTabLabel: String { isGolfActive ? "Tournaments" : "Games" }
-    private var gamesTabIcon: String { isGolfActive ? "figure.golf" : "baseball.fill" }
+    private var gamesTabIcon: String { isGolfActive ? "figure.golf" : "baseball" }
 
     enum MoreDestination: Hashable {
         case practice, highlights, seasons, photos, coaches, sharedFolders
@@ -435,7 +435,7 @@ struct MainTabView: View {
         }
         .modifier(InvitationBadgeModifier())
         .tabItem {
-            Label("Journal", systemImage: "book.closed.fill")
+            Label("Journal", systemImage: "book.closed")
         }
         .tag(MainTab.home.rawValue)
         .accessibilityLabel("Journal tab")
@@ -461,7 +461,7 @@ struct MainTabView: View {
                 .id(statsAthleteID ?? selectedAthlete.id)
         }
         .tabItem {
-            Label("Stats", systemImage: "chart.bar.fill")
+            Label("Stats", systemImage: "chart.bar")
         }
         .tag(MainTab.stats.rawValue)
         .accessibilityLabel("Statistics tab")
@@ -474,7 +474,7 @@ struct MainTabView: View {
                 .id(videosAthleteID ?? selectedAthlete.id)
         }
         .tabItem {
-            Label("Videos", systemImage: "video.fill")
+            Label("Videos", systemImage: "video")
         }
         .tag(MainTab.videos.rawValue)
         .accessibilityLabel("Videos tab")
@@ -595,7 +595,7 @@ struct MainTabView: View {
         }
         .modifier(MoreTabBadgeModifier())
         .tabItem {
-            Label("More", systemImage: "ellipsis.circle.fill")
+            Label("More", systemImage: "ellipsis.circle")
         }
         .tag(MainTab.more.rawValue)
         .accessibilityLabel("More tab")
