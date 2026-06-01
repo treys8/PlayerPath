@@ -50,6 +50,9 @@ struct ProfileView: View {
             accountSection
             appVersionSection
         }
+        .scrollContentBackground(.hidden)
+        .background(Theme.surface)
+        .tint(Theme.accent)
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search settings...")
         .tabRootNavigationBar(title: ProfileStrings.title)
         .sheet(isPresented: $showingAddAthlete) {
@@ -341,7 +344,7 @@ struct ProfileView: View {
                                 Text("Pro")
                                     .font(.caption)
                             }
-                            .foregroundColor(.brandNavy)
+                            .foregroundColor(Theme.accent)
                         }
                     }
                     .foregroundColor(.primary)
@@ -477,7 +480,7 @@ struct ProfileView: View {
             }) {
                 Label("Add Athlete", systemImage: "person.badge.plus")
             }
-            .tint(Color.brandNavy)
+            .tint(Theme.accent)
             
             if user.athleteSlotsUsed >= authManager.currentTier.athleteLimit {
                 HStack {
@@ -521,7 +524,7 @@ struct ProfileView: View {
                             Text("Pro")
                                 .font(.caption)
                         }
-                        .foregroundColor(.brandNavy)
+                        .foregroundColor(Theme.accent)
                     }
                 }
                 .foregroundColor(.primary)
@@ -800,7 +803,7 @@ struct AthleteProfileRow: View {
 
                     if isSelected {
                         Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.brandNavy)
+                            .foregroundColor(Theme.accent)
                             .accessibilityLabel("Selected")
                             .accessibilityHidden(true)
                     }
@@ -818,7 +821,7 @@ struct AthleteProfileRow: View {
                 } label: {
                     Image(systemName: "plus.circle")
                         .font(.title3)
-                        .foregroundColor(.brandNavy)
+                        .foregroundColor(Theme.accent)
                         .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
                 }
@@ -833,7 +836,7 @@ struct AthleteProfileRow: View {
             } label: {
                 Image(systemName: "info.circle")
                     .font(.title3)
-                    .foregroundColor(.brandNavy)
+                    .foregroundColor(Theme.accent)
                     .frame(width: 44, height: 44)
                     .contentShape(Rectangle())
             }
@@ -847,7 +850,7 @@ struct AthleteProfileRow: View {
             } label: {
                 Label("Settings", systemImage: "slider.horizontal.3")
             }
-            .tint(.brandNavy)
+            .tint(Theme.accent)
         }
         .sheet(isPresented: $showingEdit) {
             NavigationStack { EditAthleteView(athlete: athlete) }
