@@ -67,7 +67,7 @@ struct AccountDeletionView: View {
             Section("What Happens to Videos") {
                 HStack(alignment: .top, spacing: 12) {
                     Image(systemName: "info.circle.fill")
-                        .foregroundColor(.brandNavy)
+                        .foregroundColor(Theme.accent)
 
                     VStack(alignment: .leading, spacing: 4) {
                         if isCoach {
@@ -162,6 +162,9 @@ struct AccountDeletionView: View {
                 }
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(Theme.surface)
+        .tint(Theme.accent)
         .navigationTitle("Delete Account")
         .task {
             signInProvider = Auth.auth().currentUser?.providerData.first?.providerID ?? "password"

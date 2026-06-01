@@ -79,6 +79,9 @@ struct SettingsView: View {
             }
         }
         .onAppear { AnalyticsService.shared.trackScreenView(screenName: "Settings", screenClass: "ProfileView") }
+        .scrollContentBackground(.hidden)
+        .background(Theme.surface)
+        .tint(Theme.accent)
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
     }

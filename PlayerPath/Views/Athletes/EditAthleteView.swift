@@ -70,6 +70,9 @@ struct EditAthleteView: View {
                 Text("When off, new recordings save without play-result tagging and won't add to stats. Existing stats stay visible and resume updating if you turn tracking back on.")
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(Theme.surface)
+        .tint(Theme.accent)
         .navigationTitle(athlete.name)
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showingCreateSeason) {

@@ -30,7 +30,7 @@ struct DataExportView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     Image(systemName: "arrow.down.doc.fill")
                         .font(.largeTitle)
-                        .foregroundColor(.brandNavy)
+                        .foregroundColor(Theme.accent)
 
                     Text("Export Your Data")
                         .font(.displayMedium)
@@ -89,6 +89,9 @@ struct DataExportView: View {
                 .disabled(isExporting)
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(Theme.surface)
+        .tint(Theme.accent)
         .navigationTitle("Export Data")
         .sheet(isPresented: $showShareSheet) {
             if let url = exportFileURL {
@@ -473,7 +476,7 @@ struct ExportDataRow: View {
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: icon)
-                .foregroundColor(.brandNavy)
+                .foregroundColor(Theme.accent)
                 .frame(width: 30)
 
             VStack(alignment: .leading, spacing: 2) {

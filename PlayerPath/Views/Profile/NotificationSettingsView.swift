@@ -205,6 +205,9 @@ struct NotificationSettingsView: View {
                 .disabled(authorizationStatus == .denied)
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(Theme.surface)
+        .tint(Theme.accent)
         .navigationTitle("Notifications")
         .navigationBarTitleDisplayMode(.inline)
         .task {
@@ -251,7 +254,7 @@ struct NotificationSettingsView: View {
                         PushNotificationService.shared.openSettingsIfDenied()
                     }
                     .buttonStyle(.bordered)
-                    .tint(Color.brandNavy)
+                    .tint(Theme.accent)
                 }
                 .padding(.vertical, 4)
             }

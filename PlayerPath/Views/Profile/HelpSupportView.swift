@@ -19,7 +19,7 @@ struct AboutView: View {
         VStack(spacing: 30) {
             Image(systemName: "figure.baseball")
                 .font(.system(size: 80))
-                .foregroundColor(.brandNavy)
+                .foregroundColor(Theme.accent)
 
             VStack(spacing: 10) {
                 Text("PlayerPath")
@@ -43,6 +43,8 @@ struct AboutView: View {
                 .foregroundColor(.secondary)
         }
         .padding()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.surface)
         .navigationTitle("About")
         .navigationBarTitleDisplayMode(.inline)
     }

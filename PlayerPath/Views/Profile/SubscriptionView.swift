@@ -27,6 +27,9 @@ struct SubscriptionView: View {
                 pricingSection
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(Theme.surface)
+        .tint(Theme.accent)
         .navigationTitle("Subscription")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showingPaywall) {
@@ -97,7 +100,7 @@ struct SubscriptionView: View {
                     openURL(url)
                 }
             }
-            .foregroundColor(.brandNavy)
+            .foregroundColor(Theme.accent)
         }
     }
 
@@ -133,7 +136,7 @@ struct SubscriptionView: View {
                         .foregroundColor(.white)
                 }
                 .padding()
-                .background(Color.brandNavy)
+                .background(Theme.accent)
                 .cornerRadius(12)
             }
             .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
@@ -150,7 +153,7 @@ struct SubscriptionFeatureRow: View {
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: icon)
-                .foregroundColor(.brandNavy)
+                .foregroundColor(Theme.accent)
                 .font(.title3)
                 .frame(width: 24)
 

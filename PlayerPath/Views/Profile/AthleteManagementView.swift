@@ -129,9 +129,12 @@ struct AthleteManagementView: View {
                 }) {
                     Label("Add Athlete", systemImage: "person.badge.plus")
                 }
-                .tint(Color.brandNavy)
+                .tint(Theme.accent)
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(Theme.surface)
+        .tint(Theme.accent)
         .navigationTitle("Manage Athletes")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

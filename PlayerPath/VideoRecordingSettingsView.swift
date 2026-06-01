@@ -52,6 +52,9 @@ struct VideoRecordingSettingsView: View {
             summarySection
             resetSection
         }
+        .scrollContentBackground(.hidden)
+        .background(Theme.surface)
+        .tint(Theme.accent)
         .navigationTitle("Recording Settings")
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(false)  // Explicitly show system back button
@@ -174,7 +177,7 @@ struct VideoRecordingSettingsView: View {
             if settings.slowMotionEnabled {
                 HStack {
                     Image(systemName: "info.circle.fill")
-                        .foregroundColor(.brandNavy)
+                        .foregroundColor(Theme.accent)
                         .font(.bodySmall)
                     Text("Videos will be recorded at \(settings.frameRate.displayName) and can be played back at slower speeds")
                         .font(.bodySmall)
@@ -195,7 +198,7 @@ struct VideoRecordingSettingsView: View {
             Toggle(isOn: $settings.audioEnabled) {
                 HStack {
                     Image(systemName: settings.audioEnabled ? "mic.fill" : "mic.slash.fill")
-                        .foregroundColor(settings.audioEnabled ? .brandNavy : .secondary)
+                        .foregroundColor(settings.audioEnabled ? Theme.accent : .secondary)
                     Text("Record Audio")
                 }
             }
@@ -223,7 +226,7 @@ struct VideoRecordingSettingsView: View {
                     )) {
                         HStack {
                             Image(systemName: prefs.autoUploadToCloud ? "icloud.and.arrow.up.fill" : "icloud.slash.fill")
-                                .foregroundColor(prefs.autoUploadToCloud ? .brandNavy : .secondary)
+                                .foregroundColor(prefs.autoUploadToCloud ? Theme.accent : .secondary)
                             Text("Auto-Upload to Cloud")
                         }
                     }
@@ -296,7 +299,7 @@ struct VideoRecordingSettingsView: View {
         )) {
             HStack {
                 Image(systemName: prefs.allowCellularUploads ? "antenna.radiowaves.left.and.right" : "wifi")
-                    .foregroundColor(prefs.allowCellularUploads ? .orange : .brandNavy)
+                    .foregroundColor(prefs.allowCellularUploads ? .orange : Theme.accent)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Allow Cellular Uploads")
                     Text("May use significant mobile data")
@@ -351,7 +354,7 @@ struct VideoRecordingSettingsView: View {
                 Toggle(isOn: $skipTrimmerForShortClips) {
                     HStack {
                         Image(systemName: "timer")
-                            .foregroundColor(.brandNavy)
+                            .foregroundColor(Theme.accent)
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Auto-Skip for Short Clips")
                                 .font(.bodyLarge)
@@ -480,7 +483,7 @@ struct QualityRow: View {
         Button(action: action) {
             HStack(spacing: 12) {
                 Image(systemName: quality.systemIcon)
-                    .foregroundColor(isSelected ? .brandNavy : .secondary)
+                    .foregroundColor(isSelected ? Theme.accent : .secondary)
                     .font(.title3)
                     .frame(width: 30)
                 
@@ -502,7 +505,7 @@ struct QualityRow: View {
                 
                 if isSelected {
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(.brandNavy)
+                        .foregroundColor(Theme.accent)
                         .font(.title3)
                 }
                 
@@ -529,7 +532,7 @@ struct FormatRow: View {
         Button(action: action) {
             HStack(spacing: 12) {
                 Image(systemName: format.systemIcon)
-                    .foregroundColor(isSelected ? .brandNavy : .secondary)
+                    .foregroundColor(isSelected ? Theme.accent : .secondary)
                     .font(.title3)
                     .frame(width: 30)
                 
@@ -546,7 +549,7 @@ struct FormatRow: View {
                 
                 if isSelected {
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(.brandNavy)
+                        .foregroundColor(Theme.accent)
                         .font(.title3)
                 }
             }
@@ -568,7 +571,7 @@ struct FrameRateRow: View {
         Button(action: action) {
             HStack(spacing: 12) {
                 Image(systemName: frameRate.systemIcon)
-                    .foregroundColor(isSelected ? .brandNavy : .secondary)
+                    .foregroundColor(isSelected ? Theme.accent : .secondary)
                     .font(.title3)
                     .frame(width: 30)
                 
@@ -597,7 +600,7 @@ struct FrameRateRow: View {
                         .foregroundStyle(.secondary)
                 } else if isSelected {
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(.brandNavy)
+                        .foregroundColor(Theme.accent)
                         .font(.title3)
                 }
             }
@@ -617,7 +620,7 @@ struct SummaryRow: View {
     var body: some View {
         HStack {
             Image(systemName: icon)
-                .foregroundColor(.brandNavy)
+                .foregroundColor(Theme.accent)
                 .frame(width: 24)
             
             Text(title)
