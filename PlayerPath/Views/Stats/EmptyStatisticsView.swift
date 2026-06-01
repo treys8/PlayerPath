@@ -18,7 +18,6 @@ struct EmptyStatisticsView: View {
     let hasGames: Bool
     let showQuickEntry: () -> Void
     let showGameSelection: () -> Void
-    @Environment(\.dismiss) private var dismiss
 
     @State private var isAnimating = false
     private let tip = EmptyStatsTip()
@@ -53,8 +52,7 @@ struct EmptyStatisticsView: View {
                 } else {
                     primaryButton("Go to Games", systemImage: "baseball.fill") {
                         Haptics.medium()
-                        NotificationCenter.default.post(name: .switchToGamesTab, object: nil)
-                        dismiss()
+                        NotificationCenter.default.post(name: .switchTab, object: MainTab.games.rawValue)
                     }
                 }
 
