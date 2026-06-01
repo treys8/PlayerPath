@@ -660,13 +660,13 @@ struct DashboardView: View {
                 DashboardFeatureCard(icon: "calendar", title: "Seasons", subtitle: "\(cachedSeasonCount) Total", color: .brandNavy) {
                     showingSeasons = true
                 }
-                DashboardFeatureCard(icon: "figure.run", title: "Practice", subtitle: "\(cachedPracticeCount) Sessions", color: .brandNavy) {
+                DashboardFeatureCard(icon: "figure.run", title: "Practice", subtitle: "\(cachedPracticeCount.pluralized("Session"))", color: .brandNavy) {
                     NotificationCenter.default.post(name: .navigateToMorePractice, object: nil)
                 }
-                DashboardFeatureCard(icon: "photo.on.rectangle.angled", title: "Photos", subtitle: "\(cachedPhotoCount) Photos", color: .brandNavy) {
+                DashboardFeatureCard(icon: "photo.on.rectangle.angled", title: "Photos", subtitle: "\(cachedPhotoCount.pluralized("Photo"))", color: .brandNavy) {
                     homePath.append(HomeDestination.photos)
                 }
-                DashboardPremiumFeatureCard(icon: "star.fill", title: "Highlights", subtitle: "\(viewModel.totalHighlights) Highlights", color: .brandGold, isPremium: authManager.currentTier >= .plus, badgeLabel: "PLUS") {
+                DashboardPremiumFeatureCard(icon: "star.fill", title: "Highlights", subtitle: "\(viewModel.totalHighlights.pluralized("Highlight"))", color: .brandGold, isPremium: authManager.currentTier >= .plus, badgeLabel: "PLUS") {
                     if authManager.currentTier >= .plus {
                         NotificationCenter.default.post(name: .navigateToMoreHighlights, object: nil)
                     } else {

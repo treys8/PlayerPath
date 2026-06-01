@@ -20,7 +20,7 @@ struct StatsHeroCard: View {
         VStack(alignment: .leading, spacing: .spacingLarge) {
             // Slash line
             VStack(alignment: .leading, spacing: 4) {
-                Text("\(label) · \(statistics.totalGames) Games")
+                Text("\(label) · \(statistics.totalGames.pluralized("Game"))")
                     .smallCapsLabel()
                 HStack(alignment: .firstTextBaseline, spacing: .spacingSmall) {
                     slashValue(svc.formatBattingAverage(statistics.battingAverage))

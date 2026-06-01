@@ -336,7 +336,7 @@ struct VideoClipsView: View {
             Text("Are you sure you want to delete this video? This action cannot be undone.")
         }
         .confirmationDialog("Delete Multiple Videos", isPresented: $showingBulkDeleteConfirmation) {
-            Button("Delete \(selectedVideos.count) Videos", role: .destructive) {
+            Button("Delete \(selectedVideos.count.pluralized("Video"))", role: .destructive) {
                 performBulkDelete()
             }
             Button("Cancel", role: .cancel) { }
