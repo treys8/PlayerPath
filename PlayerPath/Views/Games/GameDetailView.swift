@@ -63,7 +63,7 @@ struct GameDetailView: View {
     var body: some View {
         List {
             // Game Info Section
-            Section(isGolf ? "Round Details" : "Game Details") {
+            Section(header: Text(isGolf ? "Round Details" : "Game Details").smallCapsLabel()) {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack {
                         Text(isGolf ? "Course" : "Opponent")
@@ -147,7 +147,7 @@ struct GameDetailView: View {
 
             // Score Section (golf only)
             if isGolf {
-                Section("Score") {
+                Section(header: Text("Score").smallCapsLabel()) {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack {
                             Text("Holes")
@@ -187,6 +187,7 @@ struct GameDetailView: View {
                             Button(action: { showingScoreEntry = true }) {
                                 Label("Enter Score", systemImage: "pencil.line")
                             }
+                            .labelStyle(ActionRowLabelStyle())
                         }
                     }
                     .padding(.vertical, 5)
@@ -195,7 +196,7 @@ struct GameDetailView: View {
                 // Per-hole grid — read-only summary that's also tappable to edit
                 // any prior hole. Only renders once at least one hole is scored.
                 if !holeScores.isEmpty {
-                    Section("Holes") {
+                    Section(header: Text("Holes").smallCapsLabel()) {
                         HoleScoreGrid(
                             holes: holeScores,
                             onTap: { hole in
@@ -213,7 +214,7 @@ struct GameDetailView: View {
             //   .live:                      Record → End   → Photo → Stats → Edit
             //   .completed && isComplete:   Upload → Photo → Stats → Edit → Restart → Delete
             //   .completed && !isComplete:  Upload → Mark Complete → Photo → Stats → Edit → Delete
-            Section("Actions") {
+            Section(header: Text("Actions").smallCapsLabel()) {
                 switch game.displayStatus {
                 case .scheduled:
                     Button(action: { showingVideoRecorder = true }) {
@@ -242,6 +243,7 @@ struct GameDetailView: View {
                     } label: {
                         Label(isGolf ? "End Round" : "End Game", systemImage: "stop.circle")
                     }
+                    .labelStyle(DestructiveRowLabelStyle())
                 case .completed:
                     Button(action: { importTrigger = true }) {
                         Label("Upload Video", systemImage: "square.and.arrow.down.on.square")
@@ -287,11 +289,13 @@ struct GameDetailView: View {
                     } label: {
                         Label(isGolf ? "Delete Round" : "Delete Game", systemImage: "trash")
                     }
+                    .labelStyle(DestructiveRowLabelStyle())
                 }
             }
+            .labelStyle(ActionRowLabelStyle())
 
             // Video Clips Section
-            Section("Video Clips (\(videoClips.count))") {
+            Section(header: Text("Video Clips (\(videoClips.count))").smallCapsLabel()) {
                 if videoClips.isEmpty {
                     Text("No videos recorded yet")
                         .foregroundColor(.secondary)
@@ -304,7 +308,7 @@ struct GameDetailView: View {
             }
 
             // Photos Section
-            Section("Photos (\(gamePhotos.count))") {
+            Section(header: Text("Photos (\(gamePhotos.count))").smallCapsLabel()) {
                 if gamePhotos.isEmpty {
                     Text("No photos yet")
                         .foregroundColor(.secondary)
@@ -324,7 +328,7 @@ struct GameDetailView: View {
 
             // Game Statistics — hidden for golf (scoring lives in the Score section above)
             if !isGolf, let stats = game.gameStats {
-                Section("Game Statistics") {
+                Section(header: Text("Game Statistics").smallCapsLabel()) {
                     HStack {
                         Text("At Bats")
                         Spacer()
@@ -589,6 +593,36 @@ struct GameDetailView: View {
     private func deleteGamePhoto(_ photo: Photo) {
         PhotoPersistenceService().deletePhoto(photo, context: modelContext)
         Haptics.light()
+    }
+}
+
+// MARK: - Action Row Label Styles
+
+/// Action rows in the cream chrome: textPrimary title with an accent (orange)
+/// icon. Replaces the iOS-tint look so rows read as editorial, not system blue.
+private struct ActionRowLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 12) {
+            configuration.icon
+                .foregroundStyle(Theme.accent)
+                .frame(width: 24, alignment: .center)
+            configuration.title
+                .foregroundStyle(Theme.textPrimary)
+        }
+    }
+}
+
+/// Destructive rows (End / Delete) stay red — re-asserts the role color when an
+/// `ActionRowLabelStyle` is in scope on the enclosing section.
+private struct DestructiveRowLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 12) {
+            configuration.icon
+                .foregroundStyle(.red)
+                .frame(width: 24, alignment: .center)
+            configuration.title
+                .foregroundStyle(.red)
+        }
     }
 }
 

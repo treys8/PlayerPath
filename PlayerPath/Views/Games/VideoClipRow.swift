@@ -37,7 +37,7 @@ struct VideoClipRow: View {
                             HStack(spacing: 6) {
                                 Text(tag)
                                     .font(.headingMedium)
-                                    .foregroundColor(.primary)
+                                    .foregroundStyle(Theme.textPrimary)
                                 if let speed = clip.pitchSpeed, speed > 0 {
                                     Text("\(Int(speed)) MPH")
                                         .font(.custom("Inter18pt-SemiBold", size: 11, relativeTo: .caption2))
@@ -46,23 +46,23 @@ struct VideoClipRow: View {
                                         .fixedSize(horizontal: true, vertical: false)
                                         .padding(.horizontal, 8)
                                         .padding(.vertical, 3)
-                                        .background(.orange, in: Capsule())
+                                        .background(Theme.accent, in: Capsule())
                                 }
                             }
                         } else {
                             Text("Unrecorded Play")
                                 .font(.bodyMedium)
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(Theme.textSecondary)
                         }
 
                         if let createdAt = clip.createdAt {
                             Text(createdAt, formatter: DateFormatter.shortTime)
                                 .font(.bodySmall)
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(Theme.textSecondary)
                         } else {
                             Text("Unknown Time")
                                 .font(.bodySmall)
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(Theme.textSecondary)
                         }
                     }
 
@@ -70,12 +70,12 @@ struct VideoClipRow: View {
 
                     if clip.isHighlight {
                         Image(systemName: "star.fill")
-                            .foregroundColor(.yellow)
+                            .foregroundStyle(Theme.accent)
                             .font(.caption)
                     }
 
                     Image(systemName: "chevron.right")
-                        .foregroundColor(.gray)
+                        .foregroundStyle(Theme.textTertiary)
                         .font(.caption)
                 }
             }
