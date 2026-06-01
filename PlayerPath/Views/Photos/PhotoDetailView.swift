@@ -260,15 +260,20 @@ struct PhotoDetailView: View {
     }
 
     private func loadFullImage() async {
-        if let image = UIImage(contentsOfFile: photo.resolvedFilePath) {
+        // `Photo` is a non-Sendable @Model — snapshot the paths on the main actor,
+        // then decode the (potentially 12MP) image off-main via `Task.detached`.
+        let filePath = photo.resolvedFilePath
+        let cloudURL = photo.cloudURL
+
+        if let image = await Self.decodeImage(atPath: filePath) {
             fullImage = image
             return
         }
         // If local file is missing but we have a cloud URL, try downloading
-        if let cloudURL = photo.cloudURL, !cloudURL.isEmpty {
+        if let cloudURL, !cloudURL.isEmpty {
             do {
-                try await VideoCloudManager.shared.downloadPhoto(from: cloudURL, to: photo.resolvedFilePath)
-                if let image = UIImage(contentsOfFile: photo.resolvedFilePath) {
+                try await VideoCloudManager.shared.downloadPhoto(from: cloudURL, to: filePath)
+                if let image = await Self.decodeImage(atPath: filePath) {
                     fullImage = image
                     return
                 }
@@ -277,6 +282,14 @@ struct PhotoDetailView: View {
             }
         }
         loadFailed = true
+    }
+
+    /// Full-resolution decode off the main thread via `Task.detached` (the codebase's
+    /// established off-main convention), keeping the `fullImage` assignment on the main actor.
+    private static func decodeImage(atPath path: String) async -> UIImage? {
+        await Task.detached(priority: .userInitiated) {
+            UIImage(contentsOfFile: path)
+        }.value
     }
 
     private func saveToCameraRoll(_ image: UIImage) {

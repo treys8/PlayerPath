@@ -161,7 +161,11 @@ service cloud.firestore {
                     && isOwner(userID)
                     && request.resource.data.role == resource.data.role
                     && request.resource.data.subscriptionTier == resource.data.subscriptionTier
-                    && request.resource.data.coachSubscriptionTier == resource.data.coachSubscriptionTier
+                    // coachSubscriptionTier is optional (athletes never have it).
+                    // Use .get() so a missing field on either side doesn't throw and
+                    // deny the whole update — null == null when absent on both.
+                    && request.resource.data.get('coachSubscriptionTier', null)
+                        == resource.data.get('coachSubscriptionTier', null)
                     && (!('coachAthleteCount' in resource.data)
                         || request.resource.data.coachAthleteCount == resource.data.coachAthleteCount)
                     && (!('coachAthleteLimit' in resource.data)

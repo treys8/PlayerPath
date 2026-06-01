@@ -17,7 +17,6 @@ final class PhotoPersistenceService {
     private nonisolated enum Constants {
         static let photosFolderName = "Photos"
         static let thumbnailsFolderName = "PhotoThumbnails"
-        static let thumbnailSize = CGSize(width: 300, height: 300)
         static let jpegQuality: CGFloat = 0.8
         static let thumbnailQuality: CGFloat = 0.7
     }
@@ -30,7 +29,7 @@ final class PhotoPersistenceService {
 
     // MARK: - Directory Setup
 
-    private nonisolated func ensurePhotosDirectory() throws -> URL {
+    private nonisolated static func ensurePhotosDirectory() throws -> URL {
         let documentsURL = try FileManager.default.url(
             for: .documentDirectory,
             in: .userDomainMask,
@@ -44,7 +43,7 @@ final class PhotoPersistenceService {
         return photosDir
     }
 
-    private nonisolated func ensureThumbnailsDirectory() throws -> URL {
+    private nonisolated static func ensureThumbnailsDirectory() throws -> URL {
         let documentsURL = try FileManager.default.url(
             for: .documentDirectory,
             in: .userDomainMask,
@@ -104,7 +103,7 @@ final class PhotoPersistenceService {
 
     /// Performs CPU-intensive image normalization, compression, and thumbnail
     /// generation off the main thread, returning file URLs for SwiftData.
-    private nonisolated func processImage(
+    private nonisolated static func processImage(
         _ image: UIImage,
         photoID: UUID
     ) async throws -> ProcessedPhoto {
@@ -158,8 +157,11 @@ final class PhotoPersistenceService {
         let photoID = UUID()
         let fileName = "\(photoID.uuidString).jpg"
 
-        // Process image off the main thread
-        let processed = try await processImage(image, photoID: photoID)
+        // Process image off the main thread via `Task.detached` (the codebase's
+        // established off-main convention). Captures only Sendable values.
+        let processed = try await Task.detached(priority: .userInitiated) {
+            try await Self.processImage(image, photoID: photoID)
+        }.value
 
         // Create SwiftData record (must be on @MainActor).
         // Persist RELATIVE paths so they survive app-container UUID changes across updates.
@@ -199,7 +201,11 @@ final class PhotoPersistenceService {
         let photoID = UUID()
         let fileName = "\(photoID.uuidString).jpg"
 
-        let processed = try await processRawData(data, photoID: photoID)
+        // Process off the main thread via `Task.detached` (matches the save/import
+        // convention used elsewhere). Captures only Sendable values.
+        let processed = try await Task.detached(priority: .userInitiated) {
+            try await Self.processRawData(data, photoID: photoID)
+        }.value
 
         let relativeFilePath = "\(Constants.photosFolderName)/\(fileName)"
         let relativeThumbPath = "\(Constants.thumbnailsFolderName)/\(processed.thumbURL.lastPathComponent)"
@@ -225,7 +231,7 @@ final class PhotoPersistenceService {
 
     /// CGImageSource pipeline: writes raw data to a temp file, produces an
     /// orientation-correct JPEG and thumbnail without UIImage decode.
-    private nonisolated func processRawData(
+    private nonisolated static func processRawData(
         _ data: Data,
         photoID: UUID
     ) async throws -> ProcessedPhoto {
@@ -338,18 +344,6 @@ final class PhotoPersistenceService {
         }
     }
 
-    private nonisolated static func resizedImage(_ image: UIImage, to targetSize: CGSize) -> UIImage {
-        guard image.size.width > 0, image.size.height > 0, targetSize.width > 0, targetSize.height > 0 else { return image }
-        let scale = max(targetSize.width / image.size.width, targetSize.height / image.size.height)
-        let newSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1.0
-        let renderer = UIGraphicsImageRenderer(size: targetSize, format: format)
-        return renderer.image { _ in
-            let origin = CGPoint(x: (targetSize.width - newSize.width) / 2, y: (targetSize.height - newSize.height) / 2)
-            image.draw(in: CGRect(origin: origin, size: newSize))
-        }
-    }
 }
 
 // MARK: - Errors
