@@ -163,6 +163,10 @@ struct VideoClipsView: View {
                 .accessibilityLabel("Selection actions")
             }
         } else {
+            ToolbarItem(placement: .principal) {
+                PPAthleteSwitcher(athlete: athlete)
+            }
+
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     Haptics.light()

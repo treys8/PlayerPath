@@ -111,6 +111,11 @@ struct StatisticsView: View {
             .navigationTitle("The Numbers.")
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
+                if let athlete = athlete {
+                    ToolbarItem(placement: .principal) {
+                        PPAthleteSwitcher(athlete: athlete)
+                    }
+                }
                 if statistics != nil {
                     // View Charts button — baseball/softball-only (StatisticsChartsView
                     // is hard-coded to batting/pitching metrics).

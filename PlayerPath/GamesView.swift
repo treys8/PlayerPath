@@ -552,6 +552,11 @@ struct GamesView: View {
             }
             .searchable(text: $searchText, prompt: searchPrompt)
             .toolbar {
+                if let athlete = athlete {
+                    ToolbarItem(placement: .principal) {
+                        PPAthleteSwitcher(athlete: athlete)
+                    }
+                }
                 ToolbarItem(placement: .primaryAction) {
                     if isGolf {
                         // Golf now has two creatable things: a standalone round

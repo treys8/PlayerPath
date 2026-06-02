@@ -153,14 +153,8 @@ struct JournalView: View {
         .navigationTitle("The Journal.")
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button {
-                    NotificationCenter.default.post(name: Notification.Name.showAthleteSelection, object: nil)
-                    Haptics.light()
-                } label: {
-                    Image(systemName: "person.crop.circle")
-                        .foregroundStyle(Theme.accent)
-                }
+            ToolbarItem(placement: .principal) {
+                PPAthleteSwitcher(athlete: athlete)
             }
         }
     }
