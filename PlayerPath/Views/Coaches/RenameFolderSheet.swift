@@ -50,6 +50,7 @@ struct RenameFolderSheet: View {
                     }
                 }
             }
+            .ppDetailBackground()
             .navigationTitle("Rename Folder")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

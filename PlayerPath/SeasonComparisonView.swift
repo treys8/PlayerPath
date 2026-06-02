@@ -133,7 +133,7 @@ struct SeasonComparisonView: View {
             VStack(spacing: 8) {
                 Image(systemName: "chart.line.uptrend.xyaxis")
                     .font(.system(size: 60))
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(Theme.accent)
 
                 Text("Compare Seasons")
                     .font(.displayMedium)
@@ -214,7 +214,7 @@ struct SeasonSelectionRow: View {
                             .foregroundStyle(.white)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(Color.blue)
+                            .background(Theme.accent)
                             .cornerRadius(4)
                     }
                 }
@@ -234,7 +234,7 @@ struct SeasonSelectionRow: View {
 
             if isSelected {
                 Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(Theme.accent)
                     .font(.title3)
             } else {
                 Image(systemName: "circle")
@@ -284,14 +284,14 @@ struct TrendChartSection: View {
                         x: .value("Season", dataPoint.seasonName),
                         y: .value("Value", dataPoint.value)
                     )
-                    .foregroundStyle(Color.blue)
+                    .foregroundStyle(Theme.accent)
                     .interpolationMethod(.catmullRom)
 
                     PointMark(
                         x: .value("Season", dataPoint.seasonName),
                         y: .value("Value", dataPoint.value)
                     )
-                    .foregroundStyle(Color.blue)
+                    .foregroundStyle(Theme.accent)
                 }
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("\(title) trend across \(chartData.count) seasons, from \(chartData.first?.seasonName ?? "") to \(chartData.last?.seasonName ?? "")")
@@ -310,11 +310,11 @@ struct TrendChartSection: View {
                             Text(formatValue(dataPoint.value))
                                 .font(.ppStatMedium)
                                 .monospacedDigit()
-                                .foregroundStyle(.blue)
+                                .foregroundStyle(Theme.accent)
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 8)
-                        .background(Color.blue.opacity(0.1))
+                        .background(Theme.accent.opacity(0.1))
                         .cornerRadius(8)
                     }
                 }
@@ -357,7 +357,7 @@ struct DetailedComparisonTable: View {
                                 .frame(width: 100, alignment: .center)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 12)
-                                .background(Color.blue.opacity(0.1))
+                                .background(Theme.accent.opacity(0.1))
                         }
                     }
 
@@ -436,7 +436,7 @@ struct ComparisonRow<Value>: View {
                     .padding(.vertical, 8)
             }
         }
-        .background(Color(.systemBackground))
+        .background(Theme.surface)
 
         Divider()
     }

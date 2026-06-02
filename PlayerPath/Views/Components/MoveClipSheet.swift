@@ -98,7 +98,7 @@ struct MoveClipSheet: View {
             .overlay {
                 if isMoving {
                     ZStack {
-                        Color(.systemBackground).opacity(0.8)
+                        Theme.surface.opacity(0.8)
                         VStack(spacing: 12) {
                             ProgressView()
                             Text("Moving clip...")
@@ -170,14 +170,14 @@ struct MoveClipSheet: View {
                             Spacer()
                             if selectedAthlete?.id == athlete.id {
                                 Image(systemName: "checkmark")
-                                    .foregroundColor(.brandNavy)
+                                    .foregroundColor(Theme.accent)
                                     .fontWeight(.semibold)
                             }
                         }
                     }
                 }
             } header: {
-                Text("Move to")
+                Text("Move to").smallCapsLabel()
             }
 
             if let athlete = selectedAthlete {
@@ -196,7 +196,7 @@ struct MoveClipSheet: View {
                             Spacer()
                             if selectedGame == nil {
                                 Image(systemName: "checkmark")
-                                    .foregroundColor(.brandNavy)
+                                    .foregroundColor(Theme.accent)
                                     .fontWeight(.semibold)
                             }
                         }
@@ -227,10 +227,11 @@ struct MoveClipSheet: View {
                         }
                     }
                 } header: {
-                    Text("Assign to \(unitNoun) (optional)")
+                    Text("Assign to \(unitNoun) (optional)").smallCapsLabel()
                 }
             }
         }
+        .ppDetailBackground()
     }
 
     // MARK: - Move Logic

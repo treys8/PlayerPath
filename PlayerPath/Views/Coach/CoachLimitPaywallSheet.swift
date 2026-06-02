@@ -146,7 +146,7 @@ private struct PlanOptionRow: View {
             }
         }
         .padding()
-        .background(Color(.secondarySystemBackground))
+        .background(Theme.card)
         .cornerRadius(10)
     }
 }

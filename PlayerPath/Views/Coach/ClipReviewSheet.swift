@@ -181,7 +181,7 @@ struct ClipReviewSheet: View {
                                     infoRow(label: "Size", value: ByteCountFormatter.string(fromByteCount: fileSize, countStyle: .file))
                                 }
                             }
-                            .background(Color(.secondarySystemGroupedBackground))
+                            .background(Theme.card)
                             .clipShape(RoundedRectangle(cornerRadius: 10))
                             .padding(.horizontal)
                         }
@@ -198,7 +198,7 @@ struct ClipReviewSheet: View {
                     onDiscard: { showingDiscardConfirmation = true }
                 )
             }
-            .background(Color(.systemGroupedBackground))
+            .background(Theme.surface)
             .navigationTitle("Review Clip")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -312,7 +312,7 @@ struct ClipReviewSheet: View {
                         Task { await loadVideo() }
                     }
                     .font(.caption)
-                    .foregroundColor(.blue)
+                    .foregroundColor(Theme.accentLight)
                 }
                 .padding()
             } else if let player {
