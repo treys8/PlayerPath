@@ -220,7 +220,7 @@ struct SeasonSelectionRow: View {
                 }
 
                 if let stats = season.seasonStatistics {
-                    Text("\(stats.totalGames) games • \(stats.hits)/\(stats.atBats) • \(formatBattingAverage(stats.battingAverage))")
+                    Text("\(stats.totalGames) game\(stats.totalGames == 1 ? "" : "s") • \(stats.hits)/\(stats.atBats) • \(formatBattingAverage(stats.battingAverage))")
                         .font(.bodySmall)
                         .foregroundStyle(.secondary)
                 } else {

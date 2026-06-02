@@ -582,7 +582,7 @@ struct PhotosView: View {
             importToastMessage = saved == 1 ? "Photo imported" : "\(saved) photos imported"
         } else if saved > 0 && failed > 0 {
             importToastType = .warning
-            importToastMessage = "Imported \(saved) photos. \(failed) failed."
+            importToastMessage = "Imported \(saved) photo\(saved == 1 ? "" : "s"). \(failed) failed."
         } else {
             importToastType = .warning
             importToastMessage = "Could not import photos."

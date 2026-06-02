@@ -77,6 +77,10 @@ struct PracticeCard: View {
                     }
 
                 }
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Theme.textTertiary)
             }
             .padding(.leading, 12)
             .padding(.trailing, 16)

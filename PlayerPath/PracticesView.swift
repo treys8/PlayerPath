@@ -165,9 +165,15 @@ struct PracticesView: View {
                 }
 
                 ForEach(viewModel.filteredPractices, id: \.persistentModelID) { practice in
-                    NavigationLink(destination: PracticeDetailView(practice: practice)) {
+                    // Button + navigationDestination(item:) (not NavigationLink) so
+                    // the List doesn't add a system disclosure chevron outside the
+                    // card — PracticeCard carries its own in-card chevron instead.
+                    Button {
+                        navigateToPractice = practice
+                    } label: {
                         PracticeCard(practice: practice)
                     }
+                    .buttonStyle(.plain)
                     .swipeActions {
                         Button(role: .destructive) {
                             deleteSinglePractice(practice)

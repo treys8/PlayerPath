@@ -366,7 +366,7 @@ struct SeasonDetailView: View {
                             Spacer()
                             let videoCount = practice.videoClips?.count ?? 0
                             if videoCount > 0 {
-                                Text("\(videoCount) videos")
+                                Text("\(videoCount) video\(videoCount == 1 ? "" : "s")")
                                     .font(.bodySmall)
                                     .foregroundStyle(.secondary)
                             }

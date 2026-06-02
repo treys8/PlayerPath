@@ -206,7 +206,8 @@ struct VideoPlayerView: View {
             Image(systemName: "xmark.circle.fill")
                 .font(.title2)
                 .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.white)
+                .shadow(color: .black.opacity(0.5), radius: 4, x: 0, y: 2)
         }
         .accessibilityLabel("Close video player")
     }

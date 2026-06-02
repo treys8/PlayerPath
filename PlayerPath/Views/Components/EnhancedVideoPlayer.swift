@@ -341,7 +341,7 @@ struct EnhancedVideoPlayer: View {
                         .font(playbackSpeed == speed ? .custom("Inter18pt-Bold", size: 12, relativeTo: .caption) : .bodySmall)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
-                        .background(playbackSpeed == speed ? Color.brandNavy : Color.white.opacity(0.2))
+                        .background(playbackSpeed == speed ? Theme.accent : Color.white.opacity(0.2))
                         .foregroundColor(.white)
                         .cornerRadius(8)
                 }
@@ -362,7 +362,7 @@ struct EnhancedVideoPlayer: View {
                 .monospacedDigit()
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
-                .background(Color.brandNavy)
+                .background(Theme.accent)
                 .foregroundColor(.white)
                 .clipShape(Capsule())
         }

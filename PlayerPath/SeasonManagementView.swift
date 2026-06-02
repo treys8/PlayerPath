@@ -273,7 +273,7 @@ struct SeasonHistoryRow: View {
 
                 Spacer()
 
-                Text("\(season.completedGames) games • \(season.totalVideos) videos")
+                Text("\(season.completedGames) game\(season.completedGames == 1 ? "" : "s") • \(season.totalVideos) video\(season.totalVideos == 1 ? "" : "s")")
                     .font(.bodySmall)
                     .foregroundStyle(.secondary)
             }
