@@ -50,7 +50,7 @@ struct EditGameSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section(sectionTitle) {
+                Section(header: Text(sectionTitle).smallCapsLabel()) {
                     TextField(primaryLabel, text: $opponent)
                         .focused($focusedField, equals: .opponent)
                         .submitLabel(.next)
@@ -67,7 +67,7 @@ struct EditGameSheet: View {
                     DatePicker("Date & Time", selection: $date)
                 }
 
-                Section("Location (Optional)") {
+                Section(header: Text("Location (Optional)").smallCapsLabel()) {
                     TextField("Location", text: $location)
                         .focused($focusedField, equals: .location)
                         .submitLabel(.next)
@@ -75,7 +75,7 @@ struct EditGameSheet: View {
                         .textInputAutocapitalization(.words)
                 }
 
-                Section("Notes (Optional)") {
+                Section(header: Text("Notes (Optional)").smallCapsLabel()) {
                     TextField(notesPrompt, text: $notes, axis: .vertical)
                         .focused($focusedField, equals: .notes)
                         .submitLabel(.done)
@@ -96,6 +96,7 @@ struct EditGameSheet: View {
                     }
                 }
             }
+            .ppDetailBackground()
             .scrollDismissesKeyboard(.interactively)
             .navigationTitle(navigationTitle)
             .navigationBarTitleDisplayMode(.inline)

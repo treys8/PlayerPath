@@ -79,7 +79,7 @@ struct BulkVideoImportSheet: View {
                     noneLabel: "Match by date (recommended)"
                 )
             } header: {
-                Text("Season")
+                Text("Season").smallCapsLabel()
             } footer: {
                 if seasonOverride == nil {
                     Text("Each video is placed on the season that contains its capture date. Pick a specific season to override.")
@@ -97,7 +97,7 @@ struct BulkVideoImportSheet: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(.brandNavy)
+                .tint(Theme.accent)
 
                 Button(role: .cancel) {
                     onComplete(0, 0, false, true)
@@ -108,6 +108,7 @@ struct BulkVideoImportSheet: View {
                 }
             }
         }
+        .ppDetailBackground()
         .navigationTitle("Import Videos")
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -151,6 +152,8 @@ struct BulkVideoImportSheet: View {
                 .padding(.bottom, 32)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.surface)
     }
 
     private func startImport() async {

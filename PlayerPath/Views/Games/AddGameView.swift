@@ -43,7 +43,7 @@ struct AddGameView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Game Details") {
+                Section(header: Text("Game Details").smallCapsLabel()) {
                     TextField("Opponent", text: $opponent)
                         .submitLabel(.done)
                         .textInputAutocapitalization(.words)
@@ -66,7 +66,7 @@ struct AddGameView: View {
                 // Removed tournament selection section
 
                 if hasMultipleSeasons {
-                    Section("Season") {
+                    Section(header: Text("Season").smallCapsLabel()) {
                         SeasonPickerRow(athlete: athlete, selection: $selectedSeason)
                     }
                 }
@@ -76,6 +76,7 @@ struct AddGameView: View {
                         .disabled(selectedSeason?.isActive == false)
                 }
             }
+            .ppDetailBackground()
             .navigationTitle("New Game")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

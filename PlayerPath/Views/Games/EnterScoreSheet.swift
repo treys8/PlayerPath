@@ -52,7 +52,7 @@ struct EnterScoreSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Round") {
+                Section(header: Text("Round").smallCapsLabel()) {
                     Picker("Holes", selection: $holes) {
                         Text("9").tag(9)
                         Text("18").tag(18)
@@ -108,6 +108,7 @@ struct EnterScoreSheet: View {
                     }
                 }
             }
+            .ppDetailBackground()
             .navigationTitle(game.effectiveTotalScore == nil ? "Enter Score" : "Edit Score")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

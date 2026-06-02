@@ -27,7 +27,7 @@ struct QuickStatisticsEntryView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Current Game") {
+                Section(header: Text("Current Game").smallCapsLabel()) {
                     HStack {
                         Text("Opponent:")
                             .font(.headingMedium)
@@ -48,7 +48,7 @@ struct QuickStatisticsEntryView: View {
                     }
                 }
 
-                Section("Record Play Result") {
+                Section(header: Text("Record Play Result").smallCapsLabel()) {
                     Picker("Play Result", selection: $playResultType) {
                         Section("Batting") {
                             ForEach(PlayResultType.battingCases, id: \.self) { playType in
@@ -74,7 +74,7 @@ struct QuickStatisticsEntryView: View {
                     }
                 }
 
-                Section("Play Details") {
+                Section(header: Text("Play Details").smallCapsLabel()) {
                     HStack {
                         Text("Result Type:")
                         Spacer()
@@ -90,7 +90,7 @@ struct QuickStatisticsEntryView: View {
                             Text("\(playResultType.bases)")
                                 .font(.ppStatSmall)
                                 .monospacedDigit()
-                                .foregroundColor(.blue)
+                                .foregroundStyle(Theme.accent)
                         }
 
                         if playResultType.isHighlight {
@@ -105,6 +105,7 @@ struct QuickStatisticsEntryView: View {
                     }
                 }
             }
+            .ppDetailBackground()
             .navigationTitle("Record Statistics")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

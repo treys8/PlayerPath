@@ -146,6 +146,7 @@ struct ScoreHoleSheet: View {
                 }
                 .padding(.spacingLarge)
             }
+            .ppDetailBackground()
             .navigationTitle("Score Hole \(holeNumber)")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

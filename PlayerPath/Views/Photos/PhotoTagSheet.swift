@@ -41,7 +41,7 @@ struct PhotoTagSheet: View {
     var body: some View {
         NavigationStack {
             List {
-                Section(gamesSectionTitle) {
+                Section(header: Text(gamesSectionTitle).smallCapsLabel()) {
                     Button {
                         photo.game = nil
                         save()
@@ -52,7 +52,7 @@ struct PhotoTagSheet: View {
                             Spacer()
                             if photo.game == nil {
                                 Image(systemName: "checkmark")
-                                    .foregroundColor(.brandNavy)
+                                    .foregroundColor(Theme.accent)
                             }
                         }
                     }
@@ -92,7 +92,7 @@ struct PhotoTagSheet: View {
                     }
                 }
 
-                Section("Practices") {
+                Section(header: Text("Practices").smallCapsLabel()) {
                     Button {
                         photo.practice = nil
                         save()
@@ -103,7 +103,7 @@ struct PhotoTagSheet: View {
                             Spacer()
                             if photo.practice == nil {
                                 Image(systemName: "checkmark")
-                                    .foregroundColor(.brandNavy)
+                                    .foregroundColor(Theme.accent)
                             }
                         }
                     }
@@ -137,6 +137,7 @@ struct PhotoTagSheet: View {
                     }
                 }
             }
+            .ppDetailBackground()
             .navigationTitle("Tag Photo")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
