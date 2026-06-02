@@ -383,9 +383,7 @@ struct GameDetailView: View {
                 }
             }
         }
-        .scrollContentBackground(.hidden)
-        .background(Theme.surface)
-        .tint(Theme.accent)
+        .ppDetailBackground()
         .navigationTitle("\(isGolf ? "at" : "vs") \(game.opponent)")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { primaryActionMenu }
@@ -593,36 +591,6 @@ struct GameDetailView: View {
     private func deleteGamePhoto(_ photo: Photo) {
         PhotoPersistenceService().deletePhoto(photo, context: modelContext)
         Haptics.light()
-    }
-}
-
-// MARK: - Action Row Label Styles
-
-/// Action rows in the cream chrome: textPrimary title with an accent (orange)
-/// icon. Replaces the iOS-tint look so rows read as editorial, not system blue.
-private struct ActionRowLabelStyle: LabelStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        HStack(spacing: 12) {
-            configuration.icon
-                .foregroundStyle(Theme.accent)
-                .frame(width: 24, alignment: .center)
-            configuration.title
-                .foregroundStyle(Theme.textPrimary)
-        }
-    }
-}
-
-/// Destructive rows (End / Delete) stay red — re-asserts the role color when an
-/// `ActionRowLabelStyle` is in scope on the enclosing section.
-private struct DestructiveRowLabelStyle: LabelStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        HStack(spacing: 12) {
-            configuration.icon
-                .foregroundStyle(.red)
-                .frame(width: 24, alignment: .center)
-            configuration.title
-                .foregroundStyle(.red)
-        }
     }
 }
 
