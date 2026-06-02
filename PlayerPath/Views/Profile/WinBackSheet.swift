@@ -53,6 +53,7 @@ struct WinBackSheet: View {
                 .padding(.horizontal, 20)
                 .padding(.vertical, 16)
             }
+            .background(Theme.surface)
             .navigationTitle("Before You Go")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -98,7 +99,7 @@ struct WinBackSheet: View {
                     }
                 }
             }
-            .background(Color(.secondarySystemBackground))
+            .background(Theme.card)
             .clipShape(RoundedRectangle(cornerRadius: 12))
         }
     }
@@ -109,7 +110,7 @@ struct WinBackSheet: View {
         } label: {
             HStack(spacing: 12) {
                 Image(systemName: selectedReason == reason ? "largecircle.fill.circle" : "circle")
-                    .foregroundStyle(selectedReason == reason ? Color.accentColor : Color.secondary)
+                    .foregroundStyle(selectedReason == reason ? Theme.accent : Color.secondary)
                 Text(reason.label)
                     .foregroundStyle(.primary)
                 Spacer()
@@ -129,7 +130,7 @@ struct WinBackSheet: View {
             TextField("Tell us more…", text: $freeText, axis: .vertical)
                 .lineLimit(2...5)
                 .padding(10)
-                .background(Color(.secondarySystemBackground))
+                .background(Theme.card)
                 .clipShape(RoundedRectangle(cornerRadius: 10))
         }
     }
