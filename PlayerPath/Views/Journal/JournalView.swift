@@ -65,6 +65,25 @@ struct JournalView: View {
         !liveGames.isEmpty || !livePractices.isEmpty
     }
 
+    /// True when this athlete has literally any game, practice, or clip on
+    /// record — independent of the active filter. Drives the new-user welcome
+    /// vs. the "this filter matched nothing" message: an athlete who HAS data
+    /// but tapped a filter that excludes it should never see "Welcome".
+    private var hasAnyContent: Bool {
+        !games.isEmpty || !practices.isEmpty || !clips.isEmpty
+    }
+
+    /// Sport-aware noun for a single logged event — "Round" for golf, else
+    /// "Game". Mirrors `Game.eventNoun`, but read from the athlete's pinned
+    /// sport since the empty state has no Game to ask.
+    private var eventNoun: String { activeSport == .golf ? "Round" : "Game" }
+
+    /// The athlete's first name for the welcome line, or "" if unnamed.
+    private var firstName: String {
+        let trimmed = athlete.name.trimmingCharacters(in: .whitespaces)
+        return trimmed.split(separator: " ").first.map(String.init) ?? trimmed
+    }
+
     private func sportMatches(_ sport: Season.SportType?) -> Bool {
         guard let sport else { return true }   // seasonless passes through
         return sport == activeSport
@@ -101,24 +120,31 @@ struct JournalView: View {
                     liveStrip
                 }
 
-                PPFilterPillRow(
-                    options: JournalFilter.allCases,
-                    title: { $0.title },
-                    selection: $filter
-                )
+                // Pills only earn their place once there's something to filter.
+                // A brand-new athlete sees the welcome state instead — no point
+                // offering a "Golf" filter over an empty page.
+                if hasAnyContent {
+                    PPFilterPillRow(
+                        options: JournalFilter.allCases,
+                        title: { $0.title },
+                        selection: $filter
+                    )
 
-                if entries.isEmpty {
-                    emptyState
-                } else {
-                    ForEach(entries) { entry in
-                        NavigationLink {
-                            destination(for: entry)
-                        } label: {
-                            JournalEntryRow(entry: entry, milestones: milestones)
-                                .padding(.horizontal, 18)
+                    if entries.isEmpty {
+                        filteredEmptyState
+                    } else {
+                        ForEach(entries) { entry in
+                            NavigationLink {
+                                destination(for: entry)
+                            } label: {
+                                JournalEntryRow(entry: entry, milestones: milestones)
+                                    .padding(.horizontal, 18)
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
                     }
+                } else {
+                    welcomeEmptyState
                 }
             }
             .padding(.vertical, .spacingLarge)
@@ -185,40 +211,63 @@ struct JournalView: View {
         }
     }
 
-    // MARK: - Empty state
+    // MARK: - Empty states
 
-    private var emptyState: some View {
+    /// New-user welcome — shown only when the athlete has no games, practices,
+    /// or clips at all (no filter pills render above it). Names the athlete,
+    /// adapts to sport, and offers the app's two first actions: record a clip
+    /// (primary) or log a game/round (secondary).
+    private var welcomeEmptyState: some View {
         VStack(spacing: .spacingMedium) {
             Image(systemName: "book.closed")
                 .font(.system(size: 36))
-                .foregroundStyle(Theme.textTertiary)
+                .foregroundStyle(Theme.accent)
 
             VStack(spacing: .spacingXSmall) {
-                Text("Start your journal")
-                    .font(.ppTitle3)
+                Text(firstName.isEmpty ? "Welcome." : "Welcome, \(firstName).")
+                    .font(.ppTitle2)
                     .foregroundStyle(Theme.textPrimary)
-                Text("Record your first clip or log a game.")
-                    .font(.ppSubheadline)
+                Text("Your season starts here.")
+                    .font(.ppHeadline)
                     .foregroundStyle(Theme.textSecondary)
+                Text("Games, practices, clips, and milestones collect on this page.")
+                    .font(.ppSubheadline)
+                    .foregroundStyle(Theme.textTertiary)
                     .multilineTextAlignment(.center)
+                    .padding(.top, 2)
             }
 
-            Button {
-                Haptics.medium()
-                NotificationCenter.default.post(name: .switchTab, object: MainTab.games.rawValue)
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "plus.circle.fill")
-                        .font(.body)
-                    Text("Log a Game")
-                        .font(.ppHeadline)
+            VStack(spacing: .spacingSmall) {
+                Button {
+                    Haptics.medium()
+                    NotificationCenter.default.post(name: .presentVideoRecorder, object: nil)
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "video.fill").font(.body)
+                        Text("Record a Clip").font(.ppHeadline)
+                    }
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 13)
+                    .background(Capsule().fill(Theme.accent))
                 }
-                .foregroundStyle(.white)
-                .padding(.horizontal, 22)
-                .padding(.vertical, 13)
-                .background(Capsule().fill(Theme.accent))
+                .buttonStyle(.plain)
+
+                Button {
+                    Haptics.light()
+                    NotificationCenter.default.post(name: .switchTab, object: MainTab.games.rawValue)
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "plus.circle").font(.body)
+                        Text("Log a \(eventNoun)").font(.ppHeadline)
+                    }
+                    .foregroundStyle(Theme.accent)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 13)
+                    .background(Capsule().stroke(Theme.accent.opacity(0.5), lineWidth: 1.5))
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
             .padding(.top, .spacingSmall)
         }
         .frame(maxWidth: .infinity)
@@ -227,5 +276,42 @@ struct JournalView: View {
         .ppCard()
         .padding(.horizontal, 18)
         .padding(.top, 40)
+    }
+
+    /// Shown when the athlete HAS content but the active filter excluded all of
+    /// it (e.g. tapping "Highlights" before starring a clip). The pills stay
+    /// visible above so the user can step back to All.
+    private var filteredEmptyState: some View {
+        VStack(spacing: .spacingSmall) {
+            Image(systemName: filteredEmptyIcon)
+                .font(.system(size: 28))
+                .foregroundStyle(Theme.textTertiary)
+            Text(filteredEmptyMessage)
+                .font(.ppSubheadline)
+                .foregroundStyle(Theme.textSecondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, .spacingXLarge)
+        .padding(.horizontal, 18)
+        .padding(.top, 24)
+    }
+
+    private var filteredEmptyMessage: String {
+        switch filter {
+        case .all:        return "Nothing here yet."
+        case .games:      return "No \(eventNoun.lowercased())s logged yet."
+        case .golf:       return "No golf rounds yet."
+        case .highlights: return "No highlights yet — star a clip to add one."
+        }
+    }
+
+    private var filteredEmptyIcon: String {
+        switch filter {
+        case .all:        return "tray"
+        case .games:      return activeSport == .golf ? "figure.golf" : "baseball"
+        case .golf:       return "figure.golf"
+        case .highlights: return "star"
+        }
     }
 }
