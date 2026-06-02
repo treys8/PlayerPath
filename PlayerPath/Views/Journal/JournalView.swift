@@ -21,6 +21,7 @@ struct JournalView: View {
     @Binding var homePath: NavigationPath
 
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.ppAccent) private var ppAccent
     private var activeSport: Season.SportType { athlete.sportType }
 
     @State private var filter: JournalFilter = .all
@@ -36,6 +37,10 @@ struct JournalView: View {
     @State private var showingAddSheet = false
     @State private var videoImportTrigger = false
     @State private var photoImportTrigger = false
+
+    /// Clip tapped in the feed, presented in the full-screen player (cover, not a
+    /// push) so it matches how clips open everywhere else in the app.
+    @State private var selectedClip: VideoClip?
 
     init(user: User, athlete: Athlete, homePath: Binding<NavigationPath>) {
         self.user = user
@@ -188,20 +193,17 @@ struct JournalView: View {
                         filteredEmptyState
                     } else {
                         ForEach(entries) { entry in
-                            NavigationLink {
-                                destination(for: entry)
-                            } label: {
-                                JournalEntryRow(entry: entry, milestones: milestones)
-                                    .padding(.horizontal, 18)
-                                    // Pin the link's tap area to the card itself.
-                                    // Without this, an eager NavigationLink in a
-                                    // LazyVStack claims a region that bleeds past
-                                    // its frame and — being a later (z-above)
-                                    // sibling — steals taps from the filter pills
-                                    // above it.
-                                    .contentShape(Rectangle())
+                            if case .clip(let clip) = entry {
+                                // Clips open in the immersive full-screen player as
+                                // a cover — matching every other entry point in the
+                                // app — so the player's own ✕ is the single dismiss
+                                // control, with no stacked nav back chevron.
+                                Button { selectedClip = clip } label: { feedRow(entry) }
+                                    .buttonStyle(.plain)
+                            } else {
+                                NavigationLink { destination(for: entry) } label: { feedRow(entry) }
+                                    .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
                         }
                     }
                 } else {
@@ -238,6 +240,9 @@ struct JournalView: View {
         }
         .bulkImportAttach(athlete: athlete, trigger: $videoImportTrigger)
         .bulkPhotoImportAttach(athlete: athlete, trigger: $photoImportTrigger)
+        .fullScreenCover(item: $selectedClip) { clip in
+            VideoPlayerView(clip: clip)
+        }
         .onChange(of: availableFilters) { _, newValue in
             // If the active pill no longer has any matching entries (e.g. the
             // last highlight was un-starred), fall back to All so the feed
@@ -257,8 +262,8 @@ struct JournalView: View {
     private var liveStrip: some View {
         VStack(spacing: .spacingMedium) {
             HStack(spacing: 6) {
-                Circle().fill(Theme.accent).frame(width: 7, height: 7)
-                Text("Live Now").smallCapsLabel(color: Theme.accent)
+                Circle().fill(ppAccent).frame(width: 7, height: 7)
+                Text("Live Now").smallCapsLabel(color: ppAccent)
                 Spacer()
             }
             .padding(.horizontal, 18)
@@ -288,6 +293,18 @@ struct JournalView: View {
         }
     }
 
+    // MARK: - Feed rows
+
+    /// One tappable card in the feed. Pinning the tap area to the card itself
+    /// matters: without `.contentShape`, an eager NavigationLink in a LazyVStack
+    /// claims a region that bleeds past its frame and — being a later (z-above)
+    /// sibling — steals taps from the filter pills above it.
+    private func feedRow(_ entry: JournalEntry) -> some View {
+        JournalEntryRow(entry: entry, milestones: milestones)
+            .padding(.horizontal, 18)
+            .contentShape(Rectangle())
+    }
+
     // MARK: - Destinations
 
     @ViewBuilder
@@ -295,7 +312,9 @@ struct JournalView: View {
         switch entry {
         case .game(let g):     GameDetailView(game: g)
         case .practice(let p): PracticeDetailView(practice: p)
-        case .clip(let c):     VideoPlayerView(clip: c)
+        // Clips are presented as a full-screen cover (see `selectedClip`), not a
+        // push, so they never route through here.
+        case .clip:            EmptyView()
         case .photo(let p):
             PhotoDetailView(photo: p) {
                 PhotoPersistenceService().deletePhoto(p, context: modelContext)
@@ -314,7 +333,7 @@ struct JournalView: View {
         VStack(spacing: .spacingMedium) {
             Image(systemName: "book.closed")
                 .font(.system(size: 36))
-                .foregroundStyle(Theme.accent)
+                .foregroundStyle(ppAccent)
 
             VStack(spacing: .spacingXSmall) {
                 Text(firstName.isEmpty ? "Welcome." : "Welcome, \(firstName).")
@@ -342,7 +361,7 @@ struct JournalView: View {
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 13)
-                    .background(Capsule().fill(Theme.accent))
+                    .background(Capsule().fill(ppAccent))
                 }
                 .buttonStyle(.plain)
 
@@ -354,10 +373,10 @@ struct JournalView: View {
                         Image(systemName: "plus.circle").font(.body)
                         Text("Log a \(eventNoun)").font(.ppHeadline)
                     }
-                    .foregroundStyle(Theme.accent)
+                    .foregroundStyle(ppAccent)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 13)
-                    .background(Capsule().stroke(Theme.accent.opacity(0.5), lineWidth: 1.5))
+                    .background(Capsule().stroke(ppAccent.opacity(0.5), lineWidth: 1.5))
                 }
                 .buttonStyle(.plain)
             }

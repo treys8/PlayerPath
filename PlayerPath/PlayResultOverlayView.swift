@@ -648,7 +648,7 @@ struct PlayResultOverlayView: View {
             PlayResultDivider()
 
             VStack(alignment: .leading, spacing: 10) {
-                PlayResultSectionHeader(icon: "exclamationmark.triangle.fill", title: "SPECIAL", color: .orange)
+                PlayResultSectionHeader(icon: "exclamationmark.triangle.fill", title: "SPECIAL", color: Theme.warning)
 
                 HStack(spacing: 10) {
                     PlayResultButton(result: .hitByPitch, isSelected: selectedResult == .hitByPitch) { selectResult(.hitByPitch) }

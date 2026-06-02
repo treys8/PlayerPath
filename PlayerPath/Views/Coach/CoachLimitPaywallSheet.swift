@@ -37,7 +37,7 @@ struct CoachLimitPaywallSheet: View {
                     HStack(spacing: 4) {
                         Text("\(connectedCount)")
                             .fontWeight(.bold)
-                            .foregroundColor(.orange)
+                            .foregroundColor(Theme.warning)
                         Text("athletes connected")
                         Text("·")
                         Text("\(authManager.coachAthleteLimit) allowed")

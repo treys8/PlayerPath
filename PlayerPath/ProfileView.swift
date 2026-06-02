@@ -38,6 +38,7 @@ struct ProfileView: View {
     @State private var showingSeasons = false
     @State private var seasonsAthlete: Athlete?
     @State private var isDeletingAthlete = false
+    @Environment(\.ppAccent) private var ppAccent
 
     var body: some View {
         List {
@@ -52,7 +53,7 @@ struct ProfileView: View {
         }
         .scrollContentBackground(.hidden)
         .background(Theme.surface)
-        .tint(Theme.accent)
+        .tint(ppAccent)
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search settings...")
         .tabRootNavigationBar(title: ProfileStrings.title)
         .sheet(isPresented: $showingAddAthlete) {
@@ -344,7 +345,7 @@ struct ProfileView: View {
                                 Text("Pro")
                                     .font(.caption)
                             }
-                            .foregroundColor(Theme.accent)
+                            .foregroundColor(ppAccent)
                         }
                     }
                     .foregroundColor(.primary)
@@ -480,7 +481,7 @@ struct ProfileView: View {
             }) {
                 Label("Add Athlete", systemImage: "person.badge.plus")
             }
-            .tint(Theme.accent)
+            .tint(ppAccent)
             
             if user.athleteSlotsUsed >= authManager.currentTier.athleteLimit {
                 HStack {
@@ -524,7 +525,7 @@ struct ProfileView: View {
                             Text("Pro")
                                 .font(.caption)
                         }
-                        .foregroundColor(Theme.accent)
+                        .foregroundColor(ppAccent)
                     }
                 }
                 .foregroundColor(.primary)
@@ -584,7 +585,7 @@ struct ProfileView: View {
             Section {
                 HStack(spacing: 12) {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(Theme.warning)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Payment Failed")
                             .font(.headingSmall)
@@ -599,7 +600,7 @@ struct ProfileView: View {
                         }
                     }
                     .buttonStyle(.borderedProminent)
-                    .tint(.orange)
+                    .tint(Theme.warning)
                     .controlSize(.small)
                 }
             }
@@ -743,6 +744,7 @@ struct AthleteProfileRow: View {
 
     @State private var showingEdit = false
     @State private var showingAddSport = false
+    @Environment(\.ppAccent) private var ppAccent
 
     private var athleteSports: [Season.SportType] {
         let set = Set((athlete.seasons ?? []).map { $0.sport ?? .baseball })
@@ -792,7 +794,7 @@ struct AthleteProfileRow: View {
                             if !athlete.trackStatsEnabled {
                                 Text("•")
                                 Text("Stats off")
-                                    .foregroundColor(.orange)
+                                    .foregroundColor(Theme.warning)
                             }
                         }
                         .font(.bodySmall)
@@ -803,7 +805,7 @@ struct AthleteProfileRow: View {
 
                     if isSelected {
                         Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(Theme.accent)
+                            .foregroundColor(ppAccent)
                             .accessibilityLabel("Selected")
                             .accessibilityHidden(true)
                     }
@@ -821,7 +823,7 @@ struct AthleteProfileRow: View {
                 } label: {
                     Image(systemName: "plus.circle")
                         .font(.title3)
-                        .foregroundColor(Theme.accent)
+                        .foregroundColor(ppAccent)
                         .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
                 }
@@ -836,7 +838,7 @@ struct AthleteProfileRow: View {
             } label: {
                 Image(systemName: "info.circle")
                     .font(.title3)
-                    .foregroundColor(Theme.accent)
+                    .foregroundColor(ppAccent)
                     .frame(width: 44, height: 44)
                     .contentShape(Rectangle())
             }
@@ -850,7 +852,7 @@ struct AthleteProfileRow: View {
             } label: {
                 Label("Settings", systemImage: "slider.horizontal.3")
             }
-            .tint(Theme.accent)
+            .tint(ppAccent)
         }
         .sheet(isPresented: $showingEdit) {
             NavigationStack { EditAthleteView(athlete: athlete) }

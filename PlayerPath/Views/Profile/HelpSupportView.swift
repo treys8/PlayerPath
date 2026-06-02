@@ -15,11 +15,13 @@ struct HelpSupportView: View {
 }
 
 struct AboutView: View {
+    @Environment(\.ppAccent) private var ppAccent
+
     var body: some View {
         VStack(spacing: 30) {
             Image(systemName: "book.closed.fill")
                 .font(.system(size: 80))
-                .foregroundColor(Theme.accent)
+                .foregroundColor(ppAccent)
 
             VStack(spacing: 10) {
                 Text("PlayerPath")

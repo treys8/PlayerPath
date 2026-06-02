@@ -189,7 +189,7 @@ struct InvitationDetailView: View {
     private func errorView(_ error: String) -> some View {
         VStack(spacing: 16) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 60)).foregroundColor(.orange)
+                .font(.system(size: 60)).foregroundColor(Theme.warning)
             Text("Error Loading Invitation")
                 .font(.displayMedium)
             Text(error)

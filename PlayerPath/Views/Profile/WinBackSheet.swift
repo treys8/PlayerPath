@@ -16,6 +16,7 @@ struct WinBackSheet: View {
     let onClose: () -> Void
 
     @Environment(\.openURL) private var openURL
+    @Environment(\.ppAccent) private var ppAccent
     @State private var selectedReason: CancellationReason?
     @State private var freeText: String = ""
     @State private var hasLoggedShown = false
@@ -110,7 +111,7 @@ struct WinBackSheet: View {
         } label: {
             HStack(spacing: 12) {
                 Image(systemName: selectedReason == reason ? "largecircle.fill.circle" : "circle")
-                    .foregroundStyle(selectedReason == reason ? Theme.accent : Color.secondary)
+                    .foregroundStyle(selectedReason == reason ? ppAccent : Color.secondary)
                 Text(reason.label)
                     .foregroundStyle(.primary)
                 Spacer()

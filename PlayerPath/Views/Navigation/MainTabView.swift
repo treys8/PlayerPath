@@ -53,6 +53,10 @@ struct MainTabView: View {
     // Tab chrome reads sport directly from the athlete's primary `sport`.
     // One sport per athlete — multi-sport athletes use separate profiles.
     private var isGolfActive: Bool { selectedAthlete.sportType == .golf }
+    /// The one accent, resolved for this athlete's sport. Used for MainTabView's
+    /// own chrome; the same value is injected into the tab subtrees via
+    /// `.ppAccent(forGolf:)` so every tab follows the active sport.
+    private var ppAccent: Color { Theme.accent(forGolf: isGolfActive) }
     private var gamesTabLabel: String { isGolfActive ? "Rounds" : "Games" }
     private var gamesTabIcon: String { isGolfActive ? "figure.golf" : "baseball" }
 
@@ -121,7 +125,7 @@ struct MainTabView: View {
     
     var body: some View {
         tabViewContent
-            .tint(Theme.accent)                 // Visual overhaul: terracotta accent (was brandNavy)
+            .ppAccent(forGolf: isGolfActive)    // resolve the one accent by active sport (terracotta / golf green) + tint
             .task {
                 // Always restore tab and observers on appear
                 restoreSelectedTab()
@@ -499,10 +503,10 @@ struct MainTabView: View {
                                 if authManager.currentTier < .plus {
                                     Text("PLUS")
                                         .font(.custom("Inter18pt-Bold", size: 11, relativeTo: .caption2))
-                                        .foregroundColor(Theme.accent)
+                                        .foregroundColor(ppAccent)
                                         .padding(.horizontal, 5)
                                         .padding(.vertical, 2)
-                                        .background(Capsule().fill(Theme.accent.opacity(0.12)))
+                                        .background(Capsule().fill(ppAccent.opacity(0.12)))
                                 }
                             }
                         } icon: {
@@ -525,10 +529,10 @@ struct MainTabView: View {
                                 if authManager.currentTier != .pro {
                                     Text("PRO")
                                         .font(.custom("Inter18pt-Bold", size: 11, relativeTo: .caption2))
-                                        .foregroundColor(Theme.accent)
+                                        .foregroundColor(ppAccent)
                                         .padding(.horizontal, 5)
                                         .padding(.vertical, 2)
-                                        .background(Capsule().fill(Theme.accent.opacity(0.12)))
+                                        .background(Capsule().fill(ppAccent.opacity(0.12)))
                                 }
                             }
                         } icon: {
@@ -543,10 +547,10 @@ struct MainTabView: View {
                                 if authManager.currentTier != .pro {
                                     Text("PRO")
                                         .font(.custom("Inter18pt-Bold", size: 11, relativeTo: .caption2))
-                                        .foregroundColor(Theme.accent)
+                                        .foregroundColor(ppAccent)
                                         .padding(.horizontal, 5)
                                         .padding(.vertical, 2)
-                                        .background(Capsule().fill(Theme.accent.opacity(0.12)))
+                                        .background(Capsule().fill(ppAccent.opacity(0.12)))
                                 }
                                 Spacer()
                                 SharedFoldersBadge()
@@ -612,10 +616,10 @@ struct MainTabView: View {
             HStack(spacing: 14) {
                 ZStack {
                     Circle()
-                        .fill(Theme.accent.opacity(0.15))
+                        .fill(ppAccent.opacity(0.15))
                         .frame(width: 48, height: 48)
                     Text(String(user.username.prefix(1)).uppercased())
-                        .font(.headingLarge).foregroundColor(Theme.accent)
+                        .font(.headingLarge).foregroundColor(ppAccent)
                 }
                 VStack(alignment: .leading, spacing: 3) {
                     Text(user.username).font(.headingMedium).foregroundColor(.primary)
@@ -637,7 +641,7 @@ struct MainTabView: View {
 
     private var tierDisplayColor: Color {
         switch authManager.currentTier {
-        case .pro, .plus: return Theme.accent
+        case .pro, .plus: return ppAccent
         default: return Theme.textSecondary
         }
     }

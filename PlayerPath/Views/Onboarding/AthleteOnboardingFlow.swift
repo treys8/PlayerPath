@@ -10,6 +10,8 @@ import SwiftData
 
 struct AthleteOnboardingFlow: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.ppAccent) private var ppAccent
+    @Environment(\.ppAccentLight) private var ppAccentLight
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     let user: User
     @State private var isCompleting = false
@@ -29,7 +31,7 @@ struct AthleteOnboardingFlow: View {
                         Circle()
                             .fill(
                                 RadialGradient(
-                                    colors: [.orange.opacity(0.3), .clear],
+                                    colors: [ppAccent.opacity(0.3), .clear],
                                     center: .center,
                                     startRadius: 20,
                                     endRadius: 80
@@ -42,13 +44,13 @@ struct AthleteOnboardingFlow: View {
                             .font(.system(size: 100, weight: .medium))
                             .foregroundStyle(
                                 LinearGradient(
-                                    colors: [.orange, .yellow],
+                                    colors: [ppAccent, ppAccentLight],
                                     startPoint: .topLeading,
                                     endPoint: .bottomTrailing
                                 )
                             )
                             .symbolRenderingMode(.hierarchical)
-                            .shadow(color: .orange.opacity(0.4), radius: 15, x: 0, y: 8)
+                            .shadow(color: ppAccent.opacity(0.4), radius: 15, x: 0, y: 8)
                     }
 
                     VStack(spacing: 16) {

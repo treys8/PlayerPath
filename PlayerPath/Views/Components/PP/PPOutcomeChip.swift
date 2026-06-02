@@ -26,6 +26,7 @@ struct PPOutcomeChip: View {
 
     let label: String
     let style: Style
+    @Environment(\.ppAccent) private var ppAccent
 
     init(label: String, style: Style) {
         self.label = label
@@ -53,7 +54,7 @@ struct PPOutcomeChip: View {
 
     private var background: Color {
         switch style {
-        case .accent:           return Theme.accent
+        case .accent:           return ppAccent
         case .darkTranslucent:  return .black.opacity(0.55)
         case .green:            return Theme.chipGreenBg
         case .neutralOnCard:    return Theme.divider.opacity(0.6)

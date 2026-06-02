@@ -39,6 +39,7 @@ extension Practice {
 struct PracticesView: View {
     let athlete: Athlete?
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.ppAccent) private var ppAccent
     private var activeSport: Season.SportType { athlete?.sportType ?? .baseball }
     @State private var viewModel = PracticesViewModel()
     @State private var navigateToPractice: Practice?
@@ -192,7 +193,7 @@ struct PracticesView: View {
                             Image(systemName: "arrow.down.circle")
                         }
                         .font(.labelLarge)
-                        .foregroundColor(Theme.accent)
+                        .foregroundColor(ppAccent)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
                     }

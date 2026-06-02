@@ -22,7 +22,7 @@ struct BulkPhotoImportAttach: ViewModifier {
         var color: Color {
             switch self {
             case .success: return .green
-            case .warning: return .orange
+            case .warning: return Theme.warning
             case .error:   return .red
             }
         }

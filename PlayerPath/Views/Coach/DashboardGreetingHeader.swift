@@ -68,6 +68,6 @@ struct DashboardGreetingHeader: View {
     }
 
     private var subtitleColor: Color {
-        needsReviewCount > 0 ? .orange : .secondary
+        needsReviewCount > 0 ? Theme.accent : .secondary
     }
 }

@@ -163,7 +163,7 @@ struct SeasonRecommendationBanner: View {
         case .createFirst, .noActiveSeason:
             return .brandNavy
         case .considerEnding:
-            return .orange
+            return Theme.warning
         case .ok:
             return .green
         }

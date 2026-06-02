@@ -187,7 +187,7 @@ struct TodaysReelHeroCard: View {
         HStack(spacing: 14) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 28, weight: .semibold))
-                .foregroundColor(.orange)
+                .foregroundColor(Theme.warning)
                 .symbolRenderingMode(.hierarchical)
                 .frame(width: 44)
             VStack(alignment: .leading, spacing: 4) {

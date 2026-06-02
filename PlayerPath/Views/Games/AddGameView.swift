@@ -56,7 +56,7 @@ struct AddGameView: View {
                                 .font(.bodySmall)
                         } icon: {
                             Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundColor(.orange)
+                                .foregroundColor(Theme.warning)
                         }
                     }
 

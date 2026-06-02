@@ -37,7 +37,7 @@ struct ClipCommentSection: View {
                 HStack(spacing: 6) {
                     Image(systemName: "exclamationmark.triangle")
                         .font(.caption)
-                        .foregroundColor(.orange)
+                        .foregroundColor(Theme.warning)
                     Text("Couldn't load comments")
                         .font(.bodySmall)
                         .foregroundColor(.secondary)
@@ -106,13 +106,14 @@ struct ClipCommentSection: View {
 // MARK: - Individual coach comment row
 
 private struct CoachCommentRow: View {
+    @Environment(\.ppAccent) private var ppAccent
     let comment: ClipComment
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: "person.badge.shield.checkmark")
                 .font(.caption)
-                .foregroundColor(.orange)
+                .foregroundColor(ppAccent)
                 .frame(width: 16)
 
             VStack(alignment: .leading, spacing: 2) {
@@ -125,7 +126,7 @@ private struct CoachCommentRow: View {
                         .foregroundColor(.white)
                         .padding(.horizontal, 5)
                         .padding(.vertical, 1)
-                        .background(Color.orange.opacity(0.85))
+                        .background(ppAccent.opacity(0.85))
                         .cornerRadius(4)
                     if let date = comment.createdAt {
                         Text(date, style: .relative)
@@ -140,7 +141,7 @@ private struct CoachCommentRow: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .background(Color.orange.opacity(0.06))
+        .background(ppAccent.opacity(0.06))
         .cornerRadius(8)
     }
 }

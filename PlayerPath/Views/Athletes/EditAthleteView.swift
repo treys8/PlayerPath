@@ -15,6 +15,7 @@ struct EditAthleteView: View {
     @Bindable var athlete: Athlete
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.ppAccent) private var ppAccent
     @State private var showingCreateSeason = false
 
     /// Sports this athlete tracks — distinct seasons' sports, falling back to
@@ -72,7 +73,7 @@ struct EditAthleteView: View {
         }
         .scrollContentBackground(.hidden)
         .background(Theme.surface)
-        .tint(Theme.accent)
+        .tint(ppAccent)
         .navigationTitle(athlete.name)
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showingCreateSeason) {

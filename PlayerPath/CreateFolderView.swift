@@ -99,7 +99,7 @@ struct CreateFolderView: View {
             if !coachEmail.isEmpty && !coachEmail.isValidEmail {
                 Label("Please enter a valid email address", systemImage: "exclamationmark.triangle.fill")
                     .font(.bodySmall)
-                    .foregroundColor(.orange)
+                    .foregroundColor(Theme.warning)
             }
 
         } header: {
@@ -237,7 +237,7 @@ struct InviteCoachView: View {
                     if !coachEmail.isEmpty && !coachEmail.isValidEmail {
                         Label("Please enter a valid email address", systemImage: "exclamationmark.triangle.fill")
                             .font(.caption)
-                            .foregroundColor(.orange)
+                            .foregroundColor(Theme.warning)
                     }
 
                 } header: {

@@ -66,6 +66,7 @@ struct CareerSeasonComparisonSection: View {
 }
 
 struct ComparisonStatCard: View {
+    @Environment(\.ppAccent) private var ppAccent
     let title: String
     let careerValue: String
     let seasonValue: String
@@ -114,10 +115,10 @@ struct ComparisonStatCard: View {
                         Text("This Season")
                             .font(.labelSmall)
                     }
-                    .foregroundStyle(Theme.accent)
+                    .foregroundStyle(ppAccent)
                     Text(seasonValue)
                         .font(.ppStat(24))
-                        .foregroundStyle(Theme.accent)
+                        .foregroundStyle(ppAccent)
                         .scaleEffect(isAnimating ? 1.0 : 0.8)
                         .opacity(isAnimating ? 1.0 : 0)
                     Text(seasonSubtitle)

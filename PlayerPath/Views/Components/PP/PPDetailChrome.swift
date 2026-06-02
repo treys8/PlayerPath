@@ -16,12 +16,22 @@ import SwiftUI
 /// enclosing `Section`.
 struct ActionRowLabelStyle: LabelStyle {
     func makeBody(configuration: Configuration) -> some View {
-        HStack(spacing: 12) {
-            configuration.icon
-                .foregroundStyle(Theme.accent)
-                .frame(width: 24, alignment: .center)
-            configuration.title
-                .foregroundStyle(Theme.textPrimary)
+        // Nested view so the icon tint can read the sport-resolved accent from
+        // the environment (a LabelStyle struct can't observe @Environment directly).
+        Row(configuration: configuration)
+    }
+
+    private struct Row: View {
+        let configuration: Configuration
+        @Environment(\.ppAccent) private var ppAccent
+        var body: some View {
+            HStack(spacing: 12) {
+                configuration.icon
+                    .foregroundStyle(ppAccent)
+                    .frame(width: 24, alignment: .center)
+                configuration.title
+                    .foregroundStyle(Theme.textPrimary)
+            }
         }
     }
 }
@@ -46,9 +56,18 @@ extension View {
     /// controls with the one accent. Centralizes the GameDetailView treatment so
     /// every reskinned detail screen and sheet matches.
     func ppDetailBackground() -> some View {
-        self
+        modifier(PPDetailChromeModifier())
+    }
+}
+
+/// Backs `ppDetailBackground()`. A modifier (not a bare `.tint`) so the control
+/// tint follows the sport-resolved accent inherited from the environment.
+private struct PPDetailChromeModifier: ViewModifier {
+    @Environment(\.ppAccent) private var ppAccent
+    func body(content: Content) -> some View {
+        content
             .scrollContentBackground(.hidden)
             .background(Theme.surface)
-            .tint(Theme.accent)
+            .tint(ppAccent)
     }
 }

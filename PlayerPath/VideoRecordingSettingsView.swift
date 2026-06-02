@@ -31,6 +31,8 @@ struct VideoRecordingSettingsView: View {
     @AppStorage("autoShowTrimmer") private var autoShowTrimmer = false
     @AppStorage("skipTrimmerForShortClips") private var skipTrimmerForShortClips = true
 
+    @Environment(\.ppAccent) private var ppAccent
+
     // User preferences for cloud upload settings
     @Environment(\.modelContext) private var modelContext
     @Query private var userPreferences: [UserPreferences]
@@ -54,7 +56,7 @@ struct VideoRecordingSettingsView: View {
         }
         .scrollContentBackground(.hidden)
         .background(Theme.surface)
-        .tint(Theme.accent)
+        .tint(ppAccent)
         .navigationTitle("Recording Settings")
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(false)  // Explicitly show system back button
@@ -177,7 +179,7 @@ struct VideoRecordingSettingsView: View {
             if settings.slowMotionEnabled {
                 HStack {
                     Image(systemName: "info.circle.fill")
-                        .foregroundColor(Theme.accent)
+                        .foregroundColor(ppAccent)
                         .font(.bodySmall)
                     Text("Videos will be recorded at \(settings.frameRate.displayName) and can be played back at slower speeds")
                         .font(.bodySmall)
@@ -198,7 +200,7 @@ struct VideoRecordingSettingsView: View {
             Toggle(isOn: $settings.audioEnabled) {
                 HStack {
                     Image(systemName: settings.audioEnabled ? "mic.fill" : "mic.slash.fill")
-                        .foregroundColor(settings.audioEnabled ? Theme.accent : .secondary)
+                        .foregroundColor(settings.audioEnabled ? ppAccent : .secondary)
                     Text("Record Audio")
                 }
             }
@@ -226,7 +228,7 @@ struct VideoRecordingSettingsView: View {
                     )) {
                         HStack {
                             Image(systemName: prefs.autoUploadToCloud ? "icloud.and.arrow.up.fill" : "icloud.slash.fill")
-                                .foregroundColor(prefs.autoUploadToCloud ? Theme.accent : .secondary)
+                                .foregroundColor(prefs.autoUploadToCloud ? ppAccent : .secondary)
                             Text("Auto-Upload to Cloud")
                         }
                     }
@@ -299,7 +301,7 @@ struct VideoRecordingSettingsView: View {
         )) {
             HStack {
                 Image(systemName: prefs.allowCellularUploads ? "antenna.radiowaves.left.and.right" : "wifi")
-                    .foregroundColor(prefs.allowCellularUploads ? .orange : Theme.accent)
+                    .foregroundColor(prefs.allowCellularUploads ? Theme.warning : ppAccent)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Allow Cellular Uploads")
                     Text("May use significant mobile data")
@@ -336,7 +338,7 @@ struct VideoRecordingSettingsView: View {
             Toggle(isOn: $autoShowTrimmer) {
                 HStack {
                     Image(systemName: "scissors")
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(ppAccent)
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Always Show Trimmer")
                             .font(.bodyLarge)
@@ -354,7 +356,7 @@ struct VideoRecordingSettingsView: View {
                 Toggle(isOn: $skipTrimmerForShortClips) {
                     HStack {
                         Image(systemName: "timer")
-                            .foregroundColor(Theme.accent)
+                            .foregroundColor(ppAccent)
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Auto-Skip for Short Clips")
                                 .font(.bodyLarge)
@@ -478,12 +480,14 @@ struct QualityRow: View {
     let isSelected: Bool
     let isSupported: Bool
     let action: () -> Void
-    
+
+    @Environment(\.ppAccent) private var ppAccent
+
     var body: some View {
         Button(action: action) {
             HStack(spacing: 12) {
                 Image(systemName: quality.systemIcon)
-                    .foregroundColor(isSelected ? Theme.accent : .secondary)
+                    .foregroundColor(isSelected ? ppAccent : .secondary)
                     .font(.title3)
                     .frame(width: 30)
                 
@@ -505,13 +509,13 @@ struct QualityRow: View {
                 
                 if isSelected {
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(Theme.accent)
+                        .foregroundColor(ppAccent)
                         .font(.title3)
                 }
-                
+
                 if !isSupported {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(Theme.warning)
                         .font(.bodySmall)
                 }
             }
@@ -527,12 +531,14 @@ struct FormatRow: View {
     let format: VideoFormat
     let isSelected: Bool
     let action: () -> Void
-    
+
+    @Environment(\.ppAccent) private var ppAccent
+
     var body: some View {
         Button(action: action) {
             HStack(spacing: 12) {
                 Image(systemName: format.systemIcon)
-                    .foregroundColor(isSelected ? Theme.accent : .secondary)
+                    .foregroundColor(isSelected ? ppAccent : .secondary)
                     .font(.title3)
                     .frame(width: 30)
                 
@@ -549,7 +555,7 @@ struct FormatRow: View {
                 
                 if isSelected {
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(Theme.accent)
+                        .foregroundColor(ppAccent)
                         .font(.title3)
                 }
             }
@@ -566,12 +572,14 @@ struct FrameRateRow: View {
     let isSelected: Bool
     let isCompatible: Bool
     let action: () -> Void
-    
+
+    @Environment(\.ppAccent) private var ppAccent
+
     var body: some View {
         Button(action: action) {
             HStack(spacing: 12) {
                 Image(systemName: frameRate.systemIcon)
-                    .foregroundColor(isSelected ? Theme.accent : .secondary)
+                    .foregroundColor(isSelected ? ppAccent : .secondary)
                     .font(.title3)
                     .frame(width: 30)
                 
@@ -600,7 +608,7 @@ struct FrameRateRow: View {
                         .foregroundStyle(.secondary)
                 } else if isSelected {
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(Theme.accent)
+                        .foregroundColor(ppAccent)
                         .font(.title3)
                 }
             }
@@ -616,11 +624,13 @@ struct SummaryRow: View {
     let icon: String
     let title: String
     let value: String
-    
+
+    @Environment(\.ppAccent) private var ppAccent
+
     var body: some View {
         HStack {
             Image(systemName: icon)
-                .foregroundColor(Theme.accent)
+                .foregroundColor(ppAccent)
                 .frame(width: 24)
             
             Text(title)

@@ -244,13 +244,14 @@ private struct PlayerReadyPage: View {
     let sport: Sport
     let onNext: () -> Void
 
+    @Environment(\.ppAccent) private var ppAccent
     @State private var appeared = false
 
     var body: some View {
         VStack(spacing: 0) {
             Spacer()
 
-            WalkthroughIcon(systemName: sport.icon, accentColor: .orange)
+            WalkthroughIcon(systemName: sport.icon, accentColor: ppAccent)
                 .scaleEffect(appeared ? 1 : 0.6)
                 .opacity(appeared ? 1 : 0)
                 .animation(.spring(response: 0.6, dampingFraction: 0.7).delay(0.1), value: appeared)
@@ -280,9 +281,9 @@ private struct PlayerReadyPage: View {
             HStack(spacing: 14) {
                 Image(systemName: sport.icon)
                     .font(.headingLarge)
-                    .foregroundColor(.orange)
+                    .foregroundColor(ppAccent)
                     .frame(width: 40, height: 40)
-                    .background(Color.orange.opacity(0.1))
+                    .background(ppAccent.opacity(0.1))
                     .clipShape(Circle())
 
                 VStack(alignment: .leading, spacing: 2) {
@@ -308,7 +309,7 @@ private struct PlayerReadyPage: View {
             // Hint
             HStack(spacing: 12) {
                 Image(systemName: "lightbulb.fill")
-                    .foregroundColor(.orange)
+                    .foregroundColor(ppAccent)
                     .font(.subheadline)
                 Text("Have more than one kid? You can add more athletes anytime from Settings.")
                     .font(.bodySmall)
@@ -316,11 +317,11 @@ private struct PlayerReadyPage: View {
                     .lineSpacing(2)
             }
             .padding(14)
-            .background(Color.orange.opacity(0.06))
+            .background(ppAccent.opacity(0.06))
             .clipShape(RoundedRectangle(cornerRadius: 12))
             .overlay(
                 RoundedRectangle(cornerRadius: 12)
-                    .stroke(Color.orange.opacity(0.15), lineWidth: 1)
+                    .stroke(ppAccent.opacity(0.15), lineWidth: 1)
             )
             .padding(.horizontal, 24)
             .offset(y: appeared ? 0 : 16)
@@ -351,13 +352,13 @@ private struct GameDayPage: View {
             return [
                 ("figure.golf",      .brandNavy, "Open the Tournaments Tab", "This is where every tournament lives."),
                 ("plus.circle.fill", .green,     "Create a Tournament",      "Add the course and date — takes 10 seconds."),
-                ("play.circle.fill", .orange,    "Tap Start Round",          "When the round begins, tap Start Round to begin tracking."),
+                ("play.circle.fill", Theme.accent(for: sport),    "Tap Start Round",          "When the round begins, tap Start Round to begin tracking."),
             ]
         }
         return [
             ("baseball.diamond.bases", .brandNavy, "Open the Games Tab", "This is home base for all your games."),
             ("plus.circle.fill",       .green,     "Create a Game",      "Add the opponent and date — takes 10 seconds."),
-            ("play.circle.fill",       .orange,    "Tap Start Game",     "When the game begins, tap Start Game to begin tracking."),
+            ("play.circle.fill",       Theme.accent(for: sport),    "Tap Start Game",     "When the game begins, tap Start Game to begin tracking."),
         ]
     }
 
@@ -668,13 +669,13 @@ private struct BetweenGamesPage: View {
             return [
                 ("chart.bar.fill", .brandNavy, "Check Their Stats",      "Scoring average and more — all calculated from your tags."),
                 ("video.fill",     .purple,    "Review Their Videos",    "Watch their swings back and see their progress."),
-                ("person.2.fill",  .orange,    "Share with Their Coach", "Send clips to a swing coach or instructor."),
+                ("person.2.fill",  Theme.accent(for: sport),    "Share with Their Coach", "Send clips to a swing coach or instructor."),
             ]
         }
         return [
             ("chart.bar.fill",    .brandNavy, "Check Their Stats",      "Batting average and more — all calculated from your tags."),
             ("video.fill",        .purple,    "Review Their Videos",    "Watch at-bats back and see their progress."),
-            ("person.2.fill",     .orange,    "Share with Their Coach", "Send clips to a hitting or pitching instructor."),
+            ("person.2.fill",     Theme.accent(for: sport),    "Share with Their Coach", "Send clips to a hitting or pitching instructor."),
         ]
     }
 

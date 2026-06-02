@@ -22,6 +22,8 @@ struct JournalEmptyState: View {
     /// Routes to the new-game/-round flow.
     let onLogEvent: () -> Void
 
+    @Environment(\.ppAccent) private var ppAccent
+
     private var isGolf: Bool { athlete.sportType == .golf }
     private var eventNoun: String { isGolf ? "Round" : "Game" }
 
@@ -110,7 +112,7 @@ struct JournalEmptyState: View {
 
     private var sampleDateRail: some View {
         HStack(spacing: 6) {
-            Circle().fill(Theme.accent).frame(width: 6, height: 6)
+            Circle().fill(ppAccent).frame(width: 6, height: 6)
             Text(sampleDateLabel).smallCapsLabel()
             Spacer(minLength: .spacingSmall)
             Text(eventNoun).smallCapsLabel(color: Theme.textTertiary)
@@ -158,7 +160,7 @@ struct JournalEmptyState: View {
             Button(action: onAdd) {
                 actionLabel("Add a photo or video", icon: "camera.fill")
                     .foregroundStyle(.white)
-                    .background(Capsule().fill(Theme.accent))
+                    .background(Capsule().fill(ppAccent))
             }
             .buttonStyle(.plain)
 

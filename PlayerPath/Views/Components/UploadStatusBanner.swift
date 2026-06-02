@@ -90,7 +90,7 @@ struct UploadStatusBanner: View {
     private var networkWarningView: some View {
         HStack {
             Image(systemName: networkMonitor.isConnected ? "wifi.exclamationmark" : "wifi.slash")
-                .foregroundColor(.orange)
+                .foregroundColor(Theme.warning)
 
             VStack(alignment: .leading, spacing: 2) {
                 if !networkMonitor.isConnected {
@@ -138,7 +138,7 @@ struct UploadStatusBanner: View {
     private var failedUploadsView: some View {
         HStack {
             Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundColor(.orange)
+                .foregroundColor(Theme.warning)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(uploadManager.failedUploads.count) upload\(uploadManager.failedUploads.count == 1 ? "" : "s") failed")
@@ -167,7 +167,7 @@ struct UploadStatusBanner: View {
                 }
             } label: {
                 Image(systemName: "ellipsis.circle.fill")
-                    .foregroundColor(.orange)
+                    .foregroundColor(Theme.warning)
             }
         }
         .padding()
@@ -260,7 +260,7 @@ struct UploadBadge: View {
 
     private var badgeColor: Color {
         if !uploadManager.failedUploads.isEmpty {
-            return .orange
+            return Theme.warning
         } else if uploadManager.isProcessing {
             return .brandNavy
         } else {

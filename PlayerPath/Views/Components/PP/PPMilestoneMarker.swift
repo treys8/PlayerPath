@@ -15,6 +15,9 @@ struct PPMilestoneMarker: View {
     /// Use a lighter accent when sitting over a dark media surface.
     var overDarkSurface: Bool = false
 
+    @Environment(\.ppAccent) private var ppAccent
+    @Environment(\.ppAccentLight) private var ppAccentLight
+
     var body: some View {
         HStack(spacing: 5) {
             Image(systemName: "star.fill")
@@ -26,10 +29,10 @@ struct PPMilestoneMarker: View {
     }
 
     private var starColor: Color {
-        overDarkSurface ? Theme.accentLight : Theme.accent
+        overDarkSurface ? ppAccentLight : ppAccent
     }
 
     private var textColor: Color {
-        overDarkSurface ? Theme.accentLight : Theme.accent
+        overDarkSurface ? ppAccentLight : ppAccent
     }
 }

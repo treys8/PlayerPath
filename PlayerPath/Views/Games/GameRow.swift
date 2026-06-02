@@ -132,6 +132,7 @@ struct GameRow: View {
 
 // Pulsing live badge — terracotta accent (live = significance, the one accent).
 struct LiveBadge: View {
+    @Environment(\.ppAccent) private var ppAccent
     @State private var isPulsing = false
 
     var body: some View {
@@ -144,7 +145,7 @@ struct LiveBadge: View {
         }
         .foregroundStyle(.white)
         .badgeMedium()
-        .background(Capsule().fill(Theme.accent))
+        .background(Capsule().fill(ppAccent))
         .opacity(isPulsing ? 0.7 : 1.0)
         .onAppear {
             withAnimation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true)) {

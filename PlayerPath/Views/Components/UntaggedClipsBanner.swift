@@ -3,13 +3,14 @@ import SwiftUI
 struct UntaggedClipsBanner: View {
     let count: Int
     let onTap: () -> Void
+    @Environment(\.ppAccent) private var ppAccent
 
     var body: some View {
         Button(action: onTap) {
             HStack(spacing: 8) {
                 Image(systemName: "tag.slash")
                     .font(.caption.weight(.semibold))
-                    .foregroundColor(.orange)
+                    .foregroundColor(ppAccent)
                 Text("\(count) clip\(count == 1 ? "" : "s") need\(count == 1 ? "s" : "") tagging")
                     .font(.labelLarge)
                     .foregroundColor(.primary)
@@ -23,7 +24,7 @@ struct UntaggedClipsBanner: View {
             .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
             .overlay(
                 RoundedRectangle(cornerRadius: 12)
-                    .strokeBorder(Color.orange.opacity(0.3), lineWidth: 1)
+                    .strokeBorder(ppAccent.opacity(0.3), lineWidth: 1)
             )
         }
         .buttonStyle(.plain)

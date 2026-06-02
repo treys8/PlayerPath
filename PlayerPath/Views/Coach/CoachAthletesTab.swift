@@ -147,7 +147,7 @@ struct CoachAthletesTab: View {
     private func folderErrorBanner(_ message: String) -> some View {
         HStack(spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.orange)
+                .foregroundStyle(Theme.warning)
             Text(message)
                 .font(.subheadline)
                 .foregroundColor(.secondary)
@@ -161,7 +161,7 @@ struct CoachAthletesTab: View {
         .padding(.horizontal)
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.orange.opacity(0.1))
+        .background(Theme.warning.opacity(0.1))
     }
 
     // MARK: - Athletes List
@@ -173,10 +173,10 @@ struct CoachAthletesTab: View {
                 if !ConnectivityMonitor.shared.isConnected {
                     Label("You're offline. Showing cached data.", systemImage: "wifi.slash")
                         .font(.subheadline)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(Theme.warning)
                         .padding(10)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+                        .background(Theme.warning.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
                         .padding(.horizontal)
                 }
 

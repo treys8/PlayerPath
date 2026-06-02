@@ -25,6 +25,7 @@ struct VideoThumbnailView: View {
     @State private var loadError: Error?
     @State private var generationAttempts = 0
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.ppAccent) private var ppAccent
 
     private let maxGenerationAttempts = 2
     private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.playerpath", category: "VideoThumbnailView")
@@ -246,7 +247,7 @@ struct VideoThumbnailView: View {
 
     private var untaggedDot: some View {
         Circle()
-            .fill(Color.orange)
+            .fill(ppAccent)
             .frame(width: 10, height: 10)
             .overlay(Circle().strokeBorder(Color.white, lineWidth: 2))
             .shadow(color: .black.opacity(0.35), radius: 3, x: 0, y: 1)

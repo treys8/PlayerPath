@@ -11,6 +11,11 @@
 //  Rule: ONE accent only. `accent` means significance/action. The tile colors
 //  carry sport/variety only — never meaning. Resist adding more accents.
 //
+//  The one accent RESOLVES by the active sport: terracotta for baseball/
+//  softball (and anywhere sport is unknown or mixed), a fairway green for golf.
+//  Still one accent at a time — `accent(for:)` just picks which. Views read the
+//  resolved value via `@Environment(\.ppAccent)`, injected at the tab roots.
+//
 
 import SwiftUI
 
@@ -36,11 +41,36 @@ enum Theme {
     /// Unselected filter-pill border.
     static let pillBorder = Color(hex: "D8CFBE")
 
-    // MARK: - Accent (the one accent)
+    // MARK: - Accent (the one accent — resolves by active sport)
     /// "Pay attention here" — milestones, active states, primary actions.
+    /// This terracotta is the baseball/softball value AND the neutral base used
+    /// wherever sport is unknown or mixed. `accent(for:)` resolves the active one.
     static let accent = Color(hex: "C8693E")
     /// Accent on dark surfaces (labels / telestration over video).
     static let accentLight = Color(hex: "F0997B")
+
+    /// Golf re-tint of the accent — a saturated fairway green tuned to read with
+    /// the same energy as the terracotta on the cream surface.
+    static let golfAccent = Color(hex: "357A57")
+    /// Golf accent on dark surfaces (labels / telestration over video).
+    static let golfAccentLight = Color(hex: "84CBA6")
+
+    /// The one accent, resolved for the active sport. Golf → fairway green;
+    /// everything else (baseball/softball, unknown, mixed) → terracotta base.
+    static func accent(forGolf isGolf: Bool) -> Color { isGolf ? golfAccent : accent }
+    /// Convenience: resolve from an optional `Sport` (nil → base terracotta).
+    static func accent(for sport: Sport?) -> Color { accent(forGolf: sport == .golf) }
+    /// Dark-surface accent, resolved for the active sport.
+    static func accentLight(forGolf isGolf: Bool) -> Color { isGolf ? golfAccentLight : accentLight }
+    /// Convenience: resolve the dark-surface accent from an optional `Sport`.
+    static func accentLight(for sport: Sport?) -> Color { accentLight(forGolf: sport == .golf) }
+
+    // MARK: - Status (meaning, not accent)
+    /// Caution / something to worry about — over-limit, low storage, cellular
+    /// cost, expiring access, recoverable errors. A muted amber tuned to the
+    /// calm palette; deliberately distinct from `accent` so a warning never
+    /// reads as a call-to-action. (`Color.warning` points here.)
+    static let warning = Color(hex: "C0852E")
 
     // MARK: - Media tiles (sport / variety only — not meaning)
     static let tileNavy = Color(hex: "2D3D52")

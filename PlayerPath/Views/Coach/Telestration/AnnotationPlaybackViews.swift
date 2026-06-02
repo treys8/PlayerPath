@@ -42,12 +42,14 @@ struct AnnotationMarkersOverlay: View {
     /// tab instead of from the timeline).
     var onTapDrawing: ((VideoAnnotation) -> Void)? = nil
 
+    @Environment(\.ppAccent) private var ppAccent
+
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .bottomLeading) {
                 ForEach(annotations) { annotation in
                     let x = (CGFloat(annotation.timestamp) / CGFloat(duration)) * geometry.size.width
-                    let color: Color = annotation.isCoachComment ? Color.brandNavy : Color.orange
+                    let color: Color = annotation.isCoachComment ? Color.brandNavy : ppAccent
 
                     if let onTapDrawing, annotation.isDrawing {
                         // Interactive marker: expand hit region with a padded

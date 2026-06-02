@@ -108,6 +108,10 @@ struct StatisticsView: View {
 
     var body: some View {
         contentView
+            // Scope rule: on Stats the accent follows the Baseball/Golf selection
+            // (`isGolf` prefers the filtered season's sport), overriding the
+            // profile's sport for this subtree.
+            .ppAccent(forGolf: isGolf)
             .navigationTitle("The Numbers.")
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
@@ -468,6 +472,7 @@ extension Notification.Name {
 struct SectionHeader: View {
     let title: String
     let icon: String?
+    @Environment(\.ppAccent) private var ppAccent
 
     init(title: String, icon: String? = nil) {
         self.title = title
@@ -479,7 +484,7 @@ struct SectionHeader: View {
             if let icon = icon {
                 Image(systemName: icon)
                     .font(.subheadline)
-                    .foregroundStyle(Theme.accent)
+                    .foregroundStyle(ppAccent)
             }
             Text(title)
                 .font(.ppTitle2)              // Fraunces serif

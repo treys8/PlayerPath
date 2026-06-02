@@ -69,7 +69,7 @@ struct NotificationInboxView: View {
     private func listenerErrorBanner(_ message: String) -> some View {
         HStack(spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.orange)
+                .foregroundStyle(Theme.warning)
             Text(message)
                 .font(.bodySmall)
                 .foregroundColor(.secondary)
@@ -83,7 +83,7 @@ struct NotificationInboxView: View {
         .padding(.horizontal)
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.orange.opacity(0.1))
+        .background(Theme.warning.opacity(0.1))
     }
 
     private func handleTap(_ notification: ActivityNotification) {

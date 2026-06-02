@@ -17,6 +17,7 @@ struct QuickStatisticsEntryView: View {
     let athlete: Athlete?
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.ppAccent) private var ppAccent
     @State private var playResultType: PlayResultType = .single
     @State private var numberOfPlays: String = "1"
     @State private var showingAlert = false
@@ -90,7 +91,7 @@ struct QuickStatisticsEntryView: View {
                             Text("\(playResultType.bases)")
                                 .font(.ppStatSmall)
                                 .monospacedDigit()
-                                .foregroundStyle(Theme.accent)
+                                .foregroundStyle(ppAccent)
                         }
 
                         if playResultType.isHighlight {

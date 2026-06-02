@@ -14,6 +14,8 @@ import FirebaseAuth
 struct SettingsView: View {
     let user: User
 
+    @Environment(\.ppAccent) private var ppAccent
+
     var body: some View {
         Form {
             Section("Account") {
@@ -81,7 +83,7 @@ struct SettingsView: View {
         .onAppear { AnalyticsService.shared.trackScreenView(screenName: "Settings", screenClass: "ProfileView") }
         .scrollContentBackground(.hidden)
         .background(Theme.surface)
-        .tint(Theme.accent)
+        .tint(ppAccent)
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
     }

@@ -146,7 +146,7 @@ struct CoachVideoUploadView: View {
                         Section {
                             VStack(alignment: .leading, spacing: 10) {
                                 Label("Upload is taking longer than usual.", systemImage: "exclamationmark.triangle")
-                                    .foregroundColor(.orange)
+                                    .foregroundColor(Theme.warning)
                                     .font(.caption)
                                 Button {
                                     viewModel.retryStuckUpload()
@@ -157,7 +157,7 @@ struct CoachVideoUploadView: View {
                                         .frame(maxWidth: .infinity)
                                 }
                                 .buttonStyle(.bordered)
-                                .tint(Color.orange)
+                                .tint(Theme.warning)
                             }
                         }
                     }

@@ -17,6 +17,8 @@ import SwiftUI
 struct PPAthleteSwitcher: View {
     let athlete: Athlete
 
+    @Environment(\.ppAccent) private var ppAccent
+
     /// The user's full roster (same source AthleteSelectionView reads).
     private var roster: [Athlete] {
         athlete.user?.athletes ?? [athlete]
@@ -110,12 +112,12 @@ struct PPAthleteSwitcher: View {
 
     private var avatar: some View {
         Circle()
-            .fill(Theme.accent.opacity(0.15))
+            .fill(ppAccent.opacity(0.15))
             .frame(width: 26, height: 26)
             .overlay(
                 Text(initials)
                     .font(.labelMedium)
-                    .foregroundStyle(Theme.accent)
+                    .foregroundStyle(ppAccent)
             )
     }
 

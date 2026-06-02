@@ -14,6 +14,7 @@ struct MoveClipSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.ppAccent) private var ppAccent
     @Query(sort: \Athlete.createdAt) private var allAthletes: [Athlete]
 
     @State private var selectedAthlete: Athlete?
@@ -134,7 +135,7 @@ struct MoveClipSheet: View {
         VStack(spacing: 16) {
             Image(systemName: "hourglass")
                 .font(.system(size: 50))
-                .foregroundColor(.orange)
+                .foregroundColor(Theme.warning)
             Text("Can't Move Right Now")
                 .font(.headingLarge)
             Text(blockReason ?? "Please try again later.")
@@ -170,7 +171,7 @@ struct MoveClipSheet: View {
                             Spacer()
                             if selectedAthlete?.id == athlete.id {
                                 Image(systemName: "checkmark")
-                                    .foregroundColor(Theme.accent)
+                                    .foregroundColor(ppAccent)
                                     .fontWeight(.semibold)
                             }
                         }
@@ -196,7 +197,7 @@ struct MoveClipSheet: View {
                             Spacer()
                             if selectedGame == nil {
                                 Image(systemName: "checkmark")
-                                    .foregroundColor(Theme.accent)
+                                    .foregroundColor(ppAccent)
                                     .fontWeight(.semibold)
                             }
                         }

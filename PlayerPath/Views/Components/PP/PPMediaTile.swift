@@ -25,6 +25,8 @@ struct PPMediaTile<Content: View>: View {
     var duration: String?
     var showsPlayButton: Bool
 
+    @Environment(\.ppAccent) private var ppAccent
+
     private let content: Content
 
     init(
@@ -83,7 +85,7 @@ struct PPMediaTile<Content: View>: View {
         if isStarred {
             Image(systemName: "star.fill")
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Theme.accent)
+                .foregroundStyle(ppAccent)
                 .padding(6)
                 .background(Circle().fill(.black.opacity(0.35)))
                 .padding(.spacingSmall)

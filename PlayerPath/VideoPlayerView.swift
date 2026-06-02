@@ -161,17 +161,6 @@ struct VideoPlayerView: View {
         }
     }
 
-    /// Non-interactive outcome chip floated over the player (portrait only) so
-    /// the tagged play reads at a glance without blocking playback controls.
-    @ViewBuilder
-    private var outcomeOverlay: some View {
-        if vSizeClass != .compact, let result = clip.playResult?.type {
-            PPOutcomeChip(result: result, overMedia: true, highlighted: clip.isHighlight)
-                .padding(.spacingMedium)
-                .allowsHitTesting(false)
-        }
-    }
-
     /// Milestone marker for this clip's game, if its season produced one. Pure
     /// compute over existing data (MilestoneEngine); nil for clips with no game
     /// or no qualifying milestone — the detail view then falls back to the
@@ -523,7 +512,6 @@ struct VideoPlayerView: View {
                     videoPlayerContent
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .background(Theme.tileNavyDark)
-                        .overlay(alignment: .topLeading) { outcomeOverlay }
 
                     if vSizeClass != .compact {
                         AthleteClipReviewDetail(

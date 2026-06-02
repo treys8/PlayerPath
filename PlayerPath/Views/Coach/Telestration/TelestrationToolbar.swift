@@ -22,6 +22,7 @@ struct TelestrationToolbar: View {
     let onSave: () -> Void
     let onCancel: () -> Void
 
+    @Environment(\.ppAccent) private var ppAccent
     @State private var showingClearConfirm = false
 
     private let colors: [Color] = [.red, .blue, .yellow, .white, .green]
@@ -52,11 +53,11 @@ struct TelestrationToolbar: View {
             if elementCount >= maxStrokes - 5 {
                 Text("Drawing limit: \(elementCount)/\(maxStrokes)")
                     .font(.caption2)
-                    .foregroundColor(elementCount >= maxStrokes ? .red : .orange)
+                    .foregroundColor(elementCount >= maxStrokes ? .red : Theme.warning)
             } else if toolMode != .freehand, shapeCount >= maxShapes {
                 Text("Shape limit reached (\(maxShapes)). Switch to freehand to keep drawing.")
                     .font(.caption2)
-                    .foregroundColor(.orange)
+                    .foregroundColor(Theme.warning)
             }
 
             HStack(spacing: 8) {
@@ -207,7 +208,7 @@ struct TelestrationToolbar: View {
                         .foregroundColor(.white)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 8)
-                        .background(Theme.accent)
+                        .background(ppAccent)
                         .clipShape(Capsule())
                 }
                 .disabled(elementCount == 0)

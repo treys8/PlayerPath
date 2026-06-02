@@ -109,7 +109,7 @@ extension Color {
 
     /// Status colors
     static let success = Color.green
-    static let warning = Color.orange
+    static let warning = Theme.warning   // single source — calm amber, not system orange
     static let error = Color.red
     static let info = Color.blue
     

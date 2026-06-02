@@ -37,6 +37,7 @@ struct CoachReviewActionsBar: View {
 
     @State private var showingAddCue = false
     @State private var newCueText = ""
+    @Environment(\.ppAccent) private var ppAccent
 
     var body: some View {
         VStack(alignment: .leading, spacing: .spacingMedium) {
@@ -101,11 +102,11 @@ struct CoachReviewActionsBar: View {
                 Text("Add")
             }
             .font(.ppCaptionBold)
-            .foregroundStyle(Theme.accent)
+            .foregroundStyle(ppAccent)
             .padding(.horizontal, .spacingMedium)
             .padding(.vertical, 7)
             .overlay(
-                Capsule().strokeBorder(Theme.accent, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                Capsule().strokeBorder(ppAccent, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
             )
         }
         .buttonStyle(.plain)
@@ -121,7 +122,7 @@ struct CoachReviewActionsBar: View {
                 .padding(.horizontal, .spacingMedium)
                 .padding(.vertical, 7)
                 .background(
-                    Capsule().fill(selected ? Theme.accent : Color.clear)
+                    Capsule().fill(selected ? ppAccent : Color.clear)
                 )
                 .overlay(
                     Capsule().strokeBorder(
@@ -150,7 +151,7 @@ struct CoachReviewActionsBar: View {
                 .foregroundStyle(Theme.surface)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, .spacingMedium)
-                .background(Capsule().fill(Theme.accent))
+                .background(Capsule().fill(ppAccent))
             }
             .buttonStyle(.plain)
             .disabled(isSending)

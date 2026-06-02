@@ -16,6 +16,7 @@ struct PhotosView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.ppAccent) private var ppAccent
     private var activeSport: Season.SportType { athlete.sportType }
 
     private func chipLabel(for filter: PhotoFilter) -> String {
@@ -604,7 +605,7 @@ struct PhotosView: View {
             .font(.title2)
             .symbolRenderingMode(.palette)
             .foregroundStyle(isSelected ? Color.white : Color.white.opacity(0.9),
-                             isSelected ? Theme.accent : Color.black.opacity(0.35))
+                             isSelected ? ppAccent : Color.black.opacity(0.35))
             .background(Circle().fill(Color.black.opacity(0.15)).blur(radius: 2))
     }
 

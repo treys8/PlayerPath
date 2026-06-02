@@ -21,6 +21,7 @@ struct SeasonDetailView: View {
     let athlete: Athlete
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.ppAccent) private var ppAccent
 
     @State private var showingDeleteConfirmation = false
     @State private var showingReactivateConfirmation = false
@@ -50,7 +51,7 @@ struct SeasonDetailView: View {
                 HStack(spacing: 14) {
                     Image(systemName: (season.sport ?? .baseball).icon)
                         .font(.title)
-                        .foregroundStyle(Theme.accent)
+                        .foregroundStyle(ppAccent)
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text(season.displayName)
@@ -97,7 +98,7 @@ struct SeasonDetailView: View {
                             .foregroundStyle(.secondary)
                         Spacer()
                         Text("In Progress")
-                            .foregroundStyle(Theme.accent)
+                            .foregroundStyle(ppAccent)
                     }
                 }
             }
@@ -311,7 +312,7 @@ struct SeasonDetailView: View {
                     if selectedFilter == .all && totalGames > 5 {
                         Button("See All \(totalGames) Games") { selectedFilter = .games }
                             .font(.ppCallout)
-                            .foregroundStyle(Theme.accent)
+                            .foregroundStyle(ppAccent)
                     }
                 }
             }
@@ -325,7 +326,7 @@ struct SeasonDetailView: View {
                     if selectedFilter == .all && filteredVideos.count > 5 {
                         Button("See All \(filteredVideos.count) Videos") { selectedFilter = .videos }
                             .font(.ppCallout)
-                            .foregroundStyle(Theme.accent)
+                            .foregroundStyle(ppAccent)
                     }
                 }
             }
@@ -339,7 +340,7 @@ struct SeasonDetailView: View {
                     if selectedFilter == .all && filteredHighlights.count > 5 {
                         Button("See All \(filteredHighlights.count) Highlights") { selectedFilter = .highlights }
                             .font(.ppCallout)
-                            .foregroundStyle(Theme.accent)
+                            .foregroundStyle(ppAccent)
                     }
                 }
             }
@@ -375,7 +376,7 @@ struct SeasonDetailView: View {
                     if selectedFilter == .all && filteredPractices.count > 5 {
                         Button("See All \(filteredPractices.count) Practices") { selectedFilter = .practices }
                             .font(.ppCallout)
-                            .foregroundStyle(Theme.accent)
+                            .foregroundStyle(ppAccent)
                     }
                 }
             }

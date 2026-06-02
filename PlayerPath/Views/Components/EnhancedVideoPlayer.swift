@@ -39,6 +39,7 @@ struct EnhancedVideoPlayer: View {
     @Environment(\.verticalSizeClass) private var vSizeClass
     @Environment(\.horizontalSizeClass) private var hSizeClass
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.ppAccent) private var ppAccent
     private var isLandscape: Bool { vSizeClass == .compact }
     private var isWideLayout: Bool { hSizeClass == .regular || vSizeClass == .compact }
 
@@ -341,7 +342,7 @@ struct EnhancedVideoPlayer: View {
                         .font(playbackSpeed == speed ? .custom("Inter18pt-Bold", size: 12, relativeTo: .caption) : .bodySmall)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
-                        .background(playbackSpeed == speed ? Theme.accent : Color.white.opacity(0.2))
+                        .background(playbackSpeed == speed ? ppAccent : Color.white.opacity(0.2))
                         .foregroundColor(.white)
                         .cornerRadius(8)
                 }
@@ -362,7 +363,7 @@ struct EnhancedVideoPlayer: View {
                 .monospacedDigit()
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
-                .background(Theme.accent)
+                .background(ppAccent)
                 .foregroundColor(.white)
                 .clipShape(Capsule())
         }

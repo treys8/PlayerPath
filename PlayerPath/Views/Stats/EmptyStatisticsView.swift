@@ -21,12 +21,13 @@ struct EmptyStatisticsView: View {
 
     @State private var isAnimating = false
     private let tip = EmptyStatsTip()
+    @Environment(\.ppAccent) private var ppAccent
 
     var body: some View {
         VStack(spacing: .spacingLarge) {
             Image(systemName: "chart.bar")
                 .font(.system(size: 46, weight: .light))
-                .foregroundStyle(Theme.accent)
+                .foregroundStyle(ppAccent)
                 .symbolRenderingMode(.hierarchical)
 
             VStack(spacing: .spacingSmall) {
@@ -92,7 +93,7 @@ struct EmptyStatisticsView: View {
             .foregroundStyle(.white)
             .frame(maxWidth: 260)
             .padding(.vertical, 14)
-            .background(Capsule().fill(Theme.accent))
+            .background(Capsule().fill(ppAccent))
         }
         .buttonStyle(StatsPremiumButtonStyle())
     }
@@ -106,10 +107,10 @@ struct EmptyStatisticsView: View {
                 Text(title)
                     .font(.ppCallout)
             }
-            .foregroundStyle(Theme.accent)
+            .foregroundStyle(ppAccent)
             .frame(maxWidth: 260)
             .padding(.vertical, 12)
-            .background(Capsule().strokeBorder(Theme.accent.opacity(0.4), lineWidth: 1.5))
+            .background(Capsule().strokeBorder(ppAccent.opacity(0.4), lineWidth: 1.5))
         }
         .buttonStyle(StatsPremiumButtonStyle())
     }

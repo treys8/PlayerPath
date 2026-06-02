@@ -13,6 +13,7 @@ struct StatisticsChartsView: View {
     var initialSeason: Season?
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.ppAccent) private var ppAccent
     @State private var selectedMetric: StatMetric = .battingAverage
     @State private var selectedTimeframe: Timeframe = .game
     @State private var selectedSeason: Season?
@@ -130,7 +131,7 @@ struct StatisticsChartsView: View {
                     Text(formatValue(current, for: selectedMetric))
                         .font(.ppStatMedium)
                         .monospacedDigit()
-                        .foregroundColor(Theme.accent)
+                        .foregroundColor(ppAccent)
                 }
             }
 

@@ -13,6 +13,7 @@ struct SeasonsView: View {
     @State private var showingCreateSeason = false
     @State private var selectedSeason: Season?
     @State private var seasons: [Season] = []
+    @Environment(\.ppAccent) private var ppAccent
 
     var hasActiveSeason: Bool {
         seasons.contains(where: { $0.isActive })
@@ -60,7 +61,7 @@ struct SeasonsView: View {
         if !seasons.isEmpty && !hasActiveSeason {
             HStack(spacing: 12) {
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(Theme.accent)
+                    .foregroundStyle(ppAccent)
                     .font(.title3)
 
                 VStack(alignment: .leading, spacing: 4) {
@@ -88,7 +89,7 @@ struct SeasonsView: View {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Active Season")
-                            .smallCapsLabel(color: Theme.accent)
+                            .smallCapsLabel(color: ppAccent)
 
                         Text(activeSeason.displayName)
                             .font(.ppTitle)
@@ -170,6 +171,7 @@ struct SeasonsView: View {
 
 struct SeasonRow: View {
     let season: Season
+    @Environment(\.ppAccent) private var ppAccent
 
     var body: some View {
         HStack(spacing: 12) {
@@ -225,7 +227,7 @@ struct SeasonRow: View {
         switch season.status {
         case .active:
             // The lone accent — only the active season gets the highlight.
-            return Theme.accent
+            return ppAccent
         case .ended, .inactive:
             // Muted, but dark enough that the cream capsule text stays legible.
             return Theme.textSecondary
@@ -251,7 +253,8 @@ struct EmptySeasonsView: View {
 
 struct SeasonVideoRow: View {
     let video: VideoClip
-    
+    @Environment(\.ppAccent) private var ppAccent
+
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: "video.fill")
@@ -280,7 +283,7 @@ struct SeasonVideoRow: View {
 
             if video.isHighlight {
                 Image(systemName: "star.fill")
-                    .foregroundStyle(Theme.accent)
+                    .foregroundStyle(ppAccent)
                     .font(.caption)
             }
         }

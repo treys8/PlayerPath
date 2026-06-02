@@ -11,6 +11,7 @@ import SwiftData
 struct VideoClipRow: View {
     let clip: VideoClip
     let hasCoachingAccess: Bool
+    @Environment(\.ppAccent) private var ppAccent
     @State private var showingVideoPlayer = false
     @State private var showingShareToFolder = false
     @State private var showingMoveSheet = false
@@ -46,7 +47,7 @@ struct VideoClipRow: View {
                                         .fixedSize(horizontal: true, vertical: false)
                                         .padding(.horizontal, 8)
                                         .padding(.vertical, 3)
-                                        .background(Theme.accent, in: Capsule())
+                                        .background(ppAccent, in: Capsule())
                                 }
                             }
                         } else {
@@ -70,7 +71,7 @@ struct VideoClipRow: View {
 
                     if clip.isHighlight {
                         Image(systemName: "star.fill")
-                            .foregroundStyle(Theme.accent)
+                            .foregroundStyle(ppAccent)
                             .font(.caption)
                     }
 

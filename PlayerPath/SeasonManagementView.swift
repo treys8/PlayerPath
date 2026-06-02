@@ -77,7 +77,7 @@ struct SeasonManagementView: View {
                         showingArchiveConfirmation = true
                     } label: {
                         Label("End Current Season", systemImage: "archivebox")
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(Theme.warning)
                     }
 
                     Button {

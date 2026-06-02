@@ -29,6 +29,8 @@ struct EventTargetPicker: View {
     var showsSelection: Bool = false
     let onSelect: (Target) -> Void
 
+    @Environment(\.ppAccent) private var ppAccent
+
     private var isGolf: Bool { (athlete.sport ?? .baseball) == .golf }
 
     private var games: [Game] {
@@ -148,7 +150,7 @@ struct EventTargetPicker: View {
                 Spacer()
                 if isSelected {
                     Image(systemName: "checkmark")
-                        .foregroundColor(Theme.accent)
+                        .foregroundColor(ppAccent)
                 }
             }
         }

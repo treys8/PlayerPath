@@ -101,7 +101,7 @@ struct UploadStatisticsView: View {
                         title: "Success Rate",
                         value: "\(successRate)%",
                         icon: "checkmark.circle.fill",
-                        color: successRate >= 95 ? .green : .orange
+                        color: successRate >= 95 ? .green : Theme.warning
                     )
                 }
             }
@@ -138,7 +138,7 @@ struct UploadStatisticsView: View {
                     label: "Queued",
                     count: uploadManager.pendingUploads.count,
                     icon: "clock.fill",
-                    color: .orange
+                    color: Theme.warning
                 )
             }
 
@@ -199,7 +199,7 @@ struct UploadStatisticsView: View {
             if let prefs = preferences.first {
                 HStack {
                     Image(systemName: prefs.allowCellularUploads ? "antenna.radiowaves.left.and.right" : "wifi")
-                        .foregroundColor(prefs.allowCellularUploads ? .orange : .brandNavy)
+                        .foregroundColor(prefs.allowCellularUploads ? Theme.warning : .brandNavy)
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Upload Policy")
@@ -341,7 +341,7 @@ struct UploadStatisticsView: View {
         if !networkMonitor.isConnected {
             return .red
         } else if networkMonitor.connectionType == .cellular {
-            return .orange
+            return Theme.warning
         } else {
             return .green
         }

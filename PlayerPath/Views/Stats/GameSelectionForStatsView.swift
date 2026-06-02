@@ -12,6 +12,7 @@ import SwiftData
 struct GameSelectionForStatsView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.ppAccent) private var ppAccent
     let athlete: Athlete?
 
     @State private var showingManualEntry = false
@@ -67,7 +68,7 @@ struct GameSelectionForStatsView: View {
                     Button("Create New Game for Statistics") {
                         showingCreateGame = true
                     }
-                    .foregroundColor(Theme.accent)
+                    .foregroundColor(ppAccent)
                 }
             }
             .ppDetailBackground()
@@ -93,6 +94,7 @@ struct GameSelectionForStatsView: View {
 }
 
 struct GameRowForStats: View {
+    @Environment(\.ppAccent) private var ppAccent
     let game: Game
 
     var body: some View {
@@ -150,7 +152,7 @@ struct GameRowForStats: View {
                     Text("\(stats.hits)/\(stats.atBats)")
                         .font(.ppStatSmall)
                         .monospacedDigit()
-                        .foregroundColor(Theme.accent)
+                        .foregroundColor(ppAccent)
 
                     if stats.atBats > 0 {
                         Text(StatisticsService.shared.formatBattingAverage(Double(stats.hits) / Double(stats.atBats)))

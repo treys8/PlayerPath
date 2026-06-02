@@ -202,7 +202,7 @@ struct AthleteFoldersListView: View {
                     } label: {
                         HStack(spacing: 12) {
                             Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundColor(.orange)
+                                .foregroundColor(Theme.warning)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Coach Access Paused")
                                     .font(.headingSmall)

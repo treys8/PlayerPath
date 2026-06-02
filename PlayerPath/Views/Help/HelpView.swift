@@ -9,12 +9,14 @@ import SwiftUI
 import MessageUI
 
 struct HelpView: View {
+    @Environment(\.ppAccent) private var ppAccent
+
     var body: some View {
         List {
             Section {
                 HelpCard(
                     icon: "graduationcap.fill",
-                    iconColor: Theme.accent,
+                    iconColor: ppAccent,
                     title: "Getting Started Guide",
                     description: "New to PlayerPath? Start here!"
                 ) {
@@ -207,7 +209,7 @@ struct HelpView: View {
         }
         .scrollContentBackground(.hidden)
         .background(Theme.surface)
-        .tint(Theme.accent)
+        .tint(ppAccent)
         .navigationTitle("Help & Support")
     }
 }
@@ -259,6 +261,7 @@ struct HelpCard<Content: View>: View {
 }
 
 struct HelpRowLabel: View {
+    @Environment(\.ppAccent) private var ppAccent
     let icon: String
     let title: String
     let subtitle: String
@@ -266,7 +269,7 @@ struct HelpRowLabel: View {
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: icon)
-                .foregroundColor(Theme.accent)
+                .foregroundColor(ppAccent)
                 .frame(width: 30)
 
             VStack(alignment: .leading, spacing: 2) {

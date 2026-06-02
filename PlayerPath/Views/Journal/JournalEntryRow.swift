@@ -16,6 +16,8 @@ struct JournalEntryRow: View {
     /// so previews / non-milestone callers fall back to the matchup headline.
     var milestones: [Milestone] = []
 
+    @Environment(\.ppAccent) private var ppAccent
+
     var body: some View {
         VStack(alignment: .leading, spacing: .spacingMedium) {
             dateRail
@@ -68,7 +70,7 @@ struct JournalEntryRow: View {
     private var dateRail: some View {
         HStack(spacing: 6) {
             Circle()
-                .fill(Theme.accent)
+                .fill(ppAccent)
                 .frame(width: 6, height: 6)
             Text(entry.date.formatted(.dateTime.month(.abbreviated).day().year()))
                 .smallCapsLabel()

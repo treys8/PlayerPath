@@ -61,7 +61,7 @@ struct EditGameSheet: View {
                     if !opponent.isEmpty && !isValidOpponent {
                         Label("\(primaryLabel) name must be 2-\(maxLen) characters", systemImage: "exclamationmark.triangle.fill")
                             .font(.bodySmall)
-                            .foregroundColor(.orange)
+                            .foregroundColor(Theme.warning)
                     }
 
                     DatePicker("Date & Time", selection: $date)

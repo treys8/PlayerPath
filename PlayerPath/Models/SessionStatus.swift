@@ -26,7 +26,7 @@ enum SessionStatus: String, Codable, Hashable {
         switch self {
         case .scheduled: return .blue
         case .live: return .red
-        case .reviewing: return .orange
+        case .reviewing: return Theme.warning
         case .completed: return .green
         }
     }

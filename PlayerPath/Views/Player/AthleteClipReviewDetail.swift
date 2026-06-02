@@ -35,6 +35,8 @@ struct AthleteClipReviewDetail: View {
     /// Local file URL for the system share sheet; `nil` hides the Share action.
     var shareURL: URL?
 
+    @Environment(\.ppAccent) private var ppAccent
+
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
@@ -123,12 +125,12 @@ struct AthleteClipReviewDetail: View {
 
     private var avatar: some View {
         Circle()
-            .fill(Theme.accent.opacity(0.15))
+            .fill(ppAccent.opacity(0.15))
             .frame(width: .profileSmall, height: .profileSmall)
             .overlay(
                 Text(coachInitials)
                     .font(.ppSubheadline)
-                    .foregroundStyle(Theme.accent)
+                    .foregroundStyle(ppAccent)
             )
     }
 
@@ -172,7 +174,7 @@ struct AthleteClipReviewDetail: View {
             ForEach(0..<5, id: \.self) { index in
                 Image(systemName: index < rating ? "star.fill" : "star")
                     .font(.system(size: 11))
-                    .foregroundStyle(index < rating ? Theme.accent : Theme.pillBorder)
+                    .foregroundStyle(index < rating ? ppAccent : Theme.pillBorder)
             }
         }
     }
@@ -204,7 +206,7 @@ struct AthleteClipReviewDetail: View {
             barButton(
                 title: isHighlight ? "Highlighted" : "Highlight",
                 systemImage: isHighlight ? "star.fill" : "star",
-                tint: isHighlight ? Theme.accent : Theme.textSecondary,
+                tint: isHighlight ? ppAccent : Theme.textSecondary,
                 action: onToggleHighlight
             )
             barDivider

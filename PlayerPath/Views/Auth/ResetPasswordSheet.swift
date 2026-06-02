@@ -10,6 +10,7 @@ import SwiftUI
 struct ResetPasswordSheet: View {
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.ppAccent) private var ppAccent
     let email: String
 
     @State private var resetEmail = ""
@@ -36,7 +37,7 @@ struct ResetPasswordSheet: View {
                     Circle()
                         .fill(
                             LinearGradient(
-                                colors: [.orange.opacity(0.2), .orange.opacity(0.08)],
+                                colors: [ppAccent.opacity(0.2), ppAccent.opacity(0.08)],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
                             )
@@ -47,7 +48,7 @@ struct ResetPasswordSheet: View {
                         .font(.system(size: 40, weight: .medium))
                         .foregroundStyle(
                             LinearGradient(
-                                colors: [.orange, .orange.opacity(0.8)],
+                                colors: [ppAccent, ppAccent.opacity(0.8)],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
                             )
@@ -115,7 +116,7 @@ struct ResetPasswordSheet: View {
                         .background(
                             LinearGradient(
                                 colors: isValidEmail && !isLoading
-                                    ? [.orange, .orange.opacity(0.85)]
+                                    ? [ppAccent, ppAccent.opacity(0.85)]
                                     : [Color(.systemGray4), Color(.systemGray4)],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
@@ -124,7 +125,7 @@ struct ResetPasswordSheet: View {
                         .foregroundColor(.white)
                         .cornerRadius(14)
                         .shadow(
-                            color: isValidEmail && !isLoading ? .orange.opacity(0.3) : .clear,
+                            color: isValidEmail && !isLoading ? ppAccent.opacity(0.3) : .clear,
                             radius: 8,
                             x: 0,
                             y: 4

@@ -10,6 +10,7 @@
 import SwiftUI
 
 struct CoachNoteCard: View {
+    @Environment(\.ppAccent) private var ppAccent
     let text: String
     let authorName: String?
     let updatedAt: Date?
@@ -23,12 +24,12 @@ struct CoachNoteCard: View {
                 HStack(spacing: 6) {
                     Image(systemName: "person.fill.checkmark")
                         .font(.caption)
-                        .foregroundColor(Theme.accent)
+                        .foregroundColor(ppAccent)
                     Text(authorName ?? "Coach")
                         .font(.ppSubheadline)
                         .foregroundColor(Theme.textPrimary)
                     Text("COACH")
-                        .smallCapsLabel(color: Theme.accent)
+                        .smallCapsLabel(color: ppAccent)
                     Spacer()
                     if let date = updatedAt {
                         Text(date.formatted(date: .abbreviated, time: .omitted))
@@ -39,7 +40,7 @@ struct CoachNoteCard: View {
                         Button(action: onEdit) {
                             Image(systemName: hasNote ? "pencil" : "plus.circle.fill")
                                 .font(.subheadline)
-                                .foregroundColor(Theme.accent)
+                                .foregroundColor(ppAccent)
                         }
                         .accessibilityLabel(hasNote ? "Edit coach note" : "Add coach note")
                     }

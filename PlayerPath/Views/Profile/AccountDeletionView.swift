@@ -13,6 +13,7 @@ import AuthenticationServices
 struct AccountDeletionView: View {
     @EnvironmentObject var authManager: ComprehensiveAuthManager
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.ppAccent) private var ppAccent
 
     @State private var showConfirmation = false
     @State private var showPasswordPrompt = false
@@ -67,7 +68,7 @@ struct AccountDeletionView: View {
             Section("What Happens to Videos") {
                 HStack(alignment: .top, spacing: 12) {
                     Image(systemName: "info.circle.fill")
-                        .foregroundColor(Theme.accent)
+                        .foregroundColor(ppAccent)
 
                     VStack(alignment: .leading, spacing: 4) {
                         if isCoach {
@@ -164,7 +165,7 @@ struct AccountDeletionView: View {
         }
         .scrollContentBackground(.hidden)
         .background(Theme.surface)
-        .tint(Theme.accent)
+        .tint(ppAccent)
         .navigationTitle("Delete Account")
         .task {
             signInProvider = Auth.auth().currentUser?.providerData.first?.providerID ?? "password"

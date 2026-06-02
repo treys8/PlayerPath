@@ -41,6 +41,7 @@ struct CoachVideoPlayerView: View {
     @Environment(\.verticalSizeClass) private var vSizeClass
     @Environment(\.horizontalSizeClass) private var hSizeClass
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.ppAccent) private var ppAccent
     private var isWideLayout: Bool { hSizeClass == .regular || vSizeClass == .compact }
     private var isIPad: Bool { hSizeClass == .regular }
 
@@ -91,7 +92,7 @@ struct CoachVideoPlayerView: View {
                             markReviewed()
                         } label: {
                             Image(systemName: "checkmark.circle")
-                                .foregroundColor(Theme.accent)
+                                .foregroundColor(ppAccent)
                         }
                         .disabled(isMarkingReviewed)
                         .accessibilityLabel("Mark as reviewed")
@@ -110,7 +111,7 @@ struct CoachVideoPlayerView: View {
                                 ProgressView().scaleEffect(0.8)
                             } else {
                                 Image(systemName: "pencil.tip")
-                                    .foregroundColor(Theme.accent)
+                                    .foregroundColor(ppAccent)
                             }
                         }
                         .disabled(!viewModel.isPlayerReady || isVerifyingDrawPermission)
@@ -131,7 +132,7 @@ struct CoachVideoPlayerView: View {
                                     .foregroundColor(.green)
                             } else {
                                 Image(systemName: "folder.fill.badge.plus")
-                                    .foregroundColor(Theme.accent)
+                                    .foregroundColor(ppAccent)
                             }
                         }
                         .disabled(viewModel.isSavingToMyVideos || !viewModel.isPlayerReady || viewModel.alreadySavedToMyVideos)
@@ -146,7 +147,7 @@ struct CoachVideoPlayerView: View {
                             ProgressView().scaleEffect(0.8)
                         } else {
                             Image(systemName: "square.and.arrow.down")
-                                .foregroundColor(Theme.accent)
+                                .foregroundColor(ppAccent)
                         }
                     }
                     .disabled(viewModel.isSaving || !viewModel.isPlayerReady)
@@ -161,10 +162,10 @@ struct CoachVideoPlayerView: View {
                                 .font(.subheadline)
                                 .fontWeight(.semibold)
                                 .monospacedDigit()
-                                .foregroundColor(Theme.accent)
+                                .foregroundColor(ppAccent)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 4)
-                                .background(Theme.accent.opacity(0.12))
+                                .background(ppAccent.opacity(0.12))
                                 .clipShape(Capsule())
                         }
                         .accessibilityLabel("Playback speed: \(viewModel.playbackRate)x")
@@ -314,7 +315,7 @@ struct CoachVideoPlayerView: View {
                 Task { await reloadDrillCards() }
             }
             .buttonStyle(.bordered)
-            .tint(Theme.accent)
+            .tint(ppAccent)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding()
@@ -532,7 +533,7 @@ struct CoachVideoPlayerView: View {
                             .fontWeight(.semibold)
                             .padding(.horizontal, 24)
                             .padding(.vertical, 10)
-                            .background(Theme.accent)
+                            .background(ppAccent)
                             .foregroundColor(.white)
                             .cornerRadius(10)
                     }

@@ -15,6 +15,8 @@ struct PPProfilePill: View {
     var subtitle: String?
     var action: (() -> Void)?
 
+    @Environment(\.ppAccent) private var ppAccent
+
     var body: some View {
         Button {
             action?()
@@ -42,12 +44,12 @@ struct PPProfilePill: View {
 
     private var avatar: some View {
         Circle()
-            .fill(Theme.accent.opacity(0.15))
+            .fill(ppAccent.opacity(0.15))
             .frame(width: .profileSmall, height: .profileSmall)
             .overlay(
                 Text(initials)
                     .font(.ppSubheadline)
-                    .foregroundStyle(Theme.accent)
+                    .foregroundStyle(ppAccent)
             )
     }
 

@@ -79,7 +79,7 @@ struct CoachDowngradeSelectionView: View {
         VStack(spacing: 8) {
             Image(systemName: "person.crop.circle.badge.minus")
                 .font(.system(size: 40))
-                .foregroundStyle(.orange)
+                .foregroundStyle(Theme.warning)
 
             Text("Select up to \(limit) athlete\(limit == 1 ? "" : "s") to keep")
                 .font(.headline)
