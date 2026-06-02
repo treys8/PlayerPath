@@ -116,14 +116,13 @@ struct GameRow: View {
                             .smallCapsLabel(color: Theme.textTertiary)
                     }
                     if showSeason, let season = game.season {
+                        // Neutral muted season chip (cueBg + cueText) — orange
+                        // is reserved for true accents, not the season label.
                         Text(season.displayName)
                             .font(.labelSmall)
-                            .foregroundStyle(season.isActive ? Theme.surface : Theme.textSecondary)
+                            .foregroundStyle(Theme.cueText)
                             .badgeSmall()
-                            .background(
-                                season.isActive ? Theme.accent : Theme.divider,
-                                in: Capsule()
-                            )
+                            .background(Theme.cueBg, in: Capsule())
                     }
                 }
             }
