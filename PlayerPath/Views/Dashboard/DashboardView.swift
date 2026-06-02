@@ -645,7 +645,7 @@ struct DashboardView: View {
             LazyVGrid(columns: managementColumns, spacing: 16) {
                 DashboardFeatureCard(
                     icon: activeSport == .golf ? "figure.golf" : "baseball.diamond.bases",
-                    title: activeSport == .golf ? "Tournaments" : "Games",
+                    title: activeSport == .golf ? "Rounds" : "Games",
                     subtitle: "\(viewModel.totalGames) Total",
                     color: .brandNavy
                 ) {

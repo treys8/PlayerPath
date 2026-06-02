@@ -91,7 +91,8 @@ struct JournalEntryRow: View {
     private var statSubline: String? {
         switch entry {
         case .game(let g):
-            return entry.isGolf ? golfSubline(g) : baseballSubline(g)
+            let base = entry.isGolf ? golfSubline(g) : baseballSubline(g)
+            return appendingOpponent(to: base, game: g)
         case .practice(let p):
             if let course = p.course, !course.trimmingCharacters(in: .whitespaces).isEmpty {
                 return course
@@ -102,6 +103,18 @@ struct JournalEntryRow: View {
         case .photo:
             return nil
         }
+    }
+
+    /// When a milestone drives the headline ("Season-high 3 hits in a game"),
+    /// the opponent is no longer in the title — so anchor the memory by tacking
+    /// "· vs HA" onto the stat line. No-op for non-milestone cards (their
+    /// headline already carries the matchup) and when the opponent is blank.
+    private func appendingOpponent(to subline: String?, game: Game) -> String? {
+        guard entryMilestone != nil else { return subline }
+        let opponent = game.opponent.trimmingCharacters(in: .whitespaces)
+        guard !opponent.isEmpty else { return subline }
+        guard let subline else { return game.opponentLabel }
+        return "\(subline) · \(game.opponentLabel)"
     }
 
     /// Hits-for-at-bats plus home runs. Never RBI or runs (no game context).
@@ -150,11 +163,13 @@ struct JournalEntryRow: View {
                     fillsContainer: true
                 )
             }
-        } else if entry.photoCount > 0 {
-            PPMediaTile(
-                tileColor: Theme.tile(forKey: entry.id),
-                glyph: "photo.on.rectangle.angled"
-            )
+        } else if let photo = entry.representativePhoto {
+            // No clip, but the event has photos — show an actual tagged photo.
+            // JournalPhotoThumbnail owns its own loading/failed glyph (incl. the
+            // iCloud-download hint), so the tile passes no glyph of its own.
+            PPMediaTile(tileColor: Theme.tile(forKey: entry.id)) {
+                JournalPhotoThumbnail(photo: photo)
+            }
         }
     }
 

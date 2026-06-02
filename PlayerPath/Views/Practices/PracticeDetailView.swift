@@ -27,6 +27,8 @@ struct PracticeDetailView: View {
 
     // Bulk import from Photos — state owned by BulkImportAttach modifier.
     @State private var importTrigger = false
+    // Bulk PHOTO import preset to this practice — owned by BulkPhotoImportAttach.
+    @State private var photoImportTrigger = false
 
     private var practiceType: PracticeType {
         practice.type
@@ -65,6 +67,10 @@ struct PracticeDetailView: View {
 
     var notes: [PracticeNote] {
         (practice.notes ?? []).sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
+    }
+
+    var practicePhotos: [Photo] {
+        (practice.photos ?? []).sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
     }
 
     var body: some View {
@@ -142,6 +148,10 @@ struct PracticeDetailView: View {
                     Label("Add Note", systemImage: "note.text.badge.plus")
                 }
 
+                Button(action: { photoImportTrigger = true }) {
+                    Label("Add Photos", systemImage: "photo.on.rectangle")
+                }
+
                 Button(role: .destructive, action: {
                     Haptics.warning()
                     showingDeleteConfirmation = true
@@ -185,6 +195,26 @@ struct PracticeDetailView: View {
                 }
             }
 
+            // Photos Section
+            Section(header: Text("Photos (\(practicePhotos.count))").smallCapsLabel()) {
+                if practicePhotos.isEmpty {
+                    Button(action: { photoImportTrigger = true }) {
+                        Label("Add a photo", systemImage: "photo.on.rectangle")
+                    }
+                    .labelStyle(ActionRowLabelStyle())
+                } else {
+                    ForEach(practicePhotos) { photo in
+                        NavigationLink {
+                            PhotoDetailView(photo: photo) {
+                                deletePracticePhoto(photo)
+                            }
+                        } label: {
+                            EventPhotoRow(photo: photo)
+                        }
+                    }
+                }
+            }
+
             // Notes Section
             Section(header: Text("Notes (\(notes.count))").smallCapsLabel()) {
                 if notes.isEmpty {
@@ -218,6 +248,7 @@ struct PracticeDetailView: View {
             ScoreHoleSheet(practice: practice, holeNumber: target.holeNumber)
         }
         .bulkImportAttach(athlete: practice.athlete, practice: practice, trigger: $importTrigger)
+        .bulkPhotoImportAttach(athlete: practice.athlete, practice: practice, trigger: $photoImportTrigger)
         .fullScreenCover(item: $selectedVideo) { video in
             VideoPlayerView(clip: video)
         }
@@ -289,6 +320,11 @@ struct PracticeDetailView: View {
                 }
             }
         }
+    }
+
+    private func deletePracticePhoto(_ photo: Photo) {
+        PhotoPersistenceService().deletePhoto(photo, context: modelContext)
+        Haptics.light()
     }
 
     private func deleteVideo(_ clip: VideoClip) {

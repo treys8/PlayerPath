@@ -385,13 +385,6 @@ struct StatisticsView: View {
                 LazyVStack(spacing: 20) {
                     GolfStatsSection(athlete: athlete, season: selectedSeason)
 
-                    // Free charts — parity with baseball's ChartsPromptCard.
-                    if hasGolfRounds {
-                        ChartsPromptCard {
-                            showingCharts = true
-                        }
-                    }
-
                     MilestonesListSection(milestones: milestonesForSelection)
                 }
                 .padding(horizontalSizeClass == .regular ? 32 : 18)
@@ -407,11 +400,6 @@ struct StatisticsView: View {
                             .flatMap { id in availableSeasons.first(where: { $0.id.uuidString == id }) }?
                             .displayName ?? "Batting Line"
                     )
-
-                    // Charts Prompt Card
-                    ChartsPromptCard {
-                        showingCharts = true
-                    }
 
                     // Show different stats based on filter
                     if selectedSeasonFilter == nil {

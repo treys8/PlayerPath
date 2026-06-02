@@ -34,7 +34,7 @@ struct EmptyStateView: View {
             Circle()
                 .fill(
                     RadialGradient(
-                        colors: [Color.brandNavy.opacity(0.08), .clear],
+                        colors: [Theme.accent.opacity(0.08), .clear],
                         center: .center,
                         startRadius: 0,
                         endRadius: 200
@@ -50,14 +50,14 @@ struct EmptyStateView: View {
                     // Glow effect
                     Image(systemName: systemImage)
                         .font(.system(size: 72, weight: .light))
-                        .foregroundColor(.brandNavy.opacity(0.3))
+                        .foregroundColor(Theme.accent.opacity(0.3))
                         .blur(radius: 20)
 
                     Image(systemName: systemImage)
                         .font(.system(size: 72, weight: .light))
                         .foregroundStyle(
                             LinearGradient(
-                                colors: [Color.brandNavy, Color.brandNavy.opacity(0.6)],
+                                colors: [Theme.accent, Theme.accent.opacity(0.6)],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
                             )
@@ -99,13 +99,13 @@ struct EmptyStateView: View {
                         .padding(.vertical, 14)
                         .background(
                             LinearGradient(
-                                colors: [Color.brandNavy, Color.brandNavy.opacity(0.85)],
+                                colors: [Theme.accent, Theme.accent.opacity(0.85)],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
                             )
                         )
                         .clipShape(Capsule())
-                        .shadow(color: Color.brandNavy.opacity(0.3), radius: 12, x: 0, y: 6)
+                        .shadow(color: Theme.accent.opacity(0.3), radius: 12, x: 0, y: 6)
                     }
                     .buttonStyle(PremiumButtonStyle())
                     .opacity(isAnimating ? 1.0 : 0.0)

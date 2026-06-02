@@ -7,7 +7,6 @@
 
 import SwiftUI
 import SwiftData
-import ImageIO
 
 struct GameDetailView: View {
     let game: Game
@@ -20,7 +19,6 @@ struct GameDetailView: View {
     @State private var showingManualStats = false
     @State private var showingEditGame = false
     @State private var showingPhotoCamera = false
-    @State private var showingPhotoLibrary = false
     @State private var showingScoreEntry = false
     @State private var gameService: GameService? = nil
     /// Hole picked for per-hole scoring; non-nil presents ScoreHoleSheet.
@@ -36,6 +34,8 @@ struct GameDetailView: View {
 
     // Bulk import from Photos — state owned by BulkImportAttach modifier.
     @State private var importTrigger = false
+    // Bulk PHOTO import preset to this game — owned by BulkPhotoImportAttach.
+    @State private var photoImportTrigger = false
 
     var videoClips: [VideoClip] {
         (game.videoClips ?? []).sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
@@ -320,7 +320,7 @@ struct GameDetailView: View {
                                 deleteGamePhoto(photo)
                             }
                         } label: {
-                            GamePhotoRow(photo: photo)
+                            EventPhotoRow(photo: photo)
                         }
                     }
                 }
@@ -427,6 +427,7 @@ struct GameDetailView: View {
             DirectCameraRecorderView(athlete: game.athlete, game: game)
         }
         .bulkImportAttach(athlete: game.athlete, game: game, trigger: $importTrigger)
+        .bulkPhotoImportAttach(athlete: game.athlete, game: game, trigger: $photoImportTrigger)
         .sheet(isPresented: $showingManualStats) {
             ManualStatisticsEntryView(game: game)
         }
@@ -441,12 +442,6 @@ struct GameDetailView: View {
                 },
                 onCancel: { showingPhotoCamera = false }
             )
-        }
-        .fullScreenCover(isPresented: $showingPhotoLibrary) {
-            ImagePicker(sourceType: .photoLibrary, allowsEditing: false) { image in
-                saveGamePhoto(image)
-            }
-            .ignoresSafeArea()
         }
         .onAppear {
             if gameService == nil { gameService = GameService(modelContext: modelContext) }
@@ -535,11 +530,11 @@ struct GameDetailView: View {
                     Label("Take Photo", systemImage: "camera")
                 }
             }
-            Button(action: { showingPhotoLibrary = true }) {
-                Label("Choose from Library", systemImage: "photo.on.rectangle")
+            Button(action: { photoImportTrigger = true }) {
+                Label("Choose Photos", systemImage: "photo.on.rectangle")
             }
         } label: {
-            Label("Add Photo", systemImage: "camera")
+            Label("Add Photos", systemImage: "camera")
         }
     }
 
@@ -579,7 +574,11 @@ struct GameDetailView: View {
                     image: image,
                     context: modelContext,
                     athlete: athlete,
-                    game: game
+                    game: game,
+                    // Inherit the game's actual season, not just activeSeason —
+                    // otherwise a photo on a past-season game mis-tags to the
+                    // active season (matches the bulk-import path).
+                    season: game.season ?? athlete.activeSeason
                 )
                 Haptics.success()
             } catch {
@@ -591,76 +590,5 @@ struct GameDetailView: View {
     private func deleteGamePhoto(_ photo: Photo) {
         PhotoPersistenceService().deletePhoto(photo, context: modelContext)
         Haptics.light()
-    }
-}
-
-// MARK: - Game Photo Row
-
-private struct GamePhotoRow: View {
-    let photo: Photo
-
-    @State private var thumbnail: UIImage?
-
-    var body: some View {
-        HStack(spacing: 12) {
-            // Thumbnail
-            Group {
-                if let thumbnail {
-                    Image(uiImage: thumbnail)
-                        .resizable()
-                        .scaledToFill()
-                } else {
-                    Rectangle()
-                        .fill(Color(.systemGray5))
-                        .overlay {
-                            Image(systemName: "photo")
-                                .foregroundColor(.secondary)
-                        }
-                }
-            }
-            .frame(width: 72, height: 72)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-
-            // Info
-            VStack(alignment: .leading, spacing: 4) {
-                Text(photo.caption ?? "Photo")
-                    .font(.headingMedium)
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
-
-                if let date = photo.createdAt {
-                    Text(date, style: .date)
-                        .font(.bodySmall)
-                        .foregroundColor(.secondary)
-                }
-            }
-
-            Spacer()
-        }
-        .task {
-            await loadThumbnail()
-        }
-    }
-
-    private func loadThumbnail() async {
-        if let thumbPath = photo.resolvedThumbnailPath {
-            if let image = try? await ThumbnailCache.shared.loadThumbnail(at: thumbPath, targetSize: .thumbnailSmall) {
-                thumbnail = image
-                return
-            }
-        }
-        let path = photo.resolvedFilePath
-        let image = await Task.detached(priority: .userInitiated) { () -> UIImage? in
-            let url = URL(fileURLWithPath: path) as CFURL
-            guard let source = CGImageSourceCreateWithURL(url, nil) else { return nil }
-            let options: [CFString: Any] = [
-                kCGImageSourceThumbnailMaxPixelSize: 150,
-                kCGImageSourceCreateThumbnailFromImageAlways: true,
-                kCGImageSourceCreateThumbnailWithTransform: true
-            ]
-            guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
-            return UIImage(cgImage: cgImage)
-        }.value
-        thumbnail = image
     }
 }

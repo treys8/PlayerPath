@@ -183,8 +183,8 @@ struct MoveClipSheet: View {
             if let athlete = selectedAthlete {
                 let games = (athlete.games ?? [])
                     .sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
-                let unitNoun = athlete.sport == .golf ? "tournament" : "game"
-                let unitNounCapitalized = athlete.sport == .golf ? "Tournament" : "Game"
+                let unitNoun = athlete.sport == .golf ? "round" : "game"
+                let unitNounCapitalized = athlete.sport == .golf ? "Round" : "Game"
 
                 Section {
                     Button {

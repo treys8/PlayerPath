@@ -16,11 +16,11 @@ struct GamesView: View {
     private var activeSport: Season.SportType { athlete?.sportType ?? .baseball }
 
     private var isGolf: Bool { activeSport == .golf }
-    private var unitNoun: String { isGolf ? "tournament" : "game" }
-    private var unitNounPlural: String { isGolf ? "tournaments" : "games" }
-    private var navigationTitle: String { isGolf ? "Tournaments" : "Games" }
+    private var unitNoun: String { isGolf ? "round" : "game" }
+    private var unitNounPlural: String { isGolf ? "rounds" : "games" }
+    private var navigationTitle: String { isGolf ? "Rounds" : "Games" }
     private var searchPrompt: String { isGolf ? "Search by course or date" : "Search by opponent or date" }
-    private var addAccessibilityLabel: String { isGolf ? "Add new tournament" : "Add new game" }
+    private var addAccessibilityLabel: String { isGolf ? "Add new round" : "Add new game" }
 
     // Query games for the current athlete only — avoids loading all games across athletes
     private let athleteID: UUID?
@@ -351,12 +351,9 @@ struct GamesView: View {
     private var gamesListContent: some View {
         if let summary = gamesSummary {
             HStack(spacing: 6) {
-                Image(systemName: "chart.bar.fill")
-                    .foregroundStyle(.green)
-                    .font(.caption)
                 Text(summary)
                     .font(.bodySmall)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Theme.textSecondary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
                 Spacer(minLength: 0)
@@ -430,7 +427,7 @@ struct GamesView: View {
 
         // Past Games Section (games that happened but weren't marked as complete)
         if !cachedPastGames.isEmpty {
-            Section("Past Games") {
+            Section(isGolf ? "Past Rounds" : "Past Games") {
                 ForEach(cachedPastGames) { game in
                     gameNavigationRow(game)
                     .swipeActions(edge: .trailing) {
@@ -671,7 +668,7 @@ struct GamesView: View {
                 case .noSeason:
                     Alert(
                         title: Text("Create a Season First"),
-                        message: Text("Games belong to a season. Create a season to start tracking games."),
+                        message: Text("\(unitNounPlural.capitalized) belong to a season. Create a season to start tracking \(unitNounPlural)."),
                         primaryButton: .default(Text("Create Season")) {
                             showingSeasonCreation = true
                         },
@@ -700,7 +697,7 @@ struct GamesView: View {
     private func startGame(_ game: Game) {
         // Check if game has a season
         guard game.season != nil else {
-            errorMessage = "This game needs a season before it can be started. Please assign a season to the game first."
+            errorMessage = "This \(unitNoun) needs a season before it can be started. Please assign a season to the \(unitNoun) first."
             activeAlert = .error
             return
         }

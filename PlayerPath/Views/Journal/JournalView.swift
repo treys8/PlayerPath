@@ -76,12 +76,14 @@ struct JournalView: View {
         !liveGames.isEmpty || !livePractices.isEmpty
     }
 
-    /// True when this athlete has literally any game, practice, or clip on
-    /// record — independent of the active filter. Drives the new-user welcome
-    /// vs. the "this filter matched nothing" message: an athlete who HAS data
-    /// but tapped a filter that excludes it should never see "Welcome".
+    /// True when this profile has any content FOR ITS PINNED SPORT — independent
+    /// of the active filter. Drives the new-user welcome vs. the "this filter
+    /// matched nothing" message: a profile that HAS data but tapped a filter that
+    /// excludes it should never see "Welcome". Sport-scoped (via `allEntries`) so
+    /// a baseball profile carrying only stray golf data still reads as new here
+    /// and shows the welcome state, not an empty, pill-less feed.
     private var hasAnyContent: Bool {
-        !games.isEmpty || !practices.isEmpty || !clips.isEmpty || !photos.isEmpty
+        !allEntries.isEmpty
     }
 
     /// Photos with no game/practice parent — the ones that earn their own feed
@@ -95,6 +97,17 @@ struct JournalView: View {
     /// sport since the empty state has no Game to ask.
     private var eventNoun: String { activeSport == .golf ? "Round" : "Game" }
 
+    /// Pill label, sport-aware for the events pill: "Rounds" on a golf profile,
+    /// "Games" otherwise. Every other pill keeps its static title. This is the
+    /// only place the events pill is labelled, which is why there is no separate
+    /// Golf pill — on a golf profile the games ARE the rounds.
+    private func pillTitle(_ filter: JournalFilter) -> String {
+        switch filter {
+        case .games: return activeSport == .golf ? "Rounds" : "Games"
+        default:     return filter.title
+        }
+    }
+
     /// The athlete's first name for the welcome line, or "" if unnamed.
     private var firstName: String {
         let trimmed = athlete.name.trimmingCharacters(in: .whitespaces)
@@ -106,8 +119,11 @@ struct JournalView: View {
         return sport == activeSport
     }
 
-    /// The full reverse-chron feed, unfiltered. Drives both the displayed
-    /// `entries` and the set of pills worth showing.
+    /// The full reverse-chron feed for the profile's pinned sport, unfiltered by
+    /// pill. Scoped to `activeSport` (seasonless clips/photos pass through) so a
+    /// baseball profile never surfaces golf entries — and therefore never shows a
+    /// golf pill. Mirrors the sport scoping the live strip already applies above.
+    /// Drives both the displayed `entries` and the set of pills worth showing.
     private var allEntries: [JournalEntry] {
         JournalFeedBuilder.build(
             games: games,
@@ -116,16 +132,19 @@ struct JournalView: View {
             orphanPhotos: orphanPhotos,
             filter: .all
         )
+        .filter { sportMatches($0.sport) }
     }
 
     private var entries: [JournalEntry] {
         allEntries.filter { filter.matches($0) }
     }
 
-    /// Pills that actually have something to show — `.all` plus any sport/type
-    /// filter that matches ≥1 entry. Never renders a filter that returns nothing
-    /// (so a baseball athlete never sees a Golf pill, and Practices appears only
-    /// once a practice exists).
+    /// Pills that actually have something to show — `.all` plus any content-type
+    /// filter (Games, Practices, Photos, Highlights) that matches ≥1 entry. Never
+    /// renders a filter that returns nothing, so Practices appears only once a
+    /// practice exists and Photos only once a standalone photo does. Because the
+    /// feed is sport-scoped upstream, no golf entry reaches a baseball profile —
+    /// which is what keeps the (now-removed) Golf pill from ever reappearing.
     private var availableFilters: [JournalFilter] {
         let feed = allEntries
         return JournalFilter.allCases.filter { option in
@@ -161,7 +180,7 @@ struct JournalView: View {
                 if hasAnyContent {
                     PPFilterPillRow(
                         options: availableFilters,
-                        title: { $0.title },
+                        title: pillTitle,
                         selection: $filter
                     )
 
@@ -375,8 +394,8 @@ struct JournalView: View {
         switch filter {
         case .all:        return "Nothing here yet."
         case .games:      return "No \(eventNoun.lowercased())s logged yet."
-        case .golf:       return "No golf rounds yet."
         case .practices:  return "No practices logged yet."
+        case .photos:     return "No photos yet."
         case .highlights: return "No highlights yet — star a clip to add one."
         }
     }
@@ -385,8 +404,8 @@ struct JournalView: View {
         switch filter {
         case .all:        return "tray"
         case .games:      return activeSport == .golf ? "figure.golf" : "baseball"
-        case .golf:       return "figure.golf"
         case .practices:  return "figure.run"
+        case .photos:     return "photo"
         case .highlights: return "star"
         }
     }

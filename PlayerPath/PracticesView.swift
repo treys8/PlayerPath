@@ -146,10 +146,6 @@ struct PracticesView: View {
             List {
                 if !viewModel.filteredPractices.isEmpty {
                     HStack {
-                        Image(systemName: "chart.bar.fill")
-                            .foregroundStyle(Theme.accent)
-                            .font(.caption)
-
                         Text(viewModel.practicesSummary)
                             .font(.bodySmall)
                             .foregroundStyle(Theme.textSecondary)

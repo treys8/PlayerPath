@@ -31,6 +31,12 @@ struct PPFilterPill: View {
                         lineWidth: 1
                     )
                 )
+                // Without an explicit hit shape, a .plain button only registers
+                // taps on its opaque content. Unselected pills have a clear fill,
+                // so taps in their interior would fall through to whatever sits
+                // behind them in the feed (the first card's link). Make the whole
+                // capsule tappable.
+                .contentShape(Capsule())
         }
         .buttonStyle(.plain)
     }

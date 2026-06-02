@@ -53,7 +53,7 @@ struct MainTabView: View {
     // Tab chrome reads sport directly from the athlete's primary `sport`.
     // One sport per athlete — multi-sport athletes use separate profiles.
     private var isGolfActive: Bool { selectedAthlete.sportType == .golf }
-    private var gamesTabLabel: String { isGolfActive ? "Tournaments" : "Games" }
+    private var gamesTabLabel: String { isGolfActive ? "Rounds" : "Games" }
     private var gamesTabIcon: String { isGolfActive ? "figure.golf" : "baseball" }
 
     enum MoreDestination: Hashable {
@@ -121,7 +121,7 @@ struct MainTabView: View {
     
     var body: some View {
         tabViewContent
-            .tint(Color.brandNavy)
+            .tint(Theme.accent)                 // Visual overhaul: terracotta accent (was brandNavy)
             .task {
                 // Always restore tab and observers on appear
                 restoreSelectedTab()

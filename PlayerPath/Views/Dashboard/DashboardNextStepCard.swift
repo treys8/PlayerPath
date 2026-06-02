@@ -52,7 +52,7 @@ struct DashboardNextStepCard: View {
 
         func buttonLabel(for sport: Season.SportType) -> String {
             switch self {
-            case .createGame: return sport == .golf ? "Tournaments" : "Games"
+            case .createGame: return sport == .golf ? "Rounds" : "Games"
             case .recordVideo: return "Videos"
             }
         }

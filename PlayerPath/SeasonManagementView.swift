@@ -227,15 +227,16 @@ struct SeasonStatBadge: View {
         VStack(spacing: 4) {
             Image(systemName: icon)
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.textSecondary)
 
             Text("\(value)")
                 .font(.ppStatSmall)
+                .foregroundStyle(Theme.textPrimary)
                 .monospacedDigit()
 
             Text(label)
-                .font(.labelSmall)
-                .foregroundStyle(.secondary)
+                .smallCapsLabel(color: Theme.textTertiary)
+                .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
     }

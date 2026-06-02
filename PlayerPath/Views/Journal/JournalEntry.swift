@@ -63,13 +63,21 @@ enum JournalEntry: Identifiable {
 
     var clipCount: Int { clips.count }
 
-    var photoCount: Int {
+    private var photos: [Photo] {
         switch self {
-        case .game(let g):     return g.photos?.count ?? 0
-        case .practice(let p): return p.photos?.count ?? 0
-        case .clip:            return 0
-        case .photo:           return 1
+        case .game(let g):     return g.photos ?? []
+        case .practice(let p): return p.photos ?? []
+        case .clip:            return []
+        case .photo(let p):    return [p]
         }
+    }
+
+    var photoCount: Int { photos.count }
+
+    /// The photo shown on the media tile when an event has photos but no clip —
+    /// most recent photo (mirrors representativeClip).
+    var representativePhoto: Photo? {
+        photos.sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }.first
     }
 
     /// The clip used for the entry's media tile — prefer a highlight, else the
