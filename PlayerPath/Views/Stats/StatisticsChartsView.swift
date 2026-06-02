@@ -130,7 +130,7 @@ struct StatisticsChartsView: View {
                     Text(formatValue(current, for: selectedMetric))
                         .font(.ppStatMedium)
                         .monospacedDigit()
-                        .foregroundColor(.blue)
+                        .foregroundColor(Theme.accent)
                 }
             }
 
