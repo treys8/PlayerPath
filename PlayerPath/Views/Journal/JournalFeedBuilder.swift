@@ -59,13 +59,15 @@ enum JournalFeedBuilder {
         games: [Game],
         practices: [Practice],
         orphanClips: [VideoClip],
+        orphanPhotos: [Photo],
         filter: JournalFilter
     ) -> [JournalEntry] {
         var entries: [JournalEntry] = []
-        entries.reserveCapacity(games.count + practices.count + orphanClips.count)
+        entries.reserveCapacity(games.count + practices.count + orphanClips.count + orphanPhotos.count)
         entries.append(contentsOf: games.map(JournalEntry.game))
         entries.append(contentsOf: practices.map(JournalEntry.practice))
         entries.append(contentsOf: orphanClips.map(JournalEntry.clip))
+        entries.append(contentsOf: orphanPhotos.map(JournalEntry.photo))
 
         return entries
             .filter { filter.matches($0) }
@@ -76,5 +78,11 @@ enum JournalFeedBuilder {
     /// feed row (parented clips are counted inside their parent entry).
     static func orphans(from clips: [VideoClip]) -> [VideoClip] {
         clips.filter { $0.game == nil && $0.practice == nil }
+    }
+
+    /// Photos with no game/practice parent — the only photos that earn their own
+    /// feed row (parented photos are counted inside their parent entry).
+    static func orphans(from photos: [Photo]) -> [Photo] {
+        photos.filter { $0.game == nil && $0.practice == nil }
     }
 }

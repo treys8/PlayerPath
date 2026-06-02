@@ -29,6 +29,13 @@ struct JournalView: View {
     @Query private var games: [Game]
     @Query private var practices: [Practice]
     @Query private var clips: [VideoClip]
+    @Query private var photos: [Photo]
+
+    /// Drives the "Add a photo or video" action sheet and its two library
+    /// pickers (video / photo). Inert outside the empty state.
+    @State private var showingAddSheet = false
+    @State private var videoImportTrigger = false
+    @State private var photoImportTrigger = false
 
     init(user: User, athlete: Athlete, homePath: Binding<NavigationPath>) {
         self.user = user
@@ -47,6 +54,10 @@ struct JournalView: View {
         self._clips = Query(
             filter: #Predicate<VideoClip> { $0.athlete?.id == id },
             sort: [SortDescriptor(\VideoClip.createdAt, order: .reverse)]
+        )
+        self._photos = Query(
+            filter: #Predicate<Photo> { $0.athlete?.id == id },
+            sort: [SortDescriptor(\Photo.createdAt, order: .reverse)]
         )
     }
 
@@ -70,7 +81,13 @@ struct JournalView: View {
     /// vs. the "this filter matched nothing" message: an athlete who HAS data
     /// but tapped a filter that excludes it should never see "Welcome".
     private var hasAnyContent: Bool {
-        !games.isEmpty || !practices.isEmpty || !clips.isEmpty
+        !games.isEmpty || !practices.isEmpty || !clips.isEmpty || !photos.isEmpty
+    }
+
+    /// Photos with no game/practice parent — the ones that earn their own feed
+    /// row (parented photos surface as a count inside their game/practice).
+    private var orphanPhotos: [Photo] {
+        JournalFeedBuilder.orphans(from: photos)
     }
 
     /// Sport-aware noun for a single logged event — "Round" for golf, else
@@ -96,6 +113,7 @@ struct JournalView: View {
             games: games,
             practices: practices,
             orphanClips: JournalFeedBuilder.orphans(from: clips),
+            orphanPhotos: orphanPhotos,
             filter: .all
         )
     }
@@ -156,25 +174,57 @@ struct JournalView: View {
                             } label: {
                                 JournalEntryRow(entry: entry, milestones: milestones)
                                     .padding(.horizontal, 18)
+                                    // Pin the link's tap area to the card itself.
+                                    // Without this, an eager NavigationLink in a
+                                    // LazyVStack claims a region that bleeds past
+                                    // its frame and — being a later (z-above)
+                                    // sibling — steals taps from the filter pills
+                                    // above it.
+                                    .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
                         }
                     }
                 } else {
-                    welcomeEmptyState
+                    JournalEmptyState(
+                        athlete: athlete,
+                        onAdd: {
+                            Haptics.medium()
+                            showingAddSheet = true
+                        },
+                        onLogEvent: {
+                            Haptics.light()
+                            NotificationCenter.default.post(
+                                name: .switchTab,
+                                object: MainTab.games.rawValue
+                            )
+                        }
+                    )
                 }
             }
             .padding(.vertical, .spacingLarge)
         }
         .background(Theme.surface)
+        // The empty state carries its own in-body serif title block, so suppress
+        // the large nav title there — otherwise "The Journal." renders twice.
+        .navigationTitle(hasAnyContent ? "The Journal." : "")
+        .navigationBarTitleDisplayMode(hasAnyContent ? .large : .inline)
+        .confirmationDialog("Add to your journal", isPresented: $showingAddSheet, titleVisibility: .visible) {
+            Button("Record a Video") {
+                NotificationCenter.default.post(name: .presentVideoRecorder, object: nil)
+            }
+            Button("Choose Videos") { videoImportTrigger = true }
+            Button("Choose Photos") { photoImportTrigger = true }
+            Button("Cancel", role: .cancel) {}
+        }
+        .bulkImportAttach(athlete: athlete, trigger: $videoImportTrigger)
+        .bulkPhotoImportAttach(athlete: athlete, trigger: $photoImportTrigger)
         .onChange(of: availableFilters) { _, newValue in
             // If the active pill no longer has any matching entries (e.g. the
             // last highlight was un-starred), fall back to All so the feed
             // doesn't strand on an empty filter whose pill has disappeared.
             if !newValue.contains(filter) { filter = .all }
         }
-        .navigationTitle("The Journal.")
-        .navigationBarTitleDisplayMode(.large)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 PPAthleteSwitcher(athlete: athlete)
@@ -201,6 +251,7 @@ struct JournalView: View {
                 } label: {
                     LiveGameCard(game: game)
                         .padding(.horizontal, 18)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
@@ -211,6 +262,7 @@ struct JournalView: View {
                 } label: {
                     LiveGameCard(practiceRound: practice)
                         .padding(.horizontal, 18)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
@@ -225,15 +277,20 @@ struct JournalView: View {
         case .game(let g):     GameDetailView(game: g)
         case .practice(let p): PracticeDetailView(practice: p)
         case .clip(let c):     VideoPlayerView(clip: c)
+        case .photo(let p):
+            PhotoDetailView(photo: p) {
+                PhotoPersistenceService().deletePhoto(p, context: modelContext)
+                Haptics.light()
+            }
         }
     }
 
     // MARK: - Empty states
 
-    /// New-user welcome — shown only when the athlete has no games, practices,
-    /// or clips at all (no filter pills render above it). Names the athlete,
-    /// adapts to sport, and offers the app's two first actions: record a clip
-    /// (primary) or log a game/round (secondary).
+    /// Plain new-user welcome — the calmer "reserve" empty state kept per spec in
+    /// case the ghosted-preview (`JournalEmptyState`) ever tests as confusing.
+    /// Swap the `else` branch in `body` back to this to fall back. Names the
+    /// athlete, adapts to sport, and offers the two first actions.
     private var welcomeEmptyState: some View {
         VStack(spacing: .spacingMedium) {
             Image(systemName: "book.closed")

@@ -17,12 +17,14 @@ enum JournalEntry: Identifiable {
     case game(Game)
     case practice(Practice)
     case clip(VideoClip)        // standalone clip (no game/practice parent)
+    case photo(Photo)           // standalone photo (no game/practice parent)
 
     var id: String {
         switch self {
         case .game(let g):     return "game-\(g.id.uuidString)"
         case .practice(let p): return "practice-\(p.id.uuidString)"
         case .clip(let c):     return "clip-\(c.id.uuidString)"
+        case .photo(let p):    return "photo-\(p.id.uuidString)"
         }
     }
 
@@ -33,6 +35,7 @@ enum JournalEntry: Identifiable {
         case .game(let g):     return g.date ?? g.createdAt ?? .distantPast
         case .practice(let p): return p.date ?? p.createdAt ?? .distantPast
         case .clip(let c):     return c.createdAt ?? .distantPast
+        case .photo(let p):    return p.createdAt ?? .distantPast
         }
     }
 
@@ -41,6 +44,7 @@ enum JournalEntry: Identifiable {
         case .game(let g):     return g.season?.sport
         case .practice(let p): return p.season?.sport
         case .clip(let c):     return c.season?.sport
+        case .photo(let p):    return p.season?.sport
         }
     }
 
@@ -53,6 +57,7 @@ enum JournalEntry: Identifiable {
         case .game(let g):     return g.videoClips ?? []
         case .practice(let p): return p.videoClips ?? []
         case .clip(let c):     return [c]
+        case .photo:           return []
         }
     }
 
@@ -63,6 +68,7 @@ enum JournalEntry: Identifiable {
         case .game(let g):     return g.photos?.count ?? 0
         case .practice(let p): return p.photos?.count ?? 0
         case .clip:            return 0
+        case .photo:           return 1
         }
     }
 
@@ -103,6 +109,13 @@ enum JournalEntry: Identifiable {
                 return note
             }
             return "Clip"
+        case .photo(let p):
+            // A captioned photo headlines with its caption; otherwise the plain
+            // noun (the date rail + "Photo" tag already carry the context).
+            if let caption = p.caption?.trimmingCharacters(in: .whitespaces), !caption.isEmpty {
+                return caption
+            }
+            return "Photo"
         }
     }
 }

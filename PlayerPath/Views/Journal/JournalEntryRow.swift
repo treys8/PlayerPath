@@ -82,6 +82,7 @@ struct JournalEntryRow: View {
         case .game:     return entry.isGolf ? "Golf" : "Game"
         case .practice: return entry.isGolf ? "Practice Round" : "Practice"
         case .clip:     return entry.containsHighlight ? "Highlight" : "Clip"
+        case .photo:    return "Photo"
         }
     }
 
@@ -97,6 +98,8 @@ struct JournalEntryRow: View {
             }
             return nil
         case .clip:
+            return nil
+        case .photo:
             return nil
         }
     }
@@ -122,7 +125,14 @@ struct JournalEntryRow: View {
 
     @ViewBuilder
     private var media: some View {
-        if let clip = entry.representativeClip {
+        if case .photo(let photo) = entry {
+            // A standalone-photo entry shows the photo itself. JournalPhotoThumbnail
+            // owns its own loading/failed glyph (incl. an iCloud-download hint),
+            // so the tile passes no glyph of its own.
+            PPMediaTile(tileColor: Theme.tile(forKey: entry.id)) {
+                JournalPhotoThumbnail(photo: photo)
+            }
+        } else if let clip = entry.representativeClip {
             PPMediaTile(
                 tileColor: Theme.tile(forKey: entry.id),
                 outcome: outcomeChip(for: clip),
