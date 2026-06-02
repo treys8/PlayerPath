@@ -93,8 +93,16 @@ enum JournalEntry: Identifiable {
         case .practice(let p):
             return PracticeType(rawValue: p.practiceType)?.displayName ?? "Practice"
         case .clip(let c):
-            if c.isHighlight { return "Highlight" }
-            return c.note?.isEmpty == false ? (c.note ?? "Clip") : "Clip"
+            // Never headline the literal word "Highlight" — that's the type
+            // tag's job. Prefer the play outcome ("Double"), then the note,
+            // then a neutral noun.
+            if let outcome = c.playResult?.type.displayName, !outcome.isEmpty {
+                return outcome
+            }
+            if let note = c.note, !note.isEmpty {
+                return note
+            }
+            return "Clip"
         }
     }
 }

@@ -79,7 +79,9 @@ struct GameRow: View {
                 // Baseball/softball batting summary — hits-for-AB + AVG.
                 // Never RBI or runs (no game context tracked).
                 VStack(alignment: .trailing, spacing: 2) {
-                    Text("\(stats.hits)-\(stats.atBats)")
+                    // "1-for-2" — reads as a batting line, not a 1–2 game score
+                    // (the app tracks no team score).
+                    Text("\(stats.hits)-for-\(stats.atBats)")
                         .font(.ppStatSmall)
                         .monospacedDigit()
                         .foregroundStyle(Theme.textPrimary)
