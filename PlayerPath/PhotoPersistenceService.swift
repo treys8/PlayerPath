@@ -21,12 +21,6 @@ final class PhotoPersistenceService {
         static let thumbnailQuality: CGFloat = 0.7
     }
 
-    private let fileManager: FileManager
-
-    init(fileManager: FileManager = .default) {
-        self.fileManager = fileManager
-    }
-
     // MARK: - Directory Setup
 
     private nonisolated static func ensurePhotosDirectory() throws -> URL {

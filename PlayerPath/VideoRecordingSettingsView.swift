@@ -28,8 +28,8 @@ struct VideoRecordingSettingsView: View {
         self.role = role
     }
 
-    @AppStorage("autoShowTrimmer") private var autoShowTrimmer = false
-    @AppStorage("skipTrimmerForShortClips") private var skipTrimmerForShortClips = true
+    @AppStorage(TrimmerPrefKeys.autoShowTrimmer) private var autoShowTrimmer = false
+    @AppStorage(TrimmerPrefKeys.skipTrimmerForShortClips) private var skipTrimmerForShortClips = true
 
     // User preferences for cloud upload settings
     @Environment(\.modelContext) private var modelContext

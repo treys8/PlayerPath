@@ -13,6 +13,15 @@ import os
 
 private let sessionLog = Logger(subsystem: "com.playerpath.app", category: "CoachSessions")
 
+/// Result of enqueuing a coach session clip. Distinguishes a genuinely lost clip
+/// (`.failed`) from a clip safely parked for recovery (`.accessRevoked`) so the
+/// caller never fires a success haptic on a clip that didn't actually queue.
+enum CoachClipUploadOutcome {
+    case queued         // copied to coach_pending_uploads and handed to UploadQueueManager
+    case accessRevoked  // coach lost access: saved to coach_failed_uploads + recovery notification posted
+    case failed         // clip lost: no documents dir, or the stable-path copy threw
+}
+
 @MainActor
 @Observable
 final class CoachSessionManager {
@@ -484,7 +493,7 @@ final class CoachSessionManager {
         sessionID: String,
         coachID: String,
         coachName: String
-    ) async {
+    ) async -> CoachClipUploadOutcome {
         // Dedup is owned by UploadQueueManager via the deterministic
         // `<folderID>_<fileName>` clipId — calling enqueueCoachUpload twice
         // for the same effective clip is a no-op. The prior in-memory set
@@ -508,7 +517,7 @@ final class CoachSessionManager {
         let dateStr = Date().formatted(.iso8601.year().month().day())
         let fileName = "instruction_\(dateStr)_\(UUID().uuidString.prefix(8)).mov"
 
-        guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
+        guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return .failed }
 
         // If the coach lost access, route to failed_uploads instead of the queue.
         // The clip stays on disk so the coach can recover it if access is restored.
@@ -525,7 +534,7 @@ final class CoachSessionManager {
             try FileManager.default.copyItem(at: videoURL, to: stablePath)
         } catch {
             sessionLog.error("Failed to copy clip to stable path: \(error.localizedDescription)")
-            return
+            return .failed
         }
 
         try? FileManager.default.removeItem(at: videoURL)
@@ -537,7 +546,7 @@ final class CoachSessionManager {
                 folderID: folderID,
                 fileName: fileName
             )
-            return
+            return .accessRevoked
         }
 
         UploadQueueManager.shared.enqueueCoachUpload(
@@ -549,6 +558,7 @@ final class CoachSessionManager {
             sessionID: sessionID,
             priority: .normal
         )
+        return .queued
     }
 
     /// Verifies the coach currently has upload permission on the target shared folder.

@@ -327,13 +327,13 @@ struct CoachVideoUploadView: View {
         viewModel.registerTempFile(url)
 
         let duration = await getVideoDuration(url)
-        let autoShowTrimmer = UserDefaults.standard.bool(forKey: "autoShowTrimmer")
-        let skipShortClips = UserDefaults.standard.bool(forKey: "skipTrimmerForShortClips")
+        let autoShowTrimmer = UserDefaults.standard.bool(forKey: TrimmerPrefKeys.autoShowTrimmer)
+        let skipShortClips = UserDefaults.standard.bool(forKey: TrimmerPrefKeys.skipTrimmerForShortClips)
 
         let shouldSkip: Bool
         if autoShowTrimmer {
             shouldSkip = false
-        } else if duration < 15 && skipShortClips {
+        } else if duration < TrimmerPrefKeys.shortClipThreshold && skipShortClips {
             shouldSkip = true
         } else {
             shouldSkip = false

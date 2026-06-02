@@ -145,13 +145,13 @@ struct DirectCameraRecorderView: View {
                     Task {
                         clipOrientation = await VideoOrientationDetector.detect(url: videoURL)
                         let duration = await getVideoDuration(videoURL)
-                        let autoShowTrimmer = UserDefaults.standard.bool(forKey: "autoShowTrimmer")
-                        let skipShortClips = UserDefaults.standard.bool(forKey: "skipTrimmerForShortClips")
+                        let autoShowTrimmer = UserDefaults.standard.bool(forKey: TrimmerPrefKeys.autoShowTrimmer)
+                        let skipShortClips = UserDefaults.standard.bool(forKey: TrimmerPrefKeys.skipTrimmerForShortClips)
 
                         let shouldSkip: Bool
                         if autoShowTrimmer {
                             shouldSkip = false // Always show trimmer
-                        } else if duration < 15 && skipShortClips {
+                        } else if duration < TrimmerPrefKeys.shortClipThreshold && skipShortClips {
                             shouldSkip = true  // Short clip + skip setting enabled
                         } else {
                             shouldSkip = false // Long clip or skip setting disabled
@@ -500,11 +500,11 @@ struct DirectCameraRecorderView: View {
             VideoFileManager.cleanup(url: original)
         }
 
-        // Await the enqueue call before reporting success — uploadClip routes
-        // permission-denied clips to coach_failed_uploads, and we don't want
-        // a success haptic on a clip that didn't actually queue.
+        // Await the enqueue call and branch on its outcome — uploadClip routes
+        // permission-denied clips to coach_failed_uploads and reports a genuinely
+        // lost clip as `.failed`. Only `.queued` earns a success haptic.
         Task {
-            await CoachSessionManager.shared.uploadClip(
+            let outcome = await CoachSessionManager.shared.uploadClip(
                 videoURL: videoURL,
                 folderID: folderID,
                 sessionID: context.sessionID,
@@ -512,8 +512,21 @@ struct DirectCameraRecorderView: View {
                 coachName: coachName
             )
             await MainActor.run {
-                Haptics.success()
-                dismiss()
+                switch outcome {
+                case .queued:
+                    Haptics.success()
+                    dismiss()
+                case .accessRevoked:
+                    // Clip is safely parked in coach_failed_uploads and a recovery
+                    // notification was posted — don't claim success, and don't tell
+                    // them to re-record (re-recording won't help; access was revoked).
+                    Haptics.warning()
+                    dismiss()
+                case .failed:
+                    // Clip genuinely lost (copy error). Surface it so the coach re-records.
+                    Haptics.error()
+                    showingSaveFailedError = true
+                }
             }
         }
     }
