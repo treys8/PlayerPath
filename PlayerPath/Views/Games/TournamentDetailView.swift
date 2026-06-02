@@ -26,7 +26,7 @@ struct TournamentDetailView: View {
         List {
             scoreSection
 
-            Section("Rounds") {
+            Section(header: Text("Rounds").smallCapsLabel()) {
                 if rounds.isEmpty {
                     Text("No rounds yet. Add your first round below.")
                         .font(.bodySmall)
@@ -44,10 +44,11 @@ struct TournamentDetailView: View {
                 } label: {
                     Label("Add Round", systemImage: "plus.circle.fill")
                 }
+                .labelStyle(ActionRowLabelStyle())
             }
 
             if let notes = tournament.notes, !notes.isEmpty {
-                Section("Notes") {
+                Section(header: Text("Notes").smallCapsLabel()) {
                     Text(notes).font(.bodySmall)
                 }
             }
@@ -58,8 +59,10 @@ struct TournamentDetailView: View {
                 } label: {
                     Label("Delete Tournament", systemImage: "trash")
                 }
+                .labelStyle(DestructiveRowLabelStyle())
             }
         }
+        .ppDetailBackground()
         .navigationTitle(tournament.name)
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showingAddRound) {

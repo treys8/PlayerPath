@@ -55,7 +55,7 @@ struct CoachDetailView: View {
 
             // Firebase Connection Status
             if coach.hasFirebaseAccount {
-                Section("App Access") {
+                Section(header: Text("App Access").smallCapsLabel()) {
                     LabeledContent {
                         Text("Active")
                             .foregroundStyle(.green)
@@ -73,7 +73,7 @@ struct CoachDetailView: View {
                     }
                 }
             } else if coach.invitationSentAt != nil {
-                Section("App Access") {
+                Section(header: Text("App Access").smallCapsLabel()) {
                     LabeledContent {
                         Text(coach.connectionStatus)
                             .foregroundStyle(coachStatusColor(for: coach.connectionStatusColor))
@@ -94,7 +94,7 @@ struct CoachDetailView: View {
 
             // Shared Folders
             if coach.hasFolderAccess {
-                Section("Shared Folders") {
+                Section(header: Text("Shared Folders").smallCapsLabel()) {
                     ForEach(coach.sharedFolderIDs, id: \.self) { folderID in
                         if let folder = folderManager.athleteFolders.first(where: { $0.id == folderID }) {
                             NavigationLink(destination: AthleteFolderDetailView(folder: folder)) {
@@ -127,7 +127,7 @@ struct CoachDetailView: View {
 
             // Contact Information
             if !coach.phone.isEmpty || !coach.email.isEmpty {
-                Section("Contact") {
+                Section(header: Text("Contact").smallCapsLabel()) {
                     if !coach.phone.isEmpty {
                         LabeledContent {
                             if let url = createPhoneURL(from: coach.phone) {
@@ -158,7 +158,7 @@ struct CoachDetailView: View {
 
             // Notes
             if !coach.notes.isEmpty {
-                Section("Notes") {
+                Section(header: Text("Notes").smallCapsLabel()) {
                     Text(coach.notes)
                 }
             }
@@ -171,8 +171,10 @@ struct CoachDetailView: View {
                 } label: {
                     Label("Remove Coach", systemImage: "trash")
                 }
+                .labelStyle(DestructiveRowLabelStyle())
             }
         }
+        .ppDetailBackground()
         .navigationTitle("Coach Details")
         .navigationBarTitleDisplayMode(.inline)
         .alert("Remove Coach", isPresented: $showingDeleteConfirmation) {

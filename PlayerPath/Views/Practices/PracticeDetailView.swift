@@ -70,7 +70,7 @@ struct PracticeDetailView: View {
     var body: some View {
         List {
             // Practice Info Section
-            Section("Practice Details") {
+            Section(header: Text("Practice Details").smallCapsLabel()) {
                 HStack {
                     Text("Date")
                         .font(.headingMedium)
@@ -117,7 +117,7 @@ struct PracticeDetailView: View {
             }
 
             // Actions Section
-            Section("Actions") {
+            Section(header: Text("Actions").smallCapsLabel()) {
                 // Score Hole — golf practice rounds only. Promoted above
                 // Record Video so the primary on-course action is the first
                 // tap target (mirrors GameDetailView's golf placement).
@@ -148,14 +148,16 @@ struct PracticeDetailView: View {
                 }) {
                     Label("Delete Practice", systemImage: "trash")
                 }
+                .labelStyle(DestructiveRowLabelStyle())
             }
+            .labelStyle(ActionRowLabelStyle())
 
             // Per-hole grid — only renders when at least one hole has been
             // scored on a practice round. Tapping a cell re-opens the score
             // sheet for that hole (edit-in-place via ScoreHoleSheet's
             // existingHole lookup).
             if isPracticeRound && !sortedHoleScores.isEmpty {
-                Section("Holes") {
+                Section(header: Text("Holes").smallCapsLabel()) {
                     HoleScoreGrid(holes: sortedHoleScores) { tapped in
                         scoreHoleTarget = ScoreHoleTarget(holeNumber: tapped.holeNumber)
                     }
@@ -165,11 +167,12 @@ struct PracticeDetailView: View {
             }
 
             // Videos Section
-            Section("Videos (\(videoClips.count))") {
+            Section(header: Text("Videos (\(videoClips.count))").smallCapsLabel()) {
                 if videoClips.isEmpty {
                     Button(action: { showingRecordCamera = true }) {
                         Label("Record your first video", systemImage: "video.badge.plus")
                     }
+                    .labelStyle(ActionRowLabelStyle())
                 } else {
                     ForEach(videoClips) { clip in
                         PracticeVideoClipRow(clip: clip, hasCoachingAccess: authManager.hasCoachingAccess, onPlay: { selectedVideo = clip })
@@ -183,11 +186,12 @@ struct PracticeDetailView: View {
             }
 
             // Notes Section
-            Section("Notes (\(notes.count))") {
+            Section(header: Text("Notes (\(notes.count))").smallCapsLabel()) {
                 if notes.isEmpty {
                     Button(action: { showingAddNote = true }) {
                         Label("Add your first note", systemImage: "note.text.badge.plus")
                     }
+                    .labelStyle(ActionRowLabelStyle())
                 } else {
                     ForEach(notes) { note in
                         PracticeNoteRow(note: note)
@@ -201,6 +205,7 @@ struct PracticeDetailView: View {
                 }
             }
         }
+        .ppDetailBackground()
         .navigationTitle("\(practiceType.displayName) Practice")
         .navigationBarTitleDisplayMode(.inline)
         .fullScreenCover(isPresented: $showingRecordCamera) {

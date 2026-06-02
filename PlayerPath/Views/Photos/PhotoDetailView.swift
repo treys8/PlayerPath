@@ -324,6 +324,7 @@ struct CaptionEditSheet: View {
                         dismiss()
                     }
             }
+            .ppDetailBackground()
             .navigationTitle("Caption")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
