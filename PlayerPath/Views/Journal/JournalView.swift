@@ -89,13 +89,30 @@ struct JournalView: View {
         return sport == activeSport
     }
 
-    private var entries: [JournalEntry] {
+    /// The full reverse-chron feed, unfiltered. Drives both the displayed
+    /// `entries` and the set of pills worth showing.
+    private var allEntries: [JournalEntry] {
         JournalFeedBuilder.build(
             games: games,
             practices: practices,
             orphanClips: JournalFeedBuilder.orphans(from: clips),
-            filter: filter
+            filter: .all
         )
+    }
+
+    private var entries: [JournalEntry] {
+        allEntries.filter { filter.matches($0) }
+    }
+
+    /// Pills that actually have something to show — `.all` plus any sport/type
+    /// filter that matches ≥1 entry. Never renders a filter that returns nothing
+    /// (so a baseball athlete never sees a Golf pill, and Practices appears only
+    /// once a practice exists).
+    private var availableFilters: [JournalFilter] {
+        let feed = allEntries
+        return JournalFilter.allCases.filter { option in
+            option == .all || feed.contains { option.matches($0) }
+        }
     }
 
     /// Milestones across every season represented in the feed — feeds the
@@ -125,7 +142,7 @@ struct JournalView: View {
                 // offering a "Golf" filter over an empty page.
                 if hasAnyContent {
                     PPFilterPillRow(
-                        options: JournalFilter.allCases,
+                        options: availableFilters,
                         title: { $0.title },
                         selection: $filter
                     )
@@ -150,6 +167,12 @@ struct JournalView: View {
             .padding(.vertical, .spacingLarge)
         }
         .background(Theme.surface)
+        .onChange(of: availableFilters) { _, newValue in
+            // If the active pill no longer has any matching entries (e.g. the
+            // last highlight was un-starred), fall back to All so the feed
+            // doesn't strand on an empty filter whose pill has disappeared.
+            if !newValue.contains(filter) { filter = .all }
+        }
         .navigationTitle("The Journal.")
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
@@ -296,6 +319,7 @@ struct JournalView: View {
         case .all:        return "Nothing here yet."
         case .games:      return "No \(eventNoun.lowercased())s logged yet."
         case .golf:       return "No golf rounds yet."
+        case .practices:  return "No practices logged yet."
         case .highlights: return "No highlights yet — star a clip to add one."
         }
     }
@@ -305,6 +329,7 @@ struct JournalView: View {
         case .all:        return "tray"
         case .games:      return activeSport == .golf ? "figure.golf" : "baseball"
         case .golf:       return "figure.golf"
+        case .practices:  return "figure.run"
         case .highlights: return "star"
         }
     }

@@ -14,6 +14,7 @@ enum JournalFilter: String, CaseIterable, Identifiable {
     case all
     case games
     case golf
+    case practices
     case highlights
 
     var id: String { rawValue }
@@ -23,7 +24,28 @@ enum JournalFilter: String, CaseIterable, Identifiable {
         case .all:        return "All"
         case .games:      return "Games"
         case .golf:       return "Golf"
+        case .practices:  return "Practices"
         case .highlights: return "Highlights"
+        }
+    }
+
+    /// Whether a feed entry belongs under this filter. `.games` is baseball/
+    /// softball games only (golf rounds live under `.golf`) so the two pills
+    /// never overlap; `.practices` is any practice; `.highlights` cross-cuts.
+    func matches(_ entry: JournalEntry) -> Bool {
+        switch self {
+        case .all:
+            return true
+        case .games:
+            if case .game = entry { return !entry.isGolf }
+            return false
+        case .golf:
+            return entry.isGolf
+        case .practices:
+            if case .practice = entry { return true }
+            return false
+        case .highlights:
+            return entry.containsHighlight
         }
     }
 }
@@ -46,7 +68,7 @@ enum JournalFeedBuilder {
         entries.append(contentsOf: orphanClips.map(JournalEntry.clip))
 
         return entries
-            .filter { matches($0, filter) }
+            .filter { filter.matches($0) }
             .sorted { $0.date > $1.date }
     }
 
@@ -54,19 +76,5 @@ enum JournalFeedBuilder {
     /// feed row (parented clips are counted inside their parent entry).
     static func orphans(from clips: [VideoClip]) -> [VideoClip] {
         clips.filter { $0.game == nil && $0.practice == nil }
-    }
-
-    private static func matches(_ entry: JournalEntry, _ filter: JournalFilter) -> Bool {
-        switch filter {
-        case .all:
-            return true
-        case .games:
-            if case .game = entry { return true }
-            return false
-        case .golf:
-            return entry.isGolf
-        case .highlights:
-            return entry.containsHighlight
-        }
     }
 }
