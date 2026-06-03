@@ -288,81 +288,10 @@ struct GamesView: View {
         return keyOrder.map { ($0, bucketsByKey[$0] ?? []) }
     }
 
-    private var gamesSummary: String? {
-        // Only show at scale — for 1–2 games, the row card already conveys everything.
-        guard cachedCompletedGames.count >= 3 else { return nil }
-
-        let n = cachedCompletedGames.count
-        var parts: [String] = []
-
-        if isGolf {
-            // Only complete rounds count; value derives from per-hole rows when present.
-            let scored = cachedCompletedGames
-                .filter { $0.isGolfRoundScored }
-                .compactMap { $0.effectiveTotalScore }
-            guard !scored.isEmpty else { return nil }
-            let total = scored.reduce(0, +)
-            let avg = Double(total) / Double(scored.count)
-            let best = scored.min() ?? 0
-            let roundWord = n == 1 ? "round" : "rounds"
-            parts.append("\(n) \(roundWord)")
-            parts.append("avg \(String(format: "%.1f", avg))")
-            parts.append("best \(best)")
-        } else {
-            let withStats = cachedCompletedGames.compactMap { $0.gameStats }
-            guard !withStats.isEmpty else { return nil }
-
-            let totalAB = withStats.reduce(0) { $0 + $1.atBats }
-            let totalH  = withStats.reduce(0) { $0 + $1.hits }
-            let totalHR = withStats.reduce(0) { $0 + $1.homeRuns }
-            let totalPitches = withStats.reduce(0) { $0 + $1.totalPitches }
-            let totalK = withStats.reduce(0) { $0 + $1.pitchingStrikeouts }
-            let totalBB = withStats.reduce(0) { $0 + $1.pitchingWalks }
-
-            let gameWord = n == 1 ? "game" : "games"
-            parts.append("\(n) \(gameWord)")
-
-            if totalAB > 0 {
-                let avg = StatisticsService.shared.formatBattingAverage(Double(totalH) / Double(totalAB))
-                parts.append(avg)
-                if totalHR > 0 { parts.append("\(totalHR) HR") }
-                // RBI intentionally omitted — derivable-stats-only (no game context).
-            } else if totalPitches > 0 {
-                parts.append("\(totalK) K")
-                parts.append("\(totalBB) BB")
-                parts.append("\(totalPitches) P")
-            }
-        }
-
-        if let seasonID = selectedSeasonFilter {
-            if seasonID == "no_season" {
-                parts.append("No Season")
-            } else if let s = cachedAvailableSeasons.first(where: { $0.id.uuidString == seasonID }) {
-                parts.append(s.displayName)
-            }
-        }
-
-        return parts.joined(separator: " · ")
-    }
-    
     // MARK: - Sub-views
     
     @ViewBuilder
     private var gamesListContent: some View {
-        if let summary = gamesSummary {
-            HStack(spacing: 6) {
-                Text(summary)
-                    .font(.bodySmall)
-                    .foregroundStyle(Theme.textSecondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
-                Spacer(minLength: 0)
-            }
-            .listRowBackground(Color.clear)
-            .listRowSeparator(.hidden)
-            .listRowInsets(EdgeInsets(top: 0, leading: 4, bottom: 0, trailing: 4))
-        }
-
         // Tournaments Section (golf only) — multi-round containers above the
         // standalone rounds. Sorted newest-first by the @Query (SchemaV27).
         if isGolf && !visibleTournaments.isEmpty {

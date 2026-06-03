@@ -39,20 +39,39 @@ struct AthleteClipReviewDetail: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: .spacingLarge) {
-                    headline
-                    if hasCoachReview { coachReviewCard }
-                    if !cueTags.isEmpty { cueStrip }
-                }
-                .padding(.horizontal, .spacingLarge)
-                .padding(.top, .spacingLarge)
-                .padding(.bottom, .spacingMedium)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            // Sparse clips (no coach review, no cues) hug their content so the
+            // video above takes the freed space. Only scroll when there's
+            // genuinely tall content that can overflow the parent's height cap.
+            if hasExpandableContent {
+                ScrollView { contentStack }
+            } else {
+                contentStack
             }
             bottomBar
         }
+        // Cap height (and let the inner ScrollView take over) only when there's
+        // tall coach content. Sparse clips stay uncapped so the panel hugs its
+        // caption-sized content and the video above absorbs the freed space.
+        .frame(maxHeight: hasExpandableContent ? 380 : nil, alignment: .top)
         .background(Theme.surface)
+    }
+
+    /// True when the panel holds content that can grow past the parent's
+    /// height cap and therefore needs to scroll.
+    private var hasExpandableContent: Bool {
+        hasCoachReview || !cueTags.isEmpty
+    }
+
+    private var contentStack: some View {
+        VStack(alignment: .leading, spacing: .spacingLarge) {
+            headline
+            if hasCoachReview { coachReviewCard }
+            if !cueTags.isEmpty { cueStrip }
+        }
+        .padding(.horizontal, .spacingLarge)
+        .padding(.top, .spacingLarge)
+        .padding(.bottom, .spacingMedium)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Headline

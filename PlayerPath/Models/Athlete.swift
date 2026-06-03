@@ -111,6 +111,24 @@ final class Athlete {
         Season.SportType(rawValue: (sport ?? .baseball).rawValue.capitalized) ?? .baseball
     }
 
+    /// Distinct sports already covered by this person's linked profiles (same
+    /// `personGroupID`, falling back to `id` for ungrouped singletons). Each
+    /// profile is one sport, so multi-sport people are modeled as spinoff
+    /// profiles — this is the canonical "what sports does this person play" set.
+    var personGroupSports: Set<Season.SportType> {
+        let groupID = personGroupID ?? id
+        return Set((user?.athletes ?? [])
+            .filter { ($0.personGroupID ?? $0.id) == groupID }
+            .map(\.sportType))
+    }
+
+    /// True while the person's group is still missing at least one supported
+    /// sport — gates the "Add a sport" CTA so it hides once every sport has a
+    /// profile. Also the natural per-person cap on spinoff profiles.
+    var canAddSportProfile: Bool {
+        personGroupSports.count < Season.SportType.allCases.count
+    }
+
     init(name: String) {
         self.id = UUID()
         self.name = name

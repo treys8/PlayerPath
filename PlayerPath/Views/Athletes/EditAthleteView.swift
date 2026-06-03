@@ -16,7 +16,7 @@ struct EditAthleteView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Environment(\.ppAccent) private var ppAccent
-    @State private var showingCreateSeason = false
+    @State private var showingAddSportProfile = false
 
     /// Sports this athlete tracks — distinct seasons' sports, falling back to
     /// the athlete's primary-sport hint. Mirrors AthleteCard.athleteSports.
@@ -28,14 +28,6 @@ struct EditAthleteView: View {
             return [hint]
         }
         return [.baseball]
-    }
-
-    /// First sport in `Season.SportType.allCases` the athlete doesn't yet have
-    /// — pre-selects the sport picker in CreateSeasonView from "Add a sport".
-    /// nil when the athlete already plays every supported sport.
-    private var nextMissingSport: Season.SportType? {
-        let present = Set(currentSports)
-        return Season.SportType.allCases.first { !present.contains($0) }
     }
 
     var body: some View {
@@ -52,15 +44,17 @@ struct EditAthleteView: View {
                             .clipShape(Capsule())
                     }
                 }
-                Button {
-                    showingCreateSeason = true
-                } label: {
-                    Label("Add a sport", systemImage: "plus.circle.fill")
+                if athlete.canAddSportProfile {
+                    Button {
+                        showingAddSportProfile = true
+                    } label: {
+                        Label("Add a sport", systemImage: "plus.circle.fill")
+                    }
                 }
             } header: {
                 Text("Sports")
             } footer: {
-                Text("Each season belongs to one sport. Add a season in another sport to track that sport for this athlete.")
+                Text("Each profile tracks one sport. Adding a sport creates a separate linked profile — it shares your subscription slot, with its own seasons and stats.")
             }
 
             Section {
@@ -76,8 +70,12 @@ struct EditAthleteView: View {
         .tint(ppAccent)
         .navigationTitle(athlete.name)
         .navigationBarTitleDisplayMode(.inline)
-        .sheet(isPresented: $showingCreateSeason) {
-            CreateSeasonView(athlete: athlete, initialSport: nextMissingSport)
+        .sheet(isPresented: $showingAddSportProfile) {
+            NavigationStack {
+                AddSportProfileSheet(sourceAthlete: athlete)
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
         }
         .onChange(of: athlete.trackStatsEnabled) { _, _ in
             // Mark dirty immediately so the change is captured regardless of

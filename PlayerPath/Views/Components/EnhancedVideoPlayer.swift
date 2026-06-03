@@ -26,6 +26,10 @@ struct EnhancedVideoPlayer: View {
     @State private var durationLoaded = false
     @State private var isDragging = false
     @State private var playbackSpeed: PlaybackSpeed = .normal
+    /// Portrait speed control collapses to a single current-speed chip and
+    /// expands to the full pill row on tap. Landscape keeps its own compact
+    /// cycling capsule and ignores this.
+    @State private var speedExpanded = false
     @State private var showControls = true
     @State private var timeObserver: Any?
     /// The AVPlayer that `timeObserver` was added to. Tracked separately from
@@ -52,9 +56,17 @@ struct EnhancedVideoPlayer: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .bottom) {
-                VideoPlayerRepresentable(player: player)
+                VideoPlayerRepresentable(
+                    player: player,
+                    videoGravity: isLandscape ? .resizeAspect : .resizeAspectFill
+                )
                     .scaleEffect(zoomScale, anchor: .center)
                     .offset(panOffset)
+                    // Edge-to-edge in landscape: the video fills the physical
+                    // screen (notch + home-indicator regions). Controls below
+                    // stay inside the safe area so nothing tucks under the
+                    // notch. No-op in portrait, which keeps its existing layout.
+                    .ignoresSafeArea(edges: isLandscape ? .all : [])
 
                 gestureLayer(geometry: geometry)
 
@@ -327,28 +339,49 @@ struct EnhancedVideoPlayer: View {
 
     // MARK: - Speed Controls
 
+    /// Portrait speed control. Collapsed by default to a single chip showing
+    /// the current speed (accented when not 1× so slow-mo reads at a glance);
+    /// tapping it reveals the full pill row, and choosing a speed collapses it
+    /// again. Keeps slow-mo a first-class on-screen affordance without four
+    /// pills competing for attention on a resting screen.
+    @ViewBuilder
     private var speedControlsView: some View {
-        HStack(spacing: 8) {
-            Text("Speed:")
-                .font(.bodySmall)
-                .foregroundColor(.white.opacity(0.7))
-
-            ForEach(PlaybackSpeed.allCases, id: \.self) { speed in
-                Button {
-                    setPlaybackSpeed(speed)
-                    showControlsTemporarily()
-                } label: {
-                    Text(speed.displayName)
-                        .font(playbackSpeed == speed ? .custom("Inter18pt-Bold", size: 12, relativeTo: .caption) : .bodySmall)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(playbackSpeed == speed ? ppAccent : Color.white.opacity(0.2))
-                        .foregroundColor(.white)
-                        .cornerRadius(8)
+        if speedExpanded {
+            HStack(spacing: 8) {
+                ForEach(PlaybackSpeed.allCases, id: \.self) { speed in
+                    Button {
+                        setPlaybackSpeed(speed)
+                        withAnimation { speedExpanded = false }
+                        showControlsTemporarily()
+                    } label: {
+                        Text(speed.displayName)
+                            .font(playbackSpeed == speed ? .custom("Inter18pt-Bold", size: 12, relativeTo: .caption) : .bodySmall)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(playbackSpeed == speed ? ppAccent : Color.white.opacity(0.2))
+                            .foregroundColor(.white)
+                            .cornerRadius(8)
+                    }
+                    .accessibilityLabel("Speed \(speed.displayName)")
+                    .accessibilityAddTraits(playbackSpeed == speed ? .isSelected : [])
                 }
-                .accessibilityLabel("Speed \(speed.displayName)")
-                .accessibilityAddTraits(playbackSpeed == speed ? .isSelected : [])
             }
+        } else {
+            Button {
+                withAnimation { speedExpanded = true }
+                showControlsTemporarily()
+            } label: {
+                Text(playbackSpeed.displayName)
+                    .font(.custom("Inter18pt-SemiBold", size: 12, relativeTo: .caption))
+                    .monospacedDigit()
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 6)
+                    .background(playbackSpeed == .normal ? Color.white.opacity(0.2) : ppAccent)
+                    .foregroundColor(.white)
+                    .clipShape(Capsule())
+            }
+            .accessibilityLabel("Playback speed \(playbackSpeed.displayName)")
+            .accessibilityHint("Double tap to change speed")
         }
     }
 
@@ -557,17 +590,23 @@ enum PlaybackSpeed: CaseIterable, Equatable {
 
 struct VideoPlayerRepresentable: UIViewControllerRepresentable {
     let player: AVPlayer
+    /// How the video fills its bounds. Portrait uses `.resizeAspectFill` for an
+    /// immersive crop (only the sides are lost, full height kept); iPhone
+    /// landscape uses `.resizeAspect` so a wide screen never crops the top/
+    /// bottom of a 16:9 clip (which would cut off a batter's head).
+    var videoGravity: AVLayerVideoGravity = .resizeAspectFill
 
     func makeUIViewController(context: Context) -> AVPlayerViewController {
         let controller = AVPlayerViewController()
         controller.player = player
         controller.showsPlaybackControls = false // Use custom controls
-        controller.videoGravity = .resizeAspectFill
+        controller.videoGravity = videoGravity
         return controller
     }
 
     func updateUIViewController(_ uiViewController: AVPlayerViewController, context: Context) {
-        // No updates needed
+        // Keep gravity in sync on rotation (size-class change re-renders this).
+        uiViewController.videoGravity = videoGravity
     }
 }
 

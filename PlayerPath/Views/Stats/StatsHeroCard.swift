@@ -23,11 +23,11 @@ struct StatsHeroCard: View {
                 Text("\(label) · \(statistics.totalGames.pluralized("Game"))")
                     .smallCapsLabel()
                 HStack(alignment: .firstTextBaseline, spacing: .spacingSmall) {
-                    slashValue(svc.formatBattingAverage(statistics.battingAverage))
+                    slashValue(svc.formatBattingAverage(statistics.battingAverage), label: "AVG")
                     slash
-                    slashValue(svc.formatPercentage(statistics.onBasePercentage))
+                    slashValue(svc.formatPercentage(statistics.onBasePercentage), label: "OBP")
                     slash
-                    slashValue(svc.formatBattingAverage(statistics.sluggingPercentage))
+                    slashValue(svc.formatBattingAverage(statistics.sluggingPercentage), label: "SLG")
                 }
             }
 
@@ -48,11 +48,14 @@ struct StatsHeroCard: View {
         .ppCard()
     }
 
-    private func slashValue(_ text: String) -> some View {
-        Text(text)
-            .font(.ppStat(34))
-            .foregroundStyle(Theme.textPrimary)
-            .monospacedDigit()
+    private func slashValue(_ text: String, label: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(text)
+                .font(.ppStat(34))
+                .foregroundStyle(Theme.textPrimary)
+                .monospacedDigit()
+            Text(label).smallCapsLabel(color: Theme.textTertiary)
+        }
     }
 
     private var slash: some View {

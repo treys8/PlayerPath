@@ -34,6 +34,9 @@ struct VideoPlayerView: View {
     @State private var saveErrorMessage: String?
     @State private var isSavingToPhotos = false
     @State private var videoDuration: Double?
+    /// Friendly-named share URL (e.g. "Double - Apr 22, 2026.mov"), computed
+    /// once the local file is confirmed present. nil hides Share.
+    @State private var shareURL: URL?
 
     // Coach-annotation playback state — only populated when
     // `clip.sourceCoachVideoID` is set (clip was saved from a coach's shared
@@ -121,8 +124,8 @@ struct VideoPlayerView: View {
         }
         .disabled(isSavingToPhotos)
 
-        if FileManager.default.fileExists(atPath: clip.resolvedFilePath) {
-            ShareLink(item: clip.resolvedFileURL) {
+        if let shareURL {
+            ShareLink(item: shareURL) {
                 Label("Share Video", systemImage: "square.and.arrow.up")
             }
         }
@@ -525,9 +528,8 @@ struct VideoPlayerView: View {
                             isHighlight: clip.isHighlight,
                             onToggleHighlight: toggleHighlight,
                             onSave: { saveToPhotos() },
-                            shareURL: FileManager.default.fileExists(atPath: clip.resolvedFilePath) ? clip.resolvedFileURL : nil
+                            shareURL: shareURL
                         )
-                        .frame(maxHeight: 380)
                     }
                 }
 
@@ -555,6 +557,9 @@ struct VideoPlayerView: View {
         }
         .task(id: clip.version) {
             await setupPlayer()
+            // Build the friendly-named share link now that the local file is
+            // (down)loaded. Recomputed on version change (e.g. after a re-trim).
+            shareURL = clip.makeShareURL()
             // Coach-annotation + aspect-ratio loading is only meaningful for
             // clips saved from a coach's shared folder — gated internally.
             loadCoachAnnotationsIfNeeded()
