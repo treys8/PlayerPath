@@ -56,13 +56,14 @@ struct AthleteOnboardingFlow: View {
                     VStack(spacing: 16) {
                         Text("Welcome to PlayerPath!")
                             .font(.displayLarge)
+                            .foregroundColor(Theme.textPrimary)
                             .multilineTextAlignment(.center)
                             .minimumScaleFactor(0.8)
                             .accessibilityAddTraits(.isHeader)
 
                         Text("We'll get you set up in 3 quick steps")
                             .font(.bodyLarge)
-                            .foregroundColor(.secondary)
+                            .foregroundColor(Theme.textSecondary)
                             .multilineTextAlignment(.center)
                             .padding(.horizontal)
                     }
@@ -72,28 +73,26 @@ struct AthleteOnboardingFlow: View {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Here's what's next:")
                         .font(.headingLarge)
+                        .foregroundColor(Theme.textPrimary)
                         .padding(.bottom, 4)
                         .accessibilityAddTraits(.isHeader)
 
                     FeatureHighlight(
                         icon: "person.crop.circle.badge.plus",
                         title: "Create an Athlete Profile",
-                        description: "Add your player's name to start tracking",
-                        color: .brandNavy
+                        description: "Add your player's name to start tracking"
                     )
 
                     FeatureHighlight(
                         icon: "calendar.badge.plus",
                         title: "Set Up Your Season",
-                        description: "Organize seasons and track stats over time",
-                        color: .brandNavy
+                        description: "Organize seasons and track stats over time"
                     )
 
                     FeatureHighlight(
                         icon: "icloud.and.arrow.up",
                         title: "Choose Backup Settings",
-                        description: "Keep your videos safe in the cloud",
-                        color: .brandNavy
+                        description: "Keep your videos safe in the cloud"
                     )
                 }
                 .padding(.horizontal)
@@ -113,14 +112,14 @@ struct AthleteOnboardingFlow: View {
                         .frame(height: 58)
                         .background(
                             LinearGradient(
-                                colors: [Color.brandNavy, Color.brandNavy.opacity(0.85)],
+                                colors: [ppAccent, ppAccent.opacity(0.85)],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
                             )
                         )
                         .foregroundColor(.white)
                         .cornerRadius(16)
-                        .shadow(color: Color.brandNavy.opacity(0.4), radius: 12, x: 0, y: 6)
+                        .shadow(color: ppAccent.opacity(0.4), radius: 12, x: 0, y: 6)
                     }
                     .buttonStyle(.plain)
                     .disabled(isCompleting)
@@ -130,13 +129,14 @@ struct AthleteOnboardingFlow: View {
 
                     Text("Takes less than 2 minutes")
                         .font(.bodySmall)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(Theme.textSecondary)
                 }
                 .padding(.horizontal)
 
                 Spacer()
             }
             .padding()
+            .background(Theme.surface, ignoresSafeAreaEdges: .all)
             .toolbar(.hidden, for: .navigationBar)
             .alert("Setup Failed", isPresented: $showingError) {
                 Button("OK", role: .cancel) {}

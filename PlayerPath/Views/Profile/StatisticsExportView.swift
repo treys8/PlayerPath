@@ -13,6 +13,7 @@ struct StatisticsExportView: View {
     let athletes: [Athlete]
 
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.ppAccent) private var ppAccent
 
     @State private var selectedAthlete: Athlete?
     @State private var selectedReportType: ReportType = .athleteStatistics
@@ -86,7 +87,7 @@ struct StatisticsExportView: View {
 
                     HStack {
                         Image(systemName: selectedFormat.icon)
-                            .foregroundColor(.blue)
+                            .foregroundColor(ppAccent)
                         Text(selectedFormat.description)
                             .font(.bodySmall)
                             .foregroundColor(.secondary)
@@ -138,7 +139,7 @@ struct StatisticsExportView: View {
                                 .foregroundColor(.secondary)
                             Text(selectedFormat.rawValue.uppercased())
                                 .font(.custom("Inter18pt-Bold", size: 17, relativeTo: .body))
-                                .foregroundColor(selectedFormat == .pdf ? .red : .green)
+                                .foregroundColor(ppAccent)
                         }
                     }
                     .padding(.vertical, 8)
@@ -186,6 +187,9 @@ struct StatisticsExportView: View {
                 }
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(Theme.surface)
+        .tint(ppAccent)
         .navigationTitle("Export Statistics")
         .onChange(of: selectedAthlete) { _, newAthlete in
             let golf = newAthlete?.sport == .golf

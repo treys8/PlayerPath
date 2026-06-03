@@ -49,7 +49,6 @@ struct DashboardView: View {
     /// Set by LiveGameCard's "Score Hole X" CTA; presents ScoreHoleSheet for
     /// the targeted (game, holeNumber). Cleared on dismissal.
     @State private var liveScoreTarget: LiveScoreTarget? = nil
-    private let athletePickerTip = AthletePickerTip()
 
     // Cached computed values to avoid recalculation during body evaluation
     @State private var seasonRecommendation: SeasonManager.SeasonRecommendation = .ok
@@ -224,7 +223,6 @@ struct DashboardView: View {
                                             object: ath
                                         )
                                         Haptics.light()
-                                        athletePickerTip.invalidate(reason: .actionPerformed)
                                     } label: {
                                         Label {
                                             HStack(spacing: 6) {
@@ -249,7 +247,6 @@ struct DashboardView: View {
                                     object: ath
                                 )
                                 Haptics.light()
-                                athletePickerTip.invalidate(reason: .actionPerformed)
                             } label: {
                                 Label {
                                     HStack(spacing: 6) {
@@ -288,7 +285,6 @@ struct DashboardView: View {
                 } label: {
                     AthletePickerLabel(name: athlete.name, initials: athleteInitials)
                 }
-                .onboardingTip(athletePickerTip, arrowEdge: .top, also: (user.athletes?.count ?? 0) > 1)
             }
 
             ToolbarItem(placement: .navigationBarTrailing) {

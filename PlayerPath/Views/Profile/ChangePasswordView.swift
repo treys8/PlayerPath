@@ -13,6 +13,7 @@ import FirebaseAuth
 struct ChangePasswordView: View {
     let email: String
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.ppAccent) private var ppAccent
     @State private var isSending = false
     @State private var emailSent = false
     @State private var errorMessage = ""
@@ -24,7 +25,7 @@ struct ChangePasswordView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     Image(systemName: "lock.rotation")
                         .font(.largeTitle)
-                        .foregroundColor(.brandNavy)
+                        .foregroundColor(ppAccent)
 
                     Text("Change Password")
                         .font(.displayMedium)
@@ -75,6 +76,9 @@ struct ChangePasswordView: View {
                 }
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(Theme.surface)
+        .tint(ppAccent)
         .navigationTitle("Change Password")
         .navigationBarTitleDisplayMode(.inline)
         .alert("Unable to Send", isPresented: $showError) {

@@ -71,7 +71,10 @@ struct PlayerPathApp: App {
     init() {
         do {
             try Tips.configure([
-                .displayFrequency(.immediate),
+                // .daily (not .immediate) so multiple tips eligible on the same
+                // screen — e.g. Photos' layout-toggle + first-cell options tips —
+                // don't pop back-to-back. MaxDisplayCount(1) still shows each once.
+                .displayFrequency(.daily),
                 .datastoreLocation(.applicationDefault)
             ])
         } catch {

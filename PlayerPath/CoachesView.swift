@@ -13,6 +13,7 @@ import SwiftData
 struct CoachesView: View {
     let athlete: Athlete
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.ppAccent) private var ppAccent
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
 
     @State private var showingAddCoach = false
@@ -70,25 +71,26 @@ struct CoachesView: View {
                                 HStack {
                                     Image(systemName: "person.badge.plus")
                                         .font(.title2)
-                                        .foregroundColor(.brandNavy)
+                                        .foregroundColor(ppAccent)
 
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text("Invite a Coach")
-                                            .font(.headline)
-                                            .foregroundColor(.primary)
+                                            .font(.headingMedium)
+                                            .foregroundColor(Theme.textPrimary)
                                         Text("Share videos and get feedback")
                                             .font(.caption)
-                                            .foregroundColor(.secondary)
+                                            .foregroundColor(Theme.textSecondary)
                                     }
 
                                     Spacer()
 
                                     Image(systemName: "chevron.right")
-                                        .foregroundColor(.gray)
+                                        .foregroundColor(Theme.textTertiary)
                                 }
                                 .padding(.vertical, 4)
                             }
                         }
+                        .listRowBackground(Theme.card)
                     }
 
                     Section("Your Coaches") {
@@ -96,6 +98,7 @@ struct CoachesView: View {
                             NavigationLink(destination: CoachDetailView(coach: coach, athlete: athlete)) {
                                 CoachRow(coach: coach)
                             }
+                            .listRowBackground(Theme.card)
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                 Button(role: .destructive) {
                                     Haptics.warning()
@@ -120,12 +123,14 @@ struct CoachesView: View {
                                     } label: {
                                         Label("Re-invite", systemImage: "paperplane")
                                     }
-                                    .tint(Color.brandNavy)
+                                    .tint(ppAccent)
                                 }
                             }
                         }
                     }
                 }
+                .scrollContentBackground(.hidden)
+                .background(Theme.surface)
             }
         }
         .onAppear { AnalyticsService.shared.trackScreenView(screenName: "Coaches", screenClass: "CoachesView") }

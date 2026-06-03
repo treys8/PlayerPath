@@ -13,11 +13,16 @@
 //
 
 import SwiftUI
+import TipKit
 
 struct PPAthleteSwitcher: View {
     let athlete: Athlete
 
     @Environment(\.ppAccent) private var ppAccent
+
+    /// "Switch athletes" onboarding hint. Stored (not inline) so the profile
+    /// buttons can `.invalidate` it once the user actually switches.
+    private let athletePickerTip = AthletePickerTip()
 
     /// The user's full roster (same source AthleteSelectionView reads).
     private var roster: [Athlete] {
@@ -74,6 +79,8 @@ struct PPAthleteSwitcher: View {
         }
         .accessibilityLabel("Active athlete: \(athlete.name)")
         .accessibilityHint("Switch athlete or sport profile")
+        // Only hint when there's more than one profile to switch between.
+        .onboardingTip(athletePickerTip, arrowEdge: .top, also: roster.count > 1)
     }
 
     @ViewBuilder
@@ -82,6 +89,7 @@ struct PPAthleteSwitcher: View {
         Button {
             guard !isActive else { return }
             NotificationCenter.default.post(name: .switchAthlete, object: profile)
+            athletePickerTip.invalidate(reason: .actionPerformed)
         } label: {
             Label(rowTitle(profile),
                   systemImage: isActive ? "checkmark" : (profile.sport ?? .baseball).icon)

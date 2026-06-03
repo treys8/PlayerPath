@@ -22,6 +22,11 @@ struct OnboardingSeasonCreationView: View {
     @State private var showingError = false
     @State private var errorMessage = ""
 
+    /// Sport-resolved accent for the selected season sport. `Season.SportType`
+    /// is distinct from `Sport`, so resolve via the golf flag.
+    private var accent: Color { Theme.accent(forGolf: selectedSport == .golf) }
+    private var accentLight: Color { Theme.accentLight(forGolf: selectedSport == .golf) }
+
     // Season name suggestions based on current date
     private var suggestedSeasons: [String] {
         let year = Calendar.current.component(.year, from: startDate)
@@ -49,7 +54,7 @@ struct OnboardingSeasonCreationView: View {
                             Circle()
                                 .fill(
                                     RadialGradient(
-                                        colors: [.green.opacity(0.3), .clear],
+                                        colors: [accent.opacity(0.3), .clear],
                                         center: .center,
                                         startRadius: 20,
                                         endRadius: 80
@@ -62,23 +67,24 @@ struct OnboardingSeasonCreationView: View {
                                 .font(.system(size: 60, weight: .medium))
                                 .foregroundStyle(
                                     LinearGradient(
-                                        colors: [.green, Color.brandNavy],
+                                        colors: [accent, accentLight],
                                         startPoint: .topLeading,
                                         endPoint: .bottomTrailing
                                     )
                                 )
                                 .symbolRenderingMode(.hierarchical)
-                                .shadow(color: .green.opacity(0.4), radius: 15, x: 0, y: 8)
+                                .shadow(color: accent.opacity(0.4), radius: 15, x: 0, y: 8)
                         }
 
                         VStack(spacing: 16) {
                             Text("Set Up Your Season")
                                 .font(.displayLarge)
+                                .foregroundColor(Theme.textPrimary)
                                 .multilineTextAlignment(.center)
 
                             Text("Organize your games and track progress over time")
                                 .font(.bodyLarge)
-                                .foregroundColor(.secondary)
+                                .foregroundColor(Theme.textSecondary)
                                 .multilineTextAlignment(.center)
                                 .padding(.horizontal)
                         }
@@ -88,6 +94,7 @@ struct OnboardingSeasonCreationView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Why Seasons Matter:")
                             .font(.headingLarge)
+                            .foregroundColor(Theme.textPrimary)
                             .padding(.bottom, 2)
 
                         FeatureHighlight(
@@ -118,7 +125,7 @@ struct OnboardingSeasonCreationView: View {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Season Name")
                                 .font(.labelLarge)
-                                .foregroundColor(.secondary)
+                                .foregroundColor(Theme.textSecondary)
 
                             ModernTextField(
                                 placeholder: "e.g. Spring 2026",
@@ -148,8 +155,8 @@ struct OnboardingSeasonCreationView: View {
                                                     .font(.bodyMedium)
                                                     .padding(.horizontal, 12)
                                                     .padding(.vertical, 6)
-                                                    .background(Color.brandNavy.opacity(0.1))
-                                                    .foregroundColor(.brandNavy)
+                                                    .background(accent.opacity(0.1))
+                                                    .foregroundColor(accent)
                                                     .clipShape(Capsule())
                                             }
                                         }
@@ -162,7 +169,7 @@ struct OnboardingSeasonCreationView: View {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Start Date")
                                 .font(.labelLarge)
-                                .foregroundColor(.secondary)
+                                .foregroundColor(Theme.textSecondary)
 
                             DatePicker("", selection: $startDate, displayedComponents: .date)
                                 .datePickerStyle(.compact)
@@ -174,7 +181,7 @@ struct OnboardingSeasonCreationView: View {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Sport")
                                 .font(.labelLarge)
-                                .foregroundColor(.secondary)
+                                .foregroundColor(Theme.textSecondary)
 
                             Picker("Sport", selection: $selectedSport) {
                                 ForEach(Season.SportType.allCases, id: \.self) { sport in
@@ -205,14 +212,14 @@ struct OnboardingSeasonCreationView: View {
                         .frame(height: 58)
                         .background(
                             LinearGradient(
-                                colors: [Color.brandNavy, Color.brandNavy.opacity(0.85)],
+                                colors: [accent, accent.opacity(0.85)],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
                             )
                         )
                         .foregroundColor(.white)
                         .cornerRadius(16)
-                        .shadow(color: Color.brandNavy.opacity(0.4), radius: 12, x: 0, y: 6)
+                        .shadow(color: accent.opacity(0.4), radius: 12, x: 0, y: 6)
                     }
                     .buttonStyle(.plain)
                     .disabled(seasonName.trimmingCharacters(in: .whitespaces).isEmpty || isCreating)
@@ -222,13 +229,15 @@ struct OnboardingSeasonCreationView: View {
                     Button(action: { skipSeasonCreation() }) {
                         Text("Skip for Now")
                             .font(.bodyMedium)
-                            .foregroundColor(.secondary)
+                            .foregroundColor(Theme.textSecondary)
                     }
                     .padding(.bottom, 40)
                 }
                 .padding()
             }
             .scrollDismissesKeyboard(.interactively)
+            .background(Theme.surface, ignoresSafeAreaEdges: .all)
+            .ppAccent(forGolf: selectedSport == .golf)
             .toolbar(.hidden, for: .navigationBar)
             .onAppear {
                 // Default the season's sport to the athlete's primary-sport hint

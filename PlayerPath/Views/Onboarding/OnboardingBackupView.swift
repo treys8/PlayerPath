@@ -19,6 +19,10 @@ struct OnboardingBackupView: View {
     @State private var errorMessage: String?
     @State private var showingError = false
 
+    /// Accent resolved from the athlete's pinned sport (golf → fairway green).
+    private var accent: Color { Theme.accent(for: athlete.sport) }
+    private var accentLight: Color { Theme.accentLight(for: athlete.sport) }
+
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -32,7 +36,7 @@ struct OnboardingBackupView: View {
                             Circle()
                                 .fill(
                                     RadialGradient(
-                                        colors: [Color.brandNavy.opacity(0.3), .clear],
+                                        colors: [accent.opacity(0.3), .clear],
                                         center: .center,
                                         startRadius: 15,
                                         endRadius: 60
@@ -45,23 +49,24 @@ struct OnboardingBackupView: View {
                                 .font(.system(size: 60, weight: .medium))
                                 .foregroundStyle(
                                     LinearGradient(
-                                        colors: [Color.brandNavy, .cyan],
+                                        colors: [accent, accentLight],
                                         startPoint: .topLeading,
                                         endPoint: .bottomTrailing
                                     )
                                 )
                                 .symbolRenderingMode(.hierarchical)
-                                .shadow(color: Color.brandNavy.opacity(0.4), radius: 15, x: 0, y: 8)
+                                .shadow(color: accent.opacity(0.4), radius: 15, x: 0, y: 8)
                         }
 
                         VStack(spacing: 12) {
                             Text("Back Up Your Videos")
                                 .font(.displayLarge)
+                                .foregroundColor(Theme.textPrimary)
                                 .multilineTextAlignment(.center)
 
                             Text("Keep your videos safe in the cloud and access them from anywhere")
                                 .font(.bodyLarge)
-                                .foregroundColor(.secondary)
+                                .foregroundColor(Theme.textSecondary)
                                 .multilineTextAlignment(.center)
                                 .padding(.horizontal)
                         }
@@ -102,14 +107,14 @@ struct OnboardingBackupView: View {
                         .frame(height: 58)
                         .background(
                             LinearGradient(
-                                colors: [Color.brandNavy, Color.brandNavy.opacity(0.85)],
+                                colors: [accent, accent.opacity(0.85)],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
                             )
                         )
                         .foregroundColor(.white)
                         .cornerRadius(16)
-                        .shadow(color: Color.brandNavy.opacity(0.4), radius: 12, x: 0, y: 6)
+                        .shadow(color: accent.opacity(0.4), radius: 12, x: 0, y: 6)
                     }
                     .buttonStyle(.plain)
                     .disabled(isSaving)
@@ -117,13 +122,15 @@ struct OnboardingBackupView: View {
 
                     Text("You can change this anytime in Settings")
                         .font(.bodySmall)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(Theme.textSecondary)
                         .multilineTextAlignment(.center)
                         .padding(.bottom, 20)
                 }
                 .padding(.horizontal)
                 .padding(.top, 16)
             }
+            .background(Theme.surface, ignoresSafeAreaEdges: .all)
+            .ppAccent(for: athlete.sport)
             .toolbar(.hidden, for: .navigationBar)
             .safeAreaInset(edge: .top, spacing: 0) {
                 Rectangle()
@@ -174,6 +181,8 @@ private struct BackupOptionCard: View {
     let isSelected: Bool
     let onSelect: () -> Void
 
+    @Environment(\.ppAccent) private var ppAccent
+
     var body: some View {
         Button(action: onSelect) {
             HStack(spacing: 16) {
@@ -193,18 +202,18 @@ private struct BackupOptionCard: View {
                     HStack(spacing: 6) {
                         Text(mode.displayName)
                             .font(.headingMedium)
-                            .foregroundColor(.primary)
+                            .foregroundColor(Theme.textPrimary)
 
                         if mode == .wifiOnly {
                             Image(systemName: "star.fill")
                                 .font(.system(size: 10))
-                                .foregroundColor(.green)
+                                .foregroundColor(ppAccent)
                         }
                     }
 
                     Text(modeDescription)
                         .font(.bodyMedium)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(Theme.textSecondary)
                         .lineLimit(2)
                 }
 
@@ -213,12 +222,12 @@ private struct BackupOptionCard: View {
                 // Selection indicator
                 ZStack {
                     Circle()
-                        .stroke(isSelected ? Color.brandNavy : Color.gray.opacity(0.3), lineWidth: 2)
+                        .stroke(isSelected ? ppAccent : Theme.pillBorder, lineWidth: 2)
                         .frame(width: 24, height: 24)
 
                     if isSelected {
                         Circle()
-                            .fill(Color.brandNavy)
+                            .fill(ppAccent)
                             .frame(width: 16, height: 16)
                     }
                 }
@@ -226,11 +235,11 @@ private struct BackupOptionCard: View {
             .padding(16)
             .background(
                 RoundedRectangle(cornerRadius: 16)
-                    .fill(isSelected ? Color.brandNavy.opacity(0.08) : Color(.systemGray6))
+                    .fill(isSelected ? ppAccent.opacity(0.08) : Theme.card)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 16)
-                    .stroke(isSelected ? Color.brandNavy : Color.clear, lineWidth: 2)
+                    .stroke(isSelected ? ppAccent : Theme.divider, lineWidth: isSelected ? 2 : 1)
             )
         }
         .buttonStyle(.plain)
@@ -238,17 +247,17 @@ private struct BackupOptionCard: View {
 
     private var iconBackgroundColor: Color {
         switch mode {
-        case .off: return .gray.opacity(0.15)
-        case .wifiOnly: return .brandNavy.opacity(0.15)
-        case .always: return .green.opacity(0.15)
+        case .off: return Theme.textTertiary.opacity(0.15)
+        case .wifiOnly: return ppAccent.opacity(0.15)
+        case .always: return ppAccent.opacity(0.15)
         }
     }
 
     private var iconColor: Color {
         switch mode {
-        case .off: return .gray
-        case .wifiOnly: return .brandNavy
-        case .always: return .green
+        case .off: return Theme.textTertiary
+        case .wifiOnly: return ppAccent
+        case .always: return ppAccent
         }
     }
 

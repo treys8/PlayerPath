@@ -21,7 +21,7 @@ struct WelcomeTutorialView: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            Color(.systemGroupedBackground).ignoresSafeArea()
+            Theme.surface.ignoresSafeArea()
 
             TabView(selection: $currentPage) {
                 ManagerPage(
@@ -51,12 +51,13 @@ struct WelcomeTutorialView: View {
                     .tag(5)
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
+            .ppAccent(for: sport)
 
             // Custom page indicator
             HStack(spacing: 8) {
                 ForEach(0..<totalPages, id: \.self) { index in
                     Capsule()
-                        .fill(index == currentPage ? Color.brandNavy : Color.brandNavy.opacity(0.2))
+                        .fill(index == currentPage ? Theme.accent(for: sport) : Theme.accent(for: sport).opacity(0.2))
                         .frame(width: index == currentPage ? 24 : 8, height: 8)
                         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: currentPage)
                 }
@@ -90,6 +91,8 @@ private struct WalkthroughCTA: View {
     let icon: String
     let action: () -> Void
 
+    @Environment(\.ppAccent) private var ppAccent
+
     var body: some View {
         Button(action: action) {
             HStack(spacing: 10) {
@@ -103,13 +106,13 @@ private struct WalkthroughCTA: View {
             .frame(height: 56)
             .background(
                 LinearGradient(
-                    colors: [.brandNavy, .brandNavy.opacity(0.85)],
+                    colors: [ppAccent, ppAccent.opacity(0.85)],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )
             )
             .clipShape(RoundedRectangle(cornerRadius: 16))
-            .shadow(color: .brandNavy.opacity(0.3), radius: 12, x: 0, y: 6)
+            .shadow(color: ppAccent.opacity(0.3), radius: 12, x: 0, y: 6)
         }
         .buttonStyle(.plain)
         .padding(.horizontal, 24)
@@ -165,13 +168,14 @@ private struct ManagerPage: View {
     let userEmail: String
     let onNext: () -> Void
 
+    @Environment(\.ppAccent) private var ppAccent
     @State private var appeared = false
 
     var body: some View {
         VStack(spacing: 0) {
             Spacer()
 
-            WalkthroughIcon(systemName: "person.fill.checkmark", accentColor: .brandNavy)
+            WalkthroughIcon(systemName: "person.fill.checkmark", accentColor: ppAccent)
                 .scaleEffect(appeared ? 1 : 0.6)
                 .opacity(appeared ? 1 : 0)
                 .animation(.spring(response: 0.6, dampingFraction: 0.7).delay(0.1), value: appeared)
@@ -181,12 +185,12 @@ private struct ManagerPage: View {
             VStack(spacing: 10) {
                 Text("You're the Manager")
                     .font(.custom("Fraunces72pt-Bold", size: 36, relativeTo: .largeTitle))
-                    .foregroundColor(.primary)
+                    .foregroundColor(Theme.textPrimary)
                     .multilineTextAlignment(.center)
 
                 Text("You hold this account. \(Text(athleteName).font(.custom("Inter18pt-SemiBold", size: 17))) is your player — you'll manage their games, videos, and stats.")
                     .font(.bodyLarge)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(Theme.textSecondary)
                     .multilineTextAlignment(.center)
                     .lineSpacing(4)
             }
@@ -201,26 +205,30 @@ private struct ManagerPage: View {
             HStack(spacing: 14) {
                 Image(systemName: "person.crop.circle.fill")
                     .font(.headingLarge)
-                    .foregroundColor(.brandNavy)
+                    .foregroundColor(ppAccent)
                     .frame(width: 40, height: 40)
-                    .background(Color.brandNavy.opacity(0.1))
+                    .background(ppAccent.opacity(0.1))
                     .clipShape(Circle())
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Your Account")
                         .font(.headingSmall)
-                        .foregroundColor(.primary)
+                        .foregroundColor(Theme.textPrimary)
                     Text(userEmail)
                         .font(.bodySmall)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(Theme.textSecondary)
                         .lineLimit(1)
                         .truncationMode(.tail)
                 }
                 Spacer()
             }
             .padding(16)
-            .background(Color(.secondarySystemGroupedBackground))
+            .background(Theme.card)
             .clipShape(RoundedRectangle(cornerRadius: 14))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14)
+                    .strokeBorder(Theme.divider, lineWidth: 1)
+            )
             .padding(.horizontal, 24)
             .offset(y: appeared ? 0 : 20)
             .opacity(appeared ? 1 : 0)
@@ -261,12 +269,12 @@ private struct PlayerReadyPage: View {
             VStack(spacing: 8) {
                 Text("Your Player Is Ready")
                     .font(.custom("Fraunces72pt-Bold", size: 36, relativeTo: .largeTitle))
-                    .foregroundColor(.primary)
+                    .foregroundColor(Theme.textPrimary)
                     .multilineTextAlignment(.center)
 
                 Text("\(Text(athleteName).font(.custom("Inter18pt-SemiBold", size: 17)))'s profile is set up and ready to go.")
                     .font(.bodyLarge)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(Theme.textSecondary)
                     .multilineTextAlignment(.center)
                     .lineSpacing(4)
             }
@@ -289,16 +297,20 @@ private struct PlayerReadyPage: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(athleteName)
                         .font(.headingSmall)
-                        .foregroundColor(.primary)
+                        .foregroundColor(Theme.textPrimary)
                     Text("Athlete Profile")
                         .font(.bodySmall)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(Theme.textSecondary)
                 }
                 Spacer()
             }
             .padding(16)
-            .background(Color(.secondarySystemGroupedBackground))
+            .background(Theme.card)
             .clipShape(RoundedRectangle(cornerRadius: 14))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14)
+                    .strokeBorder(Theme.divider, lineWidth: 1)
+            )
             .padding(.horizontal, 24)
             .offset(y: appeared ? 0 : 20)
             .opacity(appeared ? 1 : 0)
@@ -313,7 +325,7 @@ private struct PlayerReadyPage: View {
                     .font(.subheadline)
                 Text("Have more than one kid? You can add more athletes anytime from Settings.")
                     .font(.bodySmall)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(Theme.textSecondary)
                     .lineSpacing(2)
             }
             .padding(14)
@@ -345,20 +357,21 @@ private struct GameDayPage: View {
     let sport: Sport
     let onNext: () -> Void
 
+    @Environment(\.ppAccent) private var ppAccent
     @State private var appeared = false
 
     private var steps: [(icon: String, color: Color, title: String, detail: String)] {
         if sport == .golf {
             return [
-                ("figure.golf",      .brandNavy, "Open the Tournaments Tab", "This is where every tournament lives."),
-                ("plus.circle.fill", .green,     "Create a Tournament",      "Add the course and date — takes 10 seconds."),
-                ("play.circle.fill", Theme.accent(for: sport),    "Tap Start Round",          "When the round begins, tap Start Round to begin tracking."),
+                ("figure.golf",      ppAccent, "Open the Tournaments Tab", "This is where every tournament lives."),
+                ("plus.circle.fill", ppAccent, "Create a Tournament",      "Add the course and date — takes 10 seconds."),
+                ("play.circle.fill", ppAccent, "Tap Start Round",          "When the round begins, tap Start Round to begin tracking."),
             ]
         }
         return [
-            ("baseball.diamond.bases", .brandNavy, "Open the Games Tab", "This is home base for all your games."),
-            ("plus.circle.fill",       .green,     "Create a Game",      "Add the opponent and date — takes 10 seconds."),
-            ("play.circle.fill",       Theme.accent(for: sport),    "Tap Start Game",     "When the game begins, tap Start Game to begin tracking."),
+            ("baseball.diamond.bases", ppAccent, "Open the Games Tab", "This is home base for all your games."),
+            ("plus.circle.fill",       ppAccent, "Create a Game",      "Add the opponent and date — takes 10 seconds."),
+            ("play.circle.fill",       ppAccent, "Tap Start Game",     "When the game begins, tap Start Game to begin tracking."),
         ]
     }
 
@@ -374,7 +387,7 @@ private struct GameDayPage: View {
         VStack(spacing: 0) {
             Spacer().frame(height: 40)
 
-            WalkthroughIcon(systemName: heroIcon, accentColor: .brandNavy)
+            WalkthroughIcon(systemName: heroIcon, accentColor: ppAccent)
                 .scaleEffect(appeared ? 1 : 0.6)
                 .opacity(appeared ? 1 : 0)
                 .animation(.spring(response: 0.6, dampingFraction: 0.7).delay(0.1), value: appeared)
@@ -384,12 +397,12 @@ private struct GameDayPage: View {
             VStack(spacing: 10) {
                 Text(title)
                     .font(.custom("Fraunces72pt-Bold", size: 36, relativeTo: .largeTitle))
-                    .foregroundColor(.primary)
+                    .foregroundColor(Theme.textPrimary)
                     .multilineTextAlignment(.center)
 
                 Text("Three steps to start tracking.")
                     .font(.bodyLarge)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(Theme.textSecondary)
                     .multilineTextAlignment(.center)
             }
             .offset(y: appeared ? 0 : 20)
@@ -414,7 +427,7 @@ private struct GameDayPage: View {
                             }
                             if index < steps.count - 1 {
                                 Rectangle()
-                                    .fill(Color(.separator))
+                                    .fill(Theme.divider)
                                     .frame(width: 1.5, height: 28)
                             }
                         }
@@ -422,10 +435,10 @@ private struct GameDayPage: View {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(step.title)
                                 .font(.headingSmall)
-                                .foregroundColor(.primary)
+                                .foregroundColor(Theme.textPrimary)
                             Text(step.detail)
                                 .font(.bodySmall)
-                                .foregroundColor(.secondary)
+                                .foregroundColor(Theme.textSecondary)
                                 .lineSpacing(2)
                             if index < steps.count - 1 {
                                 Spacer().frame(height: 20)
@@ -462,6 +475,7 @@ private struct RecordAtBatPage: View {
     let sport: Sport
     let onNext: () -> Void
 
+    @Environment(\.ppAccent) private var ppAccent
     @State private var appeared = false
 
     private var title: String {
@@ -476,7 +490,7 @@ private struct RecordAtBatPage: View {
         VStack(spacing: 0) {
             Spacer()
 
-            WalkthroughIcon(systemName: "video.badge.plus", accentColor: .red)
+            WalkthroughIcon(systemName: "video.badge.plus", accentColor: ppAccent)
                 .scaleEffect(appeared ? 1 : 0.6)
                 .opacity(appeared ? 1 : 0)
                 .animation(.spring(response: 0.6, dampingFraction: 0.7).delay(0.1), value: appeared)
@@ -486,12 +500,12 @@ private struct RecordAtBatPage: View {
             VStack(spacing: 10) {
                 Text(title)
                     .font(.custom("Fraunces72pt-Bold", size: 36, relativeTo: .largeTitle))
-                    .foregroundColor(.primary)
+                    .foregroundColor(Theme.textPrimary)
                     .multilineTextAlignment(.center)
 
                 Text("Tap \(Text("Record").font(.custom("Inter18pt-SemiBold", size: 17))) when your kid \(setupCue). Hit \(Text("Stop").font(.custom("Inter18pt-SemiBold", size: 17))) when the play is over.")
                     .font(.bodyLarge)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(Theme.textSecondary)
                     .multilineTextAlignment(.center)
                     .lineSpacing(4)
             }
@@ -506,15 +520,19 @@ private struct RecordAtBatPage: View {
             HStack(spacing: 14) {
                 Image(systemName: "chart.line.uptrend.xyaxis")
                     .font(.title2)
-                    .foregroundColor(.red)
+                    .foregroundColor(ppAccent)
 
                 Text("Every clip you record becomes a play in their stats.")
                     .font(.labelLarge)
-                    .foregroundColor(.primary)
+                    .foregroundColor(Theme.textPrimary)
             }
             .padding(16)
-            .background(Color(.secondarySystemGroupedBackground))
+            .background(Theme.card)
             .clipShape(RoundedRectangle(cornerRadius: 14))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14)
+                    .strokeBorder(Theme.divider, lineWidth: 1)
+            )
             .padding(.horizontal, 24)
             .offset(y: appeared ? 0 : 20)
             .opacity(appeared ? 1 : 0)
@@ -537,6 +555,7 @@ private struct TagResultPage: View {
     let sport: Sport
     let onNext: () -> Void
 
+    @Environment(\.ppAccent) private var ppAccent
     @State private var appeared = false
 
     private var exampleTags: [(label: String, color: Color)] {
@@ -560,7 +579,7 @@ private struct TagResultPage: View {
         VStack(spacing: 0) {
             Spacer()
 
-            WalkthroughIcon(systemName: "tag.fill", accentColor: .green)
+            WalkthroughIcon(systemName: "tag.fill", accentColor: ppAccent)
                 .scaleEffect(appeared ? 1 : 0.6)
                 .opacity(appeared ? 1 : 0)
                 .animation(.spring(response: 0.6, dampingFraction: 0.7).delay(0.1), value: appeared)
@@ -570,12 +589,12 @@ private struct TagResultPage: View {
             VStack(spacing: 8) {
                 Text("Tag What Happened")
                     .font(.custom("Fraunces72pt-Bold", size: 36, relativeTo: .largeTitle))
-                    .foregroundColor(.primary)
+                    .foregroundColor(Theme.textPrimary)
                     .multilineTextAlignment(.center)
 
                 Text("After each clip, tap what happened. One tap — that's how the app tracks stats for you.")
                     .font(.bodyLarge)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(Theme.textSecondary)
                     .multilineTextAlignment(.center)
                     .lineSpacing(4)
             }
@@ -606,19 +625,19 @@ private struct TagResultPage: View {
             // No scorebook callout
             HStack(spacing: 12) {
                 Image(systemName: "checkmark.circle.fill")
-                    .foregroundColor(.green)
+                    .foregroundColor(ppAccent)
                     .font(.subheadline)
                 Text("No scorebook needed — your tags build the stats automatically.")
                     .font(.bodySmall)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(Theme.textSecondary)
                     .lineSpacing(2)
             }
             .padding(14)
-            .background(Color.green.opacity(0.06))
+            .background(ppAccent.opacity(0.06))
             .clipShape(RoundedRectangle(cornerRadius: 12))
             .overlay(
                 RoundedRectangle(cornerRadius: 12)
-                    .stroke(Color.green.opacity(0.15), lineWidth: 1)
+                    .stroke(ppAccent.opacity(0.15), lineWidth: 1)
             )
             .padding(.horizontal, 24)
             .offset(y: appeared ? 0 : 16)
@@ -662,20 +681,21 @@ private struct BetweenGamesPage: View {
     let sport: Sport
     let onComplete: () -> Void
 
+    @Environment(\.ppAccent) private var ppAccent
     @State private var appeared = false
 
     private var features: [(icon: String, color: Color, title: String, detail: String)] {
         if sport == .golf {
             return [
-                ("chart.bar.fill", .brandNavy, "Check Their Stats",      "Scoring average and more — all calculated from your tags."),
-                ("video.fill",     .purple,    "Review Their Videos",    "Watch their swings back and see their progress."),
-                ("person.2.fill",  Theme.accent(for: sport),    "Share with Their Coach", "Send clips to a swing coach or instructor."),
+                ("chart.bar.fill", ppAccent, "Check Their Stats",      "Scoring average and more — all calculated from your tags."),
+                ("video.fill",     ppAccent, "Review Their Videos",    "Watch their swings back and see their progress."),
+                ("person.2.fill",  ppAccent, "Share with Their Coach", "Send clips to a swing coach or instructor."),
             ]
         }
         return [
-            ("chart.bar.fill",    .brandNavy, "Check Their Stats",      "Batting average and more — all calculated from your tags."),
-            ("video.fill",        .purple,    "Review Their Videos",    "Watch at-bats back and see their progress."),
-            ("person.2.fill",     Theme.accent(for: sport),    "Share with Their Coach", "Send clips to a hitting or pitching instructor."),
+            ("chart.bar.fill",    ppAccent, "Check Their Stats",      "Batting average and more — all calculated from your tags."),
+            ("video.fill",        ppAccent, "Review Their Videos",    "Watch at-bats back and see their progress."),
+            ("person.2.fill",     ppAccent, "Share with Their Coach", "Send clips to a hitting or pitching instructor."),
         ]
     }
 
@@ -695,7 +715,7 @@ private struct BetweenGamesPage: View {
         VStack(spacing: 0) {
             Spacer()
 
-            WalkthroughIcon(systemName: "chart.bar.fill", accentColor: .brandNavy)
+            WalkthroughIcon(systemName: "chart.bar.fill", accentColor: ppAccent)
                 .scaleEffect(appeared ? 1 : 0.6)
                 .opacity(appeared ? 1 : 0)
                 .animation(.spring(response: 0.6, dampingFraction: 0.7).delay(0.1), value: appeared)
@@ -705,12 +725,12 @@ private struct BetweenGamesPage: View {
             VStack(spacing: 10) {
                 Text(title)
                     .font(.custom("Fraunces72pt-Bold", size: 36, relativeTo: .largeTitle))
-                    .foregroundColor(.primary)
+                    .foregroundColor(Theme.textPrimary)
                     .multilineTextAlignment(.center)
 
                 Text(subtitle)
                     .font(.bodyLarge)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(Theme.textSecondary)
                     .multilineTextAlignment(.center)
                     .lineSpacing(4)
             }
@@ -735,10 +755,10 @@ private struct BetweenGamesPage: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(feature.title)
                                 .font(.headingSmall)
-                                .foregroundColor(.primary)
+                                .foregroundColor(Theme.textPrimary)
                             Text(feature.detail)
                                 .font(.bodySmall)
-                                .foregroundColor(.secondary)
+                                .foregroundColor(Theme.textSecondary)
                                 .lineSpacing(2)
                         }
 

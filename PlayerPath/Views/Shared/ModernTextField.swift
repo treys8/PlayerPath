@@ -60,6 +60,7 @@ struct ModernTextField: View {
 
     @FocusState private var internalFocus: Bool
     @State private var showPassword: Bool = false
+    @Environment(\.ppAccent) private var ppAccent
 
     private var isFocused: Bool {
         focusedBinding?.wrappedValue ?? internalFocus
@@ -75,7 +76,7 @@ struct ModernTextField: View {
             if let icon = icon {
                 Image(systemName: icon)
                     .font(.system(size: 18, weight: .medium))
-                    .foregroundColor(isFocused ? .brandNavy : Color(.systemGray2))
+                    .foregroundColor(isFocused ? ppAccent : Color(.systemGray2))
                     .frame(width: 24)
                     .animation(.easeInOut(duration: 0.2), value: isFocused)
             }
@@ -134,9 +135,9 @@ struct ModernTextField: View {
         .padding(.vertical, 14)
         .background(
             RoundedRectangle(cornerRadius: .cornerLarge)
-                .fill(Color(.systemBackground))
+                .fill(Theme.card)
                 .shadow(
-                    color: isFocused ? .brandNavy.opacity(0.15) : .black.opacity(0.04),
+                    color: isFocused ? ppAccent.opacity(0.15) : .black.opacity(0.04),
                     radius: isFocused ? 8 : 4,
                     x: 0,
                     y: isFocused ? 4 : 2
@@ -145,7 +146,7 @@ struct ModernTextField: View {
         .overlay(
             RoundedRectangle(cornerRadius: .cornerLarge)
                 .stroke(
-                    isFocused ? Color.brandNavy : validationState.borderColor,
+                    isFocused ? ppAccent : validationState.borderColor,
                     lineWidth: isFocused ? 2 : 1
                 )
         )

@@ -12,6 +12,7 @@ import FirebaseAuth
 struct EditAccountView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.ppAccent) private var ppAccent
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @State private var username: String
     @State private var email: String
@@ -90,6 +91,9 @@ struct EditAccountView: View {
             }
         }
         .scrollDismissesKeyboard(.interactively)
+        .scrollContentBackground(.hidden)
+        .background(Theme.surface)
+        .tint(ppAccent)
         .navigationTitle("Edit Account")
         .navigationBarTitleDisplayMode(.inline)
         .alert("Unable to Save", isPresented: $showSaveError) {

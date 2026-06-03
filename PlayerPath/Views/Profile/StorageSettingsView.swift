@@ -11,6 +11,7 @@ import SwiftData
 // MARK: - Storage Settings View
 struct StorageSettingsView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.ppAccent) private var ppAccent
     @State private var storageInfo: StorageInfo?
     @State private var appVideosSize: Int64 = 0
     @State private var appThumbnailsSize: Int64 = 0
@@ -115,7 +116,7 @@ struct StorageSettingsView: View {
                         ProgressView()
                     } else {
                         Text(StorageManager.formatBytes(appVideosSize + appThumbnailsSize))
-                            .foregroundColor(.brandNavy)
+                            .foregroundColor(ppAccent)
                             .font(.headingMedium)
                     }
                 }
@@ -175,6 +176,9 @@ struct StorageSettingsView: View {
                     .font(.bodySmall)
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(Theme.surface)
+        .tint(ppAccent)
         .navigationTitle("Storage")
         .navigationBarTitleDisplayMode(.inline)
         .task {
@@ -231,7 +235,7 @@ struct StorageSettingsView: View {
     private func storageColor(for level: StorageInfo.StorageLevel) -> Color {
         switch level {
         case .good: return .green
-        case .moderate: return .brandNavy
+        case .moderate: return ppAccent
         case .low: return Theme.warning
         case .critical: return .red
         }

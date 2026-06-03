@@ -157,21 +157,22 @@ struct AddAthleteView: View {
                             .font(.system(size: 100))
                             .foregroundStyle(
                                 LinearGradient(
-                                    colors: [Color.brandNavy, .green],
+                                    colors: [Theme.accent(for: selectedSport), Theme.accentLight(for: selectedSport)],
                                     startPoint: .topLeading,
                                     endPoint: .bottomTrailing
                                 )
                             )
-                            .shadow(color: Color.brandNavy.opacity(0.3), radius: 10, x: 0, y: 5)
+                            .shadow(color: Theme.accent(for: selectedSport).opacity(0.3), radius: 10, x: 0, y: 5)
 
                         VStack(spacing: 16) {
                             Text("Ready to Track!")
                                 .font(.displayLarge)
+                                .foregroundColor(Theme.textPrimary)
                                 .multilineTextAlignment(.center)
 
                             Text("Enter your athlete's name to get started.")
                                 .font(.bodyLarge)
-                                .foregroundColor(.secondary)
+                                .foregroundColor(Theme.textSecondary)
                                 .multilineTextAlignment(.center)
                                 .padding(.horizontal)
                         }
@@ -179,10 +180,7 @@ struct AddAthleteView: View {
 
                     VStack(spacing: 12) {
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("Sport")
-                                .font(.subheadline)
-                                .fontWeight(.medium)
-                                .foregroundColor(.secondary)
+                            Text("Sport").smallCapsLabel()
                             Picker("Sport", selection: $selectedSport) {
                                 ForEach(Sport.allCases, id: \.self) { sport in
                                     Text(sport.displayName).tag(sport)
@@ -208,10 +206,10 @@ struct AddAthleteView: View {
 
                         VStack(alignment: .leading, spacing: 6) {
                             Toggle("Track statistics for this athlete", isOn: $trackStats)
-                                .tint(.brandNavy)
+                                .tint(Theme.accent(for: selectedSport))
                             Text("Turn off to record and review videos without play-result tagging. You can change this later in athlete settings.")
                                 .font(.bodySmall)
-                                .foregroundColor(.secondary)
+                                .foregroundColor(Theme.textSecondary)
                         }
                         .padding(.horizontal, 4)
 
@@ -231,14 +229,14 @@ struct AddAthleteView: View {
                             .frame(height: 58)
                             .background(
                                 LinearGradient(
-                                    colors: [Color.brandNavy, Color.brandNavy.opacity(0.85)],
+                                    colors: [Theme.accent(for: selectedSport), Theme.accent(for: selectedSport).opacity(0.85)],
                                     startPoint: .topLeading,
                                     endPoint: .bottomTrailing
                                 )
                             )
                             .foregroundColor(.white)
                             .cornerRadius(16)
-                            .shadow(color: Color.brandNavy.opacity(0.4), radius: 12, x: 0, y: 6)
+                            .shadow(color: Theme.accent(for: selectedSport).opacity(0.4), radius: 12, x: 0, y: 6)
                         }
                         .buttonStyle(.plain)
                         .disabled(!isValidAthleteName(athleteName) || isCreatingAthlete)
@@ -251,13 +249,17 @@ struct AddAthleteView: View {
 
                     Text("You can add more athletes later in your profile settings")
                         .font(.bodySmall)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(Theme.textSecondary)
                         .multilineTextAlignment(.center)
                         .padding(.bottom, 40)
                 }
                 .padding()
             }
             .scrollDismissesKeyboard(.interactively)
+            .background(Theme.surface, ignoresSafeAreaEdges: .all)
+            // Resolve the step indicator + any accent readers to the live sport
+            // selection, matching the season/backup steps that follow.
+            .ppAccent(for: selectedSport)
             .onChange(of: isNameFieldFocused) { _, focused in
                 if focused {
                     withAnimation(.easeInOut(duration: 0.3)) {

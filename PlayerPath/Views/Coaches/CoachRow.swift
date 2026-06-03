@@ -12,16 +12,19 @@ import SwiftUI
 struct CoachRow: View {
     let coach: Coach
 
+    @Environment(\.ppAccent) private var ppAccent
+
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: "person.circle.fill")
                 .font(.title2)
-                .foregroundColor(.brandNavy)
+                .foregroundColor(ppAccent)
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
                     Text(coach.name)
-                        .font(.headline)
+                        .font(.headingMedium)
+                        .foregroundColor(Theme.textPrimary)
 
                     // Connection status badge
                     if coach.hasFirebaseAccount {
@@ -63,8 +66,8 @@ struct CoachRow: View {
 
                 if !coach.role.isEmpty {
                     Text(coach.role)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .font(.ppSubheadline)
+                        .foregroundStyle(Theme.textSecondary)
                 }
 
                 if !coach.phone.isEmpty {
@@ -74,7 +77,7 @@ struct CoachRow: View {
                         Text(coach.phone)
                             .font(.caption)
                     }
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Theme.textSecondary)
                 } else if !coach.email.isEmpty {
                     HStack(spacing: 4) {
                         Image(systemName: "envelope.fill")
@@ -84,7 +87,7 @@ struct CoachRow: View {
                             .lineLimit(1)
                             .truncationMode(.tail)
                     }
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Theme.textSecondary)
                 }
             }
 
@@ -94,10 +97,10 @@ struct CoachRow: View {
                 VStack(alignment: .trailing, spacing: 4) {
                     Image(systemName: "folder.badge.person.crop")
                         .font(.title3)
-                        .foregroundColor(.brandNavy)
+                        .foregroundColor(ppAccent)
                     Text("\(coach.sharedFolderIDs.count) folder\(coach.sharedFolderIDs.count == 1 ? "" : "s")")
                         .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Theme.textSecondary)
                 }
             }
         }
@@ -112,20 +115,22 @@ struct EmptyCoachesView: View {
     let onInviteCoach: () -> Void
     let hasCoachingAccess: Bool
 
+    @Environment(\.ppAccent) private var ppAccent
+
     var body: some View {
         VStack(spacing: 24) {
             Spacer()
 
             ZStack {
                 Circle()
-                    .fill(Color.brandNavy.opacity(0.1))
+                    .fill(ppAccent.opacity(0.12))
                     .frame(width: 100, height: 100)
 
                 Image(systemName: "person.2.badge.gearshape")
                     .font(.system(size: 45))
                     .foregroundStyle(
                         LinearGradient(
-                            colors: [Color.brandNavy, Color.brandNavy.opacity(0.8)],
+                            colors: [ppAccent, ppAccent.opacity(0.75)],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         )
@@ -134,12 +139,12 @@ struct EmptyCoachesView: View {
 
             VStack(spacing: 12) {
                 Text("No Coaches Yet")
-                    .font(.title2)
-                    .fontWeight(.bold)
+                    .font(.headingLarge)
+                    .foregroundColor(Theme.textPrimary)
 
                 Text("Add coach contact info or invite coaches to share videos and get feedback")
-                    .font(.body)
-                    .foregroundStyle(.secondary)
+                    .font(.bodyMedium)
+                    .foregroundStyle(Theme.textSecondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 32)
             }
@@ -153,20 +158,23 @@ struct EmptyCoachesView: View {
                         Image(systemName: "paperplane.fill")
                             .font(.title3)
                         Text("Invite Coach to Share")
-                            .fontWeight(.semibold)
+                            .font(.headingMedium)
                         if !hasCoachingAccess {
                             Image(systemName: "crown.fill")
                                 .font(.caption)
-                                .foregroundColor(.yellow)
+                                .foregroundColor(.white.opacity(0.9))
                         }
                     }
                     .frame(maxWidth: .infinity)
                     .frame(height: 54)
-                    .background(Color.brandNavy)
                     .foregroundColor(.white)
-                    .cornerRadius(14)
+                    .background(
+                        RoundedRectangle(cornerRadius: .cornerXLarge, style: .continuous)
+                            .fill(ppAccent)
+                    )
+                    .shadow(color: ppAccent.opacity(0.3), radius: 12, x: 0, y: 6)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(PremiumButtonStyle())
 
                 // Secondary: Add Contact
                 Button(action: onAddCoach) {
@@ -174,19 +182,27 @@ struct EmptyCoachesView: View {
                         Image(systemName: "person.crop.circle.badge.plus")
                             .font(.title3)
                         Text("Add Coach Contact")
-                            .fontWeight(.medium)
+                            .font(.headingMedium)
                     }
                     .frame(maxWidth: .infinity)
                     .frame(height: 54)
-                    .background(Color(.systemGray6))
-                    .foregroundColor(.primary)
-                    .cornerRadius(14)
+                    .foregroundColor(Theme.textPrimary)
+                    .background(
+                        RoundedRectangle(cornerRadius: .cornerXLarge, style: .continuous)
+                            .fill(Theme.card)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: .cornerXLarge, style: .continuous)
+                            .strokeBorder(Theme.divider, lineWidth: 1)
+                    )
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(PremiumButtonStyle())
             }
             .padding(.horizontal, 24)
             .padding(.bottom, 40)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.surface)
     }
 }
 
@@ -194,11 +210,13 @@ struct EmptyCoachesView: View {
 
 /// Converts a Coach's connectionStatusColor string to a SwiftUI Color.
 /// Used by CoachRow, CoachDetailView, and anywhere coach status is displayed.
+/// Retinted to the calm palette: forest green = connected, amber = pending/
+/// attention, system red kept for hard errors.
 func coachStatusColor(for colorName: String) -> Color {
     switch colorName {
-    case "green": return .green
-    case "orange": return .orange
+    case "green": return Theme.chipGreenText
+    case "orange": return Theme.warning
     case "red": return .red
-    default: return .gray
+    default: return Theme.textTertiary
     }
 }

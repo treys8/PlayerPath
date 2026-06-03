@@ -18,6 +18,8 @@ struct WelcomeFlow: View {
     @State private var showingTerms = false
     @State private var showingPrivacyPolicy = false
 
+    @Environment(\.ppAccent) private var ppAccent
+
     var body: some View {
         NavigationStack {
             ScrollView(showsIndicators: false) {
@@ -29,7 +31,7 @@ struct WelcomeFlow: View {
                             Circle()
                                 .fill(
                                     RadialGradient(
-                                        colors: [.red.opacity(0.3), .clear],
+                                        colors: [ppAccent.opacity(0.3), .clear],
                                         center: .center,
                                         startRadius: 20,
                                         endRadius: 80
@@ -42,24 +44,24 @@ struct WelcomeFlow: View {
                                 .font(.system(size: 70, weight: .medium))
                                 .foregroundStyle(
                                     LinearGradient(
-                                        colors: [.red, .red.opacity(0.7), .white],
+                                        colors: [ppAccent, ppAccent.opacity(0.7)],
                                         startPoint: .topLeading,
                                         endPoint: .bottomTrailing
                                     )
                                 )
                                 .symbolRenderingMode(.hierarchical)
-                                .shadow(color: .red.opacity(0.4), radius: 15, x: 0, y: 8)
+                                .shadow(color: ppAccent.opacity(0.4), radius: 15, x: 0, y: 8)
                         }
 
                         VStack(spacing: 8) {
                             Text("PlayerPath")
                                 .font(.displayLarge)
-                                .foregroundColor(.primary)
+                                .foregroundColor(Theme.textPrimary)
                                 .accessibilityAddTraits(.isHeader)
 
                             Text("Your game film. Your stats.\nAutomatically.")
                                 .font(.headingLarge)
-                                .foregroundColor(.primary)
+                                .foregroundColor(Theme.textPrimary)
                                 .multilineTextAlignment(.center)
                                 .fixedSize(horizontal: false, vertical: true)
 
@@ -70,7 +72,7 @@ struct WelcomeFlow: View {
                                 .fontWeight(.semibold)
                                 .textCase(.uppercase)
                                 .tracking(1.5)
-                                .foregroundColor(.secondary)
+                                .foregroundColor(Theme.textSecondary)
                                 .padding(.top, 2)
                                 .accessibilityLabel("Supports baseball, softball, and golf")
                         }
@@ -80,27 +82,24 @@ struct WelcomeFlow: View {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Tag each play as it happens. Stats build themselves.")
                             .font(.bodyMedium)
-                            .foregroundColor(.secondary)
+                            .foregroundColor(Theme.textSecondary)
 
                         FeatureHighlight(
                             icon: "video.circle.fill",
                             title: "Record every rep",
-                            description: "Clip by clip, session by session",
-                            color: .red
+                            description: "Clip by clip, session by session"
                         )
 
                         FeatureHighlight(
                             icon: "chart.line.uptrend.xyaxis.circle.fill",
                             title: "Auto-generated stats",
-                            description: "Stats that build themselves",
-                            color: .brandNavy
+                            description: "Stats that build themselves"
                         )
 
                         FeatureHighlight(
                             icon: "person.2.circle.fill",
                             title: "Share with coaches",
-                            description: "Real-time window into your season",
-                            color: .brandNavy
+                            description: "Real-time window into your season"
                         )
                     }
                     .padding(.horizontal)
@@ -119,14 +118,14 @@ struct WelcomeFlow: View {
                             .frame(height: 58)
                             .background(
                                 LinearGradient(
-                                    colors: [Color.brandNavy, Color.brandNavy.opacity(0.85)],
+                                    colors: [ppAccent, ppAccent.opacity(0.85)],
                                     startPoint: .topLeading,
                                     endPoint: .bottomTrailing
                                 )
                             )
                             .foregroundColor(.white)
                             .cornerRadius(16)
-                            .shadow(color: Color.brandNavy.opacity(0.4), radius: 12, x: 0, y: 6)
+                            .shadow(color: ppAccent.opacity(0.4), radius: 12, x: 0, y: 6)
                         }
                         .buttonStyle(ScaleButtonStyle())
                         .accessibilityLabel("Sign up to get started")
@@ -143,13 +142,13 @@ struct WelcomeFlow: View {
                             }
                             .frame(maxWidth: .infinity)
                             .frame(height: 58)
-                            .background(.ultraThinMaterial)
-                            .foregroundColor(.brandNavy)
+                            .background(Theme.card)
+                            .foregroundColor(ppAccent)
                             .overlay(
                                 RoundedRectangle(cornerRadius: 16)
                                     .stroke(
                                         LinearGradient(
-                                            colors: [Color.brandNavy, Color.brandNavy.opacity(0.6)],
+                                            colors: [ppAccent, ppAccent.opacity(0.6)],
                                             startPoint: .topLeading,
                                             endPoint: .bottomTrailing
                                         ),
@@ -168,16 +167,17 @@ struct WelcomeFlow: View {
                     HStack(spacing: 16) {
                         Button("Terms of Use (EULA)") { showingTerms = true }
                             .font(.bodySmall)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Theme.textSecondary)
                         Button("Privacy Policy") { showingPrivacyPolicy = true }
                             .font(.bodySmall)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Theme.textSecondary)
                     }
                     .padding(.bottom, 8)
                 }
                 .padding(.top, 10)
             }
             .padding()
+            .background(Theme.surface)
             .toolbar(.hidden, for: .navigationBar)
         }
         .sheet(isPresented: $showingTerms) {

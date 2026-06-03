@@ -13,6 +13,7 @@ struct InviteCoachSheet: View {
     let athlete: Athlete
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.ppAccent) private var ppAccent
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
 
     @State private var coachEmail = ""
@@ -41,21 +42,21 @@ struct InviteCoachSheet: View {
                     VStack(spacing: 12) {
                         ZStack {
                             Circle()
-                                .fill(Color.brandNavy.opacity(0.1))
+                                .fill(ppAccent.opacity(0.12))
                                 .frame(width: 80, height: 80)
 
                             Image(systemName: "person.badge.plus")
                                 .font(.system(size: 36))
-                                .foregroundColor(.brandNavy)
+                                .foregroundColor(ppAccent)
                         }
 
                         Text("Invite a Coach")
-                            .font(.title2)
-                            .fontWeight(.bold)
+                            .font(.headingLarge)
+                            .foregroundColor(Theme.textPrimary)
 
                         Text("Share your videos with a coach for feedback and guidance")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
+                            .font(.bodyMedium)
+                            .foregroundColor(Theme.textSecondary)
                             .multilineTextAlignment(.center)
                     }
                     .padding(.top)
@@ -65,12 +66,11 @@ struct InviteCoachSheet: View {
                         // Coach Name
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Coach's Name")
-                                .font(.subheadline)
-                                .fontWeight(.medium)
-                                .foregroundColor(.secondary)
+                                .font(.headingSmall)
+                                .foregroundColor(Theme.textSecondary)
 
                             TextField("Enter coach's name", text: $coachName)
-                                .textFieldStyle(.roundedBorder)
+                                .ppFieldStyle()
                                 .textContentType(.name)
                                 .autocorrectionDisabled()
                                 .focused($focusedField, equals: .name)
@@ -81,12 +81,11 @@ struct InviteCoachSheet: View {
                         // Coach Email
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Coach's Email")
-                                .font(.subheadline)
-                                .fontWeight(.medium)
-                                .foregroundColor(.secondary)
+                                .font(.headingSmall)
+                                .foregroundColor(Theme.textSecondary)
 
                             TextField("coach@example.com", text: $coachEmail)
-                                .textFieldStyle(.roundedBorder)
+                                .ppFieldStyle()
                                 .textContentType(.emailAddress)
                                 .keyboardType(.emailAddress)
                                 .textInputAutocapitalization(.never)
@@ -105,9 +104,8 @@ struct InviteCoachSheet: View {
                         // Permissions
                         VStack(alignment: .leading, spacing: 12) {
                             Text("Coach Permissions")
-                                .font(.subheadline)
-                                .fontWeight(.medium)
-                                .foregroundColor(.secondary)
+                                .font(.headingSmall)
+                                .foregroundColor(Theme.textSecondary)
 
                             VStack(spacing: 8) {
                                 PermissionToggle(
@@ -130,8 +128,14 @@ struct InviteCoachSheet: View {
                                 )
                             }
                             .padding()
-                            .background(Color(.systemGray6))
-                            .cornerRadius(12)
+                            .background(
+                                RoundedRectangle(cornerRadius: .cornerLarge, style: .continuous)
+                                    .fill(Theme.card)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: .cornerLarge, style: .continuous)
+                                    .strokeBorder(Theme.divider, lineWidth: 1)
+                            )
                         }
                     }
                     .padding(.horizontal)
@@ -139,15 +143,17 @@ struct InviteCoachSheet: View {
                     // Info box
                     HStack(alignment: .top, spacing: 12) {
                         Image(systemName: "info.circle.fill")
-                            .foregroundColor(.brandNavy)
+                            .foregroundColor(ppAccent)
 
                         Text("Your coach will receive an email invitation. Once they accept, they'll be able to view your shared videos and send you practice content.")
                             .font(.caption)
-                            .foregroundColor(.secondary)
+                            .foregroundColor(Theme.textSecondary)
                     }
                     .padding()
-                    .background(Color.brandNavy.opacity(0.1))
-                    .cornerRadius(12)
+                    .background(
+                        RoundedRectangle(cornerRadius: .cornerLarge, style: .continuous)
+                            .fill(ppAccent.opacity(0.1))
+                    )
                     .padding(.horizontal)
 
                     // Error message
@@ -181,15 +187,21 @@ struct InviteCoachSheet: View {
                         }
                         .frame(maxWidth: .infinity)
                         .frame(height: 54)
-                        .background(canSend ? Color.brandNavy : Color.gray)
                         .foregroundColor(.white)
-                        .cornerRadius(14)
+                        .background(
+                            RoundedRectangle(cornerRadius: .cornerXLarge, style: .continuous)
+                                .fill(canSend ? ppAccent : Theme.textTertiary)
+                        )
+                        .shadow(color: canSend ? ppAccent.opacity(0.3) : .clear, radius: 12, x: 0, y: 6)
                     }
+                    .buttonStyle(PremiumButtonStyle())
                     .disabled(!canSend)
                     .padding(.horizontal)
                     .padding(.bottom)
                 }
             }
+            .background(Theme.surface)
+            .tint(ppAccent)
             .scrollDismissesKeyboard(.interactively)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -281,22 +293,53 @@ private struct PermissionToggle: View {
     @Binding var isOn: Bool
     var isDisabled: Bool = false
 
+    @Environment(\.ppAccent) private var ppAccent
+
     var body: some View {
         HStack {
             Image(systemName: icon)
-                .foregroundColor(isOn ? .brandNavy : .gray)
+                .foregroundColor(isOn ? ppAccent : Theme.textTertiary)
                 .frame(width: 24)
 
             Text(title)
-                .font(.subheadline)
+                .font(.bodyMedium)
+                .foregroundColor(Theme.textPrimary)
 
             Spacer()
 
             Toggle("", isOn: $isOn)
                 .labelsHidden()
+                .tint(ppAccent)
                 .disabled(isDisabled)
         }
     }
+}
+
+// MARK: - Field Style
+
+/// Cream-era text-field chrome: white card surface with a hairline divider
+/// border, replacing the system `.roundedBorder` look so fields sit on the
+/// Theme.surface background consistently.
+private struct PPFieldStyle: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .font(.bodyLarge)
+            .foregroundColor(Theme.textPrimary)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: .cornerLarge, style: .continuous)
+                    .fill(Theme.card)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: .cornerLarge, style: .continuous)
+                    .strokeBorder(Theme.divider, lineWidth: 1)
+            )
+    }
+}
+
+private extension View {
+    func ppFieldStyle() -> some View { modifier(PPFieldStyle()) }
 }
 
 #Preview {

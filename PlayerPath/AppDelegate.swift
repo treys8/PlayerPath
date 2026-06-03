@@ -89,7 +89,6 @@ class PlayerPathAppDelegate: NSObject, UIApplicationDelegate {
         let tabLabelFont = UIFontMetrics(forTextStyle: .caption2)
             .scaledFont(for: UIFont(name: "Inter18pt-Medium", size: 10) ?? .systemFont(ofSize: 10, weight: .medium))
 
-        let tabSelectedColor = UIColor(Color.brandNavy)
         let tabNormalColor = UIColor.systemGray
 
         let tabAppearance = UITabBarAppearance()
@@ -104,11 +103,15 @@ class PlayerPathAppDelegate: NSObject, UIApplicationDelegate {
                                tabAppearance.inlineLayoutAppearance,
                                tabAppearance.compactInlineLayoutAppearance] {
             itemAppearance.normal.titleTextAttributes = [.font: tabLabelFont, .foregroundColor: tabNormalColor]
-            itemAppearance.selected.titleTextAttributes = [.font: tabLabelFont, .foregroundColor: tabSelectedColor]
-            itemAppearance.focused.titleTextAttributes = [.font: tabLabelFont, .foregroundColor: tabSelectedColor]
             itemAppearance.normal.iconColor = tabNormalColor
-            itemAppearance.selected.iconColor = tabSelectedColor
-            itemAppearance.focused.iconColor = tabSelectedColor
+            // The SELECTED color is intentionally left unset so SwiftUI's
+            // sport-aware `.tint(ppAccent)` (injected at each tab root) drives it —
+            // golf green for golf athletes, terracotta otherwise. Hardcoding a
+            // color here would override the tint and pin every selected tab to one
+            // hue (the old navy bug). Only the font is pinned for the selected/
+            // focused states.
+            itemAppearance.selected.titleTextAttributes = [.font: tabLabelFont]
+            itemAppearance.focused.titleTextAttributes = [.font: tabLabelFont]
         }
 
         UITabBar.appearance().standardAppearance = tabAppearance

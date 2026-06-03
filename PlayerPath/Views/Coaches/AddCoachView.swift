@@ -13,6 +13,7 @@ struct AddCoachView: View {
 
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.ppAccent) private var ppAccent
 
     @State private var name = ""
     @State private var role = ""
@@ -128,6 +129,9 @@ struct AddCoachView: View {
                     Text("Notes (optional)")
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(Theme.surface)
+            .tint(ppAccent)
             .navigationTitle("Add Coach")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

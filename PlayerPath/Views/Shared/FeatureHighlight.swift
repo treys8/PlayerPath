@@ -11,7 +11,14 @@ struct FeatureHighlight: View {
     let icon: String
     let title: String
     let description: String
-    var color: Color = .brandNavy
+    /// Optional explicit tint. When nil (the default), the icon inherits the
+    /// sport-resolved brand accent from the environment, so onboarding/welcome
+    /// surfaces stay on-palette without each call site naming a color.
+    var color: Color? = nil
+
+    @Environment(\.ppAccent) private var ppAccent
+
+    private var tint: Color { color ?? ppAccent }
 
     var body: some View {
         HStack(alignment: .center, spacing: 14) {
@@ -20,7 +27,7 @@ struct FeatureHighlight: View {
                 Circle()
                     .fill(
                         LinearGradient(
-                            colors: [color.opacity(0.15), color.opacity(0.08)],
+                            colors: [tint.opacity(0.15), tint.opacity(0.08)],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         )
@@ -31,7 +38,7 @@ struct FeatureHighlight: View {
                     .font(.system(size: 24, weight: .semibold))
                     .foregroundStyle(
                         LinearGradient(
-                            colors: [color, color.opacity(0.8)],
+                            colors: [tint, tint.opacity(0.8)],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         )
@@ -41,12 +48,12 @@ struct FeatureHighlight: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
                     .font(.headingMedium)
-                    .foregroundColor(.primary)
+                    .foregroundColor(Theme.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
 
                 Text(description)
                     .font(.bodyMedium)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(Theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .lineLimit(2)
                     .truncationMode(.tail)
