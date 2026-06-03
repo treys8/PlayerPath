@@ -43,7 +43,7 @@ struct CoachDowngradeGraceBanner: View {
                 Text("Upgrade")
                     .font(.caption)
                     .fontWeight(.semibold)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(Theme.warning)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
                     .background(.white, in: Capsule())
@@ -51,7 +51,7 @@ struct CoachDowngradeGraceBanner: View {
             .padding()
             .background(
                 LinearGradient(
-                    colors: [.orange, .red.opacity(0.8)],
+                    colors: [Theme.warning, .red.opacity(0.8)],
                     startPoint: .leading,
                     endPoint: .trailing
                 )

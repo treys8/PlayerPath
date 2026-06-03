@@ -40,7 +40,7 @@ struct InviteAthleteSheet: View {
                     if isAtLimit {
                         HStack(spacing: 10) {
                             Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundColor(.orange)
+                                .foregroundColor(Theme.warning)
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("Athlete limit reached")
                                     .font(.subheadline).fontWeight(.semibold)
@@ -50,12 +50,12 @@ struct InviteAthleteSheet: View {
                             Spacer()
                             Button("Upgrade") { showingPaywall = true }
                                 .font(.caption).fontWeight(.semibold)
-                                .foregroundColor(.orange)
+                                .foregroundColor(Theme.warning)
                                 .padding(.horizontal, 10).padding(.vertical, 5)
-                                .background(Color.orange.opacity(0.15), in: Capsule())
+                                .background(Theme.warning.opacity(0.15), in: Capsule())
                         }
                         .padding()
-                        .background(Color.orange.opacity(0.08))
+                        .background(Theme.warning.opacity(0.08))
                         .cornerRadius(12)
                         .padding(.horizontal)
                     }

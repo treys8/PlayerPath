@@ -11,6 +11,7 @@ struct EmptyGamesView: View {
     let isGolf: Bool
     let onAddGame: () -> Void
 
+    @Environment(\.ppAccent) private var ppAccent
     @State private var isAnimating = false
     @State private var floatOffset: CGFloat = 0
     private var heroIcon: String { isGolf ? "figure.golf" : "baseball.diamond.bases" }
@@ -28,7 +29,7 @@ struct EmptyGamesView: View {
             Circle()
                 .fill(
                     RadialGradient(
-                        colors: [.green.opacity(0.08), .clear],
+                        colors: [ppAccent.opacity(0.08), .clear],
                         center: .center,
                         startRadius: 0,
                         endRadius: 200
@@ -44,14 +45,14 @@ struct EmptyGamesView: View {
                     // Glow effect
                     Image(systemName: heroIcon)
                         .font(.system(size: 72, weight: .light))
-                        .foregroundStyle(.green.opacity(0.3))
+                        .foregroundStyle(ppAccent.opacity(0.3))
                         .blur(radius: 20)
 
                     Image(systemName: heroIcon)
                         .font(.system(size: 72, weight: .light))
                         .foregroundStyle(
                             LinearGradient(
-                                colors: [.green, .green.opacity(0.6)],
+                                colors: [ppAccent, ppAccent.opacity(0.6)],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
                             )
@@ -65,11 +66,11 @@ struct EmptyGamesView: View {
                 VStack(spacing: 10) {
                     Text(titleText)
                         .font(.headingLarge)
-                        .foregroundColor(.primary)
+                        .foregroundColor(Theme.textPrimary)
 
                     Text(subtitleText)
                         .font(.bodyMedium)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(Theme.textSecondary)
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
                         .lineSpacing(2)
@@ -92,13 +93,13 @@ struct EmptyGamesView: View {
                     .padding(.vertical, 14)
                     .background(
                         LinearGradient(
-                            colors: [.green, .green.opacity(0.85)],
+                            colors: [ppAccent, ppAccent.opacity(0.85)],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         )
                     )
                     .clipShape(Capsule())
-                    .shadow(color: .green.opacity(0.3), radius: 12, x: 0, y: 6)
+                    .shadow(color: ppAccent.opacity(0.3), radius: 12, x: 0, y: 6)
                 }
                 .buttonStyle(PremiumButtonStyle())
                 .opacity(isAnimating ? 1.0 : 0.0)

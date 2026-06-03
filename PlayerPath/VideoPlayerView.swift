@@ -34,6 +34,9 @@ struct VideoPlayerView: View {
     @State private var saveErrorMessage: String?
     @State private var isSavingToPhotos = false
     @State private var videoDuration: Double?
+    /// Friendly-named share URL (e.g. "Double - Apr 22, 2026.mov"), computed
+    /// once the local file is confirmed present. nil hides Share.
+    @State private var shareURL: URL?
 
     // Coach-annotation playback state — only populated when
     // `clip.sourceCoachVideoID` is set (clip was saved from a coach's shared
@@ -46,6 +49,10 @@ struct VideoPlayerView: View {
     @State private var coachNoteText: String = ""
     @State private var coachNoteAuthorName: String?
     @State private var coachNoteUpdatedAt: Date?
+    /// Coach-authored quick-cue tags + drill cards on the source coach video,
+    /// surfaced read-only in the editorial detail below the player.
+    @State private var coachCueTags: [String] = []
+    @State private var coachDrillCards: [DrillCard] = []
     /// Guard so the "athlete viewed this clip" write only fires once per open.
     @State private var hasMarkedViewed = false
     /// Auto-show coach drawings: track which have already auto-popped this
@@ -88,10 +95,7 @@ struct VideoPlayerView: View {
         }
 
         Button {
-            clip.isHighlight.toggle()
-            clip.needsSync = true
-            ErrorHandlerService.shared.saveContext(modelContext, caller: "VideoPlayerView.toggleHighlight")
-            Haptics.medium()
+            toggleHighlight()
         } label: {
             Label(
                 clip.isHighlight ? "Remove from Highlights" : "Add to Highlights",
@@ -120,8 +124,8 @@ struct VideoPlayerView: View {
         }
         .disabled(isSavingToPhotos)
 
-        if FileManager.default.fileExists(atPath: clip.resolvedFilePath) {
-            ShareLink(item: clip.resolvedFileURL) {
+        if let shareURL {
+            ShareLink(item: shareURL) {
                 Label("Share Video", systemImage: "square.and.arrow.up")
             }
         }
@@ -160,6 +164,33 @@ struct VideoPlayerView: View {
         }
     }
 
+    /// Milestone marker for this clip's game, if its season produced one. Pure
+    /// compute over existing data (MilestoneEngine); nil for clips with no game
+    /// or no qualifying milestone — the detail view then falls back to the
+    /// plain "Highlight" marker.
+    private var clipMilestoneLabel: String? {
+        guard let game = clip.game, let season = game.season else { return nil }
+        let linked = MilestoneEngine.milestones(for: season).filter { $0.gameID == game.id }
+        let top = linked.max { milestoneRank($0.kind) < milestoneRank($1.kind) }
+        return top?.markerLabel
+    }
+
+    private func milestoneRank(_ kind: Milestone.Kind) -> Int {
+        switch kind {
+        case .seasonFirst:  return 4
+        case .personalBest: return 3
+        case .streak:       return 2
+        case .milestone:    return 1
+        }
+    }
+
+    private func toggleHighlight() {
+        clip.isHighlight.toggle()
+        clip.needsSync = true
+        ErrorHandlerService.shared.saveContext(modelContext, caller: "VideoPlayerView.toggleHighlight")
+        Haptics.medium()
+    }
+
     private var closeButton: some View {
         Button {
             dismiss()
@@ -167,7 +198,8 @@ struct VideoPlayerView: View {
             Image(systemName: "xmark.circle.fill")
                 .font(.title2)
                 .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.white)
+                .shadow(color: .black.opacity(0.5), radius: 4, x: 0, y: 2)
         }
         .accessibilityLabel("Close video player")
     }
@@ -220,7 +252,7 @@ struct VideoPlayerView: View {
     }
 
     private var loadingView: some View {
-        Color.black
+        Theme.tileNavyDark
             .overlay(
                 VStack(spacing: 12) {
                     if isDownloadingFromCloud {
@@ -402,7 +434,11 @@ struct VideoPlayerView: View {
                     coachNoteText = video.coachNote ?? ""
                     coachNoteAuthorName = video.coachNoteAuthorName
                     coachNoteUpdatedAt = video.coachNoteUpdatedAt
+                    coachCueTags = video.tags ?? []
                 }
+            }
+            if let cards = try? await FirestoreManager.shared.fetchDrillCards(forVideo: sourceID) {
+                await MainActor.run { coachDrillCards = cards }
             }
         }
 
@@ -442,7 +478,7 @@ struct VideoPlayerView: View {
     }
 
     private var errorView: some View {
-        Color.black
+        Theme.tileNavyDark
             .overlay(
                 VStack(spacing: 8) {
                     Image(systemName: "exclamationmark.triangle.fill")
@@ -478,18 +514,22 @@ struct VideoPlayerView: View {
                 VStack(spacing: 0) {
                     videoPlayerContent
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(Color.black)
+                        .background(Theme.tileNavyDark)
 
                     if vSizeClass != .compact {
-                        if !coachNoteText.isEmpty {
-                            CoachNoteCard(
-                                text: coachNoteText,
-                                authorName: coachNoteAuthorName,
-                                updatedAt: coachNoteUpdatedAt
-                            )
-                        }
-                        VideoClipInfoCard(clip: clip)
-                            .padding(.bottom, 8)
+                        AthleteClipReviewDetail(
+                            clip: clip,
+                            coachNoteText: coachNoteText,
+                            coachNoteAuthorName: coachNoteAuthorName,
+                            coachNoteUpdatedAt: coachNoteUpdatedAt,
+                            drillCards: coachDrillCards,
+                            cueTags: coachCueTags,
+                            milestoneLabel: clipMilestoneLabel,
+                            isHighlight: clip.isHighlight,
+                            onToggleHighlight: toggleHighlight,
+                            onSave: { saveToPhotos() },
+                            shareURL: shareURL
+                        )
                     }
                 }
 
@@ -497,6 +537,7 @@ struct VideoPlayerView: View {
                     landscapeControls
                 }
             }
+            .background(Theme.surface)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(vSizeClass == .compact ? .hidden : .visible, for: .navigationBar)
             .toolbar {
@@ -516,6 +557,9 @@ struct VideoPlayerView: View {
         }
         .task(id: clip.version) {
             await setupPlayer()
+            // Build the friendly-named share link now that the local file is
+            // (down)loaded. Recomputed on version change (e.g. after a re-trim).
+            shareURL = clip.makeShareURL()
             // Coach-annotation + aspect-ratio loading is only meaningful for
             // clips saved from a coach's shared folder — gated internally.
             loadCoachAnnotationsIfNeeded()
@@ -803,49 +847,4 @@ struct VideoPlayerView: View {
 #Preview {
     let mock = VideoClip(fileName: "mock.mov", filePath: "/tmp/mock.mov")
     return VideoPlayerView(clip: mock)
-}
-
-// MARK: - Video Clip Info Card
-struct VideoClipInfoCard: View {
-    let clip: VideoClip
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
-            if let tag = clip.displayTagName {
-                Text(tag)
-                    .font(.headingLarge)
-            } else {
-                Text("Unrecorded")
-                    .font(.headingLarge)
-                    .foregroundColor(.secondary)
-            }
-
-            if let game = clip.game {
-                Text(game.opponentLabel)
-                    .font(.bodyMedium)
-                    .foregroundColor(.secondary)
-            } else if clip.practice != nil {
-                Text("Practice")
-                    .font(.bodyMedium)
-                    .foregroundColor(.secondary)
-            }
-
-            Spacer()
-
-            if clip.isHighlight {
-                Image(systemName: "star.fill")
-                    .foregroundColor(.yellow)
-                    .font(.body)
-            }
-
-            if let createdAt = clip.createdAt {
-                Text(createdAt, format: .dateTime.month(.abbreviated).day().year())
-                    .font(.bodyMedium)
-                    .foregroundColor(.secondary)
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .background(Color(uiColor: .systemBackground))
-    }
 }

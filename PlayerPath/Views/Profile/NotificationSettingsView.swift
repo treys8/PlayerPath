@@ -9,6 +9,7 @@ import SwiftUI
 import SwiftData
 
 struct NotificationSettingsView: View {
+    @Environment(\.ppAccent) private var ppAccent
     let athleteId: String?
 
     // notif_weeklyStats is single-source (UserDefaults only; WeeklySummaryScheduler
@@ -205,6 +206,9 @@ struct NotificationSettingsView: View {
                 .disabled(authorizationStatus == .denied)
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(Theme.surface)
+        .tint(ppAccent)
         .navigationTitle("Notifications")
         .navigationBarTitleDisplayMode(.inline)
         .task {
@@ -251,7 +255,7 @@ struct NotificationSettingsView: View {
                         PushNotificationService.shared.openSettingsIfDenied()
                     }
                     .buttonStyle(.bordered)
-                    .tint(Color.brandNavy)
+                    .tint(ppAccent)
                 }
                 .padding(.vertical, 4)
             }
@@ -260,7 +264,7 @@ struct NotificationSettingsView: View {
             Section {
                 VStack(alignment: .leading, spacing: 10) {
                     Label("Notifications not yet enabled", systemImage: "bell.badge.fill")
-                        .foregroundColor(.orange)
+                        .foregroundColor(Theme.warning)
                         .font(.headingSmall)
                     Text("Enable notifications to receive game reminders, upload alerts, and weekly performance summaries.")
                         .font(.bodySmall)

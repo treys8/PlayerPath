@@ -92,7 +92,7 @@ struct PlayResultCard: View {
         .background(
             ZStack {
                 RoundedRectangle(cornerRadius: .cornerLarge, style: .continuous)
-                    .fill(Color(uiColor: .secondarySystemGroupedBackground))
+                    .fill(Theme.card)
 
                 // Subtle color tint at bottom
                 RoundedRectangle(cornerRadius: .cornerLarge, style: .continuous)

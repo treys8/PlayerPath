@@ -27,8 +27,7 @@ struct CareerSeasonComparisonSection: View {
                 careerValue: StatisticsService.shared.formatBattingAverage(careerStats.battingAverage),
                 seasonValue: StatisticsService.shared.formatBattingAverage(seasonStats.battingAverage),
                 careerSubtitle: "Career: \(careerStats.hits)/\(careerStats.atBats)",
-                seasonSubtitle: "\(seasonName): \(seasonStats.hits)/\(seasonStats.atBats)",
-                color: .blue
+                seasonSubtitle: "\(seasonName): \(seasonStats.hits)/\(seasonStats.atBats)"
             )
 
             // On-Base Percentage Comparison
@@ -37,8 +36,7 @@ struct CareerSeasonComparisonSection: View {
                 careerValue: StatisticsService.shared.formatPercentage(careerStats.onBasePercentage),
                 seasonValue: StatisticsService.shared.formatPercentage(seasonStats.onBasePercentage),
                 careerSubtitle: "Career Walks: \(careerStats.walks)",
-                seasonSubtitle: "\(seasonName) Walks: \(seasonStats.walks)",
-                color: .green
+                seasonSubtitle: "\(seasonName) Walks: \(seasonStats.walks)"
             )
 
             // Slugging Percentage Comparison
@@ -47,8 +45,7 @@ struct CareerSeasonComparisonSection: View {
                 careerValue: StatisticsService.shared.formatBattingAverage(careerStats.sluggingPercentage),
                 seasonValue: StatisticsService.shared.formatBattingAverage(seasonStats.sluggingPercentage),
                 careerSubtitle: "Career Total Bases",
-                seasonSubtitle: "\(seasonName) Total Bases",
-                color: .orange
+                seasonSubtitle: "\(seasonName) Total Bases"
             )
 
             // Games Played Comparison
@@ -57,8 +54,7 @@ struct CareerSeasonComparisonSection: View {
                 careerValue: "\(careerStats.totalGames)",
                 seasonValue: "\(seasonStats.totalGames)",
                 careerSubtitle: "All Time",
-                seasonSubtitle: seasonName,
-                color: .purple
+                seasonSubtitle: seasonName
             )
         }
         .onAppear {
@@ -70,57 +66,48 @@ struct CareerSeasonComparisonSection: View {
 }
 
 struct ComparisonStatCard: View {
+    @Environment(\.ppAccent) private var ppAccent
     let title: String
     let careerValue: String
     let seasonValue: String
     let careerSubtitle: String
     let seasonSubtitle: String
-    let color: Color
 
     @State private var isAnimating = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(title)
-                .font(.labelMedium)
-                .foregroundColor(.secondary)
-                .textCase(.uppercase)
-                .tracking(0.5)
+                .smallCapsLabel()
 
             HStack(spacing: 16) {
-                // Career Stats
+                // Career Stats — the neutral baseline.
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Career")
                         .font(.labelSmall)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(Theme.textSecondary)
                     Text(careerValue)
                         .font(.ppStatMedium)
-                        .foregroundStyle(
-                            LinearGradient(
-                                colors: [color.opacity(0.7), color.opacity(0.5)],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
+                        .foregroundStyle(Theme.textPrimary)
                         .scaleEffect(isAnimating ? 1.0 : 0.8)
                         .opacity(isAnimating ? 1.0 : 0)
                     Text(careerSubtitle)
                         .font(.labelSmall)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(Theme.textSecondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                // VS indicator
+                // VS pivot — neutral.
                 ZStack {
                     Circle()
-                        .fill(color.opacity(0.1))
+                        .fill(Theme.cueBg)
                         .frame(width: 32, height: 32)
                     Text("vs")
                         .font(.custom("Inter18pt-Bold", size: 11, relativeTo: .caption2))
-                        .foregroundColor(color)
+                        .foregroundStyle(Theme.textSecondary)
                 }
 
-                // Season Stats
+                // Season Stats — the highlighted side (the one accent).
                 VStack(alignment: .trailing, spacing: 4) {
                     HStack(spacing: 4) {
                         Image(systemName: "star.fill")
@@ -128,44 +115,21 @@ struct ComparisonStatCard: View {
                         Text("This Season")
                             .font(.labelSmall)
                     }
-                    .foregroundColor(.blue)
+                    .foregroundStyle(ppAccent)
                     Text(seasonValue)
                         .font(.ppStat(24))
-                        .foregroundStyle(
-                            LinearGradient(
-                                colors: [color, color.opacity(0.7)],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
+                        .foregroundStyle(ppAccent)
                         .scaleEffect(isAnimating ? 1.0 : 0.8)
                         .opacity(isAnimating ? 1.0 : 0)
                     Text(seasonSubtitle)
                         .font(.labelSmall)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(Theme.textSecondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .trailing)
             }
         }
         .padding(16)
-        .background(
-            ZStack {
-                RoundedRectangle(cornerRadius: .cornerXLarge, style: .continuous)
-                    .fill(Color(uiColor: .secondarySystemGroupedBackground))
-
-                // Subtle gradient accent
-                RoundedRectangle(cornerRadius: .cornerXLarge, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [color.opacity(0.05), .clear],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-            }
-        )
-        .shadow(color: color.opacity(0.08), radius: 8, x: 0, y: 4)
-        .shadow(color: .black.opacity(0.04), radius: 2, x: 0, y: 1)
+        .ppCard()
         .onAppear {
             withAnimation(.spring(response: 0.6, dampingFraction: 0.7).delay(0.1)) {
                 isAnimating = true

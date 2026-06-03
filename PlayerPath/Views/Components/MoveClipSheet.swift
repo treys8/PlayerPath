@@ -14,6 +14,7 @@ struct MoveClipSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.ppAccent) private var ppAccent
     @Query(sort: \Athlete.createdAt) private var allAthletes: [Athlete]
 
     @State private var selectedAthlete: Athlete?
@@ -98,7 +99,7 @@ struct MoveClipSheet: View {
             .overlay {
                 if isMoving {
                     ZStack {
-                        Color(.systemBackground).opacity(0.8)
+                        Theme.surface.opacity(0.8)
                         VStack(spacing: 12) {
                             ProgressView()
                             Text("Moving clip...")
@@ -134,7 +135,7 @@ struct MoveClipSheet: View {
         VStack(spacing: 16) {
             Image(systemName: "hourglass")
                 .font(.system(size: 50))
-                .foregroundColor(.orange)
+                .foregroundColor(Theme.warning)
             Text("Can't Move Right Now")
                 .font(.headingLarge)
             Text(blockReason ?? "Please try again later.")
@@ -170,21 +171,21 @@ struct MoveClipSheet: View {
                             Spacer()
                             if selectedAthlete?.id == athlete.id {
                                 Image(systemName: "checkmark")
-                                    .foregroundColor(.brandNavy)
+                                    .foregroundColor(ppAccent)
                                     .fontWeight(.semibold)
                             }
                         }
                     }
                 }
             } header: {
-                Text("Move to")
+                Text("Move to").smallCapsLabel()
             }
 
             if let athlete = selectedAthlete {
                 let games = (athlete.games ?? [])
                     .sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
-                let unitNoun = athlete.sport == .golf ? "tournament" : "game"
-                let unitNounCapitalized = athlete.sport == .golf ? "Tournament" : "Game"
+                let unitNoun = athlete.sport == .golf ? "round" : "game"
+                let unitNounCapitalized = athlete.sport == .golf ? "Round" : "Game"
 
                 Section {
                     Button {
@@ -196,7 +197,7 @@ struct MoveClipSheet: View {
                             Spacer()
                             if selectedGame == nil {
                                 Image(systemName: "checkmark")
-                                    .foregroundColor(.brandNavy)
+                                    .foregroundColor(ppAccent)
                                     .fontWeight(.semibold)
                             }
                         }
@@ -227,10 +228,11 @@ struct MoveClipSheet: View {
                         }
                     }
                 } header: {
-                    Text("Assign to \(unitNoun) (optional)")
+                    Text("Assign to \(unitNoun) (optional)").smallCapsLabel()
                 }
             }
         }
+        .ppDetailBackground()
     }
 
     // MARK: - Move Logic

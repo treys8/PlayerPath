@@ -77,12 +77,16 @@ struct PracticeCard: View {
                     }
 
                 }
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Theme.textTertiary)
             }
             .padding(.leading, 12)
             .padding(.trailing, 16)
             .padding(.vertical, 12)
         }
-        .background(Color(.systemBackground))
+        .background(Theme.card)
         .clipShape(RoundedRectangle(cornerRadius: .cornerLarge, style: .continuous))
         .shadow(color: .black.opacity(0.06), radius: 8, x: 0, y: 2)
         .shadow(color: .black.opacity(0.04), radius: 2, x: 0, y: 1)

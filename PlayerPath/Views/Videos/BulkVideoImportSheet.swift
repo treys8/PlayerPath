@@ -27,6 +27,7 @@ struct BulkVideoImportSheet: View {
     @State private var seasonOverride: Season?
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.ppAccent) private var ppAccent
 
     /// Confirmation appears only when the user has multiple seasons AND the
     /// parent didn't pre-pin a game/practice/season. In every other case,
@@ -79,7 +80,7 @@ struct BulkVideoImportSheet: View {
                     noneLabel: "Match by date (recommended)"
                 )
             } header: {
-                Text("Season")
+                Text("Season").smallCapsLabel()
             } footer: {
                 if seasonOverride == nil {
                     Text("Each video is placed on the season that contains its capture date. Pick a specific season to override.")
@@ -97,7 +98,7 @@ struct BulkVideoImportSheet: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(.brandNavy)
+                .tint(ppAccent)
 
                 Button(role: .cancel) {
                     onComplete(0, 0, false, true)
@@ -108,6 +109,7 @@ struct BulkVideoImportSheet: View {
                 }
             }
         }
+        .ppDetailBackground()
         .navigationTitle("Import Videos")
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -151,6 +153,8 @@ struct BulkVideoImportSheet: View {
                 .padding(.bottom, 32)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.surface)
     }
 
     private func startImport() async {

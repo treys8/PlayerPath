@@ -88,10 +88,10 @@ struct CoachDashboardView: View {
                     if let listenerError = sharedFolderManager.listenerError {
                         Label(listenerError, systemImage: "exclamationmark.triangle.fill")
                             .font(.subheadline)
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(Theme.warning)
                             .padding(10)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+                            .background(Theme.warning.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
                     }
 
                     // Live session card (top priority)

@@ -31,171 +31,20 @@ struct AddAthleteView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollViewReader { proxy in
-            ScrollView {
-                VStack(spacing: 40) {
-                    if authManager.userRole == .athlete {
-                        if isFirstAthlete {
-                            OnboardingStepIndicator(currentStep: 0, totalSteps: 3)
-                                .padding(.top, 8)
-                        }
-
-                        Spacer()
-                            .frame(height: 20)
-
-                        VStack(spacing: 24) {
-                            Image(systemName: "person.crop.circle.badge.plus")
-                                .font(.system(size: 100))
-                                .foregroundStyle(
-                                    LinearGradient(
-                                        colors: [Color.brandNavy, .green],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    )
-                                )
-                                .shadow(color: Color.brandNavy.opacity(0.3), radius: 10, x: 0, y: 5)
-
-                            VStack(spacing: 16) {
-                                Text(isFirstAthlete ? "Ready to Track!" : "New Athlete")
-                                    .font(.displayLarge)
-                                    .multilineTextAlignment(.center)
-
-                                Text(isFirstAthlete ? "Enter your athlete's name to get started." : "Add another athlete to track.")
-                                    .font(.bodyLarge)
-                                    .foregroundColor(.secondary)
-                                    .multilineTextAlignment(.center)
-                                    .padding(.horizontal)
-                            }
-                        }
-
-                        if !isFirstAthlete {
-                            VStack(alignment: .leading, spacing: 16) {
-                                Text("What You Can Track:")
-                                    .font(.headingLarge)
-                                    .padding(.bottom, 8)
-
-                                FeatureHighlight(
-                                    icon: "video.circle.fill",
-                                    title: "Record & Analyze",
-                                    description: "Capture sessions and games"
-                                )
-
-                                FeatureHighlight(
-                                    icon: "chart.line.uptrend.xyaxis.circle.fill",
-                                    title: "Track Statistics",
-                                    description: selectedSport == .golf
-                                        ? "Monitor scoring averages and performance metrics"
-                                        : "Monitor batting averages and performance metrics"
-                                )
-
-                                FeatureHighlight(
-                                    icon: "arrow.triangle.2.circlepath.circle.fill",
-                                    title: "Sync Everywhere",
-                                    description: "Your data syncs securely across all devices"
-                                )
-                            }
-                            .padding(.horizontal)
-                        }
-
-                        VStack(spacing: 12) {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Sport")
-                                    .font(.subheadline)
-                                    .fontWeight(.medium)
-                                    .foregroundColor(.secondary)
-                                Picker("Sport", selection: $selectedSport) {
-                                    ForEach(Sport.allCases, id: \.self) { sport in
-                                        Text(sport.displayName).tag(sport)
-                                    }
-                                }
-                                .pickerStyle(.segmented)
-                            }
-                            .padding(.horizontal, 4)
-
-                            TextField("Athlete Name", text: $athleteName)
-                                .textFieldStyle(RoundedBorderTextFieldStyle())
-                                .focused($isNameFieldFocused)
-                                .textContentType(.name)
-                                .submitLabel(.done)
-                                .id("athleteNameField")
-                                .onSubmit {
-                                    if isValidAthleteName(athleteName) && !isCreatingAthlete {
-                                        saveAthlete()
-                                    }
-                                }
-                                .accessibilityLabel("Athlete name")
-                                .accessibilityHint("Enter the athlete's name")
-
-                            VStack(alignment: .leading, spacing: 6) {
-                                Toggle("Track statistics for this athlete", isOn: $trackStats)
-                                    .tint(.brandNavy)
-                                Text("Turn off to record and review videos without play-result tagging. You can change this later in athlete settings.")
-                                    .font(.bodySmall)
-                                    .foregroundColor(.secondary)
-                            }
-                            .padding(.horizontal, 4)
-
-                            Button(action: { Haptics.light(); saveAthlete() }) {
-                                HStack(spacing: 10) {
-                                    if isCreatingAthlete {
-                                        ProgressView()
-                                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                    }
-                                    Image(systemName: "plus.circle.fill")
-                                        .font(.title3)
-                                        .fontWeight(.semibold)
-                                    Text(isFirstAthlete ? "Create First Athlete" : "Create Athlete")
-                                        .font(.headingLarge)
-                                }
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 58)
-                                .background(
-                                    LinearGradient(
-                                        colors: [Color.brandNavy, Color.brandNavy.opacity(0.85)],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    )
-                                )
-                                .foregroundColor(.white)
-                                .cornerRadius(16)
-                                .shadow(color: Color.brandNavy.opacity(0.4), radius: 12, x: 0, y: 6)
-                            }
-                            .buttonStyle(.plain)
-                            .disabled(!isValidAthleteName(athleteName) || isCreatingAthlete)
-                            .accessibilityLabel(isFirstAthlete ? "Create first athlete profile" : "Create athlete profile")
-                            .accessibilityHint("Creates a new athlete profile to start tracking performance")
-                            .accessibilityIdentifier("create_first_athlete")
-                            .accessibilitySortPriority(1)
-                        }
-                        .padding(.top, 20)
-
-                        Text("You can add more athletes later in your profile settings")
-                            .font(.bodySmall)
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.center)
-                            .padding(.bottom, 40)
-                    } else {
-                        EmptyStateView(
-                            systemImage: "person.fill.questionmark",
-                            title: "Coach Accounts",
-                            message: "Coaches don't create athletes. Ask your athletes to share a folder with you.",
-                            actionTitle: nil,
-                            action: nil
-                        )
-                        .padding()
-                    }
-                }
-                .padding()
-            }
-            .scrollDismissesKeyboard(.interactively)
-            .onChange(of: isNameFieldFocused) { _, focused in
-                if focused {
-                    withAnimation(.easeInOut(duration: 0.3)) {
-                        proxy.scrollTo("athleteNameField", anchor: .center)
-                    }
+            Group {
+                if authManager.userRole != .athlete {
+                    coachEmptyState
+                } else if isFirstAthlete {
+                    firstAthleteHero
+                } else {
+                    addAnotherForm
                 }
             }
-            } // ScrollViewReader
+            // Sport-aware accent for the add-another form *and* its toolbar
+            // Save/Cancel. Applied here (not inside the Form) so the toolbar
+            // buttons inherit it too. nil on the onboarding branch leaves its
+            // original inherited tint untouched.
+            .tint(isFirstAthlete ? nil : Theme.accent(for: selectedSport))
             .navigationTitle(isFirstAthlete ? "Get Started" : "New Athlete")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -236,6 +85,200 @@ struct AddAthleteView: View {
         } message: {
             Text(validationErrorMessage)
         }
+    }
+
+    // MARK: - Add Another Athlete
+
+    /// Routine "add another athlete" form. Matches the app's other create/edit
+    /// screens (AddGameView, EditAthleteView): a grouped Form on the cream
+    /// surface, tinted with the sport-aware accent that follows the live Sport
+    /// selection. Save lives in the toolbar.
+    private var addAnotherForm: some View {
+        Form {
+            Section {
+                TextField("Athlete Name", text: $athleteName)
+                    .focused($isNameFieldFocused)
+                    .textContentType(.name)
+                    .submitLabel(.done)
+                    .onSubmit {
+                        if isValidAthleteName(athleteName) && !isCreatingAthlete {
+                            saveAthlete()
+                        }
+                    }
+                    .accessibilityLabel("Athlete name")
+                    .accessibilityHint("Enter the athlete's name")
+            } header: {
+                Text("Name").smallCapsLabel()
+            }
+
+            Section {
+                Picker("Sport", selection: $selectedSport) {
+                    ForEach(Sport.allCases, id: \.self) { sport in
+                        Text(sport.displayName).tag(sport)
+                    }
+                }
+                .pickerStyle(.segmented)
+            } header: {
+                Text("Sport").smallCapsLabel()
+            }
+
+            Section {
+                Toggle("Track Statistics", isOn: $trackStats)
+            } header: {
+                Text("Statistics").smallCapsLabel()
+            } footer: {
+                Text("When off, new recordings save without play-result tagging and won't add to stats. You can change this later in athlete settings.")
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .background(Theme.surface)
+        .ppAccent(for: selectedSport)
+        // Visible tint (segmented picker, toggle, toolbar) is set on the parent
+        // Group so the Save/Cancel buttons follow the same sport accent.
+    }
+
+    // MARK: - First Athlete (onboarding hero)
+
+    /// First-run welcome experience — gradient hero + serif title + the big
+    /// "Create First Athlete" CTA. Deliberately richer than the routine form
+    /// because it's the user's first meaningful moment in the app.
+    private var firstAthleteHero: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(spacing: 40) {
+                    OnboardingStepIndicator(currentStep: 0, totalSteps: 3)
+                        .padding(.top, 8)
+
+                    Spacer()
+                        .frame(height: 20)
+
+                    VStack(spacing: 24) {
+                        Image(systemName: "person.crop.circle.badge.plus")
+                            .font(.system(size: 100))
+                            .foregroundStyle(
+                                LinearGradient(
+                                    colors: [Color.brandNavy, .green],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .shadow(color: Color.brandNavy.opacity(0.3), radius: 10, x: 0, y: 5)
+
+                        VStack(spacing: 16) {
+                            Text("Ready to Track!")
+                                .font(.displayLarge)
+                                .multilineTextAlignment(.center)
+
+                            Text("Enter your athlete's name to get started.")
+                                .font(.bodyLarge)
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal)
+                        }
+                    }
+
+                    VStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Sport")
+                                .font(.subheadline)
+                                .fontWeight(.medium)
+                                .foregroundColor(.secondary)
+                            Picker("Sport", selection: $selectedSport) {
+                                ForEach(Sport.allCases, id: \.self) { sport in
+                                    Text(sport.displayName).tag(sport)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+                        }
+                        .padding(.horizontal, 4)
+
+                        TextField("Athlete Name", text: $athleteName)
+                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                            .focused($isNameFieldFocused)
+                            .textContentType(.name)
+                            .submitLabel(.done)
+                            .id("athleteNameField")
+                            .onSubmit {
+                                if isValidAthleteName(athleteName) && !isCreatingAthlete {
+                                    saveAthlete()
+                                }
+                            }
+                            .accessibilityLabel("Athlete name")
+                            .accessibilityHint("Enter the athlete's name")
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            Toggle("Track statistics for this athlete", isOn: $trackStats)
+                                .tint(.brandNavy)
+                            Text("Turn off to record and review videos without play-result tagging. You can change this later in athlete settings.")
+                                .font(.bodySmall)
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(.horizontal, 4)
+
+                        Button(action: { Haptics.light(); saveAthlete() }) {
+                            HStack(spacing: 10) {
+                                if isCreatingAthlete {
+                                    ProgressView()
+                                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                }
+                                Image(systemName: "plus.circle.fill")
+                                    .font(.title3)
+                                    .fontWeight(.semibold)
+                                Text("Create First Athlete")
+                                    .font(.headingLarge)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 58)
+                            .background(
+                                LinearGradient(
+                                    colors: [Color.brandNavy, Color.brandNavy.opacity(0.85)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .foregroundColor(.white)
+                            .cornerRadius(16)
+                            .shadow(color: Color.brandNavy.opacity(0.4), radius: 12, x: 0, y: 6)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(!isValidAthleteName(athleteName) || isCreatingAthlete)
+                        .accessibilityLabel("Create first athlete profile")
+                        .accessibilityHint("Creates a new athlete profile to start tracking performance")
+                        .accessibilityIdentifier("create_first_athlete")
+                        .accessibilitySortPriority(1)
+                    }
+                    .padding(.top, 20)
+
+                    Text("You can add more athletes later in your profile settings")
+                        .font(.bodySmall)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.bottom, 40)
+                }
+                .padding()
+            }
+            .scrollDismissesKeyboard(.interactively)
+            .onChange(of: isNameFieldFocused) { _, focused in
+                if focused {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        proxy.scrollTo("athleteNameField", anchor: .center)
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Coach (not applicable)
+
+    private var coachEmptyState: some View {
+        EmptyStateView(
+            systemImage: "person.fill.questionmark",
+            title: "Coach Accounts",
+            message: "Coaches don't create athletes. Ask your athletes to share a folder with you.",
+            actionTitle: nil,
+            action: nil
+        )
+        .padding()
     }
 
     // MARK: - Validation Functions

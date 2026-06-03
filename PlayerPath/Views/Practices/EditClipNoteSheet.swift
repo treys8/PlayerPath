@@ -36,14 +36,16 @@ struct EditClipNoteSheet: View {
 
                     TextEditor(text: $noteText)
                         .focused($isFocused)
+                        .scrollContentBackground(.hidden)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
                         .frame(minHeight: 140)
-                        .background(Color(.secondarySystemBackground))
+                        .background(Theme.card)
                         .cornerRadius(10)
                         .padding(.horizontal)
                 }
             }
+            .ppDetailBackground()
             .scrollDismissesKeyboard(.interactively)
             .navigationTitle(clip.note?.isEmpty == false ? "Edit Note" : "Add Note")
             .navigationBarTitleDisplayMode(.inline)

@@ -20,7 +20,7 @@ enum FieldValidationState {
         case .idle: return Color(.systemGray4)
         case .valid: return .green
         case .invalid: return .red
-        case .warning: return .orange
+        case .warning: return Theme.warning
         }
     }
 
@@ -38,7 +38,7 @@ enum FieldValidationState {
         case .idle: return .clear
         case .valid: return .green
         case .invalid: return .red
-        case .warning: return .orange
+        case .warning: return Theme.warning
         }
     }
 }

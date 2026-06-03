@@ -8,6 +8,8 @@
 import SwiftUI
 
 struct GettingStartedView: View {
+    @Environment(\.ppAccent) private var ppAccent
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 30) {
@@ -80,7 +82,7 @@ struct GettingStartedView: View {
                     number: 4,
                     title: "Track a Live Game",
                     icon: "baseball.diamond.bases",
-                    iconColor: .orange,
+                    iconColor: ppAccent,
                     description: "Create a game and mark it as Live to automatically link all videos",
                     steps: [
                         "Go to Games tab",
@@ -173,7 +175,7 @@ struct GettingStartedView: View {
                             HelpResourceRow(
                                 icon: "envelope.fill",
                                 title: "Contact Support",
-                                color: .orange
+                                color: ppAccent
                             )
                         }
                     }

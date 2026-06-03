@@ -38,7 +38,7 @@ enum ErrorDisplayType {
         case .empty:
             return .secondary
         case .generic:
-            return .orange
+            return Theme.warning
         }
     }
 

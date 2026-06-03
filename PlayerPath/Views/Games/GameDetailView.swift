@@ -7,7 +7,6 @@
 
 import SwiftUI
 import SwiftData
-import ImageIO
 
 struct GameDetailView: View {
     let game: Game
@@ -20,7 +19,6 @@ struct GameDetailView: View {
     @State private var showingManualStats = false
     @State private var showingEditGame = false
     @State private var showingPhotoCamera = false
-    @State private var showingPhotoLibrary = false
     @State private var showingScoreEntry = false
     @State private var gameService: GameService? = nil
     /// Hole picked for per-hole scoring; non-nil presents ScoreHoleSheet.
@@ -36,6 +34,8 @@ struct GameDetailView: View {
 
     // Bulk import from Photos — state owned by BulkImportAttach modifier.
     @State private var importTrigger = false
+    // Bulk PHOTO import preset to this game — owned by BulkPhotoImportAttach.
+    @State private var photoImportTrigger = false
 
     var videoClips: [VideoClip] {
         (game.videoClips ?? []).sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
@@ -63,7 +63,7 @@ struct GameDetailView: View {
     var body: some View {
         List {
             // Game Info Section
-            Section(isGolf ? "Round Details" : "Game Details") {
+            Section(header: Text(isGolf ? "Round Details" : "Game Details").smallCapsLabel()) {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack {
                         Text(isGolf ? "Course" : "Opponent")
@@ -147,7 +147,7 @@ struct GameDetailView: View {
 
             // Score Section (golf only)
             if isGolf {
-                Section("Score") {
+                Section(header: Text("Score").smallCapsLabel()) {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack {
                             Text("Holes")
@@ -187,6 +187,7 @@ struct GameDetailView: View {
                             Button(action: { showingScoreEntry = true }) {
                                 Label("Enter Score", systemImage: "pencil.line")
                             }
+                            .labelStyle(ActionRowLabelStyle())
                         }
                     }
                     .padding(.vertical, 5)
@@ -195,7 +196,7 @@ struct GameDetailView: View {
                 // Per-hole grid — read-only summary that's also tappable to edit
                 // any prior hole. Only renders once at least one hole is scored.
                 if !holeScores.isEmpty {
-                    Section("Holes") {
+                    Section(header: Text("Holes").smallCapsLabel()) {
                         HoleScoreGrid(
                             holes: holeScores,
                             onTap: { hole in
@@ -213,7 +214,7 @@ struct GameDetailView: View {
             //   .live:                      Record → End   → Photo → Stats → Edit
             //   .completed && isComplete:   Upload → Photo → Stats → Edit → Restart → Delete
             //   .completed && !isComplete:  Upload → Mark Complete → Photo → Stats → Edit → Delete
-            Section("Actions") {
+            Section(header: Text("Actions").smallCapsLabel()) {
                 switch game.displayStatus {
                 case .scheduled:
                     Button(action: { showingVideoRecorder = true }) {
@@ -242,6 +243,7 @@ struct GameDetailView: View {
                     } label: {
                         Label(isGolf ? "End Round" : "End Game", systemImage: "stop.circle")
                     }
+                    .labelStyle(DestructiveRowLabelStyle())
                 case .completed:
                     Button(action: { importTrigger = true }) {
                         Label("Upload Video", systemImage: "square.and.arrow.down.on.square")
@@ -287,11 +289,13 @@ struct GameDetailView: View {
                     } label: {
                         Label(isGolf ? "Delete Round" : "Delete Game", systemImage: "trash")
                     }
+                    .labelStyle(DestructiveRowLabelStyle())
                 }
             }
+            .labelStyle(ActionRowLabelStyle())
 
             // Video Clips Section
-            Section("Video Clips (\(videoClips.count))") {
+            Section(header: Text("Video Clips (\(videoClips.count))").smallCapsLabel()) {
                 if videoClips.isEmpty {
                     Text("No videos recorded yet")
                         .foregroundColor(.secondary)
@@ -304,7 +308,7 @@ struct GameDetailView: View {
             }
 
             // Photos Section
-            Section("Photos (\(gamePhotos.count))") {
+            Section(header: Text("Photos (\(gamePhotos.count))").smallCapsLabel()) {
                 if gamePhotos.isEmpty {
                     Text("No photos yet")
                         .foregroundColor(.secondary)
@@ -316,7 +320,7 @@ struct GameDetailView: View {
                                 deleteGamePhoto(photo)
                             }
                         } label: {
-                            GamePhotoRow(photo: photo)
+                            EventPhotoRow(photo: photo)
                         }
                     }
                 }
@@ -324,7 +328,7 @@ struct GameDetailView: View {
 
             // Game Statistics — hidden for golf (scoring lives in the Score section above)
             if !isGolf, let stats = game.gameStats {
-                Section("Game Statistics") {
+                Section(header: Text("Game Statistics").smallCapsLabel()) {
                     HStack {
                         Text("At Bats")
                         Spacer()
@@ -337,18 +341,7 @@ struct GameDetailView: View {
                         Text("\(stats.hits)")
                             .font(.headingMedium)
                     }
-                    HStack {
-                        Text("Runs")
-                        Spacer()
-                        Text("\(stats.runs)")
-                            .font(.headingMedium)
-                    }
-                    HStack {
-                        Text("RBIs")
-                        Spacer()
-                        Text("\(stats.rbis)")
-                            .font(.headingMedium)
-                    }
+                    // Runs and RBIs omitted — derivable-stats-only (no game context).
                     HStack {
                         Text("Strikeouts")
                         Spacer()
@@ -390,6 +383,7 @@ struct GameDetailView: View {
                 }
             }
         }
+        .ppDetailBackground()
         .navigationTitle("\(isGolf ? "at" : "vs") \(game.opponent)")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { primaryActionMenu }
@@ -433,6 +427,7 @@ struct GameDetailView: View {
             DirectCameraRecorderView(athlete: game.athlete, game: game)
         }
         .bulkImportAttach(athlete: game.athlete, game: game, trigger: $importTrigger)
+        .bulkPhotoImportAttach(athlete: game.athlete, game: game, trigger: $photoImportTrigger)
         .sheet(isPresented: $showingManualStats) {
             ManualStatisticsEntryView(game: game)
         }
@@ -447,12 +442,6 @@ struct GameDetailView: View {
                 },
                 onCancel: { showingPhotoCamera = false }
             )
-        }
-        .fullScreenCover(isPresented: $showingPhotoLibrary) {
-            ImagePicker(sourceType: .photoLibrary, allowsEditing: false) { image in
-                saveGamePhoto(image)
-            }
-            .ignoresSafeArea()
         }
         .onAppear {
             if gameService == nil { gameService = GameService(modelContext: modelContext) }
@@ -541,11 +530,11 @@ struct GameDetailView: View {
                     Label("Take Photo", systemImage: "camera")
                 }
             }
-            Button(action: { showingPhotoLibrary = true }) {
-                Label("Choose from Library", systemImage: "photo.on.rectangle")
+            Button(action: { photoImportTrigger = true }) {
+                Label("Choose Photos", systemImage: "photo.on.rectangle")
             }
         } label: {
-            Label("Add Photo", systemImage: "camera")
+            Label("Add Photos", systemImage: "camera")
         }
     }
 
@@ -585,7 +574,11 @@ struct GameDetailView: View {
                     image: image,
                     context: modelContext,
                     athlete: athlete,
-                    game: game
+                    game: game,
+                    // Inherit the game's actual season, not just activeSeason —
+                    // otherwise a photo on a past-season game mis-tags to the
+                    // active season (matches the bulk-import path).
+                    season: game.season ?? athlete.activeSeason
                 )
                 Haptics.success()
             } catch {
@@ -597,76 +590,5 @@ struct GameDetailView: View {
     private func deleteGamePhoto(_ photo: Photo) {
         PhotoPersistenceService().deletePhoto(photo, context: modelContext)
         Haptics.light()
-    }
-}
-
-// MARK: - Game Photo Row
-
-private struct GamePhotoRow: View {
-    let photo: Photo
-
-    @State private var thumbnail: UIImage?
-
-    var body: some View {
-        HStack(spacing: 12) {
-            // Thumbnail
-            Group {
-                if let thumbnail {
-                    Image(uiImage: thumbnail)
-                        .resizable()
-                        .scaledToFill()
-                } else {
-                    Rectangle()
-                        .fill(Color(.systemGray5))
-                        .overlay {
-                            Image(systemName: "photo")
-                                .foregroundColor(.secondary)
-                        }
-                }
-            }
-            .frame(width: 72, height: 72)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-
-            // Info
-            VStack(alignment: .leading, spacing: 4) {
-                Text(photo.caption ?? "Photo")
-                    .font(.headingMedium)
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
-
-                if let date = photo.createdAt {
-                    Text(date, style: .date)
-                        .font(.bodySmall)
-                        .foregroundColor(.secondary)
-                }
-            }
-
-            Spacer()
-        }
-        .task {
-            await loadThumbnail()
-        }
-    }
-
-    private func loadThumbnail() async {
-        if let thumbPath = photo.resolvedThumbnailPath {
-            if let image = try? await ThumbnailCache.shared.loadThumbnail(at: thumbPath, targetSize: .thumbnailSmall) {
-                thumbnail = image
-                return
-            }
-        }
-        let path = photo.resolvedFilePath
-        let image = await Task.detached(priority: .userInitiated) { () -> UIImage? in
-            let url = URL(fileURLWithPath: path) as CFURL
-            guard let source = CGImageSourceCreateWithURL(url, nil) else { return nil }
-            let options: [CFString: Any] = [
-                kCGImageSourceThumbnailMaxPixelSize: 150,
-                kCGImageSourceCreateThumbnailFromImageAlways: true,
-                kCGImageSourceCreateThumbnailWithTransform: true
-            ]
-            guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
-            return UIImage(cgImage: cgImage)
-        }.value
-        thumbnail = image
     }
 }

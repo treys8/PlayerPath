@@ -16,11 +16,11 @@ struct GamesView: View {
     private var activeSport: Season.SportType { athlete?.sportType ?? .baseball }
 
     private var isGolf: Bool { activeSport == .golf }
-    private var unitNoun: String { isGolf ? "tournament" : "game" }
-    private var unitNounPlural: String { isGolf ? "tournaments" : "games" }
-    private var navigationTitle: String { isGolf ? "Tournaments" : "Games" }
+    private var unitNoun: String { isGolf ? "round" : "game" }
+    private var unitNounPlural: String { isGolf ? "rounds" : "games" }
+    private var navigationTitle: String { isGolf ? "Rounds" : "Games" }
     private var searchPrompt: String { isGolf ? "Search by course or date" : "Search by opponent or date" }
-    private var addAccessibilityLabel: String { isGolf ? "Add new tournament" : "Add new game" }
+    private var addAccessibilityLabel: String { isGolf ? "Add new round" : "Add new game" }
 
     // Query games for the current athlete only — avoids loading all games across athletes
     private let athleteID: UUID?
@@ -79,6 +79,11 @@ struct GamesView: View {
     // Delete confirmation
     @State private var gameToDelete: Game?
     @State private var showingDeleteGameConfirmation = false
+
+    // Row tap → push game detail. Driving the push with navigationDestination(item:)
+    // means the rows are plain Buttons, not NavigationLinks, so the List never adds
+    // a system disclosure chevron beside GameRow's own in-card chevron.
+    @State private var selectedGame: Game?
 
     // Alert state
     private enum AlertType: Identifiable {
@@ -283,85 +288,10 @@ struct GamesView: View {
         return keyOrder.map { ($0, bucketsByKey[$0] ?? []) }
     }
 
-    private var gamesSummary: String? {
-        // Only show at scale — for 1–2 games, the row card already conveys everything.
-        guard cachedCompletedGames.count >= 3 else { return nil }
-
-        let n = cachedCompletedGames.count
-        var parts: [String] = []
-
-        if isGolf {
-            // Only complete rounds count; value derives from per-hole rows when present.
-            let scored = cachedCompletedGames
-                .filter { $0.isGolfRoundScored }
-                .compactMap { $0.effectiveTotalScore }
-            guard !scored.isEmpty else { return nil }
-            let total = scored.reduce(0, +)
-            let avg = Double(total) / Double(scored.count)
-            let best = scored.min() ?? 0
-            let roundWord = n == 1 ? "round" : "rounds"
-            parts.append("\(n) \(roundWord)")
-            parts.append("avg \(String(format: "%.1f", avg))")
-            parts.append("best \(best)")
-        } else {
-            let withStats = cachedCompletedGames.compactMap { $0.gameStats }
-            guard !withStats.isEmpty else { return nil }
-
-            let totalAB = withStats.reduce(0) { $0 + $1.atBats }
-            let totalH  = withStats.reduce(0) { $0 + $1.hits }
-            let totalHR = withStats.reduce(0) { $0 + $1.homeRuns }
-            let totalRBI = withStats.reduce(0) { $0 + $1.rbis }
-            let totalPitches = withStats.reduce(0) { $0 + $1.totalPitches }
-            let totalK = withStats.reduce(0) { $0 + $1.pitchingStrikeouts }
-            let totalBB = withStats.reduce(0) { $0 + $1.pitchingWalks }
-
-            let gameWord = n == 1 ? "game" : "games"
-            parts.append("\(n) \(gameWord)")
-
-            if totalAB > 0 {
-                let avg = StatisticsService.shared.formatBattingAverage(Double(totalH) / Double(totalAB))
-                parts.append(avg)
-                if totalHR > 0 { parts.append("\(totalHR) HR") }
-                if totalRBI > 0 { parts.append("\(totalRBI) RBI") }
-            } else if totalPitches > 0 {
-                parts.append("\(totalK) K")
-                parts.append("\(totalBB) BB")
-                parts.append("\(totalPitches) P")
-            }
-        }
-
-        if let seasonID = selectedSeasonFilter {
-            if seasonID == "no_season" {
-                parts.append("No Season")
-            } else if let s = cachedAvailableSeasons.first(where: { $0.id.uuidString == seasonID }) {
-                parts.append(s.displayName)
-            }
-        }
-
-        return parts.joined(separator: " · ")
-    }
-    
     // MARK: - Sub-views
     
     @ViewBuilder
     private var gamesListContent: some View {
-        if let summary = gamesSummary {
-            HStack(spacing: 6) {
-                Image(systemName: "chart.bar.fill")
-                    .foregroundStyle(.green)
-                    .font(.caption)
-                Text(summary)
-                    .font(.bodySmall)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
-                Spacer(minLength: 0)
-            }
-            .listRowBackground(Color.clear)
-            .listRowSeparator(.hidden)
-            .listRowInsets(EdgeInsets(top: 0, leading: 4, bottom: 0, trailing: 4))
-        }
-
         // Tournaments Section (golf only) — multi-round containers above the
         // standalone rounds. Sorted newest-first by the @Query (SchemaV27).
         if isGolf && !visibleTournaments.isEmpty {
@@ -378,9 +308,7 @@ struct GamesView: View {
         if !cachedLiveGames.isEmpty {
             Section("Live") {
                 ForEach(cachedLiveGames) { game in
-                    NavigationLink(destination: GameDetailView(game: game)) {
-                        GameRow(game: game, isSeasonFiltered: selectedSeasonFilter != nil)
-                    }
+                    gameNavigationRow(game)
                     .swipeActions(edge: .trailing) {
                         Button("End") {
                             endGame(game)
@@ -401,9 +329,7 @@ struct GamesView: View {
         if !cachedUpcomingGames.isEmpty {
             Section("Upcoming") {
                 ForEach(cachedUpcomingGames) { game in
-                    NavigationLink(destination: GameDetailView(game: game)) {
-                        GameRow(game: game, isSeasonFiltered: selectedSeasonFilter != nil)
-                    }
+                    gameNavigationRow(game)
                     .swipeActions(edge: .trailing) {
                         Button("Start") {
                             startGame(game)
@@ -430,11 +356,9 @@ struct GamesView: View {
 
         // Past Games Section (games that happened but weren't marked as complete)
         if !cachedPastGames.isEmpty {
-            Section("Past Games") {
+            Section(isGolf ? "Past Rounds" : "Past Games") {
                 ForEach(cachedPastGames) { game in
-                    NavigationLink(destination: GameDetailView(game: game)) {
-                        GameRow(game: game, isSeasonFiltered: selectedSeasonFilter != nil)
-                    }
+                    gameNavigationRow(game)
                     .swipeActions(edge: .trailing) {
                         Button("Complete") {
                             completeGame(game)
@@ -464,9 +388,7 @@ struct GamesView: View {
             ForEach(completedSections, id: \.label) { bucket in
                 Section(bucket.label) {
                     ForEach(bucket.games) { game in
-                        NavigationLink(destination: GameDetailView(game: game)) {
-                            GameRow(game: game, isSeasonFiltered: selectedSeasonFilter != nil)
-                        }
+                        gameNavigationRow(game)
                         .onAppear {
                             if game.id == cachedCompletedGames.last?.id,
                                viewModelHolder.viewModel?.hasMoreCompleted == true {
@@ -486,6 +408,22 @@ struct GamesView: View {
         }
     }
     
+    /// A games-list row whose entire card pushes the game detail. Uses a plain
+    /// `Button` (driving `navigationDestination(item:)`) rather than a
+    /// `NavigationLink`, because a List decorates every NavigationLink row with a
+    /// system disclosure chevron — which would sit beside GameRow's own in-card
+    /// chevron (the double-chevron bug). A Button gets no such chevron, and the
+    /// whole card stays one actionable, well-labeled element for VoiceOver (GameRow
+    /// already combines its children).
+    private func gameNavigationRow(_ game: Game) -> some View {
+        Button {
+            selectedGame = game
+        } label: {
+            GameRow(game: game, isSeasonFiltered: selectedSeasonFilter != nil)
+        }
+        .buttonStyle(.plain)
+    }
+
     private var seasonFilterMenu: some View {
         SeasonFilterMenu(
             selectedSeasonID: $selectedSeasonFilter,
@@ -514,7 +452,13 @@ struct GamesView: View {
             } else {
                 List {
                     gamesListContent
+                        .listRowBackground(Theme.surface)
+                        .listRowSeparator(.hidden)
+                        .listRowInsets(EdgeInsets(top: 5, leading: 18, bottom: 5, trailing: 18))
                 }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .background(Theme.surface)
                 .environment(\.editMode, $listEditMode)
                 .refreshable {
                     Haptics.light()
@@ -529,8 +473,16 @@ struct GamesView: View {
         mainContent
             .navigationTitle(navigationTitle)
             .navigationBarTitleDisplayMode(.large)
+            .navigationDestination(item: $selectedGame) { game in
+                GameDetailView(game: game)
+            }
             .searchable(text: $searchText, prompt: searchPrompt)
             .toolbar {
+                if let athlete = athlete {
+                    ToolbarItem(placement: .principal) {
+                        PPAthleteSwitcher(athlete: athlete)
+                    }
+                }
                 ToolbarItem(placement: .primaryAction) {
                     if isGolf {
                         // Golf now has two creatable things: a standalone round
@@ -645,7 +597,7 @@ struct GamesView: View {
                 case .noSeason:
                     Alert(
                         title: Text("Create a Season First"),
-                        message: Text("Games belong to a season. Create a season to start tracking games."),
+                        message: Text("\(unitNounPlural.capitalized) belong to a season. Create a season to start tracking \(unitNounPlural)."),
                         primaryButton: .default(Text("Create Season")) {
                             showingSeasonCreation = true
                         },
@@ -674,7 +626,7 @@ struct GamesView: View {
     private func startGame(_ game: Game) {
         // Check if game has a season
         guard game.season != nil else {
-            errorMessage = "This game needs a season before it can be started. Please assign a season to the game first."
+            errorMessage = "This \(unitNoun) needs a season before it can be started. Please assign a season to the \(unitNoun) first."
             activeAlert = .error
             return
         }

@@ -77,7 +77,7 @@ struct SeasonManagementView: View {
                         showingArchiveConfirmation = true
                     } label: {
                         Label("End Current Season", systemImage: "archivebox")
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(Theme.warning)
                     }
 
                     Button {
@@ -227,15 +227,16 @@ struct SeasonStatBadge: View {
         VStack(spacing: 4) {
             Image(systemName: icon)
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.textSecondary)
 
             Text("\(value)")
                 .font(.ppStatSmall)
+                .foregroundStyle(Theme.textPrimary)
                 .monospacedDigit()
 
             Text(label)
-                .font(.labelSmall)
-                .foregroundStyle(.secondary)
+                .smallCapsLabel(color: Theme.textTertiary)
+                .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
     }
@@ -273,7 +274,7 @@ struct SeasonHistoryRow: View {
 
                 Spacer()
 
-                Text("\(season.completedGames) games • \(season.totalVideos) videos")
+                Text("\(season.completedGames) game\(season.completedGames == 1 ? "" : "s") • \(season.totalVideos) video\(season.totalVideos == 1 ? "" : "s")")
                     .font(.bodySmall)
                     .foregroundStyle(.secondary)
             }

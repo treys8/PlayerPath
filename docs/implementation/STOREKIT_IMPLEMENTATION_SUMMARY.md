@@ -82,7 +82,7 @@ Beautiful, functional paywall for athletes with:
 - 5 premium features with colored icons
 - Subscription plan cards (Monthly/Annual)
 - "Save 50%" badge on annual
-- "Start 7-Day Free Trial" CTA button
+- Subscribe CTA button
 - "Restore Purchase" button
 - Terms and pricing details
 - Loading states
@@ -114,13 +114,11 @@ StoreKit configuration file for local testing:
    - ID: `com.playerpath.premium.monthly`
    - Price: $9.99
    - Period: 1 month
-   - Trial: 7 days free
 
 2. **Annual Premium**
    - ID: `com.playerpath.premium.annual`
    - Price: $59.99
    - Period: 1 year
-   - Trial: 7 days free
 
 **Benefits:**
 - Test purchases without App Store Connect
@@ -189,7 +187,7 @@ ImprovedPaywallView
   ↓
 Select Plan (Monthly/Annual)
   ↓
-"Start 7-Day Free Trial"
+Subscribe
   ↓
 Apple Purchase Sheet
   ↓
@@ -210,7 +208,7 @@ CoachPaywallView
   ↓
 Select Plan (Monthly/Annual)
   ↓
-"Start 7-Day Free Trial"
+Subscribe
   ↓
 Apple Purchase Sheet
   ↓
@@ -236,7 +234,6 @@ Face ID / Touch ID
 - ✅ Live subscription status
 - ✅ Premium badge for active subscribers
 - ✅ Savings indicator on annual plan
-- ✅ Free trial messaging
 - ✅ Loading states and error handling
 
 ---
@@ -259,7 +256,6 @@ Face ID / Touch ID
 ### ✅ Testable Now
 - Product loading
 - Purchase flow
-- Free trial
 - Subscription status
 - Restore purchases
 - Error handling
@@ -305,7 +301,7 @@ All features use native Apple frameworks:
 1. **Configure App Store Connect**
    - Create subscription group
    - Add product IDs
-   - Set pricing and trial period
+   - Set pricing
    - Add screenshots for review
 
 2. **Sandbox Testing**
@@ -328,12 +324,10 @@ All features use native Apple frameworks:
 2. **Analytics**
    - Track paywall views
    - Monitor conversion rates
-   - Track trial-to-paid conversion
    - Monitor churn rate
 
 3. **Optimization**
    - A/B test pricing
-   - Test different trial periods
    - Optimize paywall copy
    - Add promotional offers
 
@@ -363,7 +357,6 @@ All features use native Apple frameworks:
 ### 4. User-Friendly Design
 - Clear pricing display
 - Savings calculations
-- Free trial emphasis
 - Easy plan selection
 - Quick restore option
 
@@ -379,11 +372,9 @@ All features use native Apple frameworks:
 
 Consider tracking:
 - **Conversion Rate:** Paywall views → Purchases
-- **Trial Conversion:** Free trials → Paid subscriptions
 - **Churn Rate:** Monthly cancellations
 - **ARPU:** Average Revenue Per User
 - **LTV:** Lifetime Value
-- **Trial Duration:** How long users trial before converting
 - **Plan Preference:** Monthly vs Annual split
 
 ---

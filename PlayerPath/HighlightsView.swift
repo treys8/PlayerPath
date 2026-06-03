@@ -351,7 +351,7 @@ struct HighlightsView: View {
                         let isGolf = athlete?.sport == .golf
                         Picker("Type", selection: $viewModel.filter) {
                             Label("All", systemImage: "square.grid.2x2").tag(HighlightsViewModel.Filter.all)
-                            Label(isGolf ? "Tournaments" : "Games", systemImage: isGolf ? "figure.golf" : "baseball.diamond.bases").tag(HighlightsViewModel.Filter.game)
+                            Label(isGolf ? "Rounds" : "Games", systemImage: isGolf ? "figure.golf" : "baseball.diamond.bases").tag(HighlightsViewModel.Filter.game)
                             Label("Practice", systemImage: "figure.run").tag(HighlightsViewModel.Filter.practice)
                         }
                     }

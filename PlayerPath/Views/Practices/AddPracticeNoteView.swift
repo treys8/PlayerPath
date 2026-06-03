@@ -21,11 +21,12 @@ struct AddPracticeNoteView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Note") {
+                Section(header: Text("Note").smallCapsLabel()) {
                     TextField("Enter your practice notes...", text: $noteContent, axis: .vertical)
                         .lineLimit(5...10)
                 }
             }
+            .ppDetailBackground()
             .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Add Note")
             .navigationBarTitleDisplayMode(.inline)

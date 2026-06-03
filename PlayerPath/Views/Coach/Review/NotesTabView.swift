@@ -28,7 +28,7 @@ struct NotesTabView: View {
                 VStack(spacing: 16) {
                     Image(systemName: "exclamationmark.triangle")
                         .font(.system(size: 50))
-                        .foregroundColor(.orange.opacity(0.7))
+                        .foregroundColor(Theme.warning.opacity(0.7))
 
                     Text("Failed to Load Drawings")
                         .font(.headline)

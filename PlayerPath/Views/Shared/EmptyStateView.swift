@@ -18,6 +18,7 @@ struct EmptyStateView: View {
     @State private var isAnimating = false
     @State private var floatOffset: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.ppAccent) private var ppAccent
 
     init(systemImage: String, title: String, message: String, actionTitle: String? = nil, buttonIcon: String = "plus.circle.fill", action: (() -> Void)? = nil) {
         self.systemImage = systemImage
@@ -34,7 +35,7 @@ struct EmptyStateView: View {
             Circle()
                 .fill(
                     RadialGradient(
-                        colors: [Color.brandNavy.opacity(0.08), .clear],
+                        colors: [ppAccent.opacity(0.08), .clear],
                         center: .center,
                         startRadius: 0,
                         endRadius: 200
@@ -50,14 +51,14 @@ struct EmptyStateView: View {
                     // Glow effect
                     Image(systemName: systemImage)
                         .font(.system(size: 72, weight: .light))
-                        .foregroundColor(.brandNavy.opacity(0.3))
+                        .foregroundColor(ppAccent.opacity(0.3))
                         .blur(radius: 20)
 
                     Image(systemName: systemImage)
                         .font(.system(size: 72, weight: .light))
                         .foregroundStyle(
                             LinearGradient(
-                                colors: [Color.brandNavy, Color.brandNavy.opacity(0.6)],
+                                colors: [ppAccent, ppAccent.opacity(0.6)],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
                             )
@@ -99,13 +100,13 @@ struct EmptyStateView: View {
                         .padding(.vertical, 14)
                         .background(
                             LinearGradient(
-                                colors: [Color.brandNavy, Color.brandNavy.opacity(0.85)],
+                                colors: [ppAccent, ppAccent.opacity(0.85)],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
                             )
                         )
                         .clipShape(Capsule())
-                        .shadow(color: Color.brandNavy.opacity(0.3), radius: 12, x: 0, y: 6)
+                        .shadow(color: ppAccent.opacity(0.3), radius: 12, x: 0, y: 6)
                     }
                     .buttonStyle(PremiumButtonStyle())
                     .opacity(isAnimating ? 1.0 : 0.0)

@@ -109,10 +109,10 @@ final class PracticesViewModel {
         let noteCount = practices.reduce(0) { $0 + ($1.notes?.count ?? 0) }
         let dates = practices.compactMap(\.date)
         guard let oldest = dates.min(), let newest = dates.max() else {
-            return "\(count) practice\(count == 1 ? "" : "s") \u{2022} \(videoCount) videos"
+            return "\(count) practice\(count == 1 ? "" : "s") \u{2022} \(videoCount) video\(videoCount == 1 ? "" : "s")"
         }
         let dateRange = "\(Self.summaryDateFormatter.string(from: oldest)) - \(Self.summaryDateFormatter.string(from: newest))"
-        return "\(count) practices \u{2022} \(videoCount) videos \u{2022} \(noteCount) notes \u{2022} \(dateRange)"
+        return "\(count) practice\(count == 1 ? "" : "s") \u{2022} \(videoCount) video\(videoCount == 1 ? "" : "s") \u{2022} \(noteCount) note\(noteCount == 1 ? "" : "s") \u{2022} \(dateRange)"
     }
 
     private func updateAvailableSeasons() {

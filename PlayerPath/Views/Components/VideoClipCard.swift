@@ -19,6 +19,7 @@ struct VideoClipCard: View {
     var onToggleSelection: (() -> Void)? = nil
     var onContextMenuOpened: (() -> Void)? = nil
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.ppAccent) private var ppAccent
     @State private var errorMessage: String?
     @State private var showingError = false
     @State private var showingSaveSuccess = false
@@ -105,7 +106,7 @@ struct VideoClipCard: View {
                                     .lineLimit(1)
                                     .fixedSize(horizontal: true, vertical: false)
                                     .badgeMedium()
-                                    .background(.orange, in: Capsule())
+                                    .background(ppAccent, in: Capsule())
                             }
 
                             Spacer(minLength: 4)
@@ -148,11 +149,11 @@ struct VideoClipCard: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color(.systemGray6))
+                    .background(Theme.card)
                 }
-            .background(Color(.systemGray6))
+            .background(Theme.card)
             .clipShape(RoundedRectangle(cornerRadius: .cornerLarge, style: .continuous))
-            .shadow(color: .black.opacity(0.1), radius: 8, x: 0, y: 3)
+            .shadow(color: .black.opacity(0.04), radius: 10, x: 0, y: 4)
             // Force the Button's tappable region to cover the entire rendered frame.
             // Without this, SwiftUI's default hit-test is the union of child text
             // regions — leaving Spacer-filled gaps in the info section as dead zones
@@ -394,7 +395,7 @@ struct VideoClipCard: View {
         if let game = video.game {
             Text(game.opponentLabel)
                 .font(.bodySmall)
-                .foregroundColor(.brandNavy)
+                .foregroundStyle(Theme.textPrimary)
         } else if video.practice != nil {
             Text("Practice")
                 .font(.bodySmall)
@@ -485,7 +486,7 @@ struct BackupStatusBadge: View {
             }
             .frame(minHeight: 22)
         } else if uploadManager.pendingUploads.contains(where: { $0.clipId == clip.id }) {
-            icon("clock.fill", color: .orange)
+            icon("clock.fill", color: Theme.warning)
         }
         // Local-only state renders nothing — absence of a badge implies "not yet
         // uploaded". Showing icloud.slash on every unsynced clip is too loud

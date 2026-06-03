@@ -111,7 +111,7 @@ struct CoachesView: View {
                                 } label: {
                                     Label("Report", systemImage: "flag")
                                 }
-                                .tint(.orange)
+                                .tint(Theme.warning)
                             }
                             .swipeActions(edge: .leading) {
                                 if coach.isInvitationExpired || coach.lastInvitationStatus == "declined" || coach.lastInvitationStatus == "rejected_limit" {

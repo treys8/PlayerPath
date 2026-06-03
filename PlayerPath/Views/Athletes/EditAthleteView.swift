@@ -15,6 +15,7 @@ struct EditAthleteView: View {
     @Bindable var athlete: Athlete
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.ppAccent) private var ppAccent
     @State private var showingAddSportProfile = false
 
     /// Sports this athlete tracks — distinct seasons' sports, falling back to
@@ -64,6 +65,9 @@ struct EditAthleteView: View {
                 Text("When off, new recordings save without play-result tagging and won't add to stats. Existing stats stay visible and resume updating if you turn tracking back on.")
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(Theme.surface)
+        .tint(ppAccent)
         .navigationTitle(athlete.name)
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showingAddSportProfile) {

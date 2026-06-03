@@ -12,6 +12,7 @@ import SwiftData
 struct GameSelectionForStatsView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.ppAccent) private var ppAccent
     let athlete: Athlete?
 
     @State private var showingManualEntry = false
@@ -37,7 +38,7 @@ struct GameSelectionForStatsView: View {
     var body: some View {
         NavigationStack {
             List {
-                Section("Select a Game") {
+                Section(header: Text("Select a Game").smallCapsLabel()) {
                     if availableGames.isEmpty {
                         VStack(spacing: 15) {
                             Text("No games found")
@@ -67,9 +68,10 @@ struct GameSelectionForStatsView: View {
                     Button("Create New Game for Statistics") {
                         showingCreateGame = true
                     }
-                    .foregroundColor(.blue)
+                    .foregroundColor(ppAccent)
                 }
             }
+            .ppDetailBackground()
             .navigationTitle("Select Game")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -92,6 +94,7 @@ struct GameSelectionForStatsView: View {
 }
 
 struct GameRowForStats: View {
+    @Environment(\.ppAccent) private var ppAccent
     let game: Game
 
     var body: some View {
@@ -149,7 +152,7 @@ struct GameRowForStats: View {
                     Text("\(stats.hits)/\(stats.atBats)")
                         .font(.ppStatSmall)
                         .monospacedDigit()
-                        .foregroundColor(.blue)
+                        .foregroundColor(ppAccent)
 
                     if stats.atBats > 0 {
                         Text(StatisticsService.shared.formatBattingAverage(Double(stats.hits) / Double(stats.atBats)))

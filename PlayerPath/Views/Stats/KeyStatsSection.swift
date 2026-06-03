@@ -116,7 +116,7 @@ struct StatCard: View {
             ZStack {
                 // Base background
                 RoundedRectangle(cornerRadius: .cornerXLarge, style: .continuous)
-                    .fill(Color(uiColor: .secondarySystemGroupedBackground))
+                    .fill(Theme.card)
 
                 // Subtle top gradient accent
                 RoundedRectangle(cornerRadius: .cornerXLarge, style: .continuous)

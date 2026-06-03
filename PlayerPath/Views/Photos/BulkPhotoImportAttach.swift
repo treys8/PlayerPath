@@ -22,13 +22,15 @@ struct BulkPhotoImportAttach: ViewModifier {
         var color: Color {
             switch self {
             case .success: return .green
-            case .warning: return .orange
+            case .warning: return Theme.warning
             case .error:   return .red
             }
         }
     }
 
     let athlete: Athlete?
+    var game: Game? = nil
+    var practice: Practice? = nil
     var season: Season? = nil
     @Binding var trigger: Bool
 
@@ -135,11 +137,17 @@ struct BulkPhotoImportAttach: ViewModifier {
                 }
 
                 // Pull EXIF capture date first so we can route the photo to the
-                // right season. An explicit `season` prop from the call site
-                // wins; otherwise match by capture date; otherwise activeSeason.
+                // right season. A preset game/practice wins (the photo inherits
+                // that event's season — mirrors BulkVideoImportViewModel); then
+                // an explicit `season` prop; then match by capture date; then
+                // activeSeason.
                 let exifDate = service.extractCaptureDate(from: data)
                 let resolvedSeason: Season?
-                if let season {
+                if let game {
+                    resolvedSeason = game.season ?? athlete.activeSeason
+                } else if let practice {
+                    resolvedSeason = practice.season ?? athlete.activeSeason
+                } else if let season {
                     resolvedSeason = season
                 } else if let exifDate {
                     resolvedSeason = Season.season(containing: exifDate, in: allSeasons) ?? athlete.activeSeason
@@ -155,6 +163,8 @@ struct BulkPhotoImportAttach: ViewModifier {
                     data,
                     context: modelContext,
                     athlete: athlete,
+                    game: game,
+                    practice: practice,
                     season: resolvedSeason,
                     captureDate: nudgedDate
                 )
@@ -204,9 +214,11 @@ struct BulkPhotoImportAttach: ViewModifier {
 extension View {
     func bulkPhotoImportAttach(
         athlete: Athlete?,
+        game: Game? = nil,
+        practice: Practice? = nil,
         season: Season? = nil,
         trigger: Binding<Bool>
     ) -> some View {
-        modifier(BulkPhotoImportAttach(athlete: athlete, season: season, trigger: trigger))
+        modifier(BulkPhotoImportAttach(athlete: athlete, game: game, practice: practice, season: season, trigger: trigger))
     }
 }

@@ -81,6 +81,7 @@ func performDeleteAthlete(_ athlete: Athlete, selectedAthlete: Binding<Athlete?>
 // MARK: - Athlete Management View
 
 struct AthleteManagementView: View {
+    @Environment(\.ppAccent) private var ppAccent
     let user: User
     @Binding var selectedAthlete: Athlete?
     @Environment(\.modelContext) private var modelContext
@@ -131,9 +132,12 @@ struct AthleteManagementView: View {
                 }) {
                     Label("Add Athlete", systemImage: "person.badge.plus")
                 }
-                .tint(Color.brandNavy)
+                .tint(ppAccent)
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(Theme.surface)
+        .tint(ppAccent)
         .navigationTitle("Manage Athletes")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

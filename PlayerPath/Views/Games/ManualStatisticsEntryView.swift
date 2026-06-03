@@ -63,7 +63,7 @@ struct ManualStatisticsEntryView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Game Information") {
+                Section(header: Text("Game Information").smallCapsLabel()) {
                     HStack {
                         Text("Opponent:")
                             .font(.headingMedium)
@@ -86,19 +86,19 @@ struct ManualStatisticsEntryView: View {
                     }
                 }
 
-                Section("Batting Statistics") {
+                Section(header: Text("Batting Statistics").smallCapsLabel()) {
                     StatEntryRow(title: "Singles", value: $singles, icon: "1.circle.fill", color: .green, field: .singles, focusedField: $focusedStatField)
                     StatEntryRow(title: "Doubles", value: $doubles, icon: "2.circle.fill", color: .brandNavy, field: .doubles, focusedField: $focusedStatField)
                     StatEntryRow(title: "Triples", value: $triples, icon: "3.circle.fill", color: .orange, field: .triples, focusedField: $focusedStatField)
                     StatEntryRow(title: "Home Runs", value: $homeRuns, icon: "4.circle.fill", color: .gold, field: .homeRuns, focusedField: $focusedStatField)
                 }
 
-                Section("Offensive Statistics") {
+                Section(header: Text("Offensive Statistics").smallCapsLabel()) {
                     StatEntryRow(title: "Runs", value: $runs, icon: "figure.run", color: .purple, field: .runs, focusedField: $focusedStatField)
                     StatEntryRow(title: "RBIs", value: $rbis, icon: "arrow.up.right.circle.fill", color: .pink, field: .rbis, focusedField: $focusedStatField)
                 }
 
-                Section("Plate Appearance Outcomes") {
+                Section(header: Text("Plate Appearance Outcomes").smallCapsLabel()) {
                     StatEntryRow(title: "Strikeouts (K's)", value: $strikeouts, icon: "k.circle.fill", color: .red, field: .strikeouts, focusedField: $focusedStatField)
                     StatEntryRow(title: "Ground Outs", value: $groundOuts, icon: "arrow.down.circle.fill", color: .red, field: .groundOuts, focusedField: $focusedStatField)
                     StatEntryRow(title: "Fly Outs", value: $flyOuts, icon: "arrow.up.circle.fill", color: .red, field: .flyOuts, focusedField: $focusedStatField)
@@ -106,7 +106,7 @@ struct ManualStatisticsEntryView: View {
                     StatEntryRow(title: "Hit By Pitch", value: $hitByPitches, icon: "exclamationmark.circle.fill", color: .orange, field: .hitByPitches, focusedField: $focusedStatField)
                 }
 
-                Section("Current Game Statistics") {
+                Section(header: Text("Current Game Statistics").smallCapsLabel()) {
                     CurrentStatRow(title: "Hits", current: existingGameStats?.hits ?? 0, color: .brandNavy)
                     CurrentStatRow(title: "At Bats", current: existingGameStats?.atBats ?? 0, color: .brandNavy)
                     CurrentStatRow(title: "Runs", current: existingGameStats?.runs ?? 0, color: .purple)
@@ -127,7 +127,7 @@ struct ManualStatisticsEntryView: View {
                 }
 
                 if hasAnyInput {
-                    Section("Preview New Totals") {
+                    Section(header: Text("Preview New Totals").smallCapsLabel()) {
                         PreviewStatRow(title: "Total Hits", current: existingGameStats?.hits ?? 0, new: newHits, total: totalHits)
                         PreviewStatRow(title: "Total At Bats", current: existingGameStats?.atBats ?? 0, new: newAtBats, total: totalAtBats)
                         PreviewStatRow(title: "Total Runs", current: existingGameStats?.runs ?? 0, new: newRuns, total: totalRuns)
@@ -152,6 +152,7 @@ struct ManualStatisticsEntryView: View {
                     }
                 }
             }
+            .ppDetailBackground()
             .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Enter Statistics")
             .navigationBarTitleDisplayMode(.inline)

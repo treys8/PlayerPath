@@ -269,10 +269,10 @@ struct CoachFolderDetailView: View {
             if let listenerError = SharedFolderManager.shared.listenerError {
                 Label(listenerError, systemImage: "exclamationmark.triangle.fill")
                     .font(.subheadline)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(Theme.warning)
                     .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+                    .background(Theme.warning.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
                     .padding(.horizontal)
             }
 

@@ -23,9 +23,9 @@ enum CoachTab: Int, CaseIterable {
 
     var icon: String {
         switch self {
-        case .dashboard: return "house.fill"
-        case .athletes: return "person.3.fill"
-        case .profile: return "ellipsis.circle.fill"
+        case .dashboard: return "house"
+        case .athletes: return "person.3"
+        case .profile: return "ellipsis.circle"
         }
     }
 }

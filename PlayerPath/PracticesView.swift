@@ -39,6 +39,7 @@ extension Practice {
 struct PracticesView: View {
     let athlete: Athlete?
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.ppAccent) private var ppAccent
     private var activeSport: Season.SportType { athlete?.sportType ?? .baseball }
     @State private var viewModel = PracticesViewModel()
     @State private var navigateToPractice: Practice?
@@ -146,25 +147,30 @@ struct PracticesView: View {
             List {
                 if !viewModel.filteredPractices.isEmpty {
                     HStack {
-                        Image(systemName: "chart.bar.fill")
-                            .foregroundStyle(.green)
-                            .font(.caption)
-
                         Text(viewModel.practicesSummary)
                             .font(.bodySmall)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Theme.textSecondary)
                             .lineLimit(1)
                             .truncationMode(.tail)
                             .minimumScaleFactor(0.8)
 
                         Spacer()
                     }
+                    .listRowBackground(Theme.surface)
+                    .listRowSeparator(.hidden)
+                    .listRowInsets(EdgeInsets(top: 5, leading: 18, bottom: 5, trailing: 18))
                 }
 
                 ForEach(viewModel.filteredPractices, id: \.persistentModelID) { practice in
-                    NavigationLink(destination: PracticeDetailView(practice: practice)) {
+                    // Button + navigationDestination(item:) (not NavigationLink) so
+                    // the List doesn't add a system disclosure chevron outside the
+                    // card — PracticeCard carries its own in-card chevron instead.
+                    Button {
+                        navigateToPractice = practice
+                    } label: {
                         PracticeCard(practice: practice)
                     }
+                    .buttonStyle(.plain)
                     .swipeActions {
                         Button(role: .destructive) {
                             deleteSinglePractice(practice)
@@ -173,6 +179,9 @@ struct PracticesView: View {
                         }
                     }
                 }
+                .listRowBackground(Theme.surface)
+                .listRowSeparator(.hidden)
+                .listRowInsets(EdgeInsets(top: 5, leading: 18, bottom: 5, trailing: 18))
 
                 if viewModel.hasMore {
                     Button {
@@ -184,12 +193,18 @@ struct PracticesView: View {
                             Image(systemName: "arrow.down.circle")
                         }
                         .font(.labelLarge)
-                        .foregroundColor(.brandNavy)
+                        .foregroundColor(ppAccent)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
                     }
+                    .listRowBackground(Theme.surface)
+                    .listRowSeparator(.hidden)
+                    .listRowInsets(EdgeInsets(top: 5, leading: 18, bottom: 5, trailing: 18))
                 }
             }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(Theme.surface)
             .refreshable {
                 await refreshPractices()
             }

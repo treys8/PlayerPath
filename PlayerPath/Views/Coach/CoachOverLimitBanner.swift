@@ -21,7 +21,7 @@ struct CoachOverLimitBanner: View {
         } label: {
             HStack(spacing: 10) {
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundColor(.orange)
+                    .foregroundColor(Theme.warning)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Over athlete limit")
@@ -40,7 +40,7 @@ struct CoachOverLimitBanner: View {
                     .foregroundColor(.secondary)
             }
             .padding()
-            .background(Color.orange.opacity(0.1))
+            .background(Theme.warning.opacity(0.1))
             .cornerRadius(12)
         }
         .buttonStyle(.plain)

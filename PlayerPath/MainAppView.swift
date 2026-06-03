@@ -101,8 +101,8 @@ struct PlayerPathMainView: View {
         .environmentObject(authManager)
         .environment(\.onboardingTipsEnabled, prefs.first?.showOnboardingTips ?? true)
         .environment(\.font, .bodyLarge)
-        .tint(Color.brandNavy)
-        .preferredColorScheme(themeManager.colorScheme)
+        .tint(Theme.accent)                 // Visual overhaul: terracotta accent app-wide
+        .preferredColorScheme(.light)       // Visual overhaul: cream surface is the brand — light only
         .dynamicTypeSize(...DynamicTypeSize.accessibility5)
         .withErrorHandling() // Global error handling
         .sheet(isPresented: $updateManager.showWhatsNew) {

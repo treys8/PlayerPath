@@ -17,6 +17,7 @@ struct QuickStatisticsEntryView: View {
     let athlete: Athlete?
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.ppAccent) private var ppAccent
     @State private var playResultType: PlayResultType = .single
     @State private var numberOfPlays: String = "1"
     @State private var showingAlert = false
@@ -27,7 +28,7 @@ struct QuickStatisticsEntryView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Current Game") {
+                Section(header: Text("Current Game").smallCapsLabel()) {
                     HStack {
                         Text("Opponent:")
                             .font(.headingMedium)
@@ -48,7 +49,7 @@ struct QuickStatisticsEntryView: View {
                     }
                 }
 
-                Section("Record Play Result") {
+                Section(header: Text("Record Play Result").smallCapsLabel()) {
                     Picker("Play Result", selection: $playResultType) {
                         Section("Batting") {
                             ForEach(PlayResultType.battingCases, id: \.self) { playType in
@@ -74,7 +75,7 @@ struct QuickStatisticsEntryView: View {
                     }
                 }
 
-                Section("Play Details") {
+                Section(header: Text("Play Details").smallCapsLabel()) {
                     HStack {
                         Text("Result Type:")
                         Spacer()
@@ -90,7 +91,7 @@ struct QuickStatisticsEntryView: View {
                             Text("\(playResultType.bases)")
                                 .font(.ppStatSmall)
                                 .monospacedDigit()
-                                .foregroundColor(.blue)
+                                .foregroundStyle(ppAccent)
                         }
 
                         if playResultType.isHighlight {
@@ -105,6 +106,7 @@ struct QuickStatisticsEntryView: View {
                     }
                 }
             }
+            .ppDetailBackground()
             .navigationTitle("Record Statistics")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

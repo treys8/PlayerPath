@@ -31,11 +31,21 @@ struct CoachVideoPlayerView: View {
     @State private var drillCardsLoadFailed = false
     /// Guard so the "athlete viewed this clip" write only fires once per open.
     @State private var hasMarkedViewed = false
+    /// Quick-cue texts currently applied to this clip (a subset of video.tags),
+    /// edited live by the coach via the inline cue picker.
+    @State private var selectedCueTags: [String] = []
+    @State private var isConfirmingReview = false
+    @State private var didConfirmReview = false
+    /// Latest athlete view-receipt, refreshed from Firestore on open/foreground
+    /// so "Seen" still appears while the coach keeps the clip open. nil until the
+    /// first refresh; `athleteViewedAt` falls back to the clip's load snapshot.
+    @State private var refreshedAthleteViewedAt: Date?
     private var templateService: CoachTemplateService { .shared }
     @Environment(\.modelContext) private var modelContext
     @Environment(\.verticalSizeClass) private var vSizeClass
     @Environment(\.horizontalSizeClass) private var hSizeClass
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.ppAccent) private var ppAccent
     private var isWideLayout: Bool { hSizeClass == .regular || vSizeClass == .compact }
     private var isIPad: Bool { hSizeClass == .regular }
 
@@ -86,7 +96,7 @@ struct CoachVideoPlayerView: View {
                             markReviewed()
                         } label: {
                             Image(systemName: "checkmark.circle")
-                                .foregroundColor(.brandNavy)
+                                .foregroundColor(ppAccent)
                         }
                         .disabled(isMarkingReviewed)
                         .accessibilityLabel("Mark as reviewed")
@@ -105,7 +115,7 @@ struct CoachVideoPlayerView: View {
                                 ProgressView().scaleEffect(0.8)
                             } else {
                                 Image(systemName: "pencil.tip")
-                                    .foregroundColor(.brandNavy)
+                                    .foregroundColor(ppAccent)
                             }
                         }
                         .disabled(!viewModel.isPlayerReady || isVerifyingDrawPermission)
@@ -126,7 +136,7 @@ struct CoachVideoPlayerView: View {
                                     .foregroundColor(.green)
                             } else {
                                 Image(systemName: "folder.fill.badge.plus")
-                                    .foregroundColor(.brandNavy)
+                                    .foregroundColor(ppAccent)
                             }
                         }
                         .disabled(viewModel.isSavingToMyVideos || !viewModel.isPlayerReady || viewModel.alreadySavedToMyVideos)
@@ -141,7 +151,7 @@ struct CoachVideoPlayerView: View {
                             ProgressView().scaleEffect(0.8)
                         } else {
                             Image(systemName: "square.and.arrow.down")
-                                .foregroundColor(.brandNavy)
+                                .foregroundColor(ppAccent)
                         }
                     }
                     .disabled(viewModel.isSaving || !viewModel.isPlayerReady)
@@ -156,10 +166,10 @@ struct CoachVideoPlayerView: View {
                                 .font(.subheadline)
                                 .fontWeight(.semibold)
                                 .monospacedDigit()
-                                .foregroundColor(.brandNavy)
+                                .foregroundColor(ppAccent)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 4)
-                                .background(Color.brandNavy.opacity(0.12))
+                                .background(ppAccent.opacity(0.12))
                                 .clipShape(Capsule())
                         }
                         .accessibilityLabel("Playback speed: \(viewModel.playbackRate)x")
@@ -169,6 +179,7 @@ struct CoachVideoPlayerView: View {
         }
         .toast(isPresenting: $viewModel.didSaveSuccessfully, message: "Video Saved")
         .toast(isPresenting: $viewModel.didSaveToMyVideosSuccessfully, message: "Added to Your Videos")
+        .toast(isPresenting: $didConfirmReview, message: "Marked reviewed")
         .alert("Save Failed", isPresented: .init(
             get: { viewModel.saveError != nil },
             set: { if !$0 { viewModel.saveError = nil } }
@@ -224,6 +235,15 @@ struct CoachVideoPlayerView: View {
             // Load video first (always needed)
             await viewModel.loadVideo()
 
+            // Seed the inline cue picker up front (coach-only) so the chips
+            // populate immediately instead of staying blank through the heavier
+            // annotation / drill-card loads below. Cue templates load off the
+            // critical path into the shared service; selectedCueTags is local.
+            if canEditCoachNote, let coachID = authManager.userID {
+                selectedCueTags = video.tags
+                Task { await templateService.loadQuickCues(coachID: coachID) }
+            }
+
             // Generate filmstrip and load video natural size after player is ready
             await viewModel.loadVideoNaturalSize()
             viewModel.generateFilmstrip()
@@ -254,6 +274,10 @@ struct CoachVideoPlayerView: View {
             if canEditCoachNote, let coachID = authManager.userID, !viewModel.isReviewed(by: coachID) {
                 try? await viewModel.markReviewed(coachID: coachID, silent: true)
             }
+
+            // Pull the athlete's view receipt fresh — the clip snapshot can be
+            // stale if the athlete watched after the coach opened the folder.
+            refreshViewReceipt()
 
             // Auto-show the earliest coach drawing once everything is loaded.
             // Aspect ratio (videoNaturalSize) is set by loadVideoNaturalSize
@@ -302,7 +326,7 @@ struct CoachVideoPlayerView: View {
                 Task { await reloadDrillCards() }
             }
             .buttonStyle(.bordered)
-            .tint(.brandNavy)
+            .tint(ppAccent)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding()
@@ -327,6 +351,8 @@ struct CoachVideoPlayerView: View {
                 viewModel.player?.play()
             }
             viewModel.shouldResumeOnActive = false
+            // Athlete may have watched while the app was backgrounded.
+            refreshViewReceipt()
         }
     }
     
@@ -370,9 +396,10 @@ struct CoachVideoPlayerView: View {
             playerContent
                 .frame(height: playerHeight)
             athleteNoteCard
-            coachNoteCard
+            coachNoteSection
             annotationPanel
         }
+        .background(Theme.surface)
     }
 
     private var wideLayout: some View {
@@ -389,10 +416,29 @@ struct CoachVideoPlayerView: View {
                 playbackRate: viewModel.playbackRate,
                 onRateChanged: { viewModel.setPlaybackRate($0) },
                 athleteNote: { athleteNoteCard },
-                coachNote: { coachNoteCard },
+                coachNote: { coachNoteSection },
                 annotationPanel: { annotationPanel }
             )
             .frame(width: isIPad ? 360 : 320)
+            .background(Theme.surface)
+        }
+    }
+
+    /// Coach note + (coach-only) the cue picker / Send / view-receipt bar.
+    @ViewBuilder
+    private var coachNoteSection: some View {
+        coachNoteCard
+        if canEditCoachNote {
+            CoachReviewActionsBar(
+                athleteName: athleteFirstName,
+                quickCues: templateService.quickCues,
+                appliedCues: selectedCueTags,
+                viewedAt: athleteViewedAt,
+                isSending: isConfirmingReview,
+                onToggleCue: toggleCue,
+                onAddCue: addCue,
+                onSend: confirmReviewComplete
+            )
         }
     }
 
@@ -476,13 +522,13 @@ struct CoachVideoPlayerView: View {
             }
         } else if viewModel.isLoading {
             ZStack {
-                Color.black
+                Theme.tileNavyDark
                 ProgressView("Loading video...")
                     .tint(.white)
             }
         } else if viewModel.errorMessage != nil {
             ZStack {
-                Color(white: 0.3)
+                Theme.tileNavyDark
                 VStack(spacing: 16) {
                     Image(systemName: "exclamationmark.triangle")
                         .font(.system(size: 36))
@@ -500,7 +546,7 @@ struct CoachVideoPlayerView: View {
                             .fontWeight(.semibold)
                             .padding(.horizontal, 24)
                             .padding(.vertical, 10)
-                            .background(Color.brandNavy)
+                            .background(ppAccent)
                             .foregroundColor(.white)
                             .cornerRadius(10)
                     }
@@ -508,7 +554,7 @@ struct CoachVideoPlayerView: View {
             }
         } else {
             ZStack {
-                Color.black
+                Theme.tileNavyDark
                 ProgressView("Buffering...")
                     .tint(.white)
             }
@@ -667,6 +713,95 @@ struct CoachVideoPlayerView: View {
                 markReviewedError = error.localizedDescription
             }
             isMarkingReviewed = false
+        }
+    }
+
+    // MARK: - Coach review actions
+
+    /// First name of the folder-owning athlete, used in the review-actions copy.
+    private var athleteFirstName: String {
+        guard let name = folder.ownerAthleteName,
+              let first = name.split(separator: " ").first else { return "athlete" }
+        return String(first)
+    }
+
+    /// When the athlete last opened this clip (their view receipt), if ever.
+    /// Prefers the live-refreshed value over the immutable load snapshot.
+    private var athleteViewedAt: Date? {
+        refreshedAthleteViewedAt ?? video.viewedBy?[folder.ownerAthleteID]
+    }
+
+    /// Coach-side refresh of the athlete's view receipt. `video` is an immutable
+    /// snapshot, so without this a coach who keeps the player open would never
+    /// see "Seen" once the athlete watches. Best-effort and coach-only — the
+    /// athlete's own folder view is what *writes* the receipt.
+    private func refreshViewReceipt() {
+        guard canEditCoachNote, !isFolderOwner else { return }
+        Task {
+            if let latest = try? await FirestoreManager.shared.fetchVideo(videoID: video.id) {
+                refreshedAthleteViewedAt = latest.viewedBy?[folder.ownerAthleteID]
+            }
+        }
+    }
+
+    /// Apply or remove a cue from the clip's tags and persist. Optimistic —
+    /// local state flips immediately; a write failure is logged silently and
+    /// the cue is rolled back so the chip never lies about what's saved.
+    private func toggleCue(_ text: String) {
+        let previous = selectedCueTags
+        if selectedCueTags.contains(text) {
+            selectedCueTags.removeAll { $0 == text }
+        } else {
+            selectedCueTags.append(text)
+        }
+        Haptics.light()
+        persistCueTags(rollbackTo: previous)
+    }
+
+    /// Create a reusable quick cue and apply it to this clip.
+    private func addCue(_ text: String) {
+        guard let coachID = authManager.userID else { return }
+        let previous = selectedCueTags
+        if !selectedCueTags.contains(text) { selectedCueTags.append(text) }
+        Haptics.light()
+        persistCueTags(rollbackTo: previous)
+        Task {
+            _ = try? await templateService.addQuickCue(coachID: coachID, text: text, category: .mechanics)
+        }
+    }
+
+    private func persistCueTags(rollbackTo previous: [String]) {
+        let tags = selectedCueTags
+        Task {
+            do {
+                try await FirestoreManager.shared.updateVideoTags(
+                    videoID: video.id,
+                    tags: tags,
+                    drillType: video.drillType
+                )
+            } catch {
+                selectedCueTags = previous
+                ErrorHandlerService.shared.handle(error, context: "CoachVideoPlayer.updateCueTags", showAlert: false)
+            }
+        }
+    }
+
+    /// Coach's explicit "I'm done reviewing" confirmation. Feedback (notes /
+    /// drawings / drill cards) is already delivered to the athlete by Cloud
+    /// Functions as it's authored, and the clip is auto-marked reviewed on open
+    /// — so this re-affirms the reviewed mark and confirms with a toast. It does
+    /// not itself send or notify (nothing triggers on `reviewedBy`).
+    private func confirmReviewComplete() {
+        guard let coachID = authManager.userID else { return }
+        isConfirmingReview = true
+        Task {
+            do {
+                try await viewModel.markReviewed(coachID: coachID)
+                didConfirmReview = true
+            } catch {
+                markReviewedError = error.localizedDescription
+            }
+            isConfirmingReview = false
         }
     }
 

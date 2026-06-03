@@ -21,12 +21,16 @@ struct PracticeDetailView: View {
 
     @State private var showingAddNote = false
     @State private var showingRecordCamera = false
+    /// Confirms ending the live session (only reachable while `isLive`).
+    @State private var showingEndConfirmation = false
     /// Non-nil presents ScoreHoleSheet for the chosen hole (golf practice
     /// rounds only). Cleared on dismissal.
     @State private var scoreHoleTarget: ScoreHoleTarget?
 
     // Bulk import from Photos — state owned by BulkImportAttach modifier.
     @State private var importTrigger = false
+    // Bulk PHOTO import preset to this practice — owned by BulkPhotoImportAttach.
+    @State private var photoImportTrigger = false
 
     private var practiceType: PracticeType {
         practice.type
@@ -34,6 +38,13 @@ struct PracticeDetailView: View {
 
     private var isPracticeRound: Bool {
         practice.practiceType == PracticeType.practiceRound.rawValue
+    }
+
+    /// Type-aware label for ending the live session — "End Session" for a range
+    /// session, "End Round" for a practice round (mirrors GameDetailView's golf
+    /// "End Round"). Only shown while `practice.isLive`.
+    private var endLabel: String {
+        practice.practiceType == PracticeType.rangeSession.rawValue ? "End Session" : "End Round"
     }
 
     /// Sport-aware type list for the in-place Type-change Menu. Falls back to
@@ -67,10 +78,14 @@ struct PracticeDetailView: View {
         (practice.notes ?? []).sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
     }
 
+    var practicePhotos: [Photo] {
+        (practice.photos ?? []).sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
+    }
+
     var body: some View {
         List {
             // Practice Info Section
-            Section("Practice Details") {
+            Section(header: Text("Practice Details").smallCapsLabel()) {
                 HStack {
                     Text("Date")
                         .font(.headingMedium)
@@ -117,7 +132,24 @@ struct PracticeDetailView: View {
             }
 
             // Actions Section
-            Section("Actions") {
+            Section(header: Text("Actions").smallCapsLabel()) {
+                // End the live session — shown only while this practice is the
+                // active live activity. Ending KEEPS the practice (unlike
+                // Delete); it just clears isLive so it leaves the "Live Now"
+                // strip. Promoted to the top so it's the obvious "I'm done"
+                // tap. Mirrors GameDetailView's End Round/Game action — which
+                // is the only place a live game can be ended, and previously
+                // had no practice equivalent (live practices were unendable).
+                if practice.isLive {
+                    Button(role: .destructive) {
+                        Haptics.warning()
+                        showingEndConfirmation = true
+                    } label: {
+                        Label(endLabel, systemImage: "stop.circle")
+                    }
+                    .labelStyle(DestructiveRowLabelStyle())
+                }
+
                 // Score Hole — golf practice rounds only. Promoted above
                 // Record Video so the primary on-course action is the first
                 // tap target (mirrors GameDetailView's golf placement).
@@ -142,20 +174,26 @@ struct PracticeDetailView: View {
                     Label("Add Note", systemImage: "note.text.badge.plus")
                 }
 
+                Button(action: { photoImportTrigger = true }) {
+                    Label("Add Photos", systemImage: "photo.on.rectangle")
+                }
+
                 Button(role: .destructive, action: {
                     Haptics.warning()
                     showingDeleteConfirmation = true
                 }) {
                     Label("Delete Practice", systemImage: "trash")
                 }
+                .labelStyle(DestructiveRowLabelStyle())
             }
+            .labelStyle(ActionRowLabelStyle())
 
             // Per-hole grid — only renders when at least one hole has been
             // scored on a practice round. Tapping a cell re-opens the score
             // sheet for that hole (edit-in-place via ScoreHoleSheet's
             // existingHole lookup).
             if isPracticeRound && !sortedHoleScores.isEmpty {
-                Section("Holes") {
+                Section(header: Text("Holes").smallCapsLabel()) {
                     HoleScoreGrid(holes: sortedHoleScores) { tapped in
                         scoreHoleTarget = ScoreHoleTarget(holeNumber: tapped.holeNumber)
                     }
@@ -165,11 +203,12 @@ struct PracticeDetailView: View {
             }
 
             // Videos Section
-            Section("Videos (\(videoClips.count))") {
+            Section(header: Text("Videos (\(videoClips.count))").smallCapsLabel()) {
                 if videoClips.isEmpty {
                     Button(action: { showingRecordCamera = true }) {
                         Label("Record your first video", systemImage: "video.badge.plus")
                     }
+                    .labelStyle(ActionRowLabelStyle())
                 } else {
                     ForEach(videoClips) { clip in
                         PracticeVideoClipRow(clip: clip, hasCoachingAccess: authManager.hasCoachingAccess, onPlay: { selectedVideo = clip })
@@ -182,12 +221,33 @@ struct PracticeDetailView: View {
                 }
             }
 
+            // Photos Section
+            Section(header: Text("Photos (\(practicePhotos.count))").smallCapsLabel()) {
+                if practicePhotos.isEmpty {
+                    Button(action: { photoImportTrigger = true }) {
+                        Label("Add a photo", systemImage: "photo.on.rectangle")
+                    }
+                    .labelStyle(ActionRowLabelStyle())
+                } else {
+                    ForEach(practicePhotos) { photo in
+                        NavigationLink {
+                            PhotoDetailView(photo: photo) {
+                                deletePracticePhoto(photo)
+                            }
+                        } label: {
+                            EventPhotoRow(photo: photo)
+                        }
+                    }
+                }
+            }
+
             // Notes Section
-            Section("Notes (\(notes.count))") {
+            Section(header: Text("Notes (\(notes.count))").smallCapsLabel()) {
                 if notes.isEmpty {
                     Button(action: { showingAddNote = true }) {
                         Label("Add your first note", systemImage: "note.text.badge.plus")
                     }
+                    .labelStyle(ActionRowLabelStyle())
                 } else {
                     ForEach(notes) { note in
                         PracticeNoteRow(note: note)
@@ -201,6 +261,7 @@ struct PracticeDetailView: View {
                 }
             }
         }
+        .ppDetailBackground()
         .navigationTitle("\(practiceType.displayName) Practice")
         .navigationBarTitleDisplayMode(.inline)
         .fullScreenCover(isPresented: $showingRecordCamera) {
@@ -213,6 +274,7 @@ struct PracticeDetailView: View {
             ScoreHoleSheet(practice: practice, holeNumber: target.holeNumber)
         }
         .bulkImportAttach(athlete: practice.athlete, practice: practice, trigger: $importTrigger)
+        .bulkPhotoImportAttach(athlete: practice.athlete, practice: practice, trigger: $photoImportTrigger)
         .fullScreenCover(item: $selectedVideo) { video in
             VideoPlayerView(clip: video)
         }
@@ -223,6 +285,25 @@ struct PracticeDetailView: View {
             }
         } message: {
             Text("This will delete all videos and notes.")
+        }
+        .alert(endLabel, isPresented: $showingEndConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("End", role: .destructive) {
+                Haptics.heavy()
+                endLiveSession()
+            }
+        } message: {
+            // Unlike games, practices stay fully editable after ending — you
+            // can keep adding clips/photos/notes; ending only stops the live
+            // strip and live-hole clip attribution.
+            Text("This ends the live session. You can still add videos, photos, and notes afterward.")
+        }
+    }
+
+    /// Clear the live flags via PracticeService (handles save + Firestore sync).
+    private func endLiveSession() {
+        Task { @MainActor in
+            await PracticeService(modelContext: modelContext).end(practice)
         }
     }
 
@@ -284,6 +365,11 @@ struct PracticeDetailView: View {
                 }
             }
         }
+    }
+
+    private func deletePracticePhoto(_ photo: Photo) {
+        PhotoPersistenceService().deletePhoto(photo, context: modelContext)
+        Haptics.light()
     }
 
     private func deleteVideo(_ clip: VideoClip) {

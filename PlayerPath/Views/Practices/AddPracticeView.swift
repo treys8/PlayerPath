@@ -71,7 +71,7 @@ struct AddPracticeView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Details") {
+                Section(header: Text("Details").smallCapsLabel()) {
                     Picker("Type", selection: $practiceType) {
                         ForEach(availableTypes) { type in
                             Label(type.displayName, systemImage: type.icon).tag(type)
@@ -101,7 +101,7 @@ struct AddPracticeView: View {
                     Section {
                         SeasonPickerRow(athlete: athlete, selection: $selectedSeason)
                     } header: {
-                        Text("Season")
+                        Text("Season").smallCapsLabel()
                     } footer: {
                         if let selectedSeason, !selectedSeason.isActive {
                             Text("This practice will be filed on a past season.")
@@ -109,6 +109,7 @@ struct AddPracticeView: View {
                     }
                 }
             }
+            .ppDetailBackground()
             .navigationTitle("New Practice")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

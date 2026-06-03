@@ -13,6 +13,7 @@ struct DataExportView: View {
     private static let isoFormatter = ISO8601DateFormatter()
 
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.ppAccent) private var ppAccent
     @EnvironmentObject var authManager: ComprehensiveAuthManager
 
     @State private var isExporting = false
@@ -30,7 +31,7 @@ struct DataExportView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     Image(systemName: "arrow.down.doc.fill")
                         .font(.largeTitle)
-                        .foregroundColor(.brandNavy)
+                        .foregroundColor(ppAccent)
 
                     Text("Export Your Data")
                         .font(.displayMedium)
@@ -89,6 +90,9 @@ struct DataExportView: View {
                 .disabled(isExporting)
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(Theme.surface)
+        .tint(ppAccent)
         .navigationTitle("Export Data")
         .sheet(isPresented: $showShareSheet) {
             if let url = exportFileURL {
@@ -469,11 +473,12 @@ struct ExportDataRow: View {
     let icon: String
     let title: String
     let description: String
+    @Environment(\.ppAccent) private var ppAccent
 
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: icon)
-                .foregroundColor(.brandNavy)
+                .foregroundColor(ppAccent)
                 .frame(width: 30)
 
             VStack(alignment: .leading, spacing: 2) {

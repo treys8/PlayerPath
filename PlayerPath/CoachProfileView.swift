@@ -84,14 +84,14 @@ struct CoachProfileView: View {
                                 .foregroundColor(.secondary)
                         } else {
                             Text("\(uniqueAthleteCount) / \(limit)")
-                                .foregroundColor(uniqueAthleteCount > limit ? .red : uniqueAthleteCount >= limit ? .orange : .secondary)
+                                .foregroundColor(uniqueAthleteCount > limit ? .red : uniqueAthleteCount >= limit ? Theme.warning : .secondary)
                         }
                     }
 
                     if uniqueAthleteCount > authManager.coachAthleteLimit && authManager.coachAthleteLimit != Int.max {
                         HStack(spacing: 8) {
                             Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundColor(.orange)
+                                .foregroundColor(Theme.warning)
                                 .font(.caption)
                             Text("You're over your plan's athlete limit. Upgrade to continue adding athletes.")
                                 .font(.caption)
@@ -130,7 +130,7 @@ struct CoachProfileView: View {
                     Section {
                         HStack(spacing: 12) {
                             Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundStyle(.orange)
+                                .foregroundStyle(Theme.warning)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Payment Failed")
                                     .font(.subheadline)
@@ -146,7 +146,7 @@ struct CoachProfileView: View {
                                 }
                             }
                             .buttonStyle(.borderedProminent)
-                            .tint(.orange)
+                            .tint(Theme.warning)
                             .controlSize(.small)
                         }
                     }

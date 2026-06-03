@@ -301,7 +301,7 @@ struct InvitationRow: View {
                                 .fontWeight(.medium)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 8)
-                                .background(Color.orange)
+                                .background(Theme.warning)
                                 .foregroundColor(.white)
                                 .cornerRadius(8)
                             }
@@ -485,7 +485,7 @@ struct SentInvitationRow: View {
         switch invitation.status {
         case .pending:
             Image(systemName: "clock.fill")
-                .foregroundColor(.orange)
+                .foregroundColor(Theme.warning)
         case .accepted:
             Image(systemName: "checkmark.circle.fill")
                 .foregroundColor(.brandNavy)
@@ -510,8 +510,8 @@ struct SentInvitationRow: View {
                 .fontWeight(.medium)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 3)
-                .background(Color.orange.opacity(0.15))
-                .foregroundColor(.orange)
+                .background(Theme.warning.opacity(0.15))
+                .foregroundColor(Theme.warning)
                 .cornerRadius(6)
         case .accepted:
             Text("Connected")

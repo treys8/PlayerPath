@@ -256,7 +256,7 @@ struct LiveGameCard: View {
                         HStack(spacing: 4) {
                             Image(systemName: "chart.bar.fill")
                                 .font(.caption2)
-                            Text("\(stats.hits)-\(stats.atBats)")
+                            Text("\(stats.hits)-for-\(stats.atBats)")
                                 .font(.bodySmall)
                                 .monospacedDigit()
                         }

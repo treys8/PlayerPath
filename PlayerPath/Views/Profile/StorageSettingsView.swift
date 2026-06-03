@@ -127,7 +127,7 @@ struct StorageSettingsView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
                             Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundColor(.orange)
+                                .foregroundColor(Theme.warning)
                             Text("\(orphanedFilesCount) orphaned file\(orphanedFilesCount == 1 ? "" : "s") found")
                                 .font(.bodyMedium)
                         }
@@ -232,7 +232,7 @@ struct StorageSettingsView: View {
         switch level {
         case .good: return .green
         case .moderate: return .brandNavy
-        case .low: return .orange
+        case .low: return Theme.warning
         case .critical: return .red
         }
     }

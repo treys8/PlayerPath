@@ -816,7 +816,7 @@ struct GameSearchResultRow: View {
             }
 
             if let stats = game.gameStats {
-                Text("\(stats.hits)-\(stats.atBats), \(StatisticsService.shared.formatBattingAverage(stats.battingAverage)) AVG")
+                Text("\(stats.hits)-for-\(stats.atBats), \(StatisticsService.shared.formatBattingAverage(stats.battingAverage)) AVG")
                     .font(.bodySmall)
                     .foregroundColor(.secondary)
             }

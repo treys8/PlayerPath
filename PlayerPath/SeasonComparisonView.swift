@@ -14,6 +14,7 @@ struct SeasonComparisonView: View {
     let athlete: Athlete
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.ppAccent) private var ppAccent
 
     // Selected seasons for comparison (max 4)
     @State private var selectedSeasons: Set<UUID> = []
@@ -133,7 +134,7 @@ struct SeasonComparisonView: View {
             VStack(spacing: 8) {
                 Image(systemName: "chart.line.uptrend.xyaxis")
                     .font(.system(size: 60))
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(ppAccent)
 
                 Text("Compare Seasons")
                     .font(.displayMedium)
@@ -201,6 +202,8 @@ struct SeasonSelectionRow: View {
     let season: Season
     let isSelected: Bool
 
+    @Environment(\.ppAccent) private var ppAccent
+
     var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 4) {
@@ -214,13 +217,13 @@ struct SeasonSelectionRow: View {
                             .foregroundStyle(.white)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(Color.blue)
+                            .background(ppAccent)
                             .cornerRadius(4)
                     }
                 }
 
                 if let stats = season.seasonStatistics {
-                    Text("\(stats.totalGames) games • \(stats.hits)/\(stats.atBats) • \(formatBattingAverage(stats.battingAverage))")
+                    Text("\(stats.totalGames) game\(stats.totalGames == 1 ? "" : "s") • \(stats.hits)/\(stats.atBats) • \(formatBattingAverage(stats.battingAverage))")
                         .font(.bodySmall)
                         .foregroundStyle(.secondary)
                 } else {
@@ -234,7 +237,7 @@ struct SeasonSelectionRow: View {
 
             if isSelected {
                 Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(ppAccent)
                     .font(.title3)
             } else {
                 Image(systemName: "circle")
@@ -251,6 +254,8 @@ struct TrendChartSection: View {
     let seasons: [Season]
     let getValue: (Season) -> Double
     let formatValue: (Double) -> String
+
+    @Environment(\.ppAccent) private var ppAccent
 
     private var chartData: [SeasonDataPoint] {
         seasons.compactMap { season in
@@ -284,14 +289,14 @@ struct TrendChartSection: View {
                         x: .value("Season", dataPoint.seasonName),
                         y: .value("Value", dataPoint.value)
                     )
-                    .foregroundStyle(Color.blue)
+                    .foregroundStyle(ppAccent)
                     .interpolationMethod(.catmullRom)
 
                     PointMark(
                         x: .value("Season", dataPoint.seasonName),
                         y: .value("Value", dataPoint.value)
                     )
-                    .foregroundStyle(Color.blue)
+                    .foregroundStyle(ppAccent)
                 }
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("\(title) trend across \(chartData.count) seasons, from \(chartData.first?.seasonName ?? "") to \(chartData.last?.seasonName ?? "")")
@@ -310,11 +315,11 @@ struct TrendChartSection: View {
                             Text(formatValue(dataPoint.value))
                                 .font(.ppStatMedium)
                                 .monospacedDigit()
-                                .foregroundStyle(.blue)
+                                .foregroundStyle(ppAccent)
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 8)
-                        .background(Color.blue.opacity(0.1))
+                        .background(ppAccent.opacity(0.1))
                         .cornerRadius(8)
                     }
                 }
@@ -334,6 +339,8 @@ struct SeasonDataPoint: Identifiable {
 
 struct DetailedComparisonTable: View {
     let seasons: [Season]
+
+    @Environment(\.ppAccent) private var ppAccent
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -357,7 +364,7 @@ struct DetailedComparisonTable: View {
                                 .frame(width: 100, alignment: .center)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 12)
-                                .background(Color.blue.opacity(0.1))
+                                .background(ppAccent.opacity(0.1))
                         }
                     }
 
@@ -385,7 +392,7 @@ struct DetailedComparisonTable: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 10)
-                                .background(Color.orange.opacity(0.1))
+                                .background(ppAccent.opacity(0.1))
                         }
 
                         Divider()
@@ -436,7 +443,7 @@ struct ComparisonRow<Value>: View {
                     .padding(.vertical, 8)
             }
         }
-        .background(Color(.systemBackground))
+        .background(Theme.surface)
 
         Divider()
     }

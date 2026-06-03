@@ -21,6 +21,7 @@ struct SeasonDetailView: View {
     let athlete: Athlete
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.ppAccent) private var ppAccent
 
     @State private var showingDeleteConfirmation = false
     @State private var showingReactivateConfirmation = false
@@ -47,24 +48,19 @@ struct SeasonDetailView: View {
         List {
             // Overview Section
             Section {
-                HStack {
+                HStack(spacing: 14) {
                     Image(systemName: (season.sport ?? .baseball).icon)
                         .font(.title)
-                        .foregroundColor(.brandNavy)
+                        .foregroundStyle(ppAccent)
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text(season.displayName)
-                            .font(.displayMedium)
+                            .font(.ppTitle)
+                            .foregroundStyle(Theme.textPrimary)
 
-                        if season.isActive {
-                            Label("Active", systemImage: "checkmark.circle.fill")
-                                .font(.caption)
-                                .foregroundStyle(.green)
-                        } else {
-                            Label("Archived", systemImage: "archivebox.fill")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
+                        Label(season.status.displayName, systemImage: season.status.icon)
+                            .font(.ppCaption)
+                            .foregroundStyle(season.isActive ? .green : Theme.textSecondary)
                     }
                 }
                 .padding(.vertical, 8)
@@ -73,24 +69,23 @@ struct SeasonDetailView: View {
             // Add Content — routes every upload to this season regardless of
             // whether it is active or archived, and regardless of the photo/
             // video capture dates in the library.
-            Section("Add Content") {
+            Section(header: Text("Add Content").smallCapsLabel()) {
                 Button {
                     videoUploadTrigger = true
                 } label: {
                     Label("Upload Videos", systemImage: "video.badge.plus")
-                        .foregroundColor(.brandNavy)
                 }
 
                 Button {
                     photoUploadTrigger = true
                 } label: {
                     Label("Upload Photos", systemImage: "photo.badge.plus")
-                        .foregroundColor(.brandNavy)
                 }
             }
+            .labelStyle(ActionRowLabelStyle())
 
             // Date Range
-            Section("Season Dates") {
+            Section(header: Text("Season Dates").smallCapsLabel()) {
                 if let start = season.startDate {
                     LabeledContent("Started", value: start.formatted(date: .long, time: .omitted))
                 }
@@ -103,25 +98,26 @@ struct SeasonDetailView: View {
                             .foregroundStyle(.secondary)
                         Spacer()
                         Text("In Progress")
-                            .foregroundColor(.brandNavy)
+                            .foregroundStyle(ppAccent)
                     }
                 }
             }
 
             // Content Filter
             Section {
-                Picker("Filter", selection: $selectedFilter) {
-                    ForEach(SeasonContentFilter.allCases, id: \.self) { filter in
-                        Text(filter.rawValue).tag(filter)
-                    }
-                }
-                .pickerStyle(.segmented)
+                PPFilterPillRow(
+                    options: SeasonContentFilter.allCases,
+                    title: { $0.rawValue },
+                    selection: $selectedFilter
+                )
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
             }
 
             // Statistics - using computed values for live updates (shown for All filter)
             if selectedFilter == .all {
-                Section("Season Stats") {
-                    LabeledContent("Total Games", value: "\(season.completedGames)")
+                Section(header: Text("Season Stats").smallCapsLabel()) {
+                    LabeledContent("Games Played", value: "\(season.completedGames)")
                     LabeledContent("Total Videos", value: "\(season.totalVideos)")
                     LabeledContent("Highlights", value: "\(season.highlights.count)")
                     LabeledContent("Practices", value: "\(season.practicesCount)")
@@ -131,12 +127,12 @@ struct SeasonDetailView: View {
                 if let stats = season.seasonStatistics, stats.atBats > 0 {
                     let avg = stats.battingAverage
                     let avgDisplay = avg >= 1.0 ? "1.000" : String(format: ".%03d", Int(avg * 1000))
-                    Section("Batting Statistics") {
+                    Section(header: Text("Batting Statistics").smallCapsLabel()) {
                         LabeledContent("Batting Average", value: avgDisplay)
                         LabeledContent("At Bats", value: "\(stats.atBats)")
                         LabeledContent("Hits", value: "\(stats.hits)")
                         LabeledContent("Home Runs", value: "\(stats.homeRuns)")
-                        LabeledContent("RBIs", value: "\(stats.rbis)")
+                        // RBIs omitted — derivable-stats-only (no game context).
                         LabeledContent("Walks", value: "\(stats.walks)")
                         LabeledContent("Strikeouts", value: "\(stats.strikeouts)")
                     }
@@ -144,7 +140,7 @@ struct SeasonDetailView: View {
 
                 // Notes
                 if !season.notes.isEmpty {
-                    Section("Notes") {
+                    Section(header: Text("Notes").smallCapsLabel()) {
                         Text(season.notes)
                     }
                 }
@@ -168,7 +164,6 @@ struct SeasonDetailView: View {
                         showingEndSeasonConfirmation = true
                     } label: {
                         Label("End Season", systemImage: "checkmark.circle")
-                            .foregroundStyle(.orange)
                     }
                 } else if season.isArchived {
                     Button {
@@ -183,9 +178,12 @@ struct SeasonDetailView: View {
                     showingDeleteConfirmation = true
                 } label: {
                     Label("Delete Season", systemImage: "trash")
+                        .labelStyle(DestructiveRowLabelStyle())
                 }
             }
+            .labelStyle(ActionRowLabelStyle())
         }
+        .ppDetailBackground()
         .navigationTitle("Season Details")
         .navigationBarTitleDisplayMode(.inline)
         .bulkImportAttach(athlete: athlete, season: season, trigger: $videoUploadTrigger)
@@ -245,11 +243,12 @@ struct SeasonDetailView: View {
                             .autocorrectionDisabled()
                             .submitLabel(.done)
                     } header: {
-                        Text("Season Name")
+                        Text("Season Name").smallCapsLabel()
                     } footer: {
                         Text("Enter a new name for this season")
                     }
                 }
+                .ppDetailBackground()
                 .navigationTitle("Rename Season")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
@@ -306,77 +305,78 @@ struct SeasonDetailView: View {
             if !filteredGames.isEmpty {
                 let totalGames = season.games?.count ?? 0
                 let displayGames = selectedFilter == .all ? Array(filteredGames.prefix(5)) : filteredGames
-                Section(selectedFilter == .all ? "Recent Games" : "Games (\(totalGames))") {
+                Section(header: Text(selectedFilter == .all ? "Recent Games" : "Games (\(totalGames))").smallCapsLabel()) {
                     ForEach(displayGames) { game in
                         SeasonGameRow(game: game)
                     }
                     if selectedFilter == .all && totalGames > 5 {
                         Button("See All \(totalGames) Games") { selectedFilter = .games }
-                            .font(.labelLarge)
-                            .foregroundColor(.brandNavy)
+                            .font(.ppCallout)
+                            .foregroundStyle(ppAccent)
                     }
                 }
             }
         }
         if selectedFilter == .videos || selectedFilter == .all {
             if !filteredVideos.isEmpty {
-                Section("Videos (\(filteredVideos.count))") {
+                Section(header: Text("Videos (\(filteredVideos.count))").smallCapsLabel()) {
                     ForEach(selectedFilter == .all ? Array(filteredVideos.prefix(5)) : filteredVideos) { video in
                         SeasonVideoRow(video: video)
                     }
                     if selectedFilter == .all && filteredVideos.count > 5 {
                         Button("See All \(filteredVideos.count) Videos") { selectedFilter = .videos }
-                            .font(.labelLarge)
-                            .foregroundColor(.brandNavy)
+                            .font(.ppCallout)
+                            .foregroundStyle(ppAccent)
                     }
                 }
             }
         }
         if selectedFilter == .highlights || selectedFilter == .all {
             if !filteredHighlights.isEmpty {
-                Section("Highlights (\(filteredHighlights.count))") {
+                Section(header: Text("Highlights (\(filteredHighlights.count))").smallCapsLabel()) {
                     ForEach(selectedFilter == .all ? Array(filteredHighlights.prefix(5)) : filteredHighlights) { video in
                         SeasonVideoRow(video: video)
                     }
                     if selectedFilter == .all && filteredHighlights.count > 5 {
                         Button("See All \(filteredHighlights.count) Highlights") { selectedFilter = .highlights }
-                            .font(.labelLarge)
-                            .foregroundColor(.brandNavy)
+                            .font(.ppCallout)
+                            .foregroundStyle(ppAccent)
                     }
                 }
             }
         }
         if selectedFilter == .practices || selectedFilter == .all {
             if !filteredPractices.isEmpty {
-                Section("Practices (\(filteredPractices.count))") {
+                Section(header: Text("Practices (\(filteredPractices.count))").smallCapsLabel()) {
                     ForEach(selectedFilter == .all ? Array(filteredPractices.prefix(5)) : filteredPractices) { practice in
                         HStack {
                             Image(systemName: "figure.run")
-                                .foregroundStyle(.green)
+                                .foregroundStyle(Theme.textSecondary)
                                 .frame(width: 24)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Practice")
-                                    .font(.labelLarge)
+                                    .font(.ppHeadline)
+                                    .foregroundStyle(Theme.textPrimary)
                                 if let date = practice.date {
                                     Text(date.formatted(date: .abbreviated, time: .omitted))
-                                        .font(.bodySmall)
-                                        .foregroundStyle(.secondary)
+                                        .font(.ppCaption)
+                                        .foregroundStyle(Theme.textSecondary)
                                 }
                             }
                             Spacer()
                             let videoCount = practice.videoClips?.count ?? 0
                             if videoCount > 0 {
-                                Text("\(videoCount) videos")
-                                    .font(.bodySmall)
-                                    .foregroundStyle(.secondary)
+                                Text("\(videoCount) video\(videoCount == 1 ? "" : "s")")
+                                    .font(.ppCaption)
+                                    .foregroundStyle(Theme.textSecondary)
                             }
                         }
                         .padding(.vertical, 4)
                     }
                     if selectedFilter == .all && filteredPractices.count > 5 {
                         Button("See All \(filteredPractices.count) Practices") { selectedFilter = .practices }
-                            .font(.labelLarge)
-                            .foregroundColor(.brandNavy)
+                            .font(.ppCallout)
+                            .foregroundStyle(ppAccent)
                     }
                 }
             }

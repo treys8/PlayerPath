@@ -91,13 +91,16 @@ struct SeasonBadge: View {
     }
 
     var body: some View {
+        // Neutral muted chip everywhere (cueBg + cueText) — orange stays
+        // reserved for true accents. Active/archived no longer differ by color;
+        // the accessibility label still announces which it is.
         Text(season.displayName)
             .font(.custom("Inter18pt-SemiBold", size: fontSize))
-            .foregroundStyle(.white)
+            .foregroundStyle(Theme.cueText)
             .lineLimit(1)
             .fixedSize()
             .badgeSmall()
-            .background(season.isActive ? Color.brandNavy : Color.gray, in: Capsule())
+            .background(Theme.cueBg, in: Capsule())
             .accessibilityLabel("\(season.displayName), \(season.isActive ? "Active" : "Archived") season")
     }
 }

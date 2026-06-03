@@ -52,7 +52,7 @@ struct CompactStatChip: View {
         .background(
             ZStack {
                 RoundedRectangle(cornerRadius: .cornerLarge, style: .continuous)
-                    .fill(Color(uiColor: .secondarySystemGroupedBackground))
+                    .fill(Theme.card)
                 RoundedRectangle(cornerRadius: .cornerLarge, style: .continuous)
                     .fill(
                         LinearGradient(

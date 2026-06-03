@@ -13,6 +13,7 @@ struct SeasonsView: View {
     @State private var showingCreateSeason = false
     @State private var selectedSeason: Season?
     @State private var seasons: [Season] = []
+    @Environment(\.ppAccent) private var ppAccent
 
     var hasActiveSeason: Bool {
         seasons.contains(where: { $0.isActive })
@@ -20,13 +21,14 @@ struct SeasonsView: View {
 
     var body: some View {
         ScrollView {
-            LazyVStack(spacing: 16) {
+            LazyVStack(spacing: 20) {
                 noActiveSeasonAlert
                 activeSeasonBanner
                 seasonsList
             }
             .padding(.vertical)
         }
+        .background(Theme.surface)
         .onAppear { AnalyticsService.shared.trackScreenView(screenName: "Seasons", screenClass: "SeasonsView") }
         .navigationTitle("Seasons")
         .navigationBarTitleDisplayMode(.large)
@@ -57,33 +59,25 @@ struct SeasonsView: View {
     @ViewBuilder
     private var noActiveSeasonAlert: some View {
         if !seasons.isEmpty && !hasActiveSeason {
-            VStack(spacing: 12) {
-                HStack {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
-                        .font(.title3)
+            HStack(spacing: 12) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(ppAccent)
+                    .font(.title3)
 
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("No Active Season")
-                            .font(.headingMedium)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("No Active Season")
+                        .font(.ppHeadline)
+                        .foregroundStyle(Theme.textPrimary)
 
-                        Text("Create or activate a season to track your progress")
-                            .font(.bodySmall)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Spacer()
+                    Text("Create or activate a season to track your progress")
+                        .font(.ppSubheadline)
+                        .foregroundStyle(Theme.textSecondary)
                 }
+
+                Spacer()
             }
             .padding()
-            .background(
-                RoundedRectangle(cornerRadius: .cornerXLarge)
-                    .fill(.orange.opacity(0.1))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: .cornerXLarge)
-                    .stroke(.orange.opacity(0.3), lineWidth: 1.5)
-            )
+            .ppCard()
             .padding(.horizontal)
         }
     }
@@ -92,31 +86,28 @@ struct SeasonsView: View {
     private var activeSeasonBanner: some View {
         if let activeSeason = athlete.activeSeason {
             VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Image(systemName: "calendar.circle.fill")
-                        .font(.title2)
-                        .foregroundColor(.brandNavy)
-
+                HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Active Season")
-                            .font(.labelSmall)
-                            .foregroundStyle(.secondary)
-                            .textCase(.uppercase)
+                            .smallCapsLabel(color: ppAccent)
 
                         Text(activeSeason.displayName)
-                            .font(.headingLarge)
+                            .font(.ppTitle)
+                            .foregroundStyle(Theme.textPrimary)
                     }
 
                     Spacer()
 
                     Image(systemName: "chevron.right")
-                        .foregroundStyle(.tertiary)
+                        .font(.footnote)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(Theme.textTertiary)
                 }
 
-                HStack(spacing: 20) {
+                HStack(alignment: .top, spacing: 20) {
                     SeasonStatBadge(
                         value: activeSeason.completedGames,
-                        label: "Games",
+                        label: "Games Played",
                         icon: "baseball.diamond.bases"
                     )
                     SeasonStatBadge(
@@ -132,16 +123,9 @@ struct SeasonsView: View {
                 }
             }
             .padding()
-            .background(
-                RoundedRectangle(cornerRadius: .cornerXLarge)
-                    .fill(Color.brandNavy.opacity(0.1))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: .cornerXLarge)
-                    .stroke(Color.brandNavy.opacity(0.3), lineWidth: 1.5)
-            )
+            .ppCard()
             .padding(.horizontal)
-            .contentShape(RoundedRectangle(cornerRadius: .cornerXLarge))
+            .contentShape(RoundedRectangle(cornerRadius: .cornerXLarge, style: .continuous))
             .onTapGesture { selectedSeason = activeSeason }
             .accessibilityAddTraits(.isButton)
             .accessibilityLabel("Active Season: \(activeSeason.displayName)")
@@ -156,12 +140,8 @@ struct SeasonsView: View {
             }
         } else {
             VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Text("All Seasons")
-                        .font(.headingLarge)
-                    Spacer()
-                }
-                .padding(.horizontal)
+                PPSectionHeader("All Seasons")
+                    .padding(.horizontal)
 
                 ForEach(seasons) { season in
                     Button {
@@ -191,10 +171,11 @@ struct SeasonsView: View {
 
 struct SeasonRow: View {
     let season: Season
+    @Environment(\.ppAccent) private var ppAccent
 
     var body: some View {
         HStack(spacing: 12) {
-            // Season icon
+            // Season icon — calendar glyph encodes status (active / ended / inactive)
             Image(systemName: season.status.icon)
                 .font(.title3)
                 .foregroundStyle(seasonStatusColor)
@@ -203,59 +184,53 @@ struct SeasonRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
                     Text(season.displayName)
-                        .font(.headingMedium)
+                        .font(.ppHeadline)
+                        .foregroundStyle(Theme.textPrimary)
 
                     // Status Badge
                     Text(season.status.displayName.uppercased())
-                        .font(.custom("Inter18pt-Bold", size: 11, relativeTo: .caption2))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 6)
+                        .font(.ppCaptionBold)
+                        .foregroundStyle(Theme.surface)
+                        .padding(.horizontal, 8)
                         .padding(.vertical, 2)
                         .background(seasonStatusColor)
                         .clipShape(Capsule())
                 }
-                
+
                 HStack(spacing: 12) {
                     Label("\(season.completedGames)", systemImage: "baseball.diamond.bases")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(.ppCaption)
+                        .foregroundStyle(Theme.textSecondary)
 
                     Label("\(season.totalVideos)", systemImage: "video")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(.ppCaption)
+                        .foregroundStyle(Theme.textSecondary)
 
                     Label("\(season.practicesCount)", systemImage: "figure.run")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(.ppCaption)
+                        .foregroundStyle(Theme.textSecondary)
                 }
             }
-            
+
             Spacer()
 
             Image(systemName: "chevron.right")
                 .font(.caption)
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(Theme.textTertiary)
         }
         .padding()
-        .background(
-            RoundedRectangle(cornerRadius: .cornerLarge)
-                .fill(Color(.systemBackground))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: .cornerLarge)
-                .stroke(Color(.systemGray5), lineWidth: 1)
-        )
+        .ppCard(cornerRadius: .cornerLarge)
         .padding(.horizontal)
     }
 
     private var seasonStatusColor: Color {
         switch season.status {
         case .active:
-            return .brandNavy
-        case .ended:
-            return .gray
-        case .inactive:
-            return .orange
+            // The lone accent — only the active season gets the highlight.
+            return ppAccent
+        case .ended, .inactive:
+            // Muted, but dark enough that the cream capsule text stays legible.
+            return Theme.textSecondary
         }
     }
 }
@@ -278,34 +253,37 @@ struct EmptySeasonsView: View {
 
 struct SeasonVideoRow: View {
     let video: VideoClip
-    
+    @Environment(\.ppAccent) private var ppAccent
+
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: "video.fill")
-                .foregroundStyle(.purple)
+                .foregroundStyle(Theme.textSecondary)
                 .frame(width: 24)
-            
+
             VStack(alignment: .leading, spacing: 2) {
                 if let tag = video.displayTagName {
                     Text(tag)
-                        .font(.labelLarge)
+                        .font(.ppHeadline)
+                        .foregroundStyle(Theme.textPrimary)
                 } else {
                     Text("Practice Video")
-                        .font(.bodyMedium)
+                        .font(.ppBody)
+                        .foregroundStyle(Theme.textPrimary)
                 }
 
                 if let created = video.createdAt {
                     Text(created.formatted(date: .abbreviated, time: .shortened))
-                        .font(.bodySmall)
-                        .foregroundStyle(.secondary)
+                        .font(.ppCaption)
+                        .foregroundStyle(Theme.textSecondary)
                 }
             }
-            
+
             Spacer()
-            
+
             if video.isHighlight {
                 Image(systemName: "star.fill")
-                    .foregroundStyle(.yellow)
+                    .foregroundStyle(ppAccent)
                     .font(.caption)
             }
         }
@@ -319,22 +297,23 @@ struct SeasonGameRow: View {
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: "baseball.diamond.bases")
-                .foregroundColor(.brandNavy)
+                .foregroundStyle(Theme.textSecondary)
                 .frame(width: 24)
-            
+
             VStack(alignment: .leading, spacing: 2) {
                 Text(game.opponentLabel)
-                    .font(.labelLarge)
+                    .font(.ppHeadline)
+                    .foregroundStyle(Theme.textPrimary)
 
                 if let date = game.date {
                     Text(date.formatted(date: .abbreviated, time: .omitted))
-                        .font(.bodySmall)
-                        .foregroundStyle(.secondary)
+                        .font(.ppCaption)
+                        .foregroundStyle(Theme.textSecondary)
                 }
             }
-            
+
             Spacer()
-            
+
             if game.displayStatus == .completed {
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundStyle(.green)

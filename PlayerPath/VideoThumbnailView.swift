@@ -25,6 +25,7 @@ struct VideoThumbnailView: View {
     @State private var loadError: Error?
     @State private var generationAttempts = 0
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.ppAccent) private var ppAccent
 
     private let maxGenerationAttempts = 2
     private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.playerpath", category: "VideoThumbnailView")
@@ -246,7 +247,7 @@ struct VideoThumbnailView: View {
 
     private var untaggedDot: some View {
         Circle()
-            .fill(Color.orange)
+            .fill(ppAccent)
             .frame(width: 10, height: 10)
             .overlay(Circle().strokeBorder(Color.white, lineWidth: 2))
             .shadow(color: .black.opacity(0.35), radius: 3, x: 0, y: 1)
@@ -287,10 +288,10 @@ struct VideoThumbnailView: View {
                 if let season = clip.season {
                     Text(season.displayName)
                         .font(.custom("Inter18pt-SemiBold", size: min(scaledValue(8), 12)))
-                        .foregroundColor(.white)
+                        .foregroundColor(Theme.cueText)
                         .padding(.horizontal, min(scaledSpacing(4), 6))
                         .padding(.vertical, min(scaledSpacing(2), 3))
-                        .background(season.isActive ? Color.brandNavy.opacity(0.9) : Color.gray.opacity(0.9))
+                        .background(Theme.cueBg)
                         .clipShape(RoundedRectangle(cornerRadius: min(scaledValue(3), 5)))
                         .offset(x: min(scaledValue(-4), -6), y: min(scaledValue(4), 6))
                         .accessibilityHidden(true)
@@ -361,7 +362,7 @@ struct VideoThumbnailView: View {
             .foregroundColor(.white)
             .padding(.horizontal, 7)
             .padding(.vertical, 3)
-            .background(.ultraThinMaterial, in: Capsule())
+            .background(.black.opacity(0.55), in: Capsule())
             .accessibilityLabel(a11yLabel)
     }
 

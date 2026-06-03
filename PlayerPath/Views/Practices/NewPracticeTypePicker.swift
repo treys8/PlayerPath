@@ -42,6 +42,8 @@ struct NewPracticeTypePicker: View {
                 Spacer()
             }
             .padding(.vertical, 16)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Theme.surface)
             .navigationTitle("New Practice")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -89,7 +91,7 @@ private struct PracticeTypeOption: View {
             .padding(16)
             .background(
                 RoundedRectangle(cornerRadius: .cornerLarge, style: .continuous)
-                    .fill(Color(uiColor: .secondarySystemGroupedBackground))
+                    .fill(Theme.card)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: .cornerLarge, style: .continuous)

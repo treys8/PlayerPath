@@ -53,8 +53,12 @@ struct MainTabView: View {
     // Tab chrome reads sport directly from the athlete's primary `sport`.
     // One sport per athlete — multi-sport athletes use separate profiles.
     private var isGolfActive: Bool { selectedAthlete.sportType == .golf }
-    private var gamesTabLabel: String { isGolfActive ? "Tournaments" : "Games" }
-    private var gamesTabIcon: String { isGolfActive ? "figure.golf" : "baseball.fill" }
+    /// The one accent, resolved for this athlete's sport. Used for MainTabView's
+    /// own chrome; the same value is injected into the tab subtrees via
+    /// `.ppAccent(forGolf:)` so every tab follows the active sport.
+    private var ppAccent: Color { Theme.accent(forGolf: isGolfActive) }
+    private var gamesTabLabel: String { isGolfActive ? "Rounds" : "Games" }
+    private var gamesTabIcon: String { isGolfActive ? "figure.golf" : "baseball" }
 
     enum MoreDestination: Hashable {
         case practice, highlights, seasons, photos, coaches, sharedFolders
@@ -121,7 +125,7 @@ struct MainTabView: View {
     
     var body: some View {
         tabViewContent
-            .tint(Color.brandNavy)
+            .ppAccent(forGolf: isGolfActive)    // resolve the one accent by active sport (terracotta / golf green) + tint
             .task {
                 // Always restore tab and observers on appear
                 restoreSelectedTab()
@@ -206,10 +210,11 @@ struct MainTabView: View {
                         await ActivityNotificationService.shared.markNewVideoNotificationsRead(forUserID: userID)
                     }
                 }
-                // Home tab shows the AthleteInvitationsBanner — landing there
-                // implies the athlete has seen any pending invitation prompts,
-                // so clear invitation-type badges. Per-invitation accept/decline
-                // paths still clear individually via markInvitationRead.
+                // Home tab (JournalView) shows the AthleteInvitationsBanner at
+                // the top of its feed — landing there implies the athlete has
+                // seen any pending invitation prompts, so clear invitation-type
+                // badges. Per-invitation accept/decline paths still clear
+                // individually via markInvitationRead.
                 if newValue == MainTab.home.rawValue, let userID = authManager.userID {
                     Task {
                         await ActivityNotificationService.shared.markInvitationNotificationsRead(forUserID: userID)
@@ -426,22 +431,20 @@ struct MainTabView: View {
 
     private var homeTab: some View {
         NavigationStack(path: $homePath) {
-            DashboardView(
+            JournalView(
                 user: user,
                 athlete: selectedAthlete,
-                authManager: authManager,
-                modelContext: modelContext,
                 homePath: $homePath
             )
             .id(homeAthleteID ?? selectedAthlete.id)
         }
         .modifier(InvitationBadgeModifier())
         .tabItem {
-            Label("Home", systemImage: "house.fill")
+            Label("Journal", systemImage: "book.closed")
         }
         .tag(MainTab.home.rawValue)
-        .accessibilityLabel("Home tab")
-        .accessibilityHint("View your dashboard and quick actions")
+        .accessibilityLabel("Journal tab")
+        .accessibilityHint("Your reverse-chronological feed of games, practices, and clips")
     }
 
     private var gamesTab: some View {
@@ -463,7 +466,7 @@ struct MainTabView: View {
                 .id(statsAthleteID ?? selectedAthlete.id)
         }
         .tabItem {
-            Label("Stats", systemImage: "chart.bar.fill")
+            Label("Stats", systemImage: "chart.bar")
         }
         .tag(MainTab.stats.rawValue)
         .accessibilityLabel("Statistics tab")
@@ -476,7 +479,7 @@ struct MainTabView: View {
                 .id(videosAthleteID ?? selectedAthlete.id)
         }
         .tabItem {
-            Label("Videos", systemImage: "video.fill")
+            Label("Videos", systemImage: "video")
         }
         .tag(MainTab.videos.rawValue)
         .accessibilityLabel("Videos tab")
@@ -501,10 +504,10 @@ struct MainTabView: View {
                                 if authManager.currentTier < .plus {
                                     Text("PLUS")
                                         .font(.custom("Inter18pt-Bold", size: 11, relativeTo: .caption2))
-                                        .foregroundColor(.orange)
+                                        .foregroundColor(ppAccent)
                                         .padding(.horizontal, 5)
                                         .padding(.vertical, 2)
-                                        .background(Capsule().fill(.orange.opacity(0.12)))
+                                        .background(Capsule().fill(ppAccent.opacity(0.12)))
                                 }
                             }
                         } icon: {
@@ -527,10 +530,10 @@ struct MainTabView: View {
                                 if authManager.currentTier != .pro {
                                     Text("PRO")
                                         .font(.custom("Inter18pt-Bold", size: 11, relativeTo: .caption2))
-                                        .foregroundColor(.orange)
+                                        .foregroundColor(ppAccent)
                                         .padding(.horizontal, 5)
                                         .padding(.vertical, 2)
-                                        .background(Capsule().fill(.orange.opacity(0.12)))
+                                        .background(Capsule().fill(ppAccent.opacity(0.12)))
                                 }
                             }
                         } icon: {
@@ -545,10 +548,10 @@ struct MainTabView: View {
                                 if authManager.currentTier != .pro {
                                     Text("PRO")
                                         .font(.custom("Inter18pt-Bold", size: 11, relativeTo: .caption2))
-                                        .foregroundColor(.orange)
+                                        .foregroundColor(ppAccent)
                                         .padding(.horizontal, 5)
                                         .padding(.vertical, 2)
-                                        .background(Capsule().fill(.orange.opacity(0.12)))
+                                        .background(Capsule().fill(ppAccent.opacity(0.12)))
                                 }
                                 Spacer()
                                 SharedFoldersBadge()
@@ -561,6 +564,8 @@ struct MainTabView: View {
                 }
 
             }
+            .scrollContentBackground(.hidden)
+            .background(Theme.surface)
             .navigationTitle("More")
             .navigationDestination(for: MoreDestination.self) { destination in
                 switch destination {
@@ -595,7 +600,7 @@ struct MainTabView: View {
         }
         .modifier(MoreTabBadgeModifier())
         .tabItem {
-            Label("More", systemImage: "ellipsis.circle.fill")
+            Label("More", systemImage: "ellipsis.circle")
         }
         .tag(MainTab.more.rawValue)
         .accessibilityLabel("More tab")
@@ -612,10 +617,10 @@ struct MainTabView: View {
             HStack(spacing: 14) {
                 ZStack {
                     Circle()
-                        .fill(Color.brandNavy.opacity(0.1))
+                        .fill(ppAccent.opacity(0.15))
                         .frame(width: 48, height: 48)
                     Text(String(user.username.prefix(1)).uppercased())
-                        .font(.headingLarge).foregroundColor(.brandNavy)
+                        .font(.headingLarge).foregroundColor(ppAccent)
                 }
                 VStack(alignment: .leading, spacing: 3) {
                     Text(user.username).font(.headingMedium).foregroundColor(.primary)
@@ -637,8 +642,8 @@ struct MainTabView: View {
 
     private var tierDisplayColor: Color {
         switch authManager.currentTier {
-        case .pro, .plus: return .brandNavy
-        default: return .secondary
+        case .pro, .plus: return ppAccent
+        default: return Theme.textSecondary
         }
     }
     

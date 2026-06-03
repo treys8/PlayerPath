@@ -2,7 +2,9 @@
 //  PhotoTagSheet.swift
 //  PlayerPath
 //
-//  Sheet to tag a photo to a game or practice.
+//  Sheet to tag a single photo to a game/round or practice. Wraps the shared
+//  EventTargetPicker (golf rounds grouped under their tournaments) and applies
+//  the choice to the bound photo.
 //
 
 import SwiftUI
@@ -13,130 +15,22 @@ struct PhotoTagSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
 
-    // Query games and practices for the photo's athlete only
-    @Query private var games: [Game]
-    @Query private var practices: [Practice]
-
-    private var isGolfAthlete: Bool { photo.athlete?.sport == .golf }
-    private var gamesSectionTitle: String { isGolfAthlete ? "Tournaments" : "Games" }
-
-    init(photo: Photo) {
-        self.photo = photo
-        let id = photo.athlete?.id
-        if let id {
-            self._games = Query(
-                filter: #Predicate<Game> { $0.athlete?.id == id },
-                sort: [SortDescriptor(\Game.date, order: .reverse)]
-            )
-            self._practices = Query(
-                filter: #Predicate<Practice> { $0.athlete?.id == id },
-                sort: [SortDescriptor(\Practice.date, order: .reverse)]
-            )
-        } else {
-            self._games = Query(sort: [SortDescriptor(\Game.date, order: .reverse)])
-            self._practices = Query(sort: [SortDescriptor(\Practice.date, order: .reverse)])
-        }
-    }
-
     var body: some View {
         NavigationStack {
-            List {
-                Section(gamesSectionTitle) {
-                    Button {
-                        photo.game = nil
-                        save()
-                    } label: {
-                        HStack {
-                            Text("None")
-                                .foregroundColor(.primary)
-                            Spacer()
-                            if photo.game == nil {
-                                Image(systemName: "checkmark")
-                                    .foregroundColor(.brandNavy)
-                            }
-                        }
-                    }
-
-                    ForEach(games) { game in
-                        let isGolfGame = game.season?.sport == .golf
-                        Button {
-                            photo.game = game
-                            photo.practice = nil
-                            // Keep the photo's season aligned with the game it
-                            // was just tagged to — otherwise the photo stays on
-                            // its import-time season (often the wrong one for
-                            // old photos). Only overwrite when the game has a
-                            // season; don't clobber on orphaned games.
-                            if let gameSeason = game.season {
-                                photo.season = gameSeason
-                            }
-                            save()
-                        } label: {
-                            HStack {
-                                VStack(alignment: .leading) {
-                                    Text("\(isGolfGame ? "at" : "vs") \(game.opponent)")
-                                        .foregroundColor(.primary)
-                                    if let date = game.date {
-                                        Text(date, style: .date)
-                                            .font(.bodySmall)
-                                            .foregroundColor(.secondary)
-                                    }
-                                }
-                                Spacer()
-                                if photo.game?.id == game.id {
-                                    Image(systemName: "checkmark")
-                                        .foregroundColor(.brandNavy)
-                                }
-                            }
-                        }
-                    }
-                }
-
-                Section("Practices") {
-                    Button {
-                        photo.practice = nil
-                        save()
-                    } label: {
-                        HStack {
-                            Text("None")
-                                .foregroundColor(.primary)
-                            Spacer()
-                            if photo.practice == nil {
-                                Image(systemName: "checkmark")
-                                    .foregroundColor(.brandNavy)
-                            }
-                        }
-                    }
-
-                    ForEach(practices) { practice in
-                        Button {
-                            photo.practice = practice
-                            photo.game = nil
-                            if let practiceSeason = practice.season {
-                                photo.season = practiceSeason
-                            }
-                            save()
-                        } label: {
-                            HStack {
-                                VStack(alignment: .leading) {
-                                    Text("Practice")
-                                        .foregroundColor(.primary)
-                                    if let date = practice.date {
-                                        Text(date, style: .date)
-                                            .font(.bodySmall)
-                                            .foregroundColor(.secondary)
-                                    }
-                                }
-                                Spacer()
-                                if photo.practice?.id == practice.id {
-                                    Image(systemName: "checkmark")
-                                        .foregroundColor(.brandNavy)
-                                }
-                            }
-                        }
-                    }
+            Group {
+                if let athlete = photo.athlete {
+                    EventTargetPicker(
+                        athlete: athlete,
+                        selectedGameID: photo.game?.id,
+                        selectedPracticeID: photo.practice?.id,
+                        showsSelection: true,
+                        onSelect: apply
+                    )
+                } else {
+                    ContentUnavailableView("No Athlete", systemImage: "person.slash")
                 }
             }
+            .ppDetailBackground()
             .navigationTitle("Tag Photo")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -147,9 +41,25 @@ struct PhotoTagSheet: View {
         }
     }
 
-    private func save() {
+    private func apply(_ target: EventTargetPicker.Target) {
+        switch target {
+        case .game(let game):
+            photo.game = game
+            photo.practice = nil
+            // Keep the photo's season aligned with the event it was just tagged
+            // to — but only when the event has a season, so we don't blank out
+            // the photo's season on an orphaned game/round.
+            if let season = game.season { photo.season = season }
+        case .practice(let practice):
+            photo.practice = practice
+            photo.game = nil
+            if let season = practice.season { photo.season = season }
+        case .clear:
+            photo.game = nil
+            photo.practice = nil
+        }
         photo.needsSync = true
-        ErrorHandlerService.shared.saveContext(modelContext, caller: "PhotoTagSheet.save")
+        ErrorHandlerService.shared.saveContext(modelContext, caller: "PhotoTagSheet.apply")
         dismiss()
     }
 }

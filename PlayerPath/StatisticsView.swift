@@ -47,6 +47,19 @@ struct StatisticsView: View {
         return availableSeasons.first { $0.id.uuidString == id }
     }
 
+    /// Milestones for the current selection: the chosen season, or — in the
+    /// career (All Seasons) view — every season of the active sport, flattened
+    /// and most-recent first. Pure compute via MilestoneEngine.
+    private var milestonesForSelection: [Milestone] {
+        if let season = selectedSeason {
+            return MilestoneEngine.milestones(for: season)
+        }
+        let seasons = (athlete?.seasons ?? []).filter { ($0.sport ?? .baseball) == activeSport }
+        return seasons
+            .flatMap { MilestoneEngine.milestones(for: $0) }
+            .sorted { $0.date > $1.date }
+    }
+
     /// Golf has no `AthleteStatistics`, so its charts/comparison buttons can't
     /// ride the `statistics != nil` toolbar block — they gate on real rounds.
     private var hasGolfRounds: Bool {
@@ -95,9 +108,18 @@ struct StatisticsView: View {
 
     var body: some View {
         contentView
-            .navigationTitle("Statistics")
+            // Scope rule: on Stats the accent follows the Baseball/Golf selection
+            // (`isGolf` prefers the filtered season's sport), overriding the
+            // profile's sport for this subtree.
+            .ppAccent(forGolf: isGolf)
+            .navigationTitle("The Numbers.")
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
+                if let athlete = athlete {
+                    ToolbarItem(placement: .principal) {
+                        PPAthleteSwitcher(athlete: athlete)
+                    }
+                }
                 if statistics != nil {
                     // View Charts button — baseball/softball-only (StatisticsChartsView
                     // is hard-coded to batting/pitching metrics).
@@ -367,22 +389,21 @@ struct StatisticsView: View {
                 LazyVStack(spacing: 20) {
                     GolfStatsSection(athlete: athlete, season: selectedSeason)
 
-                    // Free charts — parity with baseball's ChartsPromptCard.
-                    if hasGolfRounds {
-                        ChartsPromptCard {
-                            showingCharts = true
-                        }
-                    }
+                    MilestonesListSection(milestones: milestonesForSelection)
                 }
-                .padding(horizontalSizeClass == .regular ? 32 : 16)
+                .padding(horizontalSizeClass == .regular ? 32 : 18)
             }
-        } else if let stats = statistics {
+            .background(Theme.surface)
+        } else if let stats = statistics, stats.atBats > 0 || stats.hasPitchingData {
             ScrollView {
                 LazyVStack(spacing: 20) {
-                    // Charts Prompt Card
-                    ChartsPromptCard {
-                        showingCharts = true
-                    }
+                    // "The Numbers." hero — slash line + metric grid.
+                    StatsHeroCard(
+                        statistics: stats,
+                        label: selectedSeasonFilter
+                            .flatMap { id in availableSeasons.first(where: { $0.id.uuidString == id }) }?
+                            .displayName ?? "Batting Line"
+                    )
 
                     // Show different stats based on filter
                     if selectedSeasonFilter == nil {
@@ -420,9 +441,12 @@ struct StatisticsView: View {
                     if stats.hasPitchingData {
                         PitchingStatsSection(statistics: stats, athlete: athlete)
                     }
+
+                    MilestonesListSection(milestones: milestonesForSelection)
                 }
-                .padding(horizontalSizeClass == .regular ? 32 : 16)
+                .padding(horizontalSizeClass == .regular ? 32 : 18)
             }
+            .background(Theme.surface)
         } else {
             EmptyStatisticsView(
                 isQuickEntryEnabled: hasLiveGame,
@@ -448,6 +472,7 @@ extension Notification.Name {
 struct SectionHeader: View {
     let title: String
     let icon: String?
+    @Environment(\.ppAccent) private var ppAccent
 
     init(title: String, icon: String? = nil) {
         self.title = title
@@ -459,16 +484,11 @@ struct SectionHeader: View {
             if let icon = icon {
                 Image(systemName: icon)
                     .font(.subheadline)
-                    .foregroundStyle(
-                        LinearGradient(
-                            colors: [.blue, .blue.opacity(0.6)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
+                    .foregroundStyle(ppAccent)
             }
             Text(title)
-                .font(.headingLarge)
+                .font(.ppTitle2)              // Fraunces serif
+                .foregroundStyle(Theme.textPrimary)
         }
     }
 }
@@ -490,7 +510,7 @@ extension View {
             .padding(12)
             .background(
                 RoundedRectangle(cornerRadius: .cornerLarge, style: .continuous)
-                    .fill(Color(uiColor: .secondarySystemGroupedBackground))
+                    .fill(Theme.card)
             )
     }
 }

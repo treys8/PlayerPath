@@ -15,11 +15,13 @@ struct HelpSupportView: View {
 }
 
 struct AboutView: View {
+    @Environment(\.ppAccent) private var ppAccent
+
     var body: some View {
         VStack(spacing: 30) {
-            Image(systemName: "figure.baseball")
+            Image(systemName: "book.closed.fill")
                 .font(.system(size: 80))
-                .foregroundColor(.brandNavy)
+                .foregroundColor(ppAccent)
 
             VStack(spacing: 10) {
                 Text("PlayerPath")
@@ -30,7 +32,7 @@ struct AboutView: View {
                     .foregroundColor(.secondary)
             }
 
-            Text("The ultimate baseball journal for tracking your athletic journey. Record videos, track statistics, and relive your greatest moments.")
+            Text("The ultimate journal for tracking your athletic journey. Record videos, track statistics, and relive your greatest moments.")
                 .font(.bodyMedium)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
@@ -38,11 +40,13 @@ struct AboutView: View {
 
             Spacer()
 
-            Text("Made for baseball athletes")
+            Text("Made for athletes")
                 .font(.bodySmall)
                 .foregroundColor(.secondary)
         }
         .padding()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.surface)
         .navigationTitle("About")
         .navigationBarTitleDisplayMode(.inline)
     }

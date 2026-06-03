@@ -22,6 +22,7 @@ struct ClipReviewSheet: View {
 
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.ppAccentLight) private var ppAccentLight
     @State private var notes: String
     @State private var isPublishing = false
     @State private var isSavingDraft = false
@@ -181,7 +182,7 @@ struct ClipReviewSheet: View {
                                     infoRow(label: "Size", value: ByteCountFormatter.string(fromByteCount: fileSize, countStyle: .file))
                                 }
                             }
-                            .background(Color(.secondarySystemGroupedBackground))
+                            .background(Theme.card)
                             .clipShape(RoundedRectangle(cornerRadius: 10))
                             .padding(.horizontal)
                         }
@@ -198,7 +199,7 @@ struct ClipReviewSheet: View {
                     onDiscard: { showingDiscardConfirmation = true }
                 )
             }
-            .background(Color(.systemGroupedBackground))
+            .background(Theme.surface)
             .navigationTitle("Review Clip")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -303,7 +304,7 @@ struct ClipReviewSheet: View {
                 VStack(spacing: 8) {
                     Image(systemName: "exclamationmark.triangle")
                         .font(.title2)
-                        .foregroundColor(.orange)
+                        .foregroundColor(Theme.warning)
                     Text(videoError)
                         .font(.caption)
                         .foregroundColor(.white)
@@ -312,7 +313,7 @@ struct ClipReviewSheet: View {
                         Task { await loadVideo() }
                     }
                     .font(.caption)
-                    .foregroundColor(.blue)
+                    .foregroundColor(ppAccentLight)
                 }
                 .padding()
             } else if let player {

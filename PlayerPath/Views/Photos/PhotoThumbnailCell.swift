@@ -27,6 +27,7 @@ struct PhotoThumbnailCell: View {
     @State private var showingCaptionSheet = false
     @State private var captionText: String = ""
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.ppAccent) private var ppAccent
 
     var body: some View {
         GeometryReader { geo in
@@ -160,7 +161,7 @@ struct PhotoThumbnailCell: View {
 
     private var untaggedDot: some View {
         Circle()
-            .fill(Color.orange)
+            .fill(ppAccent)
             .frame(width: 10, height: 10)
             .overlay(Circle().strokeBorder(Color.white, lineWidth: 2))
             .shadow(color: .black.opacity(0.35), radius: 3, x: 0, y: 1)

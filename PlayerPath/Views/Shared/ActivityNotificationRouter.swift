@@ -80,7 +80,7 @@ enum ActivityNotificationRouter {
         case .coachComment:       return .green
         case .invitationReceived: return .indigo
         case .invitationAccepted: return .green
-        case .accessRevoked:      return .orange
+        case .accessRevoked:      return Theme.warning
         case .accessLapsed:       return .yellow
         case .uploadFailed:       return .red
         }

@@ -14,6 +14,7 @@ struct SubscriptionView: View {
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @ObservedObject private var storeManager = StoreKitManager.shared
     @Environment(\.openURL) private var openURL
+    @Environment(\.ppAccent) private var ppAccent
     @State private var showingPaywall = false
 
     var body: some View {
@@ -27,6 +28,9 @@ struct SubscriptionView: View {
                 pricingSection
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(Theme.surface)
+        .tint(ppAccent)
         .navigationTitle("Subscription")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showingPaywall) {
@@ -58,7 +62,7 @@ struct SubscriptionView: View {
                         .font(.custom("Inter18pt-Bold", size: 12, relativeTo: .caption))
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
-                        .background(Color.orange)
+                        .background(Theme.warning)
                         .foregroundColor(.white)
                         .cornerRadius(8)
                         .accessibilityLabel("Payment Issue")
@@ -97,7 +101,7 @@ struct SubscriptionView: View {
                     openURL(url)
                 }
             }
-            .foregroundColor(.brandNavy)
+            .foregroundColor(ppAccent)
         }
     }
 
@@ -133,7 +137,7 @@ struct SubscriptionView: View {
                         .foregroundColor(.white)
                 }
                 .padding()
-                .background(Color.brandNavy)
+                .background(ppAccent)
                 .cornerRadius(12)
             }
             .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
@@ -146,11 +150,12 @@ struct SubscriptionFeatureRow: View {
     let icon: String
     let title: String
     let description: String
+    @Environment(\.ppAccent) private var ppAccent
 
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: icon)
-                .foregroundColor(.brandNavy)
+                .foregroundColor(ppAccent)
                 .font(.title3)
                 .frame(width: 24)
 

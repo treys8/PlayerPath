@@ -286,7 +286,7 @@ private struct CoachHowItWorksPage: View {
         ("envelope.fill",         .brandNavy,   "Athlete Sends an Invite",   "An athlete adds your email address to share their folder with you."),
         ("checkmark.seal.fill",   .brandNavy,  "You Accept the Invitation", "Open your Dashboard and tap the invitation to accept. You're in."),
         ("video.fill",            .purple, "Review Their Videos",        "Browse game and practice clips organized by the athlete."),
-        ("bubble.left.fill",      .orange, "Leave Coaching Feedback",    "Annotate videos with timestamps and written notes athletes can act on."),
+        ("bubble.left.fill",      Theme.accent, "Leave Coaching Feedback",    "Annotate videos with timestamps and written notes athletes can act on."),
     ]
 
     var body: some View {

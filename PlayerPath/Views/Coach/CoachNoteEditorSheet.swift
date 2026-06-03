@@ -48,7 +48,7 @@ struct CoachNoteEditorSheet: View {
                             .foregroundColor(text.count >= charLimit ? .red : .secondary)
                     }
                 } header: {
-                    Text("Coach Note")
+                    Text("Coach Note").smallCapsLabel()
                 } footer: {
                     Text("This note appears on the video for both you and the athlete. Plain text — for timestamped feedback, use the Add Feedback button on the player.")
                 }
@@ -60,10 +60,12 @@ struct CoachNoteEditorSheet: View {
                         } label: {
                             Label("Delete Note", systemImage: "trash")
                         }
+                        .labelStyle(DestructiveRowLabelStyle())
                         .disabled(isSaving)
                     }
                 }
             }
+            .ppDetailBackground()
             .navigationTitle(hasExistingNote ? "Edit Coach Note" : "Add Coach Note")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

@@ -4,6 +4,11 @@
 //
 //  Created by Trey Schilling on 10/23/25.
 //
+//  Visual overhaul — the batting-line empty state. Shown both when there are
+//  no statistics at all and when stats exist but at-bats == 0 (so a zeroed
+//  .000/.000/.000 slash line never greets a new user). One centered cream card:
+//  serif line, muted subtitle, single accent action. No gradients.
+//
 
 import SwiftUI
 import TipKit
@@ -13,175 +18,100 @@ struct EmptyStatisticsView: View {
     let hasGames: Bool
     let showQuickEntry: () -> Void
     let showGameSelection: () -> Void
-    @Environment(\.dismiss) private var dismiss
 
     @State private var isAnimating = false
-    @State private var floatOffset: CGFloat = 0
     private let tip = EmptyStatsTip()
+    @Environment(\.ppAccent) private var ppAccent
 
     var body: some View {
-        ZStack {
-            // Subtle background decoration
-            Circle()
-                .fill(
-                    RadialGradient(
-                        colors: [Color.brandNavy.opacity(0.08), .clear],
-                        center: .center,
-                        startRadius: 0,
-                        endRadius: 200
-                    )
-                )
-                .frame(width: 300, height: 300)
-                .blur(radius: 60)
-                .offset(y: -50)
+        VStack(spacing: .spacingLarge) {
+            Image(systemName: "chart.bar")
+                .font(.system(size: 46, weight: .light))
+                .foregroundStyle(ppAccent)
+                .symbolRenderingMode(.hierarchical)
 
-            VStack(spacing: 20) {
-                // Floating icon with glow
-                ZStack {
-                    // Glow effect
-                    Image(systemName: "chart.bar")
-                        .font(.system(size: 56, weight: .light))
-                        .foregroundStyle(Color.brandNavy.opacity(0.3))
-                        .blur(radius: 20)
+            VStack(spacing: .spacingSmall) {
+                Text("No at-bats yet")
+                    .font(.ppTitle2)
+                    .foregroundStyle(Theme.textPrimary)
 
-                    Image(systemName: "chart.bar")
-                        .font(.system(size: 56, weight: .light))
-                        .foregroundStyle(
-                            LinearGradient(
-                                colors: [Color.brandNavy, Color.brandNavy.opacity(0.6)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .symbolRenderingMode(.hierarchical)
-                }
-                .offset(y: floatOffset)
-                .scaleEffect(isAnimating ? 1.0 : 0.8)
-                .opacity(isAnimating ? 1.0 : 0.0)
+                Text(hasGames
+                     ? "Record at-bats to see your batting line."
+                     : "Log your first game to see your batting line.")
+                    .font(.ppSubheadline)
+                    .foregroundStyle(Theme.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
-                VStack(spacing: 10) {
-                    Text("No Statistics Yet")
-                        .font(.headingLarge)
-                        .foregroundColor(.primary)
-
-                    Text("Record plays to start\nbuilding your stats")
-                        .font(.bodyMedium)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .lineSpacing(2)
-                }
-                .opacity(isAnimating ? 1.0 : 0.0)
-                .offset(y: isAnimating ? 0 : 10)
-
-                VStack(spacing: 12) {
-                    if isQuickEntryEnabled {
-                        Button {
-                            Haptics.medium()
-                            showQuickEntry()
-                        } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: "chart.bar.doc.horizontal.fill")
-                                    .font(.body)
-                                Text("Record Live Game Stats")
-                                    .font(.headingMedium)
-                            }
-                            .foregroundColor(.white)
-                            .frame(maxWidth: 240)
-                            .padding(.vertical, 14)
-                            .background(
-                                LinearGradient(
-                                    colors: [.green, .green.opacity(0.85)],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
-                            .clipShape(Capsule())
-                            .shadow(color: .green.opacity(0.3), radius: 12, x: 0, y: 6)
-                        }
-                        .buttonStyle(StatsPremiumButtonStyle())
-
-                        Button {
-                            Haptics.light()
-                            showGameSelection()
-                        } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: "plus.circle.fill")
-                                    .font(.body)
-                                Text("Add Past Game Statistics")
-                                    .font(.labelLarge)
-                            }
-                            .foregroundColor(Color.brandNavy)
-                            .frame(maxWidth: 240)
-                            .padding(.vertical, 12)
-                            .background(
-                                Capsule()
-                                    .strokeBorder(Color.brandNavy.opacity(0.3), lineWidth: 1.5)
-                            )
-                        }
-                        .buttonStyle(StatsPremiumButtonStyle())
-                    } else {
-                        Button {
-                            Haptics.medium()
-                            NotificationCenter.default.post(name: .switchToGamesTab, object: nil)
-                            dismiss()
-                        } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: "baseball.fill")
-                                    .font(.body)
-                                Text("Go to Games")
-                                    .font(.headingMedium)
-                            }
-                            .foregroundColor(.white)
-                            .frame(maxWidth: 200)
-                            .padding(.vertical, 14)
-                            .background(
-                                LinearGradient(
-                                    colors: [Color.brandNavy, Color.brandNavy.opacity(0.85)],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
-                            .clipShape(Capsule())
-                            .shadow(color: Color.brandNavy.opacity(0.3), radius: 12, x: 0, y: 6)
-                        }
-                        .buttonStyle(StatsPremiumButtonStyle())
-
-                        Button {
-                            Haptics.light()
-                            showGameSelection()
-                        } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: "plus.circle.fill")
-                                    .font(.body)
-                                Text("Add Past Game Statistics")
-                                    .font(.labelLarge)
-                            }
-                            .foregroundColor(Color.brandNavy)
-                            .frame(maxWidth: 240)
-                            .padding(.vertical, 12)
-                            .background(
-                                Capsule()
-                                    .strokeBorder(Color.brandNavy.opacity(0.3), lineWidth: 1.5)
-                            )
-                        }
-                        .buttonStyle(StatsPremiumButtonStyle())
+            VStack(spacing: .spacingMedium) {
+                if isQuickEntryEnabled {
+                    primaryButton("Record Live Game Stats", systemImage: "chart.bar.doc.horizontal.fill") {
+                        Haptics.medium()
+                        showQuickEntry()
+                    }
+                } else {
+                    primaryButton("Go to Games", systemImage: "baseball.fill") {
+                        Haptics.medium()
+                        NotificationCenter.default.post(name: .switchTab, object: MainTab.games.rawValue)
                     }
                 }
-                .opacity(isAnimating ? 1.0 : 0.0)
-                .offset(y: isAnimating ? 0 : 20)
-                .onboardingTip(tip, arrowEdge: .top, also: hasGames)
+
+                secondaryButton("Add Past Game Statistics", systemImage: "plus.circle") {
+                    Haptics.light()
+                    showGameSelection()
+                }
             }
-            .padding(.horizontal, 40)
+            .onboardingTip(tip, arrowEdge: .top, also: hasGames)
         }
+        .padding(.spacingXLarge)
+        .frame(maxWidth: .infinity)
+        .ppCard()
+        .padding(.horizontal, 18)
+        .opacity(isAnimating ? 1 : 0)
+        .offset(y: isAnimating ? 0 : 12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        .background(Theme.surface)
         .onAppear {
-            withAnimation(.spring(response: 0.8, dampingFraction: 0.7)) {
+            withAnimation(.spring(response: 0.6, dampingFraction: 0.85)) {
                 isAnimating = true
             }
-            // Floating animation
-            withAnimation(.easeInOut(duration: 2.5).repeatForever(autoreverses: true)) {
-                floatOffset = -8
-            }
         }
+    }
+
+    // MARK: - Buttons
+
+    /// Accent capsule — the one orange action.
+    private func primaryButton(_ title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: systemImage)
+                    .font(.body)
+                Text(title)
+                    .font(.ppHeadline)
+            }
+            .foregroundStyle(.white)
+            .frame(maxWidth: 260)
+            .padding(.vertical, 14)
+            .background(Capsule().fill(ppAccent))
+        }
+        .buttonStyle(StatsPremiumButtonStyle())
+    }
+
+    /// Outline secondary.
+    private func secondaryButton(_ title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: systemImage)
+                    .font(.body)
+                Text(title)
+                    .font(.ppCallout)
+            }
+            .foregroundStyle(ppAccent)
+            .frame(maxWidth: 260)
+            .padding(.vertical, 12)
+            .background(Capsule().strokeBorder(ppAccent.opacity(0.4), lineWidth: 1.5))
+        }
+        .buttonStyle(StatsPremiumButtonStyle())
     }
 }

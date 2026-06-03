@@ -16,6 +16,7 @@ struct PhotosView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.ppAccent) private var ppAccent
     private var activeSport: Season.SportType { athlete.sportType }
 
     private func chipLabel(for filter: PhotoFilter) -> String {
@@ -60,6 +61,7 @@ struct PhotosView: View {
     @State private var isSelecting = false
     @State private var selectedIDs: Set<UUID> = []
     @State private var showingBulkDeleteConfirm = false
+    @State private var showingBatchTagSheet = false
     @AppStorage("photos.layoutMode") private var layoutModeRaw: String = LayoutMode.card.rawValue
     private let photoOptionsTip = PhotoOptionsTip()
     private let layoutModeTip = LayoutModeTip()
@@ -158,6 +160,15 @@ struct PhotosView: View {
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showingBatchTagSheet = true
+                    } label: {
+                        Image(systemName: "tag")
+                    }
+                    .disabled(selectedIDs.isEmpty)
+                    .accessibilityLabel("Tag selected photos")
+                }
+                ToolbarItem(placement: .topBarTrailing) {
                     Button(role: .destructive) {
                         showingBulkDeleteConfirm = true
                     } label: {
@@ -221,6 +232,11 @@ struct PhotosView: View {
         }
         .sheet(isPresented: $showingFilterSheet) {
             filterSheet
+        }
+        .sheet(isPresented: $showingBatchTagSheet) {
+            BatchPhotoTagSheet(athlete: athlete, photoCount: selectedIDs.count) { target in
+                bulkTagSelected(target)
+            }
         }
         .confirmationDialog("Add Photo", isPresented: $showingSourcePicker) {
             if PhotoCameraAvailability.isCameraAvailable {
@@ -289,27 +305,11 @@ struct PhotosView: View {
     // MARK: - Filter Bar
 
     private var filterBar: some View {
-        HStack(spacing: 8) {
-            ForEach(PhotoFilter.allCases, id: \.self) { filter in
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        activeFilter = filter
-                    }
-                } label: {
-                    Text(chipLabel(for: filter))
-                        .font(activeFilter == filter ? .headingSmall : .bodyMedium)
-                        .foregroundColor(activeFilter == filter ? .white : .secondary)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 7)
-                        .background(
-                            Capsule()
-                                .fill(activeFilter == filter ? Color.brandNavy : Color(.systemGray5))
-                        )
-                }
-            }
-            Spacer()
-        }
-        .padding(.horizontal)
+        PPFilterPillRow(
+            options: PhotoFilter.allCases,
+            title: { chipLabel(for: $0) },
+            selection: $activeFilter
+        )
         .padding(.bottom, 8)
     }
 
@@ -582,7 +582,7 @@ struct PhotosView: View {
             importToastMessage = saved == 1 ? "Photo imported" : "\(saved) photos imported"
         } else if saved > 0 && failed > 0 {
             importToastType = .warning
-            importToastMessage = "Imported \(saved) photos. \(failed) failed."
+            importToastMessage = "Imported \(saved) photo\(saved == 1 ? "" : "s"). \(failed) failed."
         } else {
             importToastType = .warning
             importToastMessage = "Could not import photos."
@@ -605,7 +605,7 @@ struct PhotosView: View {
             .font(.title2)
             .symbolRenderingMode(.palette)
             .foregroundStyle(isSelected ? Color.white : Color.white.opacity(0.9),
-                             isSelected ? Color.brandNavy : Color.black.opacity(0.35))
+                             isSelected ? ppAccent : Color.black.opacity(0.35))
             .background(Circle().fill(Color.black.opacity(0.15)).blur(radius: 2))
     }
 
@@ -634,5 +634,52 @@ struct PhotosView: View {
             Haptics.success()
             exitSelectionMode()
         }
+    }
+
+    /// Apply one event target to every selected photo, then a single save.
+    /// Synchronous on purpose (unlike bulkDeleteSelected) — setting the
+    /// relationships + saveContext are @MainActor work with nothing to await.
+    private func bulkTagSelected(_ target: EventTargetPicker.Target) {
+        let ids = selectedIDs
+        let toTag = cachedPhotos.filter { ids.contains($0.id) }
+        guard !toTag.isEmpty else { exitSelectionMode(); return }
+
+        var clearing = false
+        for photo in toTag {
+            switch target {
+            case .game(let game):
+                photo.game = game
+                photo.practice = nil
+                // Realign season only when the event has one, so we never blank
+                // out a photo's season on an orphaned game/round (matches the
+                // single-photo PhotoTagSheet rule).
+                if let season = game.season { photo.season = season }
+            case .practice(let practice):
+                photo.practice = practice
+                photo.game = nil
+                if let season = practice.season { photo.season = season }
+            case .clear:
+                photo.game = nil
+                photo.practice = nil
+                clearing = true
+            }
+            photo.needsSync = true
+        }
+
+        ErrorHandlerService.shared.saveContext(modelContext, caller: "PhotosView.bulkTagSelected")
+        Haptics.success()
+
+        let count = toTag.count
+        importToastType = .success
+        importToastMessage = clearing
+            ? (count == 1 ? "Removed from event" : "\(count) photos removed from event")
+            : (count == 1 ? "Photo tagged" : "\(count) photos tagged")
+        showImportToast = true
+
+        exitSelectionMode()
+        // A relationship-only mutation doesn't change the [Photo] query result,
+        // so onChange(of: allPhotos) won't fire — refresh the cache explicitly
+        // (bulkDeleteSelected dodges this because it removes rows).
+        updatePhotosCache()
     }
 }

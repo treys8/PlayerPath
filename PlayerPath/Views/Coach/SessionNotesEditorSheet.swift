@@ -48,7 +48,7 @@ struct SessionNotesEditorSheet: View {
                             .foregroundColor(text.count >= charLimit ? .red : .secondary)
                     }
                 } header: {
-                    Text("Session Notes")
+                    Text("Session Notes").smallCapsLabel()
                 } footer: {
                     Text("Notes for your own reference during and after the session. Not shared with athletes.")
                 }
@@ -60,10 +60,12 @@ struct SessionNotesEditorSheet: View {
                         } label: {
                             Label("Clear Notes", systemImage: "trash")
                         }
+                        .labelStyle(DestructiveRowLabelStyle())
                         .disabled(isSaving)
                     }
                 }
             }
+            .ppDetailBackground()
             .navigationTitle(hasExistingNotes ? "Edit Session Notes" : "Add Session Notes")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
