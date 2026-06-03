@@ -34,8 +34,12 @@ struct CoachVideoPlayerView: View {
     /// Quick-cue texts currently applied to this clip (a subset of video.tags),
     /// edited live by the coach via the inline cue picker.
     @State private var selectedCueTags: [String] = []
-    @State private var isSendingToAthlete = false
-    @State private var didSendToAthlete = false
+    @State private var isConfirmingReview = false
+    @State private var didConfirmReview = false
+    /// Latest athlete view-receipt, refreshed from Firestore on open/foreground
+    /// so "Seen" still appears while the coach keeps the clip open. nil until the
+    /// first refresh; `athleteViewedAt` falls back to the clip's load snapshot.
+    @State private var refreshedAthleteViewedAt: Date?
     private var templateService: CoachTemplateService { .shared }
     @Environment(\.modelContext) private var modelContext
     @Environment(\.verticalSizeClass) private var vSizeClass
@@ -175,7 +179,7 @@ struct CoachVideoPlayerView: View {
         }
         .toast(isPresenting: $viewModel.didSaveSuccessfully, message: "Video Saved")
         .toast(isPresenting: $viewModel.didSaveToMyVideosSuccessfully, message: "Added to Your Videos")
-        .toast(isPresenting: $didSendToAthlete, message: "Sent to \(athleteFirstName)")
+        .toast(isPresenting: $didConfirmReview, message: "Marked reviewed")
         .alert("Save Failed", isPresented: .init(
             get: { viewModel.saveError != nil },
             set: { if !$0 { viewModel.saveError = nil } }
@@ -231,6 +235,15 @@ struct CoachVideoPlayerView: View {
             // Load video first (always needed)
             await viewModel.loadVideo()
 
+            // Seed the inline cue picker up front (coach-only) so the chips
+            // populate immediately instead of staying blank through the heavier
+            // annotation / drill-card loads below. Cue templates load off the
+            // critical path into the shared service; selectedCueTags is local.
+            if canEditCoachNote, let coachID = authManager.userID {
+                selectedCueTags = video.tags
+                Task { await templateService.loadQuickCues(coachID: coachID) }
+            }
+
             // Generate filmstrip and load video natural size after player is ready
             await viewModel.loadVideoNaturalSize()
             viewModel.generateFilmstrip()
@@ -247,12 +260,6 @@ struct CoachVideoPlayerView: View {
             }
             if let coachID = authManager.userID {
                 await templateService.loadDrillTemplates(coachID: coachID)
-                // The inline cue picker is coach-only; seed it from the clip's
-                // existing tags and load the coach's reusable cue templates.
-                if canEditCoachNote {
-                    selectedCueTags = video.tags
-                    await templateService.loadQuickCues(coachID: coachID)
-                }
             }
 
             // Mark this video's notifications as read (athlete viewing coach feedback)
@@ -267,6 +274,10 @@ struct CoachVideoPlayerView: View {
             if canEditCoachNote, let coachID = authManager.userID, !viewModel.isReviewed(by: coachID) {
                 try? await viewModel.markReviewed(coachID: coachID, silent: true)
             }
+
+            // Pull the athlete's view receipt fresh — the clip snapshot can be
+            // stale if the athlete watched after the coach opened the folder.
+            refreshViewReceipt()
 
             // Auto-show the earliest coach drawing once everything is loaded.
             // Aspect ratio (videoNaturalSize) is set by loadVideoNaturalSize
@@ -340,6 +351,8 @@ struct CoachVideoPlayerView: View {
                 viewModel.player?.play()
             }
             viewModel.shouldResumeOnActive = false
+            // Athlete may have watched while the app was backgrounded.
+            refreshViewReceipt()
         }
     }
     
@@ -421,10 +434,10 @@ struct CoachVideoPlayerView: View {
                 quickCues: templateService.quickCues,
                 appliedCues: selectedCueTags,
                 viewedAt: athleteViewedAt,
-                isSending: isSendingToAthlete,
+                isSending: isConfirmingReview,
                 onToggleCue: toggleCue,
                 onAddCue: addCue,
-                onSend: sendToAthlete
+                onSend: confirmReviewComplete
             )
         }
     }
@@ -705,7 +718,7 @@ struct CoachVideoPlayerView: View {
 
     // MARK: - Coach review actions
 
-    /// First name of the folder-owning athlete, for the "Send to …" button.
+    /// First name of the folder-owning athlete, used in the review-actions copy.
     private var athleteFirstName: String {
         guard let name = folder.ownerAthleteName,
               let first = name.split(separator: " ").first else { return "athlete" }
@@ -713,8 +726,22 @@ struct CoachVideoPlayerView: View {
     }
 
     /// When the athlete last opened this clip (their view receipt), if ever.
+    /// Prefers the live-refreshed value over the immutable load snapshot.
     private var athleteViewedAt: Date? {
-        video.viewedBy?[folder.ownerAthleteID]
+        refreshedAthleteViewedAt ?? video.viewedBy?[folder.ownerAthleteID]
+    }
+
+    /// Coach-side refresh of the athlete's view receipt. `video` is an immutable
+    /// snapshot, so without this a coach who keeps the player open would never
+    /// see "Seen" once the athlete watches. Best-effort and coach-only — the
+    /// athlete's own folder view is what *writes* the receipt.
+    private func refreshViewReceipt() {
+        guard canEditCoachNote, !isFolderOwner else { return }
+        Task {
+            if let latest = try? await FirestoreManager.shared.fetchVideo(videoID: video.id) {
+                refreshedAthleteViewedAt = latest.viewedBy?[folder.ownerAthleteID]
+            }
+        }
     }
 
     /// Apply or remove a cue from the clip's tags and persist. Optimistic —
@@ -759,20 +786,22 @@ struct CoachVideoPlayerView: View {
         }
     }
 
-    /// Explicit "review complete" confirmation. Coach feedback is already
-    /// delivered automatically by Cloud Functions as it's authored; this marks
-    /// the clip reviewed (bookkeeping + nudge) and confirms with a toast.
-    private func sendToAthlete() {
+    /// Coach's explicit "I'm done reviewing" confirmation. Feedback (notes /
+    /// drawings / drill cards) is already delivered to the athlete by Cloud
+    /// Functions as it's authored, and the clip is auto-marked reviewed on open
+    /// — so this re-affirms the reviewed mark and confirms with a toast. It does
+    /// not itself send or notify (nothing triggers on `reviewedBy`).
+    private func confirmReviewComplete() {
         guard let coachID = authManager.userID else { return }
-        isSendingToAthlete = true
+        isConfirmingReview = true
         Task {
             do {
                 try await viewModel.markReviewed(coachID: coachID)
-                didSendToAthlete = true
+                didConfirmReview = true
             } catch {
                 markReviewedError = error.localizedDescription
             }
-            isSendingToAthlete = false
+            isConfirmingReview = false
         }
     }
 

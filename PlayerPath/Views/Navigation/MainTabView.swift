@@ -210,10 +210,11 @@ struct MainTabView: View {
                         await ActivityNotificationService.shared.markNewVideoNotificationsRead(forUserID: userID)
                     }
                 }
-                // Home tab shows the AthleteInvitationsBanner — landing there
-                // implies the athlete has seen any pending invitation prompts,
-                // so clear invitation-type badges. Per-invitation accept/decline
-                // paths still clear individually via markInvitationRead.
+                // Home tab (JournalView) shows the AthleteInvitationsBanner at
+                // the top of its feed — landing there implies the athlete has
+                // seen any pending invitation prompts, so clear invitation-type
+                // badges. Per-invitation accept/decline paths still clear
+                // individually via markInvitationRead.
                 if newValue == MainTab.home.rawValue, let userID = authManager.userID {
                     Task {
                         await ActivityNotificationService.shared.markInvitationNotificationsRead(forUserID: userID)

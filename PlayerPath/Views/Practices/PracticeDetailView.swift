@@ -21,6 +21,8 @@ struct PracticeDetailView: View {
 
     @State private var showingAddNote = false
     @State private var showingRecordCamera = false
+    /// Confirms ending the live session (only reachable while `isLive`).
+    @State private var showingEndConfirmation = false
     /// Non-nil presents ScoreHoleSheet for the chosen hole (golf practice
     /// rounds only). Cleared on dismissal.
     @State private var scoreHoleTarget: ScoreHoleTarget?
@@ -36,6 +38,13 @@ struct PracticeDetailView: View {
 
     private var isPracticeRound: Bool {
         practice.practiceType == PracticeType.practiceRound.rawValue
+    }
+
+    /// Type-aware label for ending the live session — "End Session" for a range
+    /// session, "End Round" for a practice round (mirrors GameDetailView's golf
+    /// "End Round"). Only shown while `practice.isLive`.
+    private var endLabel: String {
+        practice.practiceType == PracticeType.rangeSession.rawValue ? "End Session" : "End Round"
     }
 
     /// Sport-aware type list for the in-place Type-change Menu. Falls back to
@@ -124,6 +133,23 @@ struct PracticeDetailView: View {
 
             // Actions Section
             Section(header: Text("Actions").smallCapsLabel()) {
+                // End the live session — shown only while this practice is the
+                // active live activity. Ending KEEPS the practice (unlike
+                // Delete); it just clears isLive so it leaves the "Live Now"
+                // strip. Promoted to the top so it's the obvious "I'm done"
+                // tap. Mirrors GameDetailView's End Round/Game action — which
+                // is the only place a live game can be ended, and previously
+                // had no practice equivalent (live practices were unendable).
+                if practice.isLive {
+                    Button(role: .destructive) {
+                        Haptics.warning()
+                        showingEndConfirmation = true
+                    } label: {
+                        Label(endLabel, systemImage: "stop.circle")
+                    }
+                    .labelStyle(DestructiveRowLabelStyle())
+                }
+
                 // Score Hole — golf practice rounds only. Promoted above
                 // Record Video so the primary on-course action is the first
                 // tap target (mirrors GameDetailView's golf placement).
@@ -259,6 +285,25 @@ struct PracticeDetailView: View {
             }
         } message: {
             Text("This will delete all videos and notes.")
+        }
+        .alert(endLabel, isPresented: $showingEndConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("End", role: .destructive) {
+                Haptics.heavy()
+                endLiveSession()
+            }
+        } message: {
+            // Unlike games, practices stay fully editable after ending — you
+            // can keep adding clips/photos/notes; ending only stops the live
+            // strip and live-hole clip attribution.
+            Text("This ends the live session. You can still add videos, photos, and notes afterward.")
+        }
+    }
+
+    /// Clear the live flags via PracticeService (handles save + Firestore sync).
+    private func endLiveSession() {
+        Task { @MainActor in
+            await PracticeService(modelContext: modelContext).end(practice)
         }
     }
 

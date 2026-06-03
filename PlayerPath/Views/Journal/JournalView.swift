@@ -175,6 +175,15 @@ struct JournalView: View {
     var body: some View {
         ScrollView {
             LazyVStack(spacing: .spacingLarge) {
+                // Pending coach invitations — self-hides when none. Ported from
+                // the retired DashboardView: the home tab carries an invitation
+                // tab badge (InvitationBadgeModifier) but, without this banner,
+                // there was no in-feed surface to actually accept/decline. Sits
+                // above the live strip so a pending invite is the first thing
+                // seen, including for a brand-new athlete with no content yet.
+                AthleteInvitationsBanner()
+                    .padding(.horizontal, 18)
+
                 if hasLiveActivity {
                     liveStrip
                 }
@@ -284,9 +293,21 @@ struct JournalView: View {
                 NavigationLink {
                     PracticeDetailView(practice: practice)
                 } label: {
-                    LiveGameCard(practiceRound: practice)
-                        .padding(.horizontal, 18)
-                        .contentShape(Rectangle())
+                    // Range sessions have no holes/scoring — they get the
+                    // lighter RANGE SESSION card, practice rounds the fuller
+                    // tournament-style card. Mirrors DashboardView's split;
+                    // without it every live practice mislabels as "PRACTICE
+                    // ROUND". Cards stay display-only here (no End/Score
+                    // closures) — tap opens the detail, where End lives.
+                    Group {
+                        if practice.practiceType == PracticeType.rangeSession.rawValue {
+                            LiveRangeCard(practice: practice)
+                        } else {
+                            LiveGameCard(practiceRound: practice)
+                        }
+                    }
+                    .padding(.horizontal, 18)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }

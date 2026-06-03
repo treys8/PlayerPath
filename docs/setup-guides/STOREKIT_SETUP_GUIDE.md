@@ -20,8 +20,8 @@ PlayerPath now includes a complete StoreKit 2 integration for in-app purchases a
 ### 3. **PlayerPath.storekit**
 - StoreKit Configuration File for local testing
 - Defines two subscription products:
-  - Monthly Premium: $9.99/month (7-day free trial)
-  - Annual Premium: $59.99/year (7-day free trial)
+  - Monthly Premium: $9.99/month
+  - Annual Premium: $59.99/year
 
 ### 4. **Updated Files**
 - **ProfileView.swift**: Now uses `ImprovedPaywallView`
@@ -59,14 +59,12 @@ PlayerPath now includes a complete StoreKit 2 integration for in-app purchases a
    - Reference Name: PlayerPath Premium Monthly
    - Duration: 1 month
    - Price: $9.99
-   - Introductory Offer: 7 days free trial
    
    **Annual Premium:**
    - Product ID: `com.playerpath.premium.annual`
    - Reference Name: PlayerPath Premium Annual
    - Duration: 1 year
    - Price: $59.99
-   - Introductory Offer: 7 days free trial
 
 3. **Configure Localizations**
    - Add English (US) localization
@@ -80,7 +78,7 @@ With the StoreKit Configuration file, you can test purchases locally:
 1. **Run the app in simulator or device**
 2. **Navigate to Profile > Subscription**
 3. **Select a subscription plan**
-4. **Tap "Start 7-Day Free Trial"**
+4. **Tap the subscribe button**
 5. **StoreKit will show a fake purchase sheet**
 6. **Approve the purchase**
 7. **The app should now show Premium features**
@@ -88,7 +86,6 @@ With the StoreKit Configuration file, you can test purchases locally:
 **Testing Features:**
 - ✅ Product loading
 - ✅ Purchase flow
-- ✅ Free trial
 - ✅ Subscription status
 - ✅ Restore purchases
 - ✅ Auto-renewal (simulated)
@@ -171,7 +168,7 @@ Updates subscription status
 ### Purchase Flow
 
 ```
-User taps "Start Free Trial"
+User taps Subscribe
     ↓
 StoreKitManager.purchase(product)
     ↓
@@ -250,7 +247,6 @@ Errors are displayed via alerts in the paywall view.
 - [ ] Products load correctly
 - [ ] Monthly subscription displays correct price
 - [ ] Annual subscription displays correct price
-- [ ] Free trial shows in subscription details
 - [ ] Purchase completes successfully
 - [ ] Premium features unlock after purchase
 - [ ] Restore purchases works

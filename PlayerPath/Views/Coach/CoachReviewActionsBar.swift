@@ -9,10 +9,11 @@
 //    • Inline quick-cue picker — accent-fill when applied, dashed outline when
 //      not, plus a "+ add" chip. Toggling persists the cue into the video's
 //      `tags` (updateVideoTags); "+ add" creates a reusable QuickCue.
-//    • "Send to <athlete>" — the explicit review-complete confirmation. Coach
-//      feedback (notes / drawings / drill cards) is already delivered
-//      automatically by Cloud Functions as it's authored; this is the nudge +
-//      bookkeeping mark (markReviewed).
+//    • "Done reviewing" — the coach's explicit review-complete confirmation.
+//      Feedback (notes / drawings / drill cards) is already delivered to the
+//      athlete by Cloud Functions as it's authored, and the clip auto-marks
+//      reviewed on open, so this re-affirms the reviewed mark and confirms with
+//      a toast. It does not itself send or notify.
 //    • View receipt — read-only "Seen" / "Not seen yet" from `video.viewedBy`,
 //      written by the athlete when they open the clip.
 //
@@ -143,9 +144,9 @@ struct CoachReviewActionsBar: View {
                     if isSending {
                         ProgressView().tint(Theme.surface)
                     } else {
-                        Image(systemName: "paperplane.fill")
+                        Image(systemName: "checkmark.circle.fill")
                     }
-                    Text("Send to \(athleteName)")
+                    Text("Done reviewing")
                 }
                 .font(.ppHeadline)
                 .foregroundStyle(Theme.surface)
@@ -156,7 +157,7 @@ struct CoachReviewActionsBar: View {
             .buttonStyle(.plain)
             .disabled(isSending)
 
-            Text("They'll be notified · you'll see when they view it")
+            Text("You'll see when \(athleteName) opens it")
                 .font(.ppCaption)
                 .foregroundStyle(Theme.textTertiary)
 
