@@ -129,10 +129,13 @@ struct JournalView: View {
     /// baseball profile never surfaces golf entries — and therefore never shows a
     /// golf pill. Mirrors the sport scoping the live strip already applies above.
     /// Drives both the displayed `entries` and the set of pills worth showing.
+    /// Live games/practices are excluded here: they appear only in the pinned
+    /// live strip above, never as a duplicate feed row — and so never inflate the
+    /// pills or the content-count either.
     private var allEntries: [JournalEntry] {
         JournalFeedBuilder.build(
-            games: games,
-            practices: practices,
+            games: games.filter { !$0.isLive },
+            practices: practices.filter { !$0.isLive },
             orphanClips: JournalFeedBuilder.orphans(from: clips),
             orphanPhotos: orphanPhotos,
             filter: .all
