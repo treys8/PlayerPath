@@ -72,6 +72,8 @@ struct HighlightsView: View {
     
     var body: some View {
         contentView
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Theme.surface)
             .navigationTitle("\(athlete?.name ?? "Highlights") (\(viewModel.totalCount))")
             .navigationBarTitleDisplayMode(.large)
             .searchable(text: $viewModel.searchText, placement: .navigationBarDrawer(displayMode: .always))

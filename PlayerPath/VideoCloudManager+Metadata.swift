@@ -304,13 +304,21 @@ extension VideoCloudManager {
     }
 
     /// Updates mutable video metadata fields in Firestore (isHighlight, note).
-    func updateVideoMetadata(clipId: String, isHighlight: Bool, note: String?, playResultType: PlayResultType?, pitchSpeed: Double?, pitchType: String? = nil, club: String? = nil, gameId: String?, gameOpponent: String?, gameDate: Date?, seasonId: String?, seasonName: String?, practiceId: String?, practiceDate: Date? = nil) async throws {
+    func updateVideoMetadata(clipId: String, isHighlight: Bool, note: String?, playResultType: PlayResultType?, pitchSpeed: Double?, pitchType: String? = nil, club: String? = nil, gameId: String?, gameOpponent: String?, gameDate: Date?, seasonId: String?, seasonName: String?, practiceId: String?, practiceDate: Date? = nil, athleteId: String? = nil, athleteName: String? = nil) async throws {
         let db = Firestore.firestore()
         var data: [String: Any] = [
             "isHighlight": isHighlight,
             "note": note ?? NSNull(),
             "updatedAt": Timestamp(date: Date())
         ]
+        // Re-home support (legacy-split migration): video docs are pulled by an
+        // `athleteId` equality query, so a clip that moves to another profile must
+        // rewrite this denormalized field or it downloads to the old row forever.
+        // Only overwrite when we have a real athlete id — never clobber to empty.
+        if let athleteId, !athleteId.isEmpty {
+            data["athleteId"] = athleteId
+            data["athleteName"] = athleteName ?? NSNull()
+        }
         if let playResultType {
             data["playResult"] = playResultType.rawValue
             data["playResultName"] = playResultType.displayName
@@ -434,18 +442,27 @@ extension VideoCloudManager {
         let athleteStableId = athlete.firestoreId ?? athlete.id.uuidString
         let db = Firestore.firestore()
 
-        let snapshot = try await db.collection(FC.videos)
+        // Paginate the FULL result set with a cursor (mirrors fetchPhotos). The old
+        // unpaginated `.limit(to: 200)` silently truncated heavy athletes — dangerous
+        // now that SyncCoordinator+Videos uses this set to gate clip deletion: a
+        // truncated page would make clips #201+ look remotely-deleted and wipe their
+        // local files + Storage blobs.
+        let baseQuery = db.collection(FC.videos)
             .whereField("uploadedBy", isEqualTo: ownerUID)
             .whereField("athleteId", isEqualTo: athleteStableId)
             .whereField("isDeleted", isEqualTo: false)
             .order(by: "createdAt", descending: true)
-            .limit(to: 200)
-            .getDocuments()
 
-        let videos = snapshot.documents.compactMap { VideoClipMetadata(from: $0.data()) }
-
-        if snapshot.documents.count == 200 {
-            videoCloudLog.warning("syncVideos hit 200-document limit for athlete \(athleteStableId) — older videos may be missing")
+        var videos: [VideoClipMetadata] = []
+        var lastDoc: QueryDocumentSnapshot?
+        while true {
+            var query = baseQuery.limit(to: 200)
+            if let lastDoc { query = query.start(afterDocument: lastDoc) }
+            let snapshot = try await query.getDocuments()
+            guard !snapshot.documents.isEmpty else { break }
+            lastDoc = snapshot.documents.last
+            videos.append(contentsOf: snapshot.documents.compactMap { VideoClipMetadata(from: $0.data()) })
+            if snapshot.documents.count < 200 { break }
         }
 
         return videos

@@ -129,6 +129,16 @@ final class Athlete {
         personGroupSports.count < Season.SportType.allCases.count
     }
 
+    /// True when this single row tracks seasons in 2+ distinct sports — a legacy
+    /// "Add a sport" profile that predates the spinoff model. Such a row can't run
+    /// overlapping seasons and flips `sport` on every switch; the split tool migrates
+    /// each non-primary sport onto its own `personGroupID`-linked profile. Row-local
+    /// by design: a real spinoff is always one sport, so any 2-sport row is legacy
+    /// regardless of how many siblings share its group. See `SportProfileSplitService`.
+    var isLegacySplittable: Bool {
+        Set((seasons ?? []).map { $0.sport ?? .baseball }).count >= 2
+    }
+
     init(name: String) {
         self.id = UUID()
         self.name = name

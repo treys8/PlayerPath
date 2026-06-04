@@ -134,7 +134,9 @@ extension SyncCoordinator {
                     seasonId: clip.season.map { $0.firestoreId ?? $0.id.uuidString },
                     seasonName: clip.seasonName ?? clip.season?.displayName,
                     practiceId: clip.practice?.id.uuidString,
-                    practiceDate: clip.practiceDate ?? clip.practice?.date
+                    practiceDate: clip.practiceDate ?? clip.practice?.date,
+                    athleteId: clip.athlete.map { $0.firestoreId ?? $0.id.uuidString },
+                    athleteName: clip.athlete?.name
                 )
                 clip.needsSync = false
                 syncedClips.append(clip)
@@ -155,13 +157,34 @@ extension SyncCoordinator {
     }
 
     func downloadRemoteVideos(_ user: User, context: ModelContext, activeOnly: Bool = false) async throws {
-        var athletes = user.athletes ?? []
+        let allAthletes = user.athletes ?? []
+        var athletes = allAthletes
 
         // When doing an active-athlete-only sync, restrict the download to just
         // that athlete. Non-active athletes are covered by the periodic full sync.
         if activeOnly, let activeID = activeAthleteID {
             athletes = athletes.filter { $0.id.uuidString == activeID }
         }
+
+        // Pre-fetch every in-scope athlete's remote videos up front. The deletion
+        // pass and the re-home repoint must reason about the FULL remote set, not
+        // one athlete at a time — otherwise a clip moved to another profile (the
+        // legacy-split migration) reads as "deleted here / new there" and its local
+        // file gets destroyed and re-downloaded.
+        var remoteByAthlete: [(Athlete, [VideoClipMetadata])] = []
+        var globalRemoteIds = Set<UUID>()
+        for athlete in athletes {
+            let remote = try await VideoCloudManager.shared.syncVideos(for: athlete)
+            remoteByAthlete.append((athlete, remote))
+            for r in remote where !r.isDeleted { globalRemoteIds.insert(r.id) }
+        }
+        // Every local clip across the WHOLE roster (not just in-scope athletes) keyed
+        // by its UUID, so a re-homed clip is repointed to its new owner rather than
+        // duplicate-inserted. Collapse the known multi-device duplicate-id case.
+        let globalLocalClipsById = Dictionary(
+            allAthletes.flatMap { $0.videoClips ?? [] }.map { ($0.id, $0) },
+            uniquingKeysWith: { existing, _ in existing }
+        )
 
         var athletesWithNewClips: [Athlete] = []
         /// Game IDs that received new or updated clips — only these need stats recalculation.
@@ -171,10 +194,7 @@ extension SyncCoordinator {
         /// Game IDs whose stats need recalculation because clips were deleted remotely.
         var gamesWithDeletedClips: Set<UUID> = []
 
-        for athlete in athletes {
-            // Get video metadata from Firestore
-            let remoteVideos = try await VideoCloudManager.shared.syncVideos(for: athlete)
-
+        for (athlete, remoteVideos) in remoteByAthlete {
             let localClips = athlete.videoClips ?? []
             // `id` is each clip's own UUID and should be unique, but the app's
             // known multi-device row duplication can leave two clips sharing one
@@ -189,19 +209,23 @@ extension SyncCoordinator {
                 syncLog.warning("Collapsed \(localClips.count - localClipsByID.count) duplicate local VideoClip id(s) for athlete \(athlete.id)")
             }
 
-            // Detect clips deleted on another device — remote set no longer contains them.
-            // Safety: skip deletion pass if the remote count is suspiciously low compared
-            // to local, which can happen on transient Firestore failures, network timeouts,
-            // or partial query results (e.g., query returned 50 of 150 clips).
-            let remoteVideoIds = Set(remoteVideos.map { $0.id })
+            // Detect clips deleted on another device — remote set no longer contains
+            // them. syncVideos now paginates the FULL set (no 200-doc truncation), and
+            // a transient mid-page failure THROWS rather than returning a short set, so
+            // globalRemoteIds is authoritative when we reach here.
             let syncedLocalClips = localClips.filter { $0.firestoreId != nil }
             // Gate destructive reconciliation on connectivity (see +HoleScores): an
             // offline/partial cached fetch must not drive clip deletions, which take
             // their PlayResults, coach annotations, and isHighlight flags with them.
-            if !ConnectivityMonitor.shared.isConnected {
-                syncLog.warning("Skipping video deletion pass — offline (would risk wiping synced clips)")
+            // Also skip in active-only mode — globalRemoteIds then covers only the
+            // active athlete, so a clip re-homed to another profile would look
+            // deleted; deletions reconcile on the next full sync. Check against the
+            // GLOBAL remote set (all in-scope athletes) so a re-homed clip isn't
+            // mistaken for a delete and have its file destroyed.
+            if activeOnly || !ConnectivityMonitor.shared.isConnected {
+                syncLog.warning("Skipping video deletion pass — \(activeOnly ? "active-only sync" : "offline") (would risk wiping synced/re-homed clips)")
             } else {
-                for localClip in syncedLocalClips where !remoteVideoIds.contains(localClip.id) {
+                for localClip in syncedLocalClips where !globalRemoteIds.contains(localClip.id) {
                     // Track affected game + athlete before the delete — accessing
                     // SwiftData properties after `context.delete` is undefined.
                     if let game = localClip.game { gamesWithDeletedClips.insert(game.id) }
@@ -325,6 +349,38 @@ extension SyncCoordinator {
 
 
             for remoteVideo in newRemoteVideos {
+                // Re-home: this clip already exists locally under a DIFFERENT profile
+                // (legacy-split migration moved it). Repoint it to the new owner
+                // instead of inserting a duplicate — preserves the downloaded file,
+                // PlayResult, coach annotations, and the isHighlight flag. Skip if the
+                // local row has pending edits (let the local upload win).
+                if let existing = globalLocalClipsById[remoteVideo.id] {
+                    if !existing.needsSync, existing.athlete?.id != athlete.id {
+                        let oldOwner = existing.athlete
+                        let oldGameId = existing.game?.id
+                        existing.athlete = athlete
+                        // Re-link parents within the new owner's subtree — ids are
+                        // invariant across a split, so they resolve to the moved
+                        // season/game/practice already re-pointed earlier in this sync.
+                        if let seasonId = remoteVideo.seasonId {
+                            existing.season = allLocalSeasons.first { $0.id.uuidString == seasonId || $0.firestoreId == seasonId }
+                        }
+                        if let gameId = remoteVideo.gameId {
+                            existing.game = allLocalGames.first { $0.id.uuidString == gameId || $0.firestoreId == gameId }
+                        }
+                        if let practiceId = remoteVideo.practiceId {
+                            existing.practice = allLocalPractices.first { $0.id.uuidString == practiceId }
+                        }
+                        existing.lastSyncDate = remoteVideo.updatedAt
+                        // Stats: old owner sheds this clip's contribution; new owner gains it.
+                        if let oldOwner { athletesWithDeletedClips.insert(oldOwner.persistentModelID) }
+                        athletesWithNewClips.append(athlete)
+                        if let oldGameId { gamesWithDeletedClips.insert(oldGameId) }
+                        if let newGame = existing.game { gamesWithNewClips.insert(newGame.id) }
+                    }
+                    continue
+                }
+
                 // Create local VideoClip from remote metadata
                 let newClip = VideoClip(
                     fileName: remoteVideo.fileName,
@@ -405,7 +461,10 @@ extension SyncCoordinator {
             .union(athletesWithDeletedClips)
         let gameIDsNeedingRecalc = gamesWithNewClips.union(gamesWithDeletedClips)
         for athleteID in athleteIDsNeedingRecalc {
-            guard let athlete = athletes.first(where: { $0.persistentModelID == athleteID }) else { continue }
+            // Resolve against the FULL roster, not the in-scope `athletes`: a re-home
+            // repoint queues its OLD owner for recalc, and that owner is out of scope
+            // during an active-only sync. Skipping it would leave its stats over-counting.
+            guard let athlete = allAthletes.first(where: { $0.persistentModelID == athleteID }) else { continue }
             let affectedGames = (athlete.games ?? []).filter { gameIDsNeedingRecalc.contains($0.id) }
             for game in affectedGames {
                 do {
@@ -525,6 +584,14 @@ extension SyncCoordinator {
     /// Returns true if all mutable metadata fields match (no write needed).
     private func videoMetadataMatches(_ data: [String: Any], clip: VideoClip) -> Bool {
         guard data["isHighlight"] as? Bool == clip.isHighlight else { return false }
+
+        // Re-home guard: if the clip moved to another profile, athleteId differs and
+        // we must NOT skip the write (which would strand the clip on the old row).
+        // Only force a write when the clip actually has an athlete.
+        if let localAthleteId = clip.athlete.map({ $0.firestoreId ?? $0.id.uuidString }) {
+            let remoteAthleteId = data["athleteId"] as? String
+            if remoteAthleteId != localAthleteId { return false }
+        }
 
         let remoteNote = data["note"] as? String
         if remoteNote != clip.note { return false }

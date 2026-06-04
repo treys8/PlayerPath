@@ -23,6 +23,17 @@ extension SyncCoordinator {
         // bounded concurrency after the save (see below). Only Sendable values.
         var pendingPhotoDownloads: [(photoID: UUID, url: String, path: String)] = []
 
+        // Re-home support (legacy-split migration): a photo moved to another profile
+        // must not be seen as deleted (its local file would be destroyed) when we
+        // process its old owner. Accumulate the FULL remote id set across all athletes
+        // for one global delete pass after the loop, and map every local photo by
+        // firestoreId so a re-homed photo is repointed to its new owner, not duplicated.
+        var globalRemotePhotoIds = Set<String>()
+        let globalLocalPhotosByFirestoreId = Dictionary(
+            athletes.flatMap { $0.photos ?? [] }.compactMap { p in p.firestoreId.map { ($0, p) } },
+            uniquingKeysWith: { existing, _ in existing }
+        )
+
         for athlete in athletes {
             // Skip athletes whose parent record hasn't synced yet. Keying photos on
             // the local UUID (the old `?? athlete.id.uuidString` fallback) silos them
@@ -113,9 +124,29 @@ extension SyncCoordinator {
                 uploadedBy: ownerUID,
                 athleteId: athleteStableId
             )
+            for r in remotePhotos { if let id = r.id { globalRemotePhotoIds.insert(id) } }
             let localPhotoIds = Set(photos.compactMap { $0.firestoreId })
 
             for remotePhoto in remotePhotos where !localPhotoIds.contains(remotePhoto.id ?? "") {
+                // Re-home: this photo already exists locally under a DIFFERENT profile
+                // (legacy-split migration moved it). Repoint it to the new owner
+                // instead of inserting a duplicate — keeps the downloaded file. Skip
+                // if the local row has pending edits (let the local upload win).
+                if let rid = remotePhoto.id, let existing = globalLocalPhotosByFirestoreId[rid] {
+                    if !existing.needsSync, existing.athlete?.id != athlete.id {
+                        existing.athlete = athlete
+                        if let gameId = remotePhoto.gameId {
+                            existing.game = (athlete.games ?? []).first { $0.id.uuidString == gameId || $0.firestoreId == gameId }
+                        }
+                        if let practiceId = remotePhoto.practiceId {
+                            existing.practice = (athlete.practices ?? []).first { $0.id.uuidString == practiceId || $0.firestoreId == practiceId }
+                        }
+                        if let seasonId = remotePhoto.seasonId {
+                            existing.season = (athlete.seasons ?? []).first { $0.id.uuidString == seasonId || $0.firestoreId == seasonId }
+                        }
+                    }
+                    continue
+                }
                 guard let downloadURL = remotePhoto.downloadURL else { continue }
 
                 // Build relative path (resolvedFilePath handles absolute resolution at read time)
@@ -157,19 +188,20 @@ extension SyncCoordinator {
                 pendingPhotoDownloads.append((photoID: newPhoto.id, url: downloadURL, path: newPhoto.resolvedFilePath))
             }
 
-            // Detect photos deleted on other devices. Gated on connectivity
-            // (see +HoleScores): an offline/partial cached fetch must not drive
-            // deletions, which would make a network blip look like a bulk delete.
-            let remotePhotoIds = Set(remotePhotos.compactMap { $0.id })
-            let syncedLocalPhotos = photos.filter { $0.firestoreId != nil }
-            if !ConnectivityMonitor.shared.isConnected {
-                syncLog.warning("Skipping photo deletion pass — offline (would risk wiping synced photos)")
-            } else {
-                for localPhoto in syncedLocalPhotos {
-                    guard let fsId = localPhoto.firestoreId, !remotePhotoIds.contains(fsId) else { continue }
-                    syncLog.info("Photo \(localPhoto.id) deleted remotely — removing local copy")
-                    localPhoto.delete(in: context)
-                }
+        }
+
+        // Global delete pass — a synced local photo absent from the FULL remote set
+        // (across every athlete) was deleted on another device. A re-homed photo is
+        // still present under its new owner, so it survives. Gated on connectivity
+        // (see +HoleScores): an offline/partial cached fetch must not drive deletions,
+        // which would make a network blip look like a bulk delete.
+        if !ConnectivityMonitor.shared.isConnected {
+            syncLog.warning("Skipping photo deletion pass — offline (would risk wiping synced photos)")
+        } else {
+            for localPhoto in athletes.flatMap({ $0.photos ?? [] }) {
+                guard let fsId = localPhoto.firestoreId, !globalRemotePhotoIds.contains(fsId) else { continue }
+                syncLog.info("Photo \(localPhoto.id) deleted remotely — removing local copy")
+                localPhoto.delete(in: context)
             }
         }
 

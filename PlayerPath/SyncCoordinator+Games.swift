@@ -276,6 +276,15 @@ extension SyncCoordinator {
                         }
                     }
                     if local.version != remoteGame.version { local.version = remoteGame.version; changed = true }
+                    // Re-home (legacy-split migration): re-bind the parent athlete when a
+                    // remote athleteId change moved this game to another profile. The
+                    // season id is invariant across a split (the whole subtree moves
+                    // together), so local.season stays valid. Only repoint when the parent
+                    // resolves locally — never null it out on a not-yet-synced parent.
+                    if let newParent = parentAthlete, local.athlete?.id != newParent.id {
+                        local.athlete = newParent
+                        changed = true
+                    }
                     applyRemoteStats(remoteGame, to: local, context: context)
                     if changed {
                         // Anchor to remote write time, not Date() — see uploadLocalAthletes.

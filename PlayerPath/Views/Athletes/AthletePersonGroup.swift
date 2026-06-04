@@ -76,7 +76,7 @@ struct MultiSportPersonCard: View {
                 Circle()
                     .fill(
                         LinearGradient(
-                            colors: [Color.brandNavy.opacity(0.8), Color.brandNavy],
+                            colors: [Theme.accent.opacity(0.8), Theme.accent],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         )
@@ -118,7 +118,7 @@ struct MultiSportPersonCard: View {
                             RoundedRectangle(cornerRadius: 10)
                                 .fill(Color(.systemGray6))
                         )
-                        .foregroundColor(.brandNavy)
+                        .foregroundColor(Theme.accent(forGolf: profile.sportType == .golf))
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Open \(group.displayName), \(profile.sportType.displayName)")

@@ -64,6 +64,12 @@ final class Photo {
         data["gameId"] = (game?.firestoreId ?? game?.id.uuidString) ?? NSNull()
         data["practiceId"] = (practice?.firestoreId ?? practice?.id.uuidString) ?? NSNull()
         data["seasonId"] = (season?.firestoreId ?? season?.id.uuidString) ?? NSNull()
+        // Re-home support (legacy-split migration): photo docs are pulled by an
+        // `athleteId` equality query, so a photo that moves to another profile must
+        // rewrite this denormalized field. Only when we have a real athlete id.
+        if let athleteId = athlete.map({ $0.firestoreId ?? $0.id.uuidString }), !athleteId.isEmpty {
+            data["athleteId"] = athleteId
+        }
         return data
     }
 

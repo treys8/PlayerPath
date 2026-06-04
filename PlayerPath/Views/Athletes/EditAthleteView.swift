@@ -17,6 +17,7 @@ struct EditAthleteView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.ppAccent) private var ppAccent
     @State private var showingAddSportProfile = false
+    @State private var showingSplit = false
 
     /// Sports this athlete tracks — distinct seasons' sports, falling back to
     /// the athlete's primary-sport hint. Mirrors AthleteCard.athleteSports.
@@ -39,8 +40,8 @@ struct EditAthleteView: View {
                             .font(.bodyMedium)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 6)
-                            .background(Color.brandNavy.opacity(0.1))
-                            .foregroundColor(.brandNavy)
+                            .background(Theme.accent(forGolf: sport == .golf).opacity(0.1))
+                            .foregroundColor(Theme.accent(forGolf: sport == .golf))
                             .clipShape(Capsule())
                     }
                 }
@@ -55,6 +56,20 @@ struct EditAthleteView: View {
                 Text("Sports")
             } footer: {
                 Text("Each profile tracks one sport. Adding a sport creates a separate linked profile — it shares your subscription slot, with its own seasons and stats.")
+            }
+
+            if athlete.isLegacySplittable {
+                Section {
+                    Button {
+                        showingSplit = true
+                    } label: {
+                        Label("Split into separate profiles", systemImage: "rectangle.split.2x1")
+                    }
+                } header: {
+                    Text("Multiple Sports")
+                } footer: {
+                    Text("This profile tracks more than one sport on one row. Split it so each sport gets its own linked profile — overlapping seasons, separate stats, same subscription slot.")
+                }
             }
 
             Section {
@@ -73,6 +88,13 @@ struct EditAthleteView: View {
         .sheet(isPresented: $showingAddSportProfile) {
             NavigationStack {
                 AddSportProfileSheet(sourceAthlete: athlete)
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showingSplit) {
+            NavigationStack {
+                SplitSportProfileSheet(athlete: athlete)
             }
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)

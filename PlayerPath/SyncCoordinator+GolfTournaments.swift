@@ -159,6 +159,13 @@ extension SyncCoordinator {
                     if local.endDate != remote.endDate { local.endDate = remote.endDate; changed = true }
                     if local.notes != remote.notes { local.notes = remote.notes; changed = true }
                     if local.version != remote.version { local.version = remote.version; changed = true }
+                    // Re-home (legacy-split migration): re-bind the parent athlete when a
+                    // remote athleteId change moved this tournament to another profile.
+                    // Only when the parent resolves locally — never null it out.
+                    if let newParent = parentAthlete, local.athlete?.id != newParent.id {
+                        local.athlete = newParent
+                        changed = true
+                    }
                     if changed {
                         local.lastSyncDate = remote.updatedAt ?? Date()
                     }

@@ -46,7 +46,7 @@ struct AthleteSelectionView: View {
                     VStack(spacing: 30) {
                         Image(systemName: "person.crop.circle.badge.plus")
                             .font(.system(size: 80))
-                            .foregroundColor(.brandNavy)
+                            .foregroundColor(Theme.accent)
 
                         Text("Add Your First Athlete")
                             .font(.displayMedium)
@@ -60,7 +60,7 @@ struct AthleteSelectionView: View {
                             Text("Add Athlete")
                                 .frame(maxWidth: .infinity)
                                 .padding()
-                                .background(Color.brandNavy)
+                                .background(Theme.accent)
                                 .foregroundColor(.white)
                                 .cornerRadius(10)
                         }
@@ -124,6 +124,8 @@ struct AthleteSelectionView: View {
                     }
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Theme.surface)
             .navigationTitle(hasMultipleAthletes ? "Choose Athlete" : "Athletes")
             .navigationBarTitleDisplayMode(hasMultipleAthletes ? .inline : .large)
             .toolbar {

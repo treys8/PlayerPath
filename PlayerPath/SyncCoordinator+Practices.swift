@@ -172,6 +172,12 @@ extension SyncCoordinator {
         // Firestore docs doesn't create both locally.
         var newPracticesThisPass: [Practice] = []
 
+        // Roster-wide local index so a practice re-homed to another profile (legacy
+        // split) is found under its OLD owner by firestoreId and repointed below,
+        // not duplicate-inserted. The Seasons/Games/Tournaments syncs already search
+        // their local rows across all athletes; practices was the lone exception.
+        let allLocalPractices = athletes.flatMap { $0.practices ?? [] }
+
         for remoteData in remotePractices {
             // Find athlete by athleteId (matches local UUID or firestoreId).
             // Falls back to sole athlete for legacy data with stale local UUIDs.
@@ -184,8 +190,9 @@ extension SyncCoordinator {
                 continue
             }
 
-            // Find local practice by firestoreId
-            var localPractice = (athlete.practices ?? []).first {
+            // Find local practice by firestoreId — roster-wide, so a re-homed practice
+            // is matched under its old owner and repointed (not duplicate-inserted).
+            var localPractice = (allLocalPractices + newPracticesThisPass).first {
                 $0.firestoreId == remoteData.id
             }
 
@@ -241,6 +248,13 @@ extension SyncCoordinator {
                         local.liveStartDate = remoteData.liveStartDate
                     }
                     local.course = remoteData.course
+                    // Re-home (legacy-split migration): re-bind the parent athlete when a
+                    // remote athleteId change moved this practice to another profile. The
+                    // season id is invariant across a split, so local.season stays valid.
+                    // Only repoint when the parent resolves locally — never null it out.
+                    if local.athlete?.id != athlete.id {
+                        local.athlete = athlete
+                    }
                     // Anchor to remote write time, not Date() — see uploadLocalAthletes.
                     local.lastSyncDate = remoteData.updatedAt ?? Date()
                     local.version = remoteData.version

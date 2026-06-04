@@ -128,6 +128,8 @@ struct PhotosView: View {
                 photosGrid
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.surface)
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search photos")
         .onAppear { AnalyticsService.shared.trackScreenView(screenName: "Photos", screenClass: "PhotosView") }
         .task {

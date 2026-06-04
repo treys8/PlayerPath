@@ -37,7 +37,7 @@ struct AthleteCard: View {
                     Circle()
                         .fill(
                             LinearGradient(
-                                colors: [Color.brandNavy.opacity(0.8), Color.brandNavy],
+                                colors: [Theme.accent(for: sport).opacity(0.8), Theme.accent(for: sport)],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
                             )
@@ -81,13 +81,15 @@ struct AthleteCard: View {
                     AthleteStatBadge(
                         icon: "video",
                         count: (athlete.videoClips ?? []).count,
-                        label: "Videos"
+                        label: "Videos",
+                        color: Theme.accent(for: sport)
                     )
 
                     AthleteStatBadge(
                         icon: sport == .golf ? "figure.golf" : "baseball.diamond.bases",
                         count: (athlete.games ?? []).count,
-                        label: sport == .golf ? "Rounds" : "Games"
+                        label: sport == .golf ? "Rounds" : "Games",
+                        color: Theme.accent(for: sport)
                     )
                 }
             }
