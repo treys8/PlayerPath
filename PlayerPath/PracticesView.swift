@@ -282,6 +282,8 @@ struct PracticesView: View {
 
     var body: some View {
         practicesContent
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.surface)
         .task {
             viewModel.update(practices: athlete?.practices ?? [])
         }

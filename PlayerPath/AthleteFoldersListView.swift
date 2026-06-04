@@ -40,6 +40,7 @@ struct AthleteFoldersListView: View {
     
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @ObservedObject private var activityNotifService = ActivityNotificationService.shared
+    @Environment(\.ppAccent) private var ppAccent
     @State private var activeSheet: SheetType?
     @State private var showingError = false
     @State private var errorMessage = ""
@@ -86,6 +87,8 @@ struct AthleteFoldersListView: View {
     private var rootContent: some View {
         if folderManager.isLoading {
             ProgressView("Loading folders...")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Theme.surface)
         } else if scopedFolders.isEmpty {
             emptyState
         } else {
@@ -153,7 +156,7 @@ struct AthleteFoldersListView: View {
     private var deletingOverlay: some View {
         ProgressView("Deleting...")
             .padding()
-            .background(Color(.systemBackground))
+            .background(Theme.card)
             .cornerRadius(12)
             .shadow(radius: 10)
     }
@@ -161,30 +164,17 @@ struct AthleteFoldersListView: View {
     // MARK: - Empty State
     
     private var emptyState: some View {
-        VStack(spacing: 24) {
-            Image(systemName: "folder.badge.person.crop")
-                .font(.system(size: 72))
-                .foregroundColor(.brandNavy)
-            
-            Text("No Shared Folders Yet")
-                .font(.displayMedium)
-
-            Text("Create a folder to share videos with your coach. They'll be able to upload videos and provide feedback.")
-                .font(.bodyMedium)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
-            
-            Button {
+        EmptyStateView(
+            systemImage: "folder.badge.person.crop",
+            title: "No Shared Folders Yet",
+            message: "Create a folder to share videos with your coach. They'll be able to upload videos and provide feedback.",
+            actionTitle: "Create Folder",
+            action: {
                 activeSheet = .createFolder
-                Haptics.light()
-            } label: {
-                Label("Create Folder", systemImage: "plus.circle.fill")
-                    .font(.headingMedium)
             }
-            .buttonStyle(.borderedProminent)
-        }
-        .padding()
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.surface)
     }
     
     // MARK: - Folders List
@@ -206,13 +196,14 @@ struct AthleteFoldersListView: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Coach Access Paused")
                                     .font(.headingSmall)
-                                    .foregroundColor(.primary)
+                                    .foregroundColor(Theme.textPrimary)
                                 Text("Your coaches can no longer view these folders. Upgrade to Pro to restore access.")
                                     .font(.bodySmall)
-                                    .foregroundColor(.secondary)
+                                    .foregroundColor(Theme.textSecondary)
                             }
                         }
                     }
+                    .listRowBackground(Theme.card)
                 }
             }
 
@@ -220,22 +211,29 @@ struct AthleteFoldersListView: View {
                 if displayedFolders.isEmpty && unreadOnly {
                     Text("No folders with unread content.")
                         .font(.bodyMedium)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(Theme.textSecondary)
+                        .listRowBackground(Theme.card)
                 } else {
                     ForEach(displayedFolders) { folder in
                         NavigationLink(destination: AthleteFolderDetailView(folder: folder)) {
                             FolderRow(folder: folder)
                         }
+                        .listRowBackground(Theme.card)
                     }
                     .onDelete(perform: deleteFolders)
                 }
             } header: {
                 Text("Your folders")
+                    .foregroundColor(Theme.textSecondary)
             } footer: {
                 Text("Folders are shared with your coaches. They can view and upload videos based on the permissions you set.")
                     .font(.bodySmall)
+                    .foregroundColor(Theme.textSecondary)
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(Theme.surface)
+        .tint(ppAccent)
         .sheet(isPresented: $showingPaywall) {
             if let user = authManager.localUser {
                 ImprovedPaywallView(user: user)
@@ -391,18 +389,19 @@ struct FolderRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(folder.name)
                     .font(.headingMedium)
+                    .foregroundColor(Theme.textPrimary)
 
                 HStack(spacing: 12) {
                     // Video count
                     Label("\(folder.videoCount ?? 0)", systemImage: "video")
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(Theme.textSecondary)
 
                     // Coach count
                     if !folder.sharedWithCoachIDs.isEmpty {
                         Label("\(folder.sharedWithCoachIDs.count)", systemImage: "person.fill")
                             .font(.caption)
-                            .foregroundColor(.secondary)
+                            .foregroundColor(Theme.textSecondary)
                     }
 
                 }
@@ -416,14 +415,14 @@ struct FolderRow: View {
                         Image(systemName: "person.2.fill")
                     }
                     .font(.labelSmall)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(Theme.textSecondary)
                     .lineLimit(1)
                 }
 
                 if let updatedLabel {
                     Text(updatedLabel)
                         .font(.labelSmall)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(Theme.textTertiary)
                 }
             }
 

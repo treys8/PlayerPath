@@ -471,6 +471,8 @@ struct GamesView: View {
 
     var body: some View {
         mainContent
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Theme.surface)
             .navigationTitle(navigationTitle)
             .navigationBarTitleDisplayMode(.large)
             .navigationDestination(item: $selectedGame) { game in

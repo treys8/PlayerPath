@@ -259,6 +259,8 @@ struct VideoClipsView: View {
 
     var body: some View {
         videosContent
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.surface)
         .navigationTitle("Videos")
         .navigationBarTitleDisplayMode(.large)
         .searchable(text: $viewModel.searchText, prompt: "Search videos")
