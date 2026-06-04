@@ -21,7 +21,6 @@ struct CoachVideoPlayerView: View {
     @State private var selectedTab: VideoTab = .drawings
     @State private var showingSpeedPicker = false
     @State private var showingDrillCardEditor = false
-    @State private var isMarkingReviewed = false
     @State private var markReviewedError: String?
     @State private var showingTelestration = false
     @State private var isVerifyingDrawPermission = false
@@ -89,19 +88,6 @@ struct CoachVideoPlayerView: View {
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 HStack(spacing: 12) {
-                    // Mark as Reviewed button — only for folder coaches who
-                    // haven't yet reviewed this clip.
-                    if canEditCoachNote, !viewModel.isReviewed(by: authManager.userID ?? "") {
-                        Button {
-                            markReviewed()
-                        } label: {
-                            Image(systemName: "checkmark.circle")
-                                .foregroundColor(ppAccent)
-                        }
-                        .disabled(isMarkingReviewed)
-                        .accessibilityLabel("Mark as reviewed")
-                    }
-
                     // Telestration draw button (coaches only). Re-verifies
                     // comment permission before opening — folder shares can
                     // be revoked mid-session, and the server will reject the
@@ -449,6 +435,9 @@ struct CoachVideoPlayerView: View {
                 VideoPlayer(player: player)
                     .allowsHitTesting(!showingTelestration && viewModel.activeDrawingOverlay == nil)
                     .onAppear {
+                        // Play through the silent switch — coach clips often
+                        // carry spoken cues in their audio.
+                        AudioSessionManager.configureForPlayback()
                         // Suppress auto-play when the clip has coach drawings.
                         // The auto-show flow seeks to the first drawing's
                         // timestamp + pauses; auto-playing from t=0 here would
@@ -700,19 +689,6 @@ struct CoachVideoPlayerView: View {
             } catch {
                 viewModel.errorMessage = "Unable to verify permissions. Please try again."
             }
-        }
-    }
-
-    private func markReviewed() {
-        guard let coachID = authManager.userID else { return }
-        isMarkingReviewed = true
-        Task {
-            do {
-                try await viewModel.markReviewed(coachID: coachID)
-            } catch {
-                markReviewedError = error.localizedDescription
-            }
-            isMarkingReviewed = false
         }
     }
 

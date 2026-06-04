@@ -22,17 +22,17 @@ struct ClipCommentSection: View {
     }
 
     var body: some View {
+        // Only takes up space when a coach has actually left feedback. The
+        // loading and "no feedback yet" states are intentionally silent — they
+        // were dead space on every clip, especially for users without coach
+        // sharing. A load failure is the one non-empty case worth surfacing.
         Group {
-            if isLoading {
-                HStack(spacing: 8) {
-                    ProgressView()
-                        .scaleEffect(0.8)
-                    Text("Loading comments...")
-                        .font(.bodySmall)
-                        .foregroundColor(.secondary)
+            if !coachComments.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(coachComments) { comment in
+                        CoachCommentRow(comment: comment)
+                    }
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
             } else if loadError != nil {
                 HStack(spacing: 6) {
                     Image(systemName: "exclamationmark.triangle")
@@ -50,23 +50,6 @@ struct ClipCommentSection: View {
                 }
                 .accessibilityAddTraits(.isButton)
                 .accessibilityLabel("Retry loading comments")
-            } else if coachComments.isEmpty {
-                HStack(spacing: 6) {
-                    Image(systemName: "text.bubble")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Text("No coach feedback yet")
-                        .font(.bodySmall)
-                        .foregroundColor(.secondary)
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-            } else {
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(coachComments) { comment in
-                        CoachCommentRow(comment: comment)
-                    }
-                }
             }
         }
         .task(id: clipId) {

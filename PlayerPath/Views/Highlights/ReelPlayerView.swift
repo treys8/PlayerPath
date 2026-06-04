@@ -52,7 +52,10 @@ struct ReelPlayerView: View {
                     .padding()
             }
         }
-        .onAppear { resolveAndPlay() }
+        .onAppear {
+            AudioSessionManager.configureForPlayback()
+            resolveAndPlay()
+        }
         .onDisappear { teardownPlayer() }
     }
 

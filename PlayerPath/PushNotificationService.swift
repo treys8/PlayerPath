@@ -22,6 +22,11 @@ final class PushNotificationService: NSObject, ObservableObject {
     private let notificationCenter = UNUserNotificationCenter.current()
     
     // MARK: - Published Properties
+    /// Buffered cold-launch tap. `scene(willConnectTo:)` fires before the tab bars
+    /// register their NotificationCenter observers, so routing immediately would be
+    /// lost. We stash the tap and replay it once a tab bar's observers are live.
+    private var pendingLaunchNotification: (actionIdentifier: String, userInfo: [AnyHashable: Any])?
+
     @Published private(set) var authorizationStatus: UNAuthorizationStatus = .notDetermined
     @Published private(set) var deviceToken: String?
     @Published private(set) var fcmToken: String?
@@ -790,11 +795,26 @@ extension PushNotificationService: UNUserNotificationCenterDelegate {
     }
     
     /// Fix AG: Called by SceneDelegate when the app is cold-launched from a notification tap.
-    /// Forwards to the same routing logic used for foreground notification taps.
+    /// Buffers the tap; routing happens in `replayPendingLaunchNotification()` once the
+    /// tab bar has registered its observers (otherwise the posted events are dropped).
     func handleLaunchNotificationResponse(_ response: UNNotificationResponse) {
-        handleNotificationResponse(
+        pendingLaunchNotification = (
             actionIdentifier: response.actionIdentifier,
             userInfo: response.notification.request.content.userInfo
+        )
+        logger.info("Buffered cold-launch notification: \(response.actionIdentifier, privacy: .public)")
+    }
+
+    /// Replays the buffered cold-launch tap, if any. Called by the active tab bar
+    /// immediately after it registers its observers. Single-consume / idempotent —
+    /// only the mounted tab bar fires it and the buffer is cleared on first call.
+    func replayPendingLaunchNotification() {
+        guard let pending = pendingLaunchNotification else { return }
+        pendingLaunchNotification = nil
+        logger.info("Replaying buffered cold-launch notification: \(pending.actionIdentifier, privacy: .public)")
+        handleNotificationResponse(
+            actionIdentifier: pending.actionIdentifier,
+            userInfo: pending.userInfo
         )
     }
 
@@ -834,7 +854,7 @@ extension PushNotificationService: UNUserNotificationCenterDelegate {
             }
 
         case "VIEW_INVITATION":
-            NotificationCenter.default.post(name: .openCoachInvitations, object: nil)
+            NotificationCenter.default.post(name: .openInvitations, object: nil)
             markInvitationNotificationsReadOnTap()
 
         case "REVIEW_CLIPS":
@@ -870,7 +890,7 @@ extension PushNotificationService: UNUserNotificationCenterDelegate {
                     NotificationCenter.default.post(name: .navigateToSharedFolder, object: folderID)
                 }
             case "invitation_received", "invitation_accepted":
-                NotificationCenter.default.post(name: .openCoachInvitations, object: nil)
+                NotificationCenter.default.post(name: .openInvitations, object: nil)
                 markInvitationNotificationsReadOnTap()
             case "access_revoked", "access_lapsed":
                 // Orphan case: the folder may already be gone, so the destination

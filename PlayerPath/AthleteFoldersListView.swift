@@ -708,7 +708,7 @@ struct ManageCoachesView: View {
             .navigationTitle("Manage Coaches")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
+                ToolbarItem(placement: .cancellationAction) {
                     Button("Done") {
                         dismiss()
                     }

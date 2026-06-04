@@ -18,7 +18,6 @@ import SwiftData
 struct JournalView: View {
     let user: User
     let athlete: Athlete
-    @Binding var homePath: NavigationPath
 
     @Environment(\.modelContext) private var modelContext
     @Environment(\.ppAccent) private var ppAccent
@@ -42,10 +41,9 @@ struct JournalView: View {
     /// push) so it matches how clips open everywhere else in the app.
     @State private var selectedClip: VideoClip?
 
-    init(user: User, athlete: Athlete, homePath: Binding<NavigationPath>) {
+    init(user: User, athlete: Athlete) {
         self.user = user
         self.athlete = athlete
-        self._homePath = homePath
         let id = athlete.id
         self.athleteID = id
         self._games = Query(

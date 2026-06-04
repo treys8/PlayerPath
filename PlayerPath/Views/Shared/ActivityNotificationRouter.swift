@@ -40,11 +40,9 @@ enum ActivityNotificationRouter {
                 postSwitchTab(.more)
             }
         case .invitationReceived:
-            if isCoach {
-                NotificationCenter.default.post(name: .openCoachInvitations, object: nil)
-            } else {
-                postSwitchTab(.more)
-            }
+            // Role-agnostic: the mounted tab bar routes to its own invitations
+            // surface (coach list vs athlete Home banner).
+            NotificationCenter.default.post(name: .openInvitations, object: nil)
         case .accessRevoked, .accessLapsed:
             if isCoach {
                 NotificationCenter.default.post(name: .switchCoachTab, object: CoachTab.athletes.rawValue)

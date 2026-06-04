@@ -255,7 +255,7 @@ struct PracticesView: View {
         }
 
         if hasAnyPractices {
-            ToolbarItem(placement: .topBarLeading) {
+            ToolbarItem(placement: .topBarTrailing) {
                 SeasonFilterMenu(
                     selectedSeasonID: $viewModel.selectedSeasonFilter,
                     availableSeasons: viewModel.availableSeasons,

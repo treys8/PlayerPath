@@ -19,13 +19,13 @@ struct CoachProfileView: View {
     @State private var isSigningOut = false
     @State private var showingPaywall = false
     @State private var showingEditProfile = false
+    @State private var showingInvitations = false
     @State private var coachToAthleteRefs: [CoachAthleteRef] = []
     @State private var lastConnectedIDsFetch: Date?
 
-    private enum ProfileRoute: Hashable {
-        case invitations
-    }
-    
+    // Drives the invitations sheet from deep links (push notification / inbox).
+    @Environment(CoachNavigationCoordinator.self) private var coordinator
+
     var body: some View {
             List {
                 // Profile Section
@@ -175,7 +175,9 @@ struct CoachProfileView: View {
 
                 // Invitations Section
                 Section("Invitations") {
-                    NavigationLink(value: ProfileRoute.invitations) {
+                    Button {
+                        showingInvitations = true
+                    } label: {
                         HStack {
                             Label("Pending Invitations", systemImage: "envelope.badge.fill")
                             Spacer()
@@ -188,6 +190,9 @@ struct CoachProfileView: View {
                                     .foregroundStyle(.white)
                                     .clipShape(Capsule())
                             }
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.tertiary)
                         }
                     }
                     .foregroundStyle(.primary)
@@ -260,7 +265,15 @@ struct CoachProfileView: View {
                     }
                 }
             }
-            .navigationTitle("More")
+            .tabRootNavigationBar(title: "More")
+            .onAppear {
+                // Catch a deep link that set the flag before this view subscribed
+                // to onChange (e.g. cold launch from an invitation push).
+                if coordinator.pendingShowInvitations {
+                    showingInvitations = true
+                    coordinator.pendingShowInvitations = false
+                }
+            }
             .task {
                 guard let coachID = authManager.userID else { return }
                 do {
@@ -295,27 +308,32 @@ struct CoachProfileView: View {
                 CoachPaywallView()
                     .environmentObject(authManager)
             }
-            .navigationDestination(for: ProfileRoute.self) { route in
-                switch route {
-                case .invitations:
+            .sheet(isPresented: $showingInvitations, onDismiss: {
+                // Re-fetch only when the cached value is stale (>60s) so the
+                // connected-athlete count reflects any just-accepted invitations.
+                let now = Date()
+                if let last = lastConnectedIDsFetch, now.timeIntervalSince(last) < 60 {
+                    return
+                }
+                Task {
+                    guard let coachID = authManager.userID else { return }
+                    if let refs = try? await FirestoreManager.shared.fetchAcceptedCoachToAthleteRefs(coachID: coachID) {
+                        coachToAthleteRefs = refs
+                        lastConnectedIDsFetch = Date()
+                    }
+                }
+            }) {
+                NavigationStack {
                     CoachInvitationsView()
                         .environmentObject(authManager)
-                        .onDisappear {
-                            // Re-fetch only when the cached value is stale (>60s).
-                            // The prior implementation refetched on every back-tap
-                            // regardless of whether anything had changed.
-                            let now = Date()
-                            if let last = lastConnectedIDsFetch, now.timeIntervalSince(last) < 60 {
-                                return
-                            }
-                            Task {
-                                guard let coachID = authManager.userID else { return }
-                                if let refs = try? await FirestoreManager.shared.fetchAcceptedCoachToAthleteRefs(coachID: coachID) {
-                                    coachToAthleteRefs = refs
-                                    lastConnectedIDsFetch = Date()
-                                }
-                            }
-                        }
+                }
+            }
+            // Deep links (push notification / inbox) set the coordinator flag;
+            // present the sheet and reset the flag so it can fire again.
+            .onChange(of: coordinator.pendingShowInvitations) { _, pending in
+                if pending {
+                    showingInvitations = true
+                    coordinator.pendingShowInvitations = false
                 }
             }
             .sheet(isPresented: $showingEditProfile) {

@@ -11,13 +11,15 @@ import SwiftUI
 struct CoachOverLimitBanner: View {
     let connectedCount: Int
     let limit: Int
-    @State private var showingPaywall = false
 
     private var overBy: Int { max(0, connectedCount - limit) }
 
     var body: some View {
         Button {
-            showingPaywall = true
+            // Funnel to the full coach paywall via the shared notification,
+            // which CoachTabView observes and presents as CoachPaywallView —
+            // the same path every other coach upgrade trigger uses.
+            NotificationCenter.default.post(name: .showSubscriptionPaywall, object: nil)
         } label: {
             HStack(spacing: 10) {
                 Image(systemName: "exclamationmark.triangle.fill")
@@ -44,8 +46,5 @@ struct CoachOverLimitBanner: View {
             .cornerRadius(12)
         }
         .buttonStyle(.plain)
-        .sheet(isPresented: $showingPaywall) {
-            CoachLimitPaywallSheet()
-        }
     }
 }

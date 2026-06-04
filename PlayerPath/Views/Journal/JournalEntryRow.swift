@@ -148,12 +148,17 @@ struct JournalEntryRow: View {
                 JournalPhotoThumbnail(photo: photo)
             }
         } else if let clip = entry.representativeClip {
+            // Only a single orphan clip card promises inline playback — its ▶
+            // and duration are honest because there's exactly one clip to play.
+            // Event cards (.game/.practice) are multi-item previews that open
+            // the detail page, so they show neither (a ▶ on "3 CLIPS" can't say
+            // which clip it would play).
             PPMediaTile(
                 tileColor: Theme.tile(forKey: entry.id),
                 outcome: outcomeChip(for: clip),
                 isStarred: clip.isHighlight,
-                duration: durationText(clip.duration),
-                showsPlayButton: true
+                duration: isSingleClipEntry ? durationText(clip.duration) : nil,
+                showsPlayButton: isSingleClipEntry
             ) {
                 VideoThumbnailView(
                     clip: clip,
@@ -173,6 +178,13 @@ struct JournalEntryRow: View {
                 JournalPhotoThumbnail(photo: photo)
             }
         }
+    }
+
+    /// True only for a standalone clip entry — the one card type where tapping
+    /// plays the clip (orphan `.clip`, e.g. a Highlight). Drives whether the
+    /// media tile shows the ▶ / duration "tap to play" affordance.
+    private var isSingleClipEntry: Bool {
+        if case .clip = entry { return true } else { return false }
     }
 
     private func outcomeChip(for clip: VideoClip) -> PPOutcomeChip? {

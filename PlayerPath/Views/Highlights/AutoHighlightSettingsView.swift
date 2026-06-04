@@ -70,7 +70,7 @@ struct AutoHighlightSettingsView: View {
             .navigationTitle("Auto-Highlight Rules")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
+                ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }
                 }
             }

@@ -18,6 +18,7 @@ struct CoachTabView: View {
     @StateObject private var notificationManager = NotificationObserverManager()
     @State private var hasRunInitialSetup = false
     @State private var showDowngradeSelection = false
+    @State private var showingCoachPaywall = false
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     private var athletesTabBadge: Int {
@@ -30,6 +31,9 @@ struct CoachTabView: View {
         .task {
             coordinator.restoreSelectedTab()
             setupNotificationObservers()
+            // Now that observers are live, replay any cold-launch notification tap
+            // that arrived in scene(willConnectTo:) before this tab bar mounted.
+            PushNotificationService.shared.replayPendingLaunchNotification()
 
             guard !hasRunInitialSetup else { return }
             hasRunInitialSetup = true
@@ -92,6 +96,13 @@ struct CoachTabView: View {
                     .environmentObject(authManager)
             }
         }
+        // Coach-side observer for .showSubscriptionPaywall. The athlete tab bar
+        // (MainTabView) is the only other observer and isn't mounted for coaches,
+        // so without this the over-limit "View Plans" button is a no-op.
+        .sheet(isPresented: $showingCoachPaywall) {
+            CoachPaywallView()
+                .environmentObject(authManager)
+        }
         .onChange(of: downgradeManager.state) { _, newState in
             showDowngradeSelection = newState == .selectionRequired
         }
@@ -146,7 +157,7 @@ struct CoachTabView: View {
     // MARK: - Tabs
 
     private var dashboardTab: some View {
-        NavigationStack(path: $coordinator.dashboardPath) {
+        NavigationStack {
             CoachDashboardView()
                 .toolbar {
                     ToolbarItem(placement: .navigationBarTrailing) {
@@ -159,7 +170,7 @@ struct CoachTabView: View {
         }
         .tag(CoachTab.dashboard.rawValue)
         .badge(activityNotifService.unreadCount > 0 ? activityNotifService.unreadCount : 0)
-        .accessibilityLabel("Home tab")
+        .accessibilityLabel("Dashboard tab")
         .accessibilityHint("View your dashboard and quick actions")
     }
 
@@ -180,13 +191,16 @@ struct CoachTabView: View {
     }
 
     private var profileTab: some View {
-        NavigationStack {
+        // Bind the path so the coordinator can deep-link straight to the
+        // invitations list (push / inbox taps) instead of dropping the coach
+        // on the More root. CoachProfileView owns the navigationDestination.
+        NavigationStack(path: $coordinator.profilePath) {
             CoachProfileView()
         }
         .tabItem {
-            Label(CoachTab.profile.title, systemImage: CoachTab.profile.icon)
+            Label(CoachTab.more.title, systemImage: CoachTab.more.icon)
         }
-        .tag(CoachTab.profile.rawValue)
+        .tag(CoachTab.more.rawValue)
         .accessibilityLabel("More tab")
         .accessibilityHint("Access settings, invitations, and account")
     }
@@ -208,9 +222,15 @@ struct CoachTabView: View {
             }
         }
 
-        notificationManager.observe(name: .openCoachInvitations) { _ in
+        notificationManager.observe(name: .openInvitations) { _ in
             Task { @MainActor in
                 coordinator.navigateToInvitations()
+            }
+        }
+
+        notificationManager.observe(name: .showSubscriptionPaywall) { _ in
+            Task { @MainActor in
+                showingCoachPaywall = true
             }
         }
 

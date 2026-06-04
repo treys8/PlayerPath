@@ -10,6 +10,7 @@ import SwiftUI
 
 struct CoachInvitationsView: View {
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
+    @Environment(\.dismiss) private var dismiss
     @State private var viewModel = CoachInvitationsViewModel()
     @State private var showingPaywall = false
     @State private var lastFetchDate: Date?
@@ -47,6 +48,11 @@ struct CoachInvitationsView: View {
         }
         .navigationTitle("Invitations")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Done") { dismiss() }
+            }
+        }
         .toast(isPresenting: $showAcceptedToast, message: "\(acceptedAthleteName) added")
         .task {
             if let coachID = authManager.userID {

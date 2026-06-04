@@ -33,7 +33,7 @@ struct SeasonsView: View {
         .navigationTitle("Seasons")
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItem(placement: .primaryAction) {
                 Button(action: { showingCreateSeason = true }) {
                     Image(systemName: "plus")
                 }

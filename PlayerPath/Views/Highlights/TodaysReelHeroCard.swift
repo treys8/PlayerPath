@@ -396,6 +396,7 @@ struct StitchedReelPlayerView: View {
             }
         }
         .onAppear {
+            AudioSessionManager.configureForPlayback()
             let p = AVPlayer(url: url)
             player = p
             p.play()

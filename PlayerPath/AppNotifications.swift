@@ -17,7 +17,6 @@ extension Notification.Name {
     static let presentFullscreenVideo = Notification.Name("presentFullscreenVideo")
     static let reactivateGame = Notification.Name("reactivateGame")
     static let presentSeasons = Notification.Name("presentSeasons")
-    static let presentCoaches = Notification.Name("presentCoaches")
     static let presentCoachVideos = Notification.Name("presentCoachVideos")
     static let appWillEnterForeground = Notification.Name("AppWillEnterForeground")
     static let navigateToMorePractice = Notification.Name("navigateToMorePractice")
@@ -26,8 +25,10 @@ extension Notification.Name {
     static let navigateToCoachFolder = Notification.Name("navigateToCoachFolder")
     /// Athlete: navigate to a specific shared folder. Post with `object: folderID` (String).
     static let navigateToSharedFolder = Notification.Name("navigateToSharedFolder")
-    /// Coach: open the invitations view.
-    static let openCoachInvitations = Notification.Name("openCoachInvitations")
+    /// Open the invitations surface, role-agnostic. The mounted tab bar handles it:
+    /// CoachTabView pushes the coach invitations list; MainTabView switches the
+    /// athlete to the Home tab where the AthleteInvitationsBanner lives.
+    static let openInvitations = Notification.Name("openInvitations")
     /// Coach: switch to a specific coach tab. Post with `object: CoachTab.rawValue` (Int).
     static let switchCoachTab = Notification.Name("switchCoachTab")
     /// Show the subscription paywall (e.g., after accepting a coach invitation without Pro).

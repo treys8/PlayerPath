@@ -89,14 +89,18 @@ struct PlayerPathApp: App {
                     .environment(\.navigationCoordinator, navigationCoordinator)
                     // Game/practice reminder push taps land on the Videos tab where
                     // the record button lives. The tab switch is handled by
-                    // MainTabView's existing `.presentVideoRecorder` observer.
-                    .onReceive(NotificationCenter.default.publisher(for: .startRecordingForGame)) { _ in
+                    // MainTabView's existing `.presentVideoRecorder` observer, while
+                    // the id is forwarded via userInfo so VideoClipsView can resolve
+                    // it to the Game/Practice and bind the recording's context.
+                    .onReceive(NotificationCenter.default.publisher(for: .startRecordingForGame)) { note in
                         appLog.debug("Received startRecordingForGame — switching to Videos tab")
-                        NotificationCenter.default.post(name: .presentVideoRecorder, object: nil)
+                        let userInfo = (note.object as? String).map { ["gameId": $0] }
+                        NotificationCenter.default.post(name: .presentVideoRecorder, object: nil, userInfo: userInfo)
                     }
-                    .onReceive(NotificationCenter.default.publisher(for: .startRecordingForPractice)) { _ in
+                    .onReceive(NotificationCenter.default.publisher(for: .startRecordingForPractice)) { note in
                         appLog.debug("Received startRecordingForPractice — switching to Videos tab")
-                        NotificationCenter.default.post(name: .presentVideoRecorder, object: nil)
+                        let userInfo = (note.object as? String).map { ["practiceId": $0] }
+                        NotificationCenter.default.post(name: .presentVideoRecorder, object: nil, userInfo: userInfo)
                     }
                     // No dedicated WeeklySummaryView exists; route to Stats tab as the
                     // closest existing screen so the push CTA isn't a no-op.
@@ -144,23 +148,12 @@ final class NavigationCoordinator {
         showInvitation = true
     }
 
-    /// Route a deep link to its destination. Tab-switching intents post
-    /// notifications that `MainTabView` observes; the invitation intent
-    /// drives the sheet owned by this coordinator.
+    /// Route a deep link to its destination. The invitation intent drives the
+    /// sheet owned by this coordinator.
     func handle(_ intent: DeepLinkIntent) {
         switch intent {
-        case .statistics:
-            Haptics.light()
-            NotificationCenter.default.post(name: .switchTab, object: MainTab.stats.rawValue)
-        case .recordGame, .recordPractice:
-            NotificationCenter.default.post(name: .presentVideoRecorder, object: nil)
         case .invitation(let id):
             navigateToInvitation(invitationId: id)
-        case .folder(let id):
-            Haptics.light()
-            // Post both role-scoped notifications — only the active tab bar observes its own.
-            NotificationCenter.default.post(name: .navigateToCoachFolder, object: id)
-            NotificationCenter.default.post(name: .navigateToSharedFolder, object: id)
         }
     }
 
@@ -175,45 +168,23 @@ final class NavigationCoordinator {
 
 /// Represents supported deep link intents for the app.
 enum DeepLinkIntent {
-    case statistics(athleteId: String)
-    case recordGame(gameId: String)
-    case recordPractice(practiceId: String)
     case invitation(invitationId: String)
-    case folder(folderId: String)
 }
 
 extension DeepLinkIntent {
     /// Initialize from a URL of the form:
-    /// playerpath://statistics?athleteId=...
-    /// playerpath://record/game?gameId=...
-    /// playerpath://record/practice?practiceId=...
     /// playerpath://invitation/{invitationId}
     init?(url: URL) {
         guard let host = url.host?.lowercased() else { return nil }
-        let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-        let queryItems = components?.queryItems ?? []
-        func value(_ name: String) -> String? { queryItems.first(where: { $0.name == name })?.value }
         func firstPathSegment() -> String? {
             url.path.split(separator: "/").first.map(String.init)
         }
 
-        switch (host, url.path.lowercased()) {
-        case ("statistics", _):
-            if let id = value("athleteId"), !id.isEmpty { self = .statistics(athleteId: id); return }
-        case ("record", "/game"):
-            if let id = value("gameId"), !id.isEmpty { self = .recordGame(gameId: id); return }
-        case ("record", "/practice"):
-            if let id = value("practiceId"), !id.isEmpty { self = .recordPractice(practiceId: id); return }
-        case ("invitation", _):
+        switch host {
+        case "invitation":
             // Format: playerpath://invitation/{invitationId}
             if let id = firstPathSegment(), !id.isEmpty {
                 self = .invitation(invitationId: id)
-                return
-            }
-        case ("folder", _):
-            // Format: playerpath://folder/{folderId}
-            if let id = firstPathSegment(), !id.isEmpty {
-                self = .folder(folderId: id)
                 return
             }
         default:

@@ -116,7 +116,7 @@ struct AthleteInvitationsSheet: View {
             .navigationTitle("Coach Invitations")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }
                 }
             }

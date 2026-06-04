@@ -15,8 +15,6 @@ struct MainTabView: View {
     @State private var selectedTab: Int = MainTab.home.rawValue
     @State private var hideFloatingRecordButton = false
     @State private var showingSeasons = false
-    @State private var showingCoaches = false
-    @State private var showingCoachVideos = false
     @State private var showingWelcomeTutorial = false
     @Environment(\.modelContext) private var modelContext
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -36,10 +34,6 @@ struct MainTabView: View {
 
     // Global paywall triggered by notification from any tab
     @State private var showingPaywall = false
-
-    // Swipe gesture tracking
-    @GestureState private var dragOffset: CGFloat = 0
-    @State private var tabTransition: AnyTransition = .identity
 
     // Per-tab athlete IDs. All four are updated together when the athlete
     // changes. Updating only the active tab (the prior approach) left zombie
@@ -95,34 +89,7 @@ struct MainTabView: View {
     }
 
     // Removed toggleTournamentActive(_:) as tournaments are removed
-    
-    // MARK: - Tab Navigation Helpers
-    
-    private func navigateToTab(_ direction: SwipeDirection) {
-        let maxTab = MainTab.more.rawValue
-        var newTab = selectedTab
 
-        switch direction {
-        case .left:
-            // Swipe left = next tab
-            newTab = min(selectedTab + 1, maxTab)
-        case .right:
-            // Swipe right = previous tab
-            newTab = max(selectedTab - 1, 0)
-        }
-
-        if newTab != selectedTab {
-            Haptics.selection()
-            withAnimation(.easeInOut(duration: 0.3)) {
-                selectedTab = newTab
-            }
-        }
-    }
-    
-    private enum SwipeDirection {
-        case left, right
-    }
-    
     var body: some View {
         tabViewContent
             .ppAccent(forGolf: isGolfActive)    // resolve the one accent by active sport (terracotta / golf green) + tint
@@ -130,6 +97,9 @@ struct MainTabView: View {
                 // Always restore tab and observers on appear
                 restoreSelectedTab()
                 setupNotificationObservers()
+                // Now that observers are live, replay any cold-launch notification tap
+                // that arrived in scene(willConnectTo:) before this tab bar mounted.
+                PushNotificationService.shared.replayPendingLaunchNotification()
 
                 // Eagerly set per-tab athlete IDs so they hold a non-nil value.
                 // On subsequent athlete switches, only the active tab's ID updates;
@@ -148,7 +118,7 @@ struct MainTabView: View {
                 // Track initial screen view
                 let initialScreen: String
                 switch selectedTab {
-                case MainTab.home.rawValue: initialScreen = "Dashboard"
+                case MainTab.home.rawValue: initialScreen = "Journal"
                 case MainTab.games.rawValue: initialScreen = "Games"
                 case MainTab.videos.rawValue: initialScreen = "Videos"
                 case MainTab.stats.rawValue: initialScreen = "Statistics"
@@ -196,7 +166,7 @@ struct MainTabView: View {
                 // Track screen views for feature usage analytics
                 let screenName: String
                 switch newValue {
-                case MainTab.home.rawValue: screenName = "Dashboard"
+                case MainTab.home.rawValue: screenName = "Journal"
                 case MainTab.games.rawValue: screenName = "Games"
                 case MainTab.videos.rawValue: screenName = "Videos"
                 case MainTab.stats.rawValue: screenName = "Statistics"
@@ -232,30 +202,6 @@ struct MainTabView: View {
                             ToolbarItem(placement: .cancellationAction) {
                                 Button("Done") {
                                     showingSeasons = false
-                                }
-                            }
-                        }
-                }
-            }
-            .sheet(isPresented: $showingCoaches) {
-                NavigationStack {
-                    CoachesView(athlete: selectedAthlete)
-                        .toolbar {
-                            ToolbarItem(placement: .cancellationAction) {
-                                Button("Done") {
-                                    showingCoaches = false
-                                }
-                            }
-                        }
-                }
-            }
-            .sheet(isPresented: $showingCoachVideos) {
-                NavigationStack {
-                    AthleteCoachVideosView(athlete: selectedAthlete)
-                        .toolbar {
-                            ToolbarItem(placement: .cancellationAction) {
-                                Button("Done") {
-                                    showingCoachVideos = false
                                 }
                             }
                         }
@@ -318,6 +264,16 @@ struct MainTabView: View {
             }
         }
 
+        // Athlete invitations are accepted/declined via the AthleteInvitationsBanner
+        // on the Home (Journal) tab — route there. Role-agnostic .openInvitations is
+        // also observed by CoachTabView, which pushes the coach invitations list.
+        notificationManager.observe(name: Notification.Name.openInvitations) { _ in
+            MainActor.assumeIsolated {
+                selectedTab = MainTab.home.rawValue
+                Haptics.light()
+            }
+        }
+
         notificationManager.observe(name: Notification.Name.presentVideoRecorder) { _ in
             MainActor.assumeIsolated {
                 selectedTab = MainTab.videos.rawValue
@@ -345,32 +301,6 @@ struct MainTabView: View {
             MainActor.assumeIsolated {
                 showingSeasons = true
                 Haptics.light()
-            }
-        }
-
-        notificationManager.observe(name: Notification.Name.presentCoaches) { _ in
-            MainActor.assumeIsolated {
-                showingCoaches = true
-                Haptics.light()
-            }
-        }
-
-        notificationManager.observe(name: Notification.Name.presentCoachVideos) { _ in
-            MainActor.assumeIsolated {
-                showingCoachVideos = true
-                Haptics.light()
-            }
-        }
-
-        notificationManager.observe(name: Notification.Name.navigateToMorePractice) { _ in
-            MainActor.assumeIsolated { [self] in
-                navigateToMore(.practice)
-            }
-        }
-
-        notificationManager.observe(name: Notification.Name.navigateToMoreHighlights) { _ in
-            MainActor.assumeIsolated { [self] in
-                navigateToMore(.highlights)
             }
         }
 
@@ -433,8 +363,7 @@ struct MainTabView: View {
         NavigationStack(path: $homePath) {
             JournalView(
                 user: user,
-                athlete: selectedAthlete,
-                homePath: $homePath
+                athlete: selectedAthlete
             )
             .id(homeAthleteID ?? selectedAthlete.id)
         }

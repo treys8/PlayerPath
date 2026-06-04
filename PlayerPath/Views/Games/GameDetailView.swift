@@ -208,98 +208,32 @@ struct GameDetailView: View {
                 }
             }
 
-            // Quick Actions Section — driven by `displayStatus` so the action
-            // set always agrees with the badge.
-            //   .scheduled:                 Record → Start → Photo → Stats → Edit → Delete
-            //   .live:                      Record → End   → Photo → Stats → Edit
-            //   .completed && isComplete:   Upload → Photo → Stats → Edit → Restart → Delete
-            //   .completed && !isComplete:  Upload → Mark Complete → Photo → Stats → Edit → Delete
-            Section(header: Text("Actions").smallCapsLabel()) {
-                switch game.displayStatus {
-                case .scheduled:
-                    Button(action: { showingVideoRecorder = true }) {
-                        Label("Record Video", systemImage: "video.badge.plus")
-                    }
-                    Button(action: { startGame() }) {
-                        Label(isGolf ? "Start Round" : "Start Game", systemImage: "play.circle")
-                    }
-                case .live:
-                    // Score Hole is promoted above Record Video for golf live
-                    // tournaments — entering a score is the primary action on
-                    // each hole, and clip attribution depends on it.
-                    if isGolf, let next = nextHoleNumber {
-                        Button(action: {
-                            scoreHoleTarget = ScoreHoleTarget(holeNumber: next)
-                        }) {
-                            Label("Score Hole \(next)", systemImage: "flag.checkered")
-                        }
-                    }
-                    Button(action: { showingVideoRecorder = true }) {
-                        Label("Record Video", systemImage: "video.badge.plus")
-                    }
-                    Button(role: .destructive) {
-                        Haptics.warning()
-                        showingEndGame = true
-                    } label: {
-                        Label(isGolf ? "End Round" : "End Game", systemImage: "stop.circle")
-                    }
-                    .labelStyle(DestructiveRowLabelStyle())
-                case .completed:
-                    Button(action: { importTrigger = true }) {
-                        Label("Upload Video", systemImage: "square.and.arrow.down.on.square")
-                    }
-                    if !game.isComplete {
-                        Button(action: { completeGame() }) {
-                            Label("Mark Complete", systemImage: "checkmark.circle")
-                        }
-                    }
-                }
-
-                // Content: photo (menu — Take Photo / Choose from Library)
-                addPhotoMenu
-
-                // Data entry — manual stats are baseball/softball only. Golf
-                // tournaments use the Score section above.
-                if !isGolf {
-                    Button(action: { showingManualStats = true }) {
-                        Label("Enter Statistics", systemImage: "chart.bar.doc.horizontal")
-                    }
-                } else if game.effectiveTotalScore != nil {
-                    Button(action: { showingScoreEntry = true }) {
-                        Label("Edit Score", systemImage: "pencil.line")
-                    }
-                }
-
-                // Metadata
-                Button(action: { showingEditGame = true }) {
-                    Label(isGolf ? "Edit Tournament" : "Edit Game", systemImage: "pencil")
-                }
-
-                if game.isComplete {
-                    Button(action: { restartGame() }) {
-                        Label(isGolf ? "Restart Round" : "Restart Game", systemImage: "arrow.counterclockwise")
-                    }
-                }
-
-                // Destructive
-                if !game.isLive {
-                    Button(role: .destructive) {
-                        Haptics.warning()
-                        showingDeleteConfirmation = true
-                    } label: {
-                        Label(isGolf ? "Delete Round" : "Delete Game", systemImage: "trash")
-                    }
-                    .labelStyle(DestructiveRowLabelStyle())
-                }
+            // Live/scheduled games are act-first: surface the contextual CTAs
+            // (Record / Start / Score Hole) right under the details so the
+            // primary action is reachable without scrolling past content.
+            // Completed games are watch-first — their CTA block sits at the
+            // bottom instead (see below). All editorial/destructive actions
+            // live only in the `•••` toolbar menu either way.
+            if game.displayStatus != .completed {
+                contextualActions
             }
-            .labelStyle(ActionRowLabelStyle())
 
             // Video Clips Section
             Section(header: Text("Video Clips (\(videoClips.count))").smallCapsLabel()) {
                 if videoClips.isEmpty {
-                    Text("No videos recorded yet")
-                        .foregroundColor(.secondary)
-                        .font(.bodyMedium)
+                    // Empty state carries the affordance — a completed game can
+                    // only gain clips by upload, a live/scheduled one by record.
+                    if game.displayStatus == .completed {
+                        Button(action: { importTrigger = true }) {
+                            Label("Upload your first video", systemImage: "square.and.arrow.down.on.square")
+                        }
+                        .labelStyle(ActionRowLabelStyle())
+                    } else {
+                        Button(action: { showingVideoRecorder = true }) {
+                            Label("Record your first video", systemImage: "video.badge.plus")
+                        }
+                        .labelStyle(ActionRowLabelStyle())
+                    }
                 } else {
                     ForEach(videoClips) { clip in
                         VideoClipRow(clip: clip, hasCoachingAccess: authManager.hasCoachingAccess)
@@ -310,9 +244,8 @@ struct GameDetailView: View {
             // Photos Section
             Section(header: Text("Photos (\(gamePhotos.count))").smallCapsLabel()) {
                 if gamePhotos.isEmpty {
-                    Text("No photos yet")
-                        .foregroundColor(.secondary)
-                        .font(.bodyMedium)
+                    addPhotoMenu
+                        .labelStyle(ActionRowLabelStyle())
                 } else {
                     ForEach(gamePhotos) { photo in
                         NavigationLink {
@@ -381,6 +314,12 @@ struct GameDetailView: View {
                         }
                     }
                 }
+            }
+
+            // Completed games are watch-first: the content greets you and the
+            // additive CTAs (Upload / Add Photos) sit at the bottom as the floor.
+            if game.displayStatus == .completed {
+                contextualActions
             }
         }
         .ppDetailBackground()
@@ -521,6 +460,54 @@ struct GameDetailView: View {
                     .font(.title3)
             }
         }
+    }
+
+    /// The slimmed in-body action block: only the additive / time-sensitive
+    /// actions that belong on a viewer-first page. Everything editorial or
+    /// destructive (Edit, Restart, Delete, End, Enter Statistics) lives solely
+    /// in `primaryActionMenu` (the `•••` toolbar menu), which already mirrors
+    /// the full set. Placed under details for live/scheduled, at the bottom for
+    /// completed games (see `body`).
+    @ViewBuilder
+    private var contextualActions: some View {
+        Section {
+            switch game.displayStatus {
+            case .scheduled:
+                Button(action: { showingVideoRecorder = true }) {
+                    Label("Record Video", systemImage: "video.badge.plus")
+                }
+                Button(action: { startGame() }) {
+                    Label(isGolf ? "Start Round" : "Start Game", systemImage: "play.circle")
+                }
+            case .live:
+                // Score Hole is promoted above Record Video for golf live
+                // rounds — entering a score is the primary action on each hole,
+                // and clip attribution depends on it.
+                if isGolf, let next = nextHoleNumber {
+                    Button(action: {
+                        scoreHoleTarget = ScoreHoleTarget(holeNumber: next)
+                    }) {
+                        Label("Score Hole \(next)", systemImage: "flag.checkered")
+                    }
+                }
+                Button(action: { showingVideoRecorder = true }) {
+                    Label("Record Video", systemImage: "video.badge.plus")
+                }
+            case .completed:
+                Button(action: { importTrigger = true }) {
+                    Label("Upload Video", systemImage: "square.and.arrow.down.on.square")
+                }
+                if !game.isComplete {
+                    Button(action: { completeGame() }) {
+                        Label("Mark Complete", systemImage: "checkmark.circle")
+                    }
+                }
+            }
+
+            // Add Photos is additive content on every status.
+            addPhotoMenu
+        }
+        .labelStyle(ActionRowLabelStyle())
     }
 
     private var addPhotoMenu: some View {

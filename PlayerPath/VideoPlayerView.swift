@@ -240,6 +240,17 @@ struct VideoPlayerView: View {
 
     // MARK: - Computed Properties
 
+    /// Clip orientation derived from the resolved aspect ratio, passed to
+    /// `EnhancedVideoPlayer` so videoGravity follows the CLIP, not the device.
+    /// nil until `loadVideoAspectRatio()` resolves (the player then falls back
+    /// to the device size class for the brief moment before it lands). Near-
+    /// square is treated as portrait, matching `VideoOrientationDetector`.
+    private var clipIsLandscape: Bool? {
+        guard videoAspectRatioResolved else { return nil }
+        if abs(videoAspectRatio - 1.0) < 0.02 { return false }
+        return videoAspectRatio > 1.0
+    }
+
     @ViewBuilder
     private var videoPlayerContent: some View {
         if isLoading {
@@ -281,7 +292,16 @@ struct VideoPlayerView: View {
 
     private func activePlayerView(player: AVPlayer) -> some View {
         ZStack {
-            EnhancedVideoPlayer(player: player, preloadedDuration: videoDuration, onClose: { dismiss() })
+            EnhancedVideoPlayer(
+                player: player,
+                preloadedDuration: videoDuration,
+                onClose: { dismiss() },
+                clipIsLandscape: clipIsLandscape,
+                // Coach-sourced clips can carry telestration drawings whose
+                // overlay fits to the true aspect — force aspect-fit so the
+                // rendered video rect matches the overlay's coordinate space.
+                forceAspectFit: clip.sourceCoachVideoID != nil
+            )
                 .accessibilityLabel("Video player")
 
             // Tappable timeline markers for coach annotations (drawings only
@@ -560,11 +580,14 @@ struct VideoPlayerView: View {
             // Build the friendly-named share link now that the local file is
             // (down)loaded. Recomputed on version change (e.g. after a re-trim).
             shareURL = clip.makeShareURL()
-            // Coach-annotation + aspect-ratio loading is only meaningful for
-            // clips saved from a coach's shared folder — gated internally.
+            // Resolve the clip's true aspect ratio for ALL clips so the player
+            // can pick videoGravity from the clip's orientation (a landscape
+            // clip on a portrait phone is shown whole instead of side-cropped).
+            await loadVideoAspectRatio()
+            // Coach annotations + auto-show are only meaningful for clips saved
+            // from a coach's shared folder — gated internally / below.
             loadCoachAnnotationsIfNeeded()
             if clip.sourceCoachVideoID != nil {
-                await loadVideoAspectRatio()
                 markCoachClipViewedIfNeeded()
                 // Auto-show the earliest coach drawing now that aspect ratio
                 // is resolved. Annotations may still be loading via the
@@ -681,6 +704,10 @@ struct VideoPlayerView: View {
             isPlayerReady = false
             isDownloadingFromCloud = false
             downloadProgress = 0.0
+            // Re-resolve clip orientation for the new version: clipIsLandscape
+            // falls back to the device until loadVideoAspectRatio re-runs, rather
+            // than reporting the prior clip's orientation during the rebuild.
+            videoAspectRatioResolved = false
         }
 
         guard !Task.isCancelled else {

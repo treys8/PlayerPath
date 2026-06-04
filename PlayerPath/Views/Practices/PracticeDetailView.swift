@@ -131,62 +131,13 @@ struct PracticeDetailView: View {
                 }
             }
 
-            // Actions Section
-            Section(header: Text("Actions").smallCapsLabel()) {
-                // End the live session — shown only while this practice is the
-                // active live activity. Ending KEEPS the practice (unlike
-                // Delete); it just clears isLive so it leaves the "Live Now"
-                // strip. Promoted to the top so it's the obvious "I'm done"
-                // tap. Mirrors GameDetailView's End Round/Game action — which
-                // is the only place a live game can be ended, and previously
-                // had no practice equivalent (live practices were unendable).
-                if practice.isLive {
-                    Button(role: .destructive) {
-                        Haptics.warning()
-                        showingEndConfirmation = true
-                    } label: {
-                        Label(endLabel, systemImage: "stop.circle")
-                    }
-                    .labelStyle(DestructiveRowLabelStyle())
-                }
-
-                // Score Hole — golf practice rounds only. Promoted above
-                // Record Video so the primary on-course action is the first
-                // tap target (mirrors GameDetailView's golf placement).
-                if isPracticeRound {
-                    Button {
-                        Haptics.medium()
-                        scoreHoleTarget = ScoreHoleTarget(holeNumber: nextHoleNumber)
-                    } label: {
-                        Label("Score Hole \(nextHoleNumber)", systemImage: "flag.fill")
-                    }
-                }
-
-                Button(action: { showingRecordCamera = true }) {
-                    Label("Record Video", systemImage: "video.badge.plus")
-                }
-
-                Button(action: { importTrigger = true }) {
-                    Label("Upload Video", systemImage: "square.and.arrow.down.on.square")
-                }
-
-                Button(action: { showingAddNote = true }) {
-                    Label("Add Note", systemImage: "note.text.badge.plus")
-                }
-
-                Button(action: { photoImportTrigger = true }) {
-                    Label("Add Photos", systemImage: "photo.on.rectangle")
-                }
-
-                Button(role: .destructive, action: {
-                    Haptics.warning()
-                    showingDeleteConfirmation = true
-                }) {
-                    Label("Delete Practice", systemImage: "trash")
-                }
-                .labelStyle(DestructiveRowLabelStyle())
+            // Live practices are act-first: surface the contextual CTAs (Score
+            // Hole / Record) right under the details. Non-live practices are
+            // watch-first — their CTA block sits at the bottom (see below).
+            // End and Delete live only in the `•••` toolbar menu either way.
+            if practice.isLive {
+                contextualActions
             }
-            .labelStyle(ActionRowLabelStyle())
 
             // Per-hole grid — only renders when at least one hole has been
             // scored on a practice round. Tapping a cell re-opens the score
@@ -260,10 +211,17 @@ struct PracticeDetailView: View {
                     .onDelete(perform: deleteNotes)
                 }
             }
+
+            // Non-live practices are watch-first: the content greets you and
+            // the additive CTAs sit at the bottom as the floor.
+            if !practice.isLive {
+                contextualActions
+            }
         }
         .ppDetailBackground()
         .navigationTitle("\(practiceType.displayName) Practice")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar { primaryActionMenu }
         .fullScreenCover(isPresented: $showingRecordCamera) {
             DirectCameraRecorderView(athlete: practice.athlete, practice: practice)
         }
@@ -297,6 +255,97 @@ struct PracticeDetailView: View {
             // can keep adding clips/photos/notes; ending only stops the live
             // strip and live-hole clip attribution.
             Text("This ends the live session. You can still add videos, photos, and notes afterward.")
+        }
+    }
+
+    /// The slimmed in-body action block: only the additive / time-sensitive
+    /// actions that belong on a viewer-first page (Score Hole, Record, Upload,
+    /// Add Note, Add Photos). End and Delete live solely in `primaryActionMenu`
+    /// (the `•••` toolbar menu). Placed under details for live practices, at the
+    /// bottom for non-live ones (see `body`).
+    @ViewBuilder
+    private var contextualActions: some View {
+        Section {
+            // Score Hole — golf practice rounds only. Promoted first so the
+            // primary on-course action is the top tap target.
+            if isPracticeRound {
+                Button {
+                    Haptics.medium()
+                    scoreHoleTarget = ScoreHoleTarget(holeNumber: nextHoleNumber)
+                } label: {
+                    Label("Score Hole \(nextHoleNumber)", systemImage: "flag.fill")
+                }
+            }
+
+            Button(action: { showingRecordCamera = true }) {
+                Label("Record Video", systemImage: "video.badge.plus")
+            }
+
+            Button(action: { importTrigger = true }) {
+                Label("Upload Video", systemImage: "square.and.arrow.down.on.square")
+            }
+
+            Button(action: { showingAddNote = true }) {
+                Label("Add Note", systemImage: "note.text.badge.plus")
+            }
+
+            Button(action: { photoImportTrigger = true }) {
+                Label("Add Photos", systemImage: "photo.on.rectangle")
+            }
+        }
+        .labelStyle(ActionRowLabelStyle())
+    }
+
+    /// The `•••` toolbar menu — sole home for the editorial/destructive actions
+    /// (End, Delete), plus the additive actions mirrored for reach from
+    /// anywhere on the page. Mirrors GameDetailView's primaryActionMenu so the
+    /// two event detail pages behave consistently.
+    @ToolbarContentBuilder
+    private var primaryActionMenu: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) {
+            Menu {
+                // End the live session — keeps the practice, just clears isLive
+                // so it leaves the "Live Now" strip. Only reachable while live.
+                if practice.isLive {
+                    Button(action: { Haptics.warning(); showingEndConfirmation = true }) {
+                        Label(endLabel, systemImage: "stop.circle")
+                    }
+                }
+
+                if isPracticeRound {
+                    Button(action: {
+                        Haptics.medium()
+                        scoreHoleTarget = ScoreHoleTarget(holeNumber: nextHoleNumber)
+                    }) {
+                        Label("Score Hole \(nextHoleNumber)", systemImage: "flag.fill")
+                    }
+                }
+
+                Button(action: { showingRecordCamera = true }) {
+                    Label("Record Video", systemImage: "video.badge.plus")
+                }
+                Button(action: { importTrigger = true }) {
+                    Label("Upload Video", systemImage: "square.and.arrow.down.on.square")
+                }
+                Button(action: { showingAddNote = true }) {
+                    Label("Add Note", systemImage: "note.text.badge.plus")
+                }
+                Button(action: { photoImportTrigger = true }) {
+                    Label("Add Photos", systemImage: "photo.on.rectangle")
+                }
+
+                Divider()
+
+                Button(role: .destructive, action: {
+                    Haptics.warning()
+                    showingDeleteConfirmation = true
+                }) {
+                    Label("Delete Practice", systemImage: "trash")
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .font(.title3)
+            }
         }
     }
 

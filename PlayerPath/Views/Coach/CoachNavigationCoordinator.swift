@@ -11,13 +11,13 @@ import SwiftUI
 enum CoachTab: Int, CaseIterable {
     case dashboard = 0
     case athletes = 1
-    case profile = 2
+    case more = 2
 
     var title: String {
         switch self {
         case .dashboard: return "Dashboard"
         case .athletes: return "Athletes"
-        case .profile: return "More"
+        case .more: return "More"
         }
     }
 
@@ -25,7 +25,7 @@ enum CoachTab: Int, CaseIterable {
         switch self {
         case .dashboard: return "house"
         case .athletes: return "person.3"
-        case .profile: return "ellipsis.circle"
+        case .more: return "ellipsis.circle"
         }
     }
 }
@@ -35,7 +35,11 @@ enum CoachTab: Int, CaseIterable {
 class CoachNavigationCoordinator {
     var selectedTab: CoachTab = .dashboard
     var athletesPath = NavigationPath()
-    var dashboardPath = NavigationPath()
+    var profilePath = NavigationPath()
+
+    /// Set by deep links to request the More tab present the invitations sheet.
+    /// CoachProfileView observes this, opens the sheet, and resets it to false.
+    var pendingShowInvitations = false
 
     // Pending navigation actions (resolved after folder data loads)
     var pendingFolderID: String?
@@ -67,7 +71,11 @@ class CoachNavigationCoordinator {
     }
 
     func navigateToInvitations() {
-        selectedTab = .profile
+        // Switch to the More tab and ask CoachProfileView to present the
+        // invitations sheet (matching the Dashboard/Athletes presentations).
+        // The flag is reset by CoachProfileView once it opens the sheet.
+        selectedTab = .more
+        pendingShowInvitations = true
     }
 
     /// Called when coach folders finish loading to resolve any pending navigation.

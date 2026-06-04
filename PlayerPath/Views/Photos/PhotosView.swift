@@ -139,14 +139,11 @@ struct PhotosView: View {
         .onChange(of: searchText) { _, _ in updatePhotosCache() }
         .onChange(of: allPhotos) { _, _ in updatePhotosCache() }
         .onChange(of: activeSport) { _, _ in updatePhotosCache() }
-        .navigationTitle("Photos")
-        .navigationBarTitleDisplayMode(.inline)
+        .tabRootNavigationBar(title: "Photos")
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                if isSelecting {
+            if isSelecting {
+                ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { exitSelectionMode() }
-                } else {
-                    Button("Done") { dismiss() }
                 }
             }
             if isSelecting {

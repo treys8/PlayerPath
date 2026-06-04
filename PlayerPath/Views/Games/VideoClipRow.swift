@@ -85,12 +85,13 @@ struct VideoClipRow: View {
             .accessibilityLabel(clip.displayTagName ?? "Unrecorded Play")
             .accessibilityHint("Opens the video")
 
-            // Coach comment thread
+            // Coach comment thread — self-hiding when there's no feedback, so
+            // it adds no space to the row until a coach actually comments.
             if let clipId = clip.firestoreId {
                 ClipCommentSection(clipId: clipId)
             }
         }
-        .padding(.vertical, 10)
+        .padding(.vertical, 6)
         .contextMenu {
             Button {
                 showingShareToFolder = true

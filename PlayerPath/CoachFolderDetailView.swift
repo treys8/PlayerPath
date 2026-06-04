@@ -240,6 +240,7 @@ struct CoachFolderDetailView: View {
 
     private func initialLoad() async {
         // Check if coordinator requested a specific tab for THIS folder (e.g., from dashboard "Review Clips")
+        let hadExplicitTab = coordinator.pendingFolderTab?.folderID == folder.id
         if let pending = coordinator.pendingFolderTab, pending.folderID == folder.id {
             selectedTab = pending.tab
             coordinator.pendingFolderTab = nil
@@ -250,6 +251,12 @@ struct CoachFolderDetailView: View {
         if let pendingVideo = coordinator.pendingFolderVideoID, pendingVideo.folderID == folder.id {
             targetVideoID = pendingVideo.videoID
             coordinator.pendingFolderVideoID = nil
+            // A deep-linked clip is an athlete-shared video — it lives on the Shared
+            // tab, and only that tab (not "My Drafts") honors targetVideoID scrolling.
+            // Default there for lessons folders unless an explicit tab was requested.
+            if isLessonsFolder && !hadExplicitTab {
+                selectedTab = .shared
+            }
         }
 
         // Folder open no longer auto-marks notifications read — matches athlete-side rule.

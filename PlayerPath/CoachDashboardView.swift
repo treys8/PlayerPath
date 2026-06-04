@@ -147,8 +147,7 @@ struct CoachDashboardView: View {
             // In-app notification banner is handled by UserMainFlow's overlay
             // to avoid duplicate banners.
         }
-        .navigationTitle("Dashboard")
-        .navigationBarTitleDisplayMode(.inline)
+        .tabRootNavigationBar(title: "Dashboard")
         .alert("Cancel Session?", isPresented: $showingCancelConfirmation) {
             Button("Cancel Session", role: .destructive) {
                 if let session = sessionToCancel, let sessionID = session.id {

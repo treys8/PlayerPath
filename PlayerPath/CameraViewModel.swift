@@ -200,6 +200,7 @@ class CameraViewModel: NSObject, ObservableObject {
         let audioEnabled = settings.audioEnabled
         let stabilizationMode = settings.stabilizationMode.avMode
         let videoCodec = settings.format.codec
+        let torchMode = currentTorchMode
 
         sessionQueue.async { [weak self] in
             guard let self else { return }
@@ -215,6 +216,8 @@ class CameraViewModel: NSObject, ObservableObject {
             self.setupOutput(stabilizationMode: stabilizationMode, codec: videoCodec)
 
             self.captureSession.commitConfiguration()
+            // Re-apply torch — setupCamera rebuilt the input with a fresh device.
+            self.applyTorch(torchMode)
         }
     }
 
@@ -620,6 +623,7 @@ class CameraViewModel: NSObject, ObservableObject {
 
         let targetFrameRate = settings.frameRate.fps
         let targetResolution = settings.quality.resolution
+        let torchMode = currentTorchMode
 
         sessionQueue.async { [weak self] in
             guard let self = self else { return }
@@ -627,9 +631,42 @@ class CameraViewModel: NSObject, ObservableObject {
             self.captureSession.beginConfiguration()
             self.setupCamera(targetFrameRate: targetFrameRate, targetResolution: targetResolution)
             self.captureSession.commitConfiguration()
+            // Re-apply torch — setupCamera rebuilt the input with a fresh device
+            // that starts with the torch off.
+            self.applyTorch(torchMode)
         }
 
         Haptics.medium()
+    }
+
+    /// Maps the user-facing flashMode to a torch mode. Read on the MainActor.
+    @MainActor private var currentTorchMode: AVCaptureDevice.TorchMode {
+        switch flashMode {
+        case .on: return .on
+        case .auto: return .auto
+        default: return .off
+        }
+    }
+
+    /// Applies a torch mode to the current `videoDevice`. Safe to call on
+    /// `sessionQueue`. Re-applied after `setupCamera` rebuilds the input (flip /
+    /// reconfigure), since a freshly-added device starts with the torch off and
+    /// would otherwise leave the flash button's "on" icon out of sync with a
+    /// dark LED.
+    nonisolated private func applyTorch(_ mode: AVCaptureDevice.TorchMode) {
+        guard let device = videoDevice else { return }
+        do {
+            try device.lockForConfiguration()
+            if device.hasTorch && device.isTorchAvailable {
+                device.torchMode = mode
+            }
+            device.unlockForConfiguration()
+        } catch {
+            // Route logging through the MainActor like the other nonisolated
+            // camera methods (capture the Sendable message, not the error).
+            let message = error.localizedDescription
+            Task { @MainActor in cameraLog.warning("Failed to apply torch: \(message)") }
+        }
     }
 
     @MainActor
@@ -646,26 +683,8 @@ class CameraViewModel: NSObject, ObservableObject {
         }
 
         // Apply as torch mode — flash mode is for photos; torch controls the LED during video
-        let torchMode: AVCaptureDevice.TorchMode = {
-            switch flashMode {
-            case .on: return .on
-            case .auto: return .auto
-            default: return .off
-            }
-        }()
-
-        guard let device = videoDevice else { return }
-        sessionQueue.async {
-            do {
-                try device.lockForConfiguration()
-                if device.hasTorch && device.isTorchAvailable {
-                    device.torchMode = torchMode
-                }
-                device.unlockForConfiguration()
-            } catch {
-                cameraLog.warning("Failed to configure torch: \(error.localizedDescription)")
-            }
-        }
+        let mode = currentTorchMode
+        sessionQueue.async { [weak self] in self?.applyTorch(mode) }
 
         Haptics.light()
     }

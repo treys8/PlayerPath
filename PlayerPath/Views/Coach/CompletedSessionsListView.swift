@@ -36,7 +36,7 @@ struct CompletedSessionsListView: View {
             .navigationTitle("Completed Sessions")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }
                 }
             }

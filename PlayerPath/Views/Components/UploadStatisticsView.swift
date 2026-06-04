@@ -31,7 +31,7 @@ struct UploadStatisticsView: View {
             .navigationTitle("Upload Statistics")
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .cancellationAction) {
                     Button("Done") {
                         dismiss()
                     }

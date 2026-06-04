@@ -11,6 +11,16 @@ import CoreMedia
 import UIKit
 import os
 
+// AVAssetImageGenerator isn't Sendable; this immutable wrapper lets it cross
+// into `Task.detached` / the cancellation handler under strict concurrency.
+// `cancelAllCGImageGeneration()` is documented thread-safe. (CGImage is already
+// Sendable, so it's captured directly without a box.)
+private final class ThumbGeneratorBox: @unchecked Sendable {
+    nonisolated(unsafe) let generator: AVAssetImageGenerator
+    init(_ generator: AVAssetImageGenerator) { self.generator = generator }
+    nonisolated func cancel() { generator.cancelAllCGImageGeneration() }
+}
+
 class VideoFileManager {
     
     private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "RZR.DT3", category: "VideoFileManager")
@@ -217,33 +227,44 @@ class VideoFileManager {
             if #available(iOS 18.0, *) {
                 cgImage = try await imageGenerator.image(at: thumbnailTime).image
             } else {
-                // copyCGImage is synchronous — run off main thread to avoid blocking UI
-                let gen = imageGenerator
+                // copyCGImage is synchronous — run it off the main thread AND honor
+                // task cancellation, so a cell scrolled off-screen stops decoding
+                // instead of running the full-frame decode to completion (iOS 17
+                // battery/thermal). image(at:) on iOS 18+ is already cancellation-aware.
+                let genBox = ThumbGeneratorBox(imageGenerator)
                 let time = thumbnailTime
-                cgImage = try await Task.detached(priority: .userInitiated) {
-                    try gen.copyCGImage(at: time, actualTime: nil)
-                }.value
+                cgImage = try await withTaskCancellationHandler {
+                    try await Task.detached(priority: .userInitiated) {
+                        try genBox.generator.copyCGImage(at: time, actualTime: nil)
+                    }.value
+                } onCancel: {
+                    genBox.cancel()
+                }
             }
-            
-            // The image generator's `maximumSize` already bounds the output while
-            // preserving native aspect. Keep the native-aspect UIImage so the grid's
-            // `.aspectRatio(.fill) + .clipped()` renders consistently across recorded
-            // and imported clips (no letterbox bars on portrait content).
-            let image = UIImage(cgImage: cgImage)
 
-            // Check for cancellation before saving
+            // Check for cancellation before the encode/write.
             guard !Task.isCancelled else {
                 logger.info("Thumbnail generation cancelled before saving")
                 return .failure(CancellationError())
             }
 
-            // Save to documents directory
+            // Encode + write off the MainActor. This method is MainActor-isolated
+            // by the module's default actor isolation, so without detaching, the
+            // JPEG re-encode and disk write would run on main and jank scrolling
+            // through clips that still need a thumbnail generated. The generator's
+            // `maximumSize` already bounds the image while preserving native aspect
+            // (the grid's `.aspectRatio(.fill) + .clipped()` then renders it
+            // consistently — no letterbox bars on portrait content).
             let thumbnailURL = try createThumbnailURL()
-            guard let imageData = image.jpegData(compressionQuality: Constants.thumbnailCompressionQuality) else {
-                throw NSError(domain: "VideoFileManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to create JPEG data"])
-            }
-
-            try imageData.write(to: thumbnailURL)
+            let quality = Constants.thumbnailCompressionQuality
+            let decoded = cgImage  // CGImage is Sendable — captured directly
+            try await Task.detached(priority: .userInitiated) {
+                let image = UIImage(cgImage: decoded)
+                guard let imageData = image.jpegData(compressionQuality: quality) else {
+                    throw NSError(domain: "VideoFileManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to create JPEG data"])
+                }
+                try imageData.write(to: thumbnailURL)
+            }.value
             logger.info("Successfully saved thumbnail to: \(thumbnailURL.path, privacy: .public)")
 
             // Return a path relative to Documents so callers that persist the result

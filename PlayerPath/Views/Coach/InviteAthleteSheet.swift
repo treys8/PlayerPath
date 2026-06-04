@@ -207,20 +207,28 @@ struct InviteAthleteSheet: View {
                     }
                 }
             }
-            .task {
-                guard let coachID = authManager.userID else { return }
-                isAtLimit = await SubscriptionGate.isAtAthleteLimit(
-                    coachID: coachID,
-                    authManager: authManager,
-                    includingPending: true
-                )
+            .task { await refreshLimit() }
+            // Re-check on paywall dismiss so a successful upgrade re-enables Send
+            // without the coach having to back out and re-open the sheet.
+            .sheet(isPresented: $showingPaywall, onDismiss: { Task { await refreshLimit() } }) {
+                CoachPaywallView()
             }
-            .sheet(isPresented: $showingPaywall) { CoachPaywallView() }
             .toast(isPresenting: $showingSuccess, message: "Invitation Sent")
             .onChange(of: showingSuccess) { _, new in
                 if !new { dismiss() }
             }
         }
+    }
+
+    /// Recomputes whether the coach is at their athlete limit. Run on appear and
+    /// again whenever the upgrade paywall is dismissed.
+    private func refreshLimit() async {
+        guard let coachID = authManager.userID else { return }
+        isAtLimit = await SubscriptionGate.isAtAthleteLimit(
+            coachID: coachID,
+            authManager: authManager,
+            includingPending: true
+        )
     }
 
     private func sendInvitation() {

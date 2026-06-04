@@ -34,7 +34,7 @@ struct PhotoTagSheet: View {
             .navigationTitle("Tag Photo")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }
                 }
             }

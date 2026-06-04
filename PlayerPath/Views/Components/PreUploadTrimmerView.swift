@@ -21,11 +21,12 @@ import UIKit
 
 private struct AVPlayerLayerView: UIViewRepresentable {
     let player: AVPlayer
+    var videoGravity: AVLayerVideoGravity = .resizeAspectFill
 
     func makeUIView(context: Context) -> UIView {
         let view = PlayerUIView()
         view.playerLayer.player = player
-        view.playerLayer.videoGravity = .resizeAspectFill
+        view.playerLayer.videoGravity = videoGravity
         view.backgroundColor = .black
         return view
     }
@@ -33,6 +34,7 @@ private struct AVPlayerLayerView: UIViewRepresentable {
     func updateUIView(_ uiView: UIView, context: Context) {
         guard let view = uiView as? PlayerUIView else { return }
         view.playerLayer.player = player
+        view.playerLayer.videoGravity = videoGravity
     }
 
     private class PlayerUIView: UIView {
@@ -74,15 +76,28 @@ struct PreUploadTrimmerView: View {
     @State private var showContent = false
     @State private var videoEndObserver: NSObjectProtocol?
     @State private var durationTask: Task<Void, Never>?
+    /// Resolved once on appear; drives the preview gravity so a landscape clip
+    /// isn't side-cropped while trimming on a portrait-held phone.
+    @State private var clipOrientation: VideoOrientation?
 
     @Environment(\.verticalSizeClass) private var vSizeClass
     private var isLandscape: Bool { vSizeClass == .compact }
+    /// Choose the preview fill from the CLIP, not the device: a landscape clip
+    /// on a portrait phone uses fit (full frame visible while trimming, matching
+    /// what gets saved) instead of fill (which would crop the sides the user is
+    /// trimming against). A portrait clip on a portrait phone keeps the
+    /// immersive fill.
+    private var previewGravity: AVLayerVideoGravity {
+        let clipLandscape = clipOrientation?.isLandscape ?? false
+        let useFill = !isLandscape && !clipLandscape
+        return useFill ? .resizeAspectFill : .resizeAspect
+    }
 
     var body: some View {
         ZStack {
             // Full-screen video background — fills physical screen edges
             if let player = player {
-                AVPlayerLayerView(player: player)
+                AVPlayerLayerView(player: player, videoGravity: previewGravity)
                     .allowsHitTesting(false)
                     .ignoresSafeArea()
                     .overlay(Color.black.opacity(0.15))
@@ -379,6 +394,10 @@ struct PreUploadTrimmerView: View {
         newPlayer.isMuted = mutePreview
         player = newPlayer
         newPlayer.play()
+
+        // Classify orientation so the preview uses the right gravity (fit for
+        // landscape clips so the user trims against the full, uncropped frame).
+        Task { clipOrientation = await VideoOrientationDetector.detect(url: videoURL) }
 
         // Add time observer for playback position. Also enforces the trim
         // end: when playback crosses endTime, loop back to startTime so the

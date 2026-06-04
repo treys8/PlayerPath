@@ -57,7 +57,7 @@ enum VideoStitchingService {
             preferredTrackID: kCMPersistentTrackID_Invalid
         )
 
-        var segments: [(timeRange: CMTimeRange, transform: CGAffineTransform)] = []
+        var segments: [(timeRange: CMTimeRange, transform: CGAffineTransform, sourceSize: CGSize)] = []
         var cursor: CMTime = .zero
         var renderSize: CGSize = .zero
         var maxFrameRate: Float = 30
@@ -94,11 +94,20 @@ enum VideoStitchingService {
 
                 let transformed = naturalSize.applying(transform)
                 let segmentRenderSize = CGSize(width: abs(transformed.width), height: abs(transformed.height))
-                if segmentRenderSize.width > renderSize.width { renderSize.width = segmentRenderSize.width }
-                if segmentRenderSize.height > renderSize.height { renderSize.height = segmentRenderSize.height }
+                // Canvas = the largest-area clip's oriented size. Every segment is
+                // then aspect-fit (letterboxed) into this single canvas, so a reel
+                // mixing portrait and landscape clips renders each clip whole in a
+                // consistent frame instead of padding all clips into a per-axis
+                // union box (e.g. 1920x1920) with each anchored top-left. Same-
+                // orientation + same-resolution segments (and single-clip reels,
+                // the dominant case) stay byte-identical; a lower-res same-
+                // orientation segment is now upscale-fit + centered instead of
+                // top-left-anchored with black bars.
+                let area = segmentRenderSize.width * segmentRenderSize.height
+                if area > renderSize.width * renderSize.height { renderSize = segmentRenderSize }
 
                 let placedRange = CMTimeRange(start: cursor, duration: duration)
-                segments.append((placedRange, transform))
+                segments.append((placedRange, transform, segmentRenderSize))
 
                 cursor = CMTimeAdd(cursor, duration)
             } catch {
@@ -128,10 +137,25 @@ enum VideoStitchingService {
         session.outputURL = outputURL
         session.outputFileType = .mp4
 
+        // Aspect-fit each segment into `renderSize` (the largest clip's frame):
+        // scale to fit, then center. Composed AFTER the source's preferredTransform
+        // (orient first, then place). Identity when the segment already matches the
+        // canvas — so same-orientation/-resolution reels are byte-for-byte unchanged.
+        func placedTransform(_ transform: CGAffineTransform, sourceSize: CGSize) -> CGAffineTransform {
+            guard sourceSize.width > 0, sourceSize.height > 0 else { return transform }
+            let scale = min(renderSize.width / sourceSize.width, renderSize.height / sourceSize.height)
+            let scaledW = sourceSize.width * scale
+            let scaledH = sourceSize.height * scale
+            let fit = CGAffineTransform(scaleX: scale, y: scale)
+                .concatenating(CGAffineTransform(translationX: (renderSize.width - scaledW) / 2,
+                                                 y: (renderSize.height - scaledH) / 2))
+            return transform.concatenating(fit)
+        }
+
         if #available(iOS 26.0, *) {
             let instructions: [AVVideoCompositionInstruction] = segments.map { segment in
                 var layerConfig = AVVideoCompositionLayerInstruction.Configuration(assetTrack: compVideoTrack)
-                layerConfig.setTransform(segment.transform, at: segment.timeRange.start)
+                layerConfig.setTransform(placedTransform(segment.transform, sourceSize: segment.sourceSize), at: segment.timeRange.start)
                 let layerInstruction = AVVideoCompositionLayerInstruction(configuration: layerConfig)
                 let instructionConfig = AVVideoCompositionInstruction.Configuration(
                     layerInstructions: [layerInstruction],
@@ -151,7 +175,7 @@ enum VideoStitchingService {
             videoComposition.frameDuration = frameDuration
             videoComposition.instructions = segments.map { segment in
                 let layerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: compVideoTrack)
-                layerInstruction.setTransform(segment.transform, at: segment.timeRange.start)
+                layerInstruction.setTransform(placedTransform(segment.transform, sourceSize: segment.sourceSize), at: segment.timeRange.start)
                 let instruction = AVMutableVideoCompositionInstruction()
                 instruction.timeRange = segment.timeRange
                 instruction.layerInstructions = [layerInstruction]

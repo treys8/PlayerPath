@@ -189,7 +189,7 @@ struct SeasonDetailView: View {
         .bulkImportAttach(athlete: athlete, season: season, trigger: $videoUploadTrigger)
         .bulkPhotoImportAttach(athlete: athlete, season: season, trigger: $photoUploadTrigger)
         .toolbar {
-            ToolbarItem(placement: .confirmationAction) {
+            ToolbarItem(placement: .cancellationAction) {
                 Button("Done") {
                     dismiss()
                 }

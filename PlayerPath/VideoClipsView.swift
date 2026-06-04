@@ -21,6 +21,7 @@ struct VideoClipsView: View {
     @State private var selectedVideo: VideoClip?
     @State private var viewModel = VideoClipsViewModel()
     @State private var liveGameContext: Game?
+    @State private var livePracticeContext: Practice?
     @State private var errorMessage: String?
     @State private var showingError = false
     @State private var videoToDelete: VideoClip?
@@ -178,7 +179,7 @@ struct VideoClipsView: View {
             }
 
             if !videosForActiveSport.isEmpty {
-                ToolbarItem(placement: .topBarLeading) {
+                ToolbarItem(placement: .topBarTrailing) {
                     SeasonFilterMenu(
                         selectedSeasonID: $viewModel.selectedSeasonFilter,
                         availableSeasons: viewModel.availableSeasons,
@@ -263,7 +264,7 @@ struct VideoClipsView: View {
         .searchable(text: $viewModel.searchText, prompt: "Search videos")
         .toolbar { videosToolbar }
         .fullScreenCover(isPresented: $showingRecorder) {
-            DirectCameraRecorderView(athlete: athlete, game: liveGameContext)
+            DirectCameraRecorderView(athlete: athlete, game: liveGameContext, practice: livePracticeContext)
         }
         .fullScreenCover(item: $selectedVideo) { video in
             VideoPlayerView(clip: video)
@@ -276,7 +277,25 @@ struct VideoClipsView: View {
         }
         .bulkImportAttach(athlete: athlete, trigger: $importTrigger)
         .onReceive(NotificationCenter.default.publisher(for: .presentVideoRecorder)) { notification in
-            liveGameContext = notification.object as? Game
+            // Bind the recorder to a game/practice when a reminder forwarded its id.
+            // Resolve against the selected athlete's own games/practices — a reminder
+            // for a different profile falls back to a generic recording. Game/Practice
+            // ids are UUID; we filter the in-memory relationship (no fetch/#Predicate).
+            if let game = notification.object as? Game {
+                liveGameContext = game
+                livePracticeContext = nil
+            } else if let gameId = notification.userInfo?["gameId"] as? String,
+                      let uuid = UUID(uuidString: gameId) {
+                liveGameContext = athlete.games?.first { $0.id == uuid }
+                livePracticeContext = nil
+            } else if let practiceId = notification.userInfo?["practiceId"] as? String,
+                      let uuid = UUID(uuidString: practiceId) {
+                livePracticeContext = athlete.practices?.first { $0.id == uuid }
+                liveGameContext = nil
+            } else {
+                liveGameContext = nil
+                livePracticeContext = nil
+            }
             showingRecorder = true
             Haptics.light()
         }
@@ -297,6 +316,7 @@ struct VideoClipsView: View {
             // Reset when leaving Videos tab
             NotificationCenter.default.post(name: .videosManageOwnControls, object: false)
             liveGameContext = nil
+            livePracticeContext = nil
         }
         .onChange(of: viewModel.searchText) { _, _ in
             debouncedFilterUpdate()

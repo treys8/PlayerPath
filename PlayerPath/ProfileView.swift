@@ -115,6 +115,11 @@ struct ProfileView: View {
             if let athlete = seasonsAthlete {
                 NavigationStack {
                     SeasonsView(athlete: athlete)
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("Done") { showingSeasons = false }
+                            }
+                        }
                 }
             }
         }

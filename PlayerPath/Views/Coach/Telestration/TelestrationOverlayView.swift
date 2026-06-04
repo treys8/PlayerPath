@@ -139,7 +139,22 @@ struct TelestrationOverlayView: View {
                     }
                     .position(x: containerSize.width / 2, y: containerSize.height / 2)
                     .onAppear { canvasSize = fittedCanvas }
-                    .onChange(of: fittedCanvas) { _, newValue in canvasSize = newValue }
+                    .onChange(of: fittedCanvas) { _, newValue in
+                        // Track geometry changes until the coach lays down INK.
+                        // PencilKit ink is stored in absolute canvas-point coords,
+                        // so the saved canvasSize must match the frame the ink was
+                        // drawn against; once ink exists, freeze canvasSize so a
+                        // mid-draw rotation can't persist strokes against a size
+                        // they weren't drawn at. Shapes are stored NORMALIZED (0..1)
+                        // and carry their own canvasSize, so they do NOT pin the
+                        // canvas — gating on shapes too would wrongly freeze before
+                        // any ink and mis-place ink drawn after a post-shape rotation.
+                        // (Drawing ink across a rotation is inherently imperfect —
+                        // one canvasSize can't describe two coordinate spaces — but
+                        // this keeps the common single-orientation case correct.)
+                        guard drawing.strokes.isEmpty else { return }
+                        canvasSize = newValue
+                    }
                 }
             }
         }

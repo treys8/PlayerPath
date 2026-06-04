@@ -43,7 +43,7 @@ struct CoachAthletesTab: View {
                 }
             }
         }
-        .navigationTitle("Athletes")
+        .tabRootNavigationBar(title: "Athletes")
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 HStack(spacing: 12) {

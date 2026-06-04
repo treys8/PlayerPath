@@ -20,6 +20,15 @@ struct EnhancedVideoPlayer: View {
     /// auto-hiding after 3s. Used by editing surfaces (e.g. ClipReviewSheet)
     /// where the scrubber and frame-step must remain reachable.
     var alwaysShowControls: Bool = false
+    /// The clip's recorded orientation (true = landscape/wide). Drives
+    /// `videoGravity` from the CLIP rather than the device, so a landscape clip
+    /// viewed on a portrait phone is shown in full (fit) instead of side-cropped
+    /// (fill). nil falls back to the device size class (legacy behavior).
+    var clipIsLandscape: Bool? = nil
+    /// Forces aspect-fit regardless of orientation. Set when a coach drawing
+    /// overlay (which fits to the clip's true aspect) must stay aligned with the
+    /// rendered video rect.
+    var forceAspectFit: Bool = false
     @State private var isPlaying = false
     @State private var currentTime: Double = 0
     @State private var duration: Double = 0
@@ -46,6 +55,19 @@ struct EnhancedVideoPlayer: View {
     @Environment(\.ppAccent) private var ppAccent
     private var isLandscape: Bool { vSizeClass == .compact }
     private var isWideLayout: Bool { hSizeClass == .regular || vSizeClass == .compact }
+    /// Chooses videoGravity from the CLIP's orientation, not the device's.
+    /// Immersive `.resizeAspectFill` only for a portrait clip on a portrait
+    /// device (loses just negligible sides, keeps full height); any landscape
+    /// clip — or any landscape device — uses `.resizeAspect` so the full frame
+    /// is shown and nothing meaningful is cropped (a wide clip's sides, or a
+    /// tall clip's top/bottom). `forceAspectFit` (coach overlays, which fit to
+    /// the true aspect) always wins.
+    private var resolvedVideoGravity: AVLayerVideoGravity {
+        if forceAspectFit { return .resizeAspect }
+        let clipLandscape = clipIsLandscape ?? isLandscape
+        let useFill = !isLandscape && !clipLandscape
+        return useFill ? .resizeAspectFill : .resizeAspect
+    }
 
     // Zoom
     @State private var zoomScale: CGFloat = 1.0
@@ -58,7 +80,7 @@ struct EnhancedVideoPlayer: View {
             ZStack(alignment: .bottom) {
                 VideoPlayerRepresentable(
                     player: player,
-                    videoGravity: isLandscape ? .resizeAspect : .resizeAspectFill
+                    videoGravity: resolvedVideoGravity
                 )
                     .scaleEffect(zoomScale, anchor: .center)
                     .offset(panOffset)
@@ -409,6 +431,10 @@ struct EnhancedVideoPlayer: View {
     @State private var durationTask: Task<Void, Never>?
 
     private func setupPlayer() {
+        // Play through the silent switch — clip / coach audio (including spoken
+        // cues baked into the clip) should be audible on this review surface.
+        AudioSessionManager.configureForPlayback()
+
         // Use pre-loaded duration if available; otherwise load asynchronously.
         if let preloaded = preloadedDuration, preloaded > 0 {
             duration = preloaded
