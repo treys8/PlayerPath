@@ -264,13 +264,13 @@ struct MainTabView: View {
             }
         }
 
-        // Athlete invitations are accepted/declined via the AthleteInvitationsBanner
-        // on the Home (Journal) tab — route there. Role-agnostic .openInvitations is
-        // also observed by CoachTabView, which pushes the coach invitations list.
+        // Athlete invitations are accepted/declined on the Coaches page (More tab),
+        // the canonical home for incoming invitations. Posted by the Journal banner,
+        // push taps, and activity-feed taps. Role-agnostic .openInvitations is also
+        // observed by CoachTabView, which pushes the coach invitations list.
         notificationManager.observe(name: Notification.Name.openInvitations) { _ in
             MainActor.assumeIsolated {
-                selectedTab = MainTab.home.rawValue
-                Haptics.light()
+                navigateToMore(.coaches)
             }
         }
 
@@ -507,7 +507,10 @@ struct MainTabView: View {
                 case .photos:
                     PhotosView(athlete: selectedAthlete).id(selectedAthlete.id)
                 case .coaches:
-                    CoachesView(athlete: selectedAthlete).id(selectedAthlete.id).proRequired()
+                    // Viewing is un-gated so a free athlete can see (and convert on)
+                    // an incoming coach invitation. Send/share actions stay Pro-gated
+                    // inside CoachesView; Accept routes to the paywall.
+                    CoachesView(athlete: selectedAthlete).id(selectedAthlete.id)
                 case .sharedFolders:
                     AthleteFoldersListView(userID: authManager.userID, athlete: selectedAthlete).id(selectedAthlete.id).proRequired()
                 case .sharedFolder(let folderID):

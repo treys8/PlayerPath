@@ -27,6 +27,18 @@ struct CoachesView: View {
     @State private var reinviteError: String?
     @State private var showingReinviteError = false
 
+    // Incoming coach→athlete invitations surfaced inline (see PendingCoachInvitationsView).
+    @State private var invitationActions = CoachInvitationActions()
+    @Query private var allAthletes: [Athlete]
+    private var invitationManager: AthleteInvitationManager { .shared }
+
+    /// Athletes belonging to the signed-in user. Multi-athlete users must pick one
+    /// when accepting an invitation (it was keyed by parent/user email).
+    private var athletesForUser: [Athlete] {
+        guard let uid = authManager.userID else { return [] }
+        return allAthletes.filter { $0.user?.firebaseAuthUid == uid }
+    }
+
     // Use @Query to automatically fetch coaches for this athlete
     private var athleteID: UUID
 
@@ -42,7 +54,7 @@ struct CoachesView: View {
 
     var body: some View {
         Group {
-            if coaches.isEmpty {
+            if coaches.isEmpty && invitationManager.pendingInvitations.isEmpty {
                 EmptyCoachesView(
                     onAddCoach: {
                         Haptics.light()
@@ -61,6 +73,18 @@ struct CoachesView: View {
                 )
             } else {
                 List {
+                    // Incoming invitations from coaches — actionable inline.
+                    if !invitationManager.pendingInvitations.isEmpty {
+                        Section("Invitations (\(invitationManager.pendingCount))") {
+                            CoachInvitationRows(
+                                actions: invitationActions,
+                                authManager: authManager,
+                                modelContext: modelContext,
+                                athletes: athletesForUser
+                            )
+                        }
+                    }
+
                     // Invite Coach Banner (Pro)
                     if authManager.hasCoachingAccess {
                         Section {
@@ -93,37 +117,39 @@ struct CoachesView: View {
                         .listRowBackground(Theme.card)
                     }
 
-                    Section("Your Coaches") {
-                        ForEach(coaches) { coach in
-                            NavigationLink(destination: CoachDetailView(coach: coach, athlete: athlete)) {
-                                CoachRow(coach: coach)
-                            }
-                            .listRowBackground(Theme.card)
-                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                Button(role: .destructive) {
-                                    Haptics.warning()
-                                    coachToDelete = coach
-                                    showingDeleteConfirmation = true
-                                } label: {
-                                    Label("Remove", systemImage: "trash")
+                    if !coaches.isEmpty {
+                        Section("Your Coaches") {
+                            ForEach(coaches) { coach in
+                                NavigationLink(destination: CoachDetailView(coach: coach, athlete: athlete)) {
+                                    CoachRow(coach: coach)
                                 }
-                                Button {
-                                    Haptics.warning()
-                                    coachToReport = coach
-                                    showingReportConfirmation = true
-                                } label: {
-                                    Label("Report", systemImage: "flag")
-                                }
-                                .tint(Theme.warning)
-                            }
-                            .swipeActions(edge: .leading) {
-                                if coach.isInvitationExpired || coach.lastInvitationStatus == "declined" || coach.lastInvitationStatus == "rejected_limit" {
-                                    Button {
-                                        reinviteCoach(coach)
+                                .listRowBackground(Theme.card)
+                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                    Button(role: .destructive) {
+                                        Haptics.warning()
+                                        coachToDelete = coach
+                                        showingDeleteConfirmation = true
                                     } label: {
-                                        Label("Re-invite", systemImage: "paperplane")
+                                        Label("Remove", systemImage: "trash")
                                     }
-                                    .tint(ppAccent)
+                                    Button {
+                                        Haptics.warning()
+                                        coachToReport = coach
+                                        showingReportConfirmation = true
+                                    } label: {
+                                        Label("Report", systemImage: "flag")
+                                    }
+                                    .tint(Theme.warning)
+                                }
+                                .swipeActions(edge: .leading) {
+                                    if coach.isInvitationExpired || coach.lastInvitationStatus == "declined" || coach.lastInvitationStatus == "rejected_limit" {
+                                        Button {
+                                            reinviteCoach(coach)
+                                        } label: {
+                                            Label("Re-invite", systemImage: "paperplane")
+                                        }
+                                        .tint(ppAccent)
+                                    }
                                 }
                             }
                         }
@@ -131,6 +157,12 @@ struct CoachesView: View {
                 }
                 .scrollContentBackground(.hidden)
                 .background(Theme.surface)
+                .coachInvitationSheets(
+                    invitationActions,
+                    authManager: authManager,
+                    modelContext: modelContext,
+                    athletes: athletesForUser
+                )
             }
         }
         .onAppear { AnalyticsService.shared.trackScreenView(screenName: "Coaches", screenClass: "CoachesView") }
