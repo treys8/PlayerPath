@@ -14,6 +14,7 @@ private let log = Logger(subsystem: "com.playerpath.app", category: "AthleteInvi
 
 struct AthleteInvitationsBanner: View {
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
+    @Environment(\.ppAccent) private var ppAccent
     private var invitationManager: AthleteInvitationManager { .shared }
     @State private var showingInvitations = false
 
@@ -27,37 +28,37 @@ struct AthleteInvitationsBanner: View {
                     HStack(spacing: 12) {
                         ZStack {
                             Circle()
-                                .fill(Color.green.opacity(0.15))
+                                .fill(ppAccent.opacity(0.15))
                                 .frame(width: 44, height: 44)
 
                             Image(systemName: "envelope.badge.fill")
                                 .font(.title3)
-                                .foregroundColor(.green)
+                                .foregroundColor(ppAccent)
                         }
 
                         VStack(alignment: .leading, spacing: 2) {
                             Text("\(invitationManager.pendingCount) Coach Invitation\(invitationManager.pendingCount == 1 ? "" : "s")")
                                 .font(.headingMedium)
-                                .foregroundColor(.primary)
+                                .foregroundColor(Theme.textPrimary)
 
                             Text("Tap to view and respond")
                                 .font(.bodySmall)
-                                .foregroundColor(.secondary)
+                                .foregroundColor(Theme.textSecondary)
                         }
 
                         Spacer()
 
                         Image(systemName: "chevron.right")
                             .font(.caption)
-                            .foregroundColor(.gray)
+                            .foregroundColor(Theme.textTertiary)
                     }
                     .padding()
                     .background(
                         RoundedRectangle(cornerRadius: .cornerXLarge)
-                            .fill(Color.green.opacity(0.08))
+                            .fill(ppAccent.opacity(0.08))
                             .overlay(
                                 RoundedRectangle(cornerRadius: .cornerXLarge)
-                                    .stroke(Color.green.opacity(0.3), lineWidth: 1)
+                                    .stroke(ppAccent.opacity(0.3), lineWidth: 1)
                             )
                     )
                 }
@@ -84,6 +85,15 @@ struct AthleteInvitationsSheet: View {
     @State private var errorMessage: String?
     @State private var showingPaywall = false
     @State private var pendingInvitationForPicker: CoachToAthleteInvitation?
+    /// The invitation the athlete tapped Accept on while below Pro. Held so that a
+    /// successful upgrade in the paywall can resume the accept automatically instead
+    /// of dropping the athlete back with nothing happening.
+    @State private var pendingInvitationForPaywall: CoachToAthleteInvitation?
+    /// Set by the paywall's purchase callback when a Pro purchase completed. The
+    /// resume itself runs in the paywall's `onDismiss` (after the sheet is fully
+    /// gone) so we never present the athlete picker while the paywall is still
+    /// dismissing — which would race two sheets on the same view.
+    @State private var didPurchaseProForPendingInvite = false
 
     /// Athletes belonging to the currently-signed-in user. Multi-athlete users need to pick one
     /// when accepting a coach invitation (the coach doesn't know which kid the invite is for).
@@ -113,6 +123,8 @@ struct AthleteInvitationsSheet: View {
                 }
             }
             .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(Theme.surface)
             .navigationTitle("Coach Invitations")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -128,9 +140,15 @@ struct AthleteInvitationsSheet: View {
             } message: {
                 Text(errorMessage ?? "")
             }
-            .sheet(isPresented: $showingPaywall) {
+            .sheet(isPresented: $showingPaywall, onDismiss: {
+                resumeAcceptAfterPaywallIfPurchased()
+            }) {
                 if let user = authManager.localUser {
-                    ImprovedPaywallView(user: user)
+                    ImprovedPaywallView(user: user, requiredTier: .pro) {
+                        // Pro purchase completed — just flag it. The actual resume
+                        // runs in onDismiss above, after this sheet is fully gone.
+                        didPurchaseProForPendingInvite = true
+                    }
                 }
             }
             .sheet(item: $pendingInvitationForPicker) { invitation in
@@ -154,6 +172,8 @@ struct AthleteInvitationsSheet: View {
 
     private func acceptInvitation(_ invitation: CoachToAthleteInvitation) async {
         guard authManager.hasCoachingAccess else {
+            // Queue this invitation so a successful Pro purchase resumes the accept.
+            pendingInvitationForPaywall = invitation
             showingPaywall = true
             return
         }
@@ -188,9 +208,21 @@ struct AthleteInvitationsSheet: View {
         log.debug("ACCEPT starting for invitation \(invitation.id ?? "nil") from coach \(invitation.coachName, privacy: .private)")
         processingInvitationID = invitation.id
 
+        // Confirm Firestore has our current subscription tier *before* the accept
+        // Cloud Function reads it — otherwise a just-upgraded athlete (or a failed
+        // sync) would be rejected with a misleading "Pro required" error. The sync
+        // now throws on failure instead of silently swallowing it.
         do {
-            await authManager.syncSubscriptionTierToFirestoreAndWait()
+            try await authManager.syncSubscriptionTierToFirestoreAndWait()
+        } catch {
+            log.warning("Tier sync before accept failed: \(error.localizedDescription)")
+            errorMessage = "Couldn't verify your subscription. Check your connection and try again."
+            Haptics.error()
+            processingInvitationID = nil
+            return
+        }
 
+        do {
             let result = try await AthleteInvitationManager.shared.acceptInvitation(
                 invitation,
                 userID: currentUID,
@@ -209,6 +241,30 @@ struct AthleteInvitationsSheet: View {
         // processingInvitationID is still set — so the .onChange dismiss is skipped.
         // Re-check now that the flag is clear to auto-close after the last accept.
         if invitationManager.pendingInvitations.isEmpty { dismiss() }
+    }
+
+    /// Runs when the paywall opened by the Accept gate is dismissed. If a Pro
+    /// purchase completed, resumes the queued accept so the upgrade isn't a dead
+    /// end; otherwise just drops the queued invitation. Runs after the paywall is
+    /// fully dismissed, so presenting the athlete picker here can't race the paywall.
+    /// Routes straight to `performAccept` (not back through the gate) so the local
+    /// tier publisher doesn't need to have propagated yet — the server re-validates
+    /// Pro from the App Store receipt during the sync inside `performAccept`.
+    private func resumeAcceptAfterPaywallIfPurchased() {
+        guard let queued = pendingInvitationForPaywall else { return }
+        pendingInvitationForPaywall = nil
+        guard didPurchaseProForPendingInvite else {
+            // Paywall closed without a qualifying Pro purchase — nothing to resume.
+            return
+        }
+        didPurchaseProForPendingInvite = false
+        let athletes = athletesForUser
+        if athletes.count >= 2 {
+            // Multi-athlete account: still ask which athlete this invite is for.
+            pendingInvitationForPicker = queued
+        } else {
+            Task { await performAccept(invitation: queued, targetAthlete: athletes.first) }
+        }
     }
 
     private func declineInvitation(_ invitation: CoachToAthleteInvitation) async {
@@ -244,32 +300,35 @@ struct CoachInvitationCard: View {
     let onAccept: () async -> Void
     let onDecline: () async -> Void
 
+    @Environment(\.ppAccent) private var ppAccent
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             // Coach info
             HStack(spacing: 12) {
                 ZStack {
                     Circle()
-                        .fill(Color.green.opacity(0.15))
+                        .fill(ppAccent.opacity(0.15))
                         .frame(width: 50, height: 50)
 
                     Image(systemName: "person.fill")
                         .font(.title2)
-                        .foregroundColor(.green)
+                        .foregroundColor(ppAccent)
                 }
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(invitation.coachName)
                         .font(.headingMedium)
+                        .foregroundColor(Theme.textPrimary)
 
                     Text(invitation.coachEmail)
                         .font(.bodySmall)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(Theme.textSecondary)
 
                     if let sentAt = invitation.sentAt {
                         Text("Sent \(sentAt.formatted(.relative(presentation: .named)))")
                             .font(.labelSmall)
-                            .foregroundColor(.secondary)
+                            .foregroundColor(Theme.textTertiary)
                     }
                 }
             }
@@ -278,9 +337,9 @@ struct CoachInvitationCard: View {
             if let message = invitation.message, !message.isEmpty {
                 Text(message)
                     .font(.bodyMedium)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(Theme.textSecondary)
                     .padding()
-                    .background(Color(.systemGray6))
+                    .background(Theme.surface)
                     .cornerRadius(.cornerMedium)
             }
 
@@ -291,11 +350,17 @@ struct CoachInvitationCard: View {
                 } label: {
                     Text("Decline")
                         .font(.labelLarge)
+                        .foregroundColor(Theme.textPrimary)
                         .frame(maxWidth: .infinity)
                         .frame(height: 44)
-                        .background(Color(.systemGray5))
-                        .foregroundColor(.primary)
-                        .cornerRadius(10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(Theme.surface)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .strokeBorder(Theme.pillBorder, lineWidth: 1)
+                        )
                 }
                 .buttonStyle(.borderless)
                 .disabled(isProcessing)
@@ -314,7 +379,7 @@ struct CoachInvitationCard: View {
                     .font(.headingMedium)
                     .frame(maxWidth: .infinity)
                     .frame(height: 44)
-                    .background(Color.green)
+                    .background(ppAccent)
                     .foregroundColor(.white)
                     .cornerRadius(10)
                 }
@@ -323,10 +388,11 @@ struct CoachInvitationCard: View {
             }
         }
         .padding()
-        .background(Color(.secondarySystemBackground))
+        .background(Theme.card)
         .cornerRadius(.cornerXLarge)
         .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
         .listRowSeparator(.hidden)
+        .listRowBackground(Theme.surface)
     }
 }
 

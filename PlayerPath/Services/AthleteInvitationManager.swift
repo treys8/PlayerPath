@@ -203,6 +203,13 @@ class AthleteInvitationManager {
     // MARK: - Error Mapping
 
     static func errorMessage(for error: Error, action: String) -> String {
+        // Coach-at-limit comes back as a typed SharedFolderError, not an
+        // InvitationErrorCode. Phrase it so the athlete isn't told THEY hit a limit —
+        // it's the coach's roster that's full, and the coach is the one who upgrades.
+        if let folderError = error as? SharedFolderError,
+           case .coachAthleteLimitReached = folderError {
+            return "This coach has reached their athlete limit, so they can't connect right now. Ask them to upgrade their plan."
+        }
         let nsError = error as NSError
         switch nsError.code {
         case InvitationErrorCode.expired.rawValue:

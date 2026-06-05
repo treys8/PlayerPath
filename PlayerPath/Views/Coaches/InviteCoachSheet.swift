@@ -245,6 +245,11 @@ struct InviteCoachSheet: View {
                     ])
                 }
 
+                // Make sure Firestore has our latest tier before createInvitation's
+                // rules check runs, so a just-changed subscription is reflected and a
+                // stale-tier write doesn't get rejected server-side.
+                try? await authManager.syncSubscriptionTierToFirestoreAndWait()
+
                 // Require Pro tier to invite coaches
                 guard authManager.hasCoachingAccess else {
                     throw SharedFolderError.coachingRequired
@@ -278,7 +283,13 @@ struct InviteCoachSheet: View {
                 showingSuccess = true
             } catch {
                 isSending = false
-                errorMessage = "Failed to send invitation: \(error.localizedDescription)"
+                let nsError = error as NSError
+                if nsError.domain == "FIRFirestoreErrorDomain" && nsError.code == 7 {
+                    // Firestore rules rejected the write — athlete no longer has Pro.
+                    errorMessage = "A Pro subscription is required to invite a coach. Upgrade to Pro and try again."
+                } else {
+                    errorMessage = "Failed to send invitation: \(error.localizedDescription)"
+                }
                 ErrorHandlerService.shared.handle(error, context: "InviteCoachSheet.sendInvitation", showAlert: false)
             }
         }

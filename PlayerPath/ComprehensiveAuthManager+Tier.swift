@@ -122,9 +122,12 @@ extension ComprehensiveAuthManager {
 
     /// Awaitable version of tier sync — use before operations that depend on Firestore
     /// having the latest subscription tier (e.g. accepting coach invitations after upgrade).
-    func syncSubscriptionTierToFirestoreAndWait() async {
+    /// Throws if the write can't be confirmed after retries, so callers can refuse to
+    /// proceed (rather than calling a Cloud Function that would then read a stale tier
+    /// and reject with a misleading "Pro required" error).
+    func syncSubscriptionTierToFirestoreAndWait() async throws {
         guard let userID = currentFirebaseUser?.uid else { return }
-        await retryAsync(maxAttempts: 3) {
+        try await withRetry(maxAttempts: 3) {
             try await FirestoreManager.shared.syncSubscriptionTiersWithThrow(
                 userID: userID
             )

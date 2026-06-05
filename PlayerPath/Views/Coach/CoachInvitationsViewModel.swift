@@ -14,6 +14,9 @@ import FirebaseAuth
 class CoachInvitationsViewModel {
     var invitations: [CoachInvitation] = []
     var sentInvitations: [CoachToAthleteInvitation] = []
+    /// Athlete→coach invitations to this coach that were auto-rejected for the coach's
+    /// athlete limit. Surfaced in a recovery section so the coach can upgrade & re-accept.
+    var limitRejectedReceived: [CoachInvitation] = []
     var isLoading = false
     var errorMessage: String?
     var limitReached = false
@@ -68,6 +71,7 @@ class CoachInvitationsViewModel {
 
         async let receivedTask = SharedFolderManager.shared.checkPendingInvitations(forEmail: email)
         async let sentTask = FirestoreManager.shared.fetchSentCoachInvitations(forCoachID: coachID)
+        async let limitRejectedTask = FirestoreManager.shared.fetchLimitRejectedReceivedInvitations(forCoachEmail: email)
 
         let receivedResult: Result<[CoachInvitation], Error>
         do { receivedResult = .success(try await receivedTask) }
@@ -76,6 +80,9 @@ class CoachInvitationsViewModel {
         let sentResult: Result<[CoachToAthleteInvitation], Error>
         do { sentResult = .success(try await sentTask) }
         catch { sentResult = .failure(error) }
+
+        // Best-effort: a failure here just means the recovery section stays empty.
+        limitRejectedReceived = (try? await limitRejectedTask) ?? []
 
         var errors: [String] = []
         switch receivedResult {

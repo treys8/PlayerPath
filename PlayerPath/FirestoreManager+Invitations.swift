@@ -151,6 +151,31 @@ extension FirestoreManager {
         }
     }
 
+    /// Fetches athlete→coach invitations to this coach that were auto-rejected because
+    /// the coach was at their athlete limit. Lets the coach see and re-accept them after
+    /// upgrading (the accept Cloud Function allows re-accepting from `rejected_limit`).
+    /// Reuses the existing (type, coachEmail, status, expiresAt) composite index.
+    func fetchLimitRejectedReceivedInvitations(forCoachEmail email: String) async throws -> [CoachInvitation] {
+        let snapshot = try await db.collection(FC.invitations)
+            .whereField("type", isEqualTo: "athlete_to_coach")
+            .whereField("coachEmail", isEqualTo: normalizeInvitationEmail(email))
+            .whereField("status", isEqualTo: "rejected_limit")
+            .whereField("expiresAt", isGreaterThan: Timestamp(date: Date()))
+            .limit(to: 100)
+            .getDocuments()
+
+        return snapshot.documents.compactMap { doc -> CoachInvitation? in
+            do {
+                var invitation = try doc.data(as: CoachInvitation.self)
+                invitation.id = doc.documentID
+                return invitation
+            } catch {
+                firestoreLog.warning("Failed to decode limit-rejected invitation \(doc.documentID): \(error.localizedDescription)")
+                return nil
+            }
+        }
+    }
+
     /// Fetches invitations sent by a specific athlete to check their current status.
     /// Used by the athlete's CoachesView to detect when a coach has accepted/declined.
     func fetchInvitations(forAthleteID athleteID: String) async throws -> [CoachInvitation] {
@@ -449,6 +474,12 @@ extension FirestoreManager {
                     throw NSError(domain: "FirestoreManager", code: InvitationErrorCode.alreadyProcessed.rawValue,
                                   userInfo: [NSLocalizedDescriptionKey: message])
                 }
+            } else if status == "PERMISSION_DENIED" {
+                // CF rejects a non-Pro athlete with permission-denied. Map it to the
+                // Pro-required code so the athlete sees the actionable upgrade message
+                // instead of a generic failure. (Mirrors the athlete→coach path above.)
+                throw NSError(domain: "FirestoreManager", code: InvitationErrorCode.proRequired.rawValue,
+                              userInfo: [NSLocalizedDescriptionKey: message])
             }
             throw NSError(domain: "FirestoreManager", code: httpResponse.statusCode,
                           userInfo: [NSLocalizedDescriptionKey: message])

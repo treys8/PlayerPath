@@ -96,7 +96,7 @@ struct CoachInvitationsView: View {
 
     @ViewBuilder
     private var receivedInvitationsView: some View {
-        if viewModel.invitations.isEmpty {
+        if viewModel.invitations.isEmpty && viewModel.limitRejectedReceived.isEmpty {
             EmptyInvitationsView(
                 icon: "envelope.open",
                 title: "No Received Invitations",
@@ -150,6 +150,34 @@ struct CoachInvitationsView: View {
                         }
                     } header: {
                         Text("Declined")
+                    }
+                }
+
+                if !viewModel.limitRejectedReceived.isEmpty {
+                    Section {
+                        ForEach(viewModel.limitRejectedReceived) { invitation in
+                            InvitationRow(
+                                invitation: invitation,
+                                isAtLimit: viewModel.isAtAthleteLimit,
+                                onAccept: {
+                                    let accepted = await viewModel.acceptInvitation(invitation, authManager: authManager)
+                                    if viewModel.limitReached {
+                                        showingPaywall = true
+                                        viewModel.limitReached = false
+                                    } else if accepted {
+                                        acceptedAthleteName = invitation.athleteName
+                                        showAcceptedToast = true
+                                    }
+                                },
+                                onUpgrade: {
+                                    showingPaywall = true
+                                }
+                            )
+                        }
+                    } header: {
+                        Text("Couldn't Accept — Limit Reached")
+                    } footer: {
+                        Text("These athletes invited you while you were at your athlete limit. Upgrade your plan, then accept to connect.")
                     }
                 }
             }
@@ -229,7 +257,8 @@ struct InvitationRow: View {
     let invitation: CoachInvitation
     var isAtLimit: Bool = false
     let onAccept: () async -> Void
-    let onDecline: () async -> Void
+    /// When nil (e.g. the limit-reached recovery section), no Decline button is shown.
+    var onDecline: (() async -> Void)? = nil
     var onUpgrade: (() -> Void)?
 
     @State private var isProcessing = false
@@ -272,25 +301,27 @@ struct InvitationRow: View {
                 .padding(.vertical, 8)
             } else {
                 HStack(spacing: 12) {
-                    Button {
-                        guard !isProcessing else { return }
-                        isProcessing = true
-                        Task {
-                            await onDecline()
-                            isProcessing = false
+                    if let onDecline {
+                        Button {
+                            guard !isProcessing else { return }
+                            isProcessing = true
+                            Task {
+                                await onDecline()
+                                isProcessing = false
+                            }
+                        } label: {
+                            Text("Decline")
+                                .font(.subheadline)
+                                .fontWeight(.medium)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 8)
+                                .background(Color(.systemGray5))
+                                .foregroundColor(.primary)
+                                .cornerRadius(8)
                         }
-                    } label: {
-                        Text("Decline")
-                            .font(.subheadline)
-                            .fontWeight(.medium)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 8)
-                            .background(Color(.systemGray5))
-                            .foregroundColor(.primary)
-                            .cornerRadius(8)
+                        .buttonStyle(.borderless)
+                        .disabled(isProcessing)
                     }
-                    .buttonStyle(.borderless)
-                    .disabled(isProcessing)
 
                     if isAtLimit {
                         VStack(spacing: 4) {

@@ -431,6 +431,16 @@ class SharedFolderManager {
                           userInfo: [NSLocalizedDescriptionKey: "This invitation has expired."])
         }
 
+        // Push our latest coach subscription tier to Firestore before the Cloud
+        // Function reads it for the athlete-limit check. A coach who just upgraded
+        // (to make room for this athlete) would otherwise be checked against their
+        // stale tier and falsely rejected — which terminally marks the invite
+        // rejected_limit. Best-effort: the CF stays authoritative, and the
+        // "Upgrade to Accept" gate still covers the already-at-limit case.
+        if let authManager {
+            try? await authManager.syncSubscriptionTierToFirestoreAndWait()
+        }
+
         // Server-side: Cloud Function validates limit, accepts invitation, and creates folders
         let permissions = invitation.permissions ?? .default
         folderLog.debug("acceptInvitation: calling firestore.acceptInvitation for \(invitationID)")

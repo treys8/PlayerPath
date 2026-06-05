@@ -11,6 +11,13 @@ import SwiftData
 
 struct ImprovedPaywallView: View {
     let user: User
+    /// When set, the paywall is opened to unlock a feature that needs at least this
+    /// tier (e.g. connecting with a coach needs `.pro`). Seeds the selection to that
+    /// tier, prevents selecting/buying a lower one, and shows a context banner.
+    let requiredTier: SubscriptionTier?
+    /// Invoked after a successful purchase that satisfies `requiredTier`, just before
+    /// the paywall dismisses — lets the presenter resume the action that opened it.
+    let onPurchaseCompleted: (() -> Void)?
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
@@ -19,6 +26,15 @@ struct ImprovedPaywallView: View {
     // Selection state
     @State private var selectedTier: SubscriptionTier = .plus
     @State private var isAnnual: Bool = true
+
+    init(user: User,
+         requiredTier: SubscriptionTier? = nil,
+         onPurchaseCompleted: (() -> Void)? = nil) {
+        self.user = user
+        self.requiredTier = requiredTier
+        self.onPurchaseCompleted = onPurchaseCompleted
+        _selectedTier = State(initialValue: requiredTier ?? .plus)
+    }
 
     @State private var isPurchasing = false
     @State private var showingTerms = false
@@ -105,7 +121,10 @@ struct ImprovedPaywallView: View {
             }
             .onChange(of: storeManager.currentTier) { _, newTier in
                 guard hasAppeared else { return }
-                if newTier >= .plus {
+                // When opened to unlock a specific feature, only treat the purchase as
+                // "succeeded" once it actually reaches the required tier — otherwise a
+                // stray Plus resolution would dismiss a Pro-required paywall early.
+                if newTier >= (requiredTier ?? .plus) {
                     onPurchaseSucceeded()
                 }
             }
@@ -130,6 +149,26 @@ struct ImprovedPaywallView: View {
                 .font(.bodyMedium)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
+
+            if let req = requiredTier {
+                Label(requiredTierMessage(req), systemImage: "lock.fill")
+                    .font(.labelMedium)
+                    .foregroundStyle(Color.brandNavy)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Color.brandNavy.opacity(0.1))
+                    .clipShape(Capsule())
+                    .multilineTextAlignment(.center)
+            }
+        }
+    }
+
+    /// Context message shown when the paywall is opened to unlock a specific feature.
+    private func requiredTierMessage(_ tier: SubscriptionTier) -> String {
+        switch tier {
+        case .pro:  return "Connecting with a coach requires Pro"
+        case .plus: return "This feature requires Plus or higher"
+        case .free: return ""
         }
     }
 
@@ -266,18 +305,22 @@ struct ImprovedPaywallView: View {
 
     private func tierHeaderCell(_ title: String, tier: SubscriptionTier) -> some View {
         let isSelected = selectedTier == tier
+        // A tier below the required one can't satisfy the feature, so it isn't selectable.
+        let isLocked = requiredTier.map { tier < $0 } ?? false
         return Button {
-            if tier != .free { withAnimation(.spring(response: 0.25)) { selectedTier = tier } }
+            if tier != .free && !isLocked { withAnimation(.spring(response: 0.25)) { selectedTier = tier } }
         } label: {
             Text(title)
                 .font(.headingMedium)
-                .foregroundStyle(isSelected ? .white : .primary)
+                .foregroundStyle(isSelected ? .white : (isLocked ? .secondary : .primary))
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
                 .background(isSelected ? Color.brandNavy : Color.clear)
                 .cornerRadius(tier == .plus ? 0 : (tier == .pro ? 9 : 0), corners: tier == .pro ? [.topRight] : [])
+                .opacity(isLocked ? 0.45 : 1)
         }
         .buttonStyle(.plain)
+        .disabled(isLocked)
         .animation(.easeInOut(duration: 0.2), value: isSelected)
     }
 
@@ -595,6 +638,8 @@ struct ImprovedPaywallView: View {
         purchaseSucceeded = true
         // Subscription tier is managed by StoreKit verification + Firestore sync.
         // Do not write tier to local SwiftData — it's the server's source of truth.
+        // Notify the presenter (e.g. resume a coach-invitation accept) before dismissing.
+        onPurchaseCompleted?()
         dismiss()
     }
 }

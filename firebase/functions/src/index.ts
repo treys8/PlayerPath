@@ -2005,6 +2005,22 @@ export const acceptAthleteToCoachInvitation = functions.https.onCall(async (data
   // Read the invitation to find the athlete for the "already connected" check
   const preCheckSnap = await db.collection('invitations').doc(invitationID).get();
   const preCheckData = preCheckSnap.data();
+
+  // Coach sharing is a Pro feature on the athlete side. Re-verify the inviting
+  // athlete STILL has Pro at acceptance time — they may have lapsed between sending
+  // the invite and the coach accepting it. Mirrors the symmetric athlete-tier check
+  // in acceptCoachToAthleteInvitation. The invitation is left pending (not terminally
+  // rejected) so it becomes acceptable again if the athlete re-subscribes.
+  const invitingAthleteID = preCheckData?.athleteID;
+  if (invitingAthleteID) {
+    const invitingAthleteDoc = await db.collection('users').doc(invitingAthleteID).get();
+    if (invitingAthleteDoc.data()?.subscriptionTier !== 'pro') {
+      throw new functions.https.HttpsError(
+        'permission-denied',
+        'This athlete no longer has a Pro subscription, so the connection cannot be completed.'
+      );
+    }
+  }
   // Dual-sport key: re-read the athlete profile doc (authoritative) so two sport
   // profiles of one person collapse to a single coach slot. athleteID = owning
   // account UID. Falls back to athleteUUID for solo athletes.
@@ -2046,7 +2062,11 @@ export const acceptAthleteToCoachInvitation = functions.https.onCall(async (data
       throw new functions.https.HttpsError('failed-precondition', 'Wrong invitation type');
     }
 
-    if (inv.status !== 'pending') {
+    // Allow re-accepting an invitation that was previously auto-rejected for the
+    // coach's athlete limit — the coach can upgrade and retry from the "Limit
+    // Reached" section. The pre-check above + the atomic check below re-reject if
+    // the coach is still over limit.
+    if (inv.status !== 'pending' && inv.status !== 'rejected_limit') {
       throw new functions.https.HttpsError('failed-precondition', 'This invitation has already been processed.');
     }
 
@@ -2115,6 +2135,9 @@ export const acceptAthleteToCoachInvitation = functions.https.onCall(async (data
       status: 'accepted',
       acceptedAt: admin.firestore.FieldValue.serverTimestamp(),
       acceptedByCoachID: coachID,
+      // Clear any prior limit-rejection markers when re-accepting after upgrade.
+      rejectedReason: admin.firestore.FieldValue.delete(),
+      rejectedAt: admin.firestore.FieldValue.delete(),
       // Stamp the dual-sport key so the accepted-invitation merge in the count
       // sites agrees with the folder doc (same key → no double-count).
       ...(resolvedPersonGroupID ? { personGroupID: resolvedPersonGroupID } : {}),
@@ -3162,6 +3185,28 @@ async function revokeCoachAccessForLapsedAthlete(
   uid: string,
   afterData: admin.firestore.DocumentData | undefined
 ): Promise<void> {
+  // Cancel any still-pending athlete→coach invitations this athlete sent. Coach
+  // sharing is Pro-only, so an outstanding invite from a now-lapsed athlete should
+  // not remain acceptable. Done first (before the folders early-return) so it runs
+  // even when the athlete has no shared folders yet. The athlete simply re-invites
+  // after re-subscribing — restore only re-links previously-accepted connections.
+  try {
+    const pendingInvSnap = await db.collection('invitations')
+      .where('type', '==', 'athlete_to_coach')
+      .where('athleteID', '==', uid)
+      .where('status', '==', 'pending')
+      .get();
+    for (const invDoc of pendingInvSnap.docs) {
+      await invDoc.ref.update({
+        status: 'cancelled',
+        cancelledAt: admin.firestore.FieldValue.serverTimestamp(),
+        cancelledReason: 'athlete_tier_lapsed',
+      });
+    }
+  } catch (e) {
+    console.error(`Failed to cancel pending athlete→coach invites for ${uid}:`, e);
+  }
+
   const foldersSnap = await db.collection('sharedFolders')
     .where('ownerAthleteID', '==', uid)
     .get();
