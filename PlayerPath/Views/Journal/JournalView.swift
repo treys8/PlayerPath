@@ -249,6 +249,7 @@ struct JournalView: View {
             .padding(.vertical, .spacingLarge)
         }
         .background(Theme.surface)
+        .refreshable { await refreshFeed() }
         // The empty state carries its own in-body serif title block, so suppress
         // the large nav title there — otherwise "The Journal." renders twice.
         .navigationTitle(hasContent ? "The Journal." : "")
@@ -279,6 +280,29 @@ struct JournalView: View {
             ToolbarItem(placement: .principal) {
                 PPAthleteSwitcher(athlete: athlete)
             }
+        }
+    }
+
+    // MARK: - Pull to refresh
+
+    /// Pull-to-refresh: kick a full bidirectional sync so the feed picks up
+    /// changes made elsewhere — new coach clips/feedback and edits from another
+    /// device. Local creates already update reactively via the @Query feed, so
+    /// this only matters for pulling DOWN remote state. The @Query arrays refresh
+    /// themselves once sync writes into SwiftData, so there is nothing to reload
+    /// here. (The invitations banner runs its own Firestore listener and is not
+    /// driven by this.) Mirrors VideoClipsView.refreshVideos: a busy / signed-out
+    /// sync is expected and swallowed.
+    @MainActor
+    private func refreshFeed() async {
+        Haptics.light()
+        guard user.firebaseAuthUid != nil else { return }
+        do {
+            try await SyncCoordinator.shared.syncAll(for: user)
+        } catch is SyncCoordinatorError {
+            // Already syncing or signed out — expected, ignore.
+        } catch {
+            ErrorHandlerService.shared.handle(error, context: "JournalView.refreshable", showAlert: false)
         }
     }
 

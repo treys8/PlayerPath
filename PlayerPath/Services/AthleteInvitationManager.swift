@@ -36,9 +36,16 @@ class AthleteInvitationManager {
         if listener != nil, listeningEmail == normalized { return }
         stopListening()
         listeningEmail = normalized
-        listener = FirestoreManager.shared.listenPendingCoachInvitations(forAthleteEmail: normalized) { [weak self] invitations in
-            guard let self else { return }
-            self.pendingInvitations = invitations
+        // Resolve Apple "Hide My Email" relay → real address(es) before attaching, so a
+        // relay user's pending invites surface in-app, not just via the email link.
+        // Everything here runs on the MainActor, so the post-await guards are race-safe:
+        // a stopListening() or email change during the await leaves listeningEmail stale.
+        Task { [weak self] in
+            let candidates = await FirestoreManager.shared.candidateInvitationEmails(primary: normalized)
+            guard let self, self.listeningEmail == normalized, self.listener == nil else { return }
+            self.listener = FirestoreManager.shared.listenPendingCoachInvitations(forAthleteEmails: candidates) { [weak self] invitations in
+                self?.pendingInvitations = invitations
+            }
         }
     }
 
@@ -63,7 +70,8 @@ class AthleteInvitationManager {
 
     func fetchPendingInvitations(forEmail email: String) async -> [CoachToAthleteInvitation] {
         do {
-            let invitations = try await FirestoreManager.shared.fetchPendingCoachInvitations(forAthleteEmail: email)
+            let candidates = await FirestoreManager.shared.candidateInvitationEmails(primary: email)
+            let invitations = try await FirestoreManager.shared.fetchPendingCoachInvitations(forAthleteEmails: candidates)
             pendingInvitations = invitations
             return invitations
         } catch {

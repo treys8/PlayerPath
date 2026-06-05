@@ -26,6 +26,11 @@ enum InvitationErrorCode: Int {
 /// Expiration constant for invitations (30 days)
 private let invitationExpirationInterval: TimeInterval = 30 * 24 * 60 * 60
 
+/// Apple "Hide My Email" proxy domain. Sign in with Apple users who hide their
+/// address get a `<random>@privaterelay.appleid.com` email that never matches the
+/// real address a coach typed into an invitation.
+private let applePrivateRelaySuffix = "@privaterelay.appleid.com"
+
 /// Normalizes an email for storage and lookup: lowercased + trimmed.
 /// Coach input frequently includes trailing spaces (autocomplete, paste) which
 /// would otherwise cause the invitation to be orphaned from the athlete's signup record.
@@ -386,12 +391,54 @@ extension FirestoreManager {
         }
     }
 
-    /// Fetches pending invitations from coaches for an athlete (by email)
-    func fetchPendingCoachInvitations(forAthleteEmail email: String) async throws -> [CoachToAthleteInvitation] {
+    /// Email addresses that could match a coach-to-athlete invitation addressed to the
+    /// current user. A coach invites by the athlete's *real* email, but Apple "Hide My
+    /// Email" replaces `currentUser.email` with a `@privaterelay.appleid.com` proxy that
+    /// never matches it — so a relay user's pending invitation would silently fail to
+    /// surface in-app. For relay accounts we additionally resolve the real address from
+    /// Firebase Auth providerData (covers accounts that linked Apple on top of an
+    /// email/password or Google login) and, as a last resort, the user's Firestore profile
+    /// email. This mirrors the resolution `acceptCoachToAthleteInvitation` performs
+    /// server-side, keeping the in-app banner consistent with the email-link/accept path.
+    /// Result is normalized, de-duplicated, and capped to Firestore's 10-value `in` limit.
+    func candidateInvitationEmails(primary email: String) async -> [String] {
+        var ordered: [String] = []
+        func add(_ raw: String?) {
+            guard let raw else { return }
+            let normalized = normalizeInvitationEmail(raw)
+            guard !normalized.isEmpty, !ordered.contains(normalized) else { return }
+            ordered.append(normalized)
+        }
+
+        add(email)
+
+        let user = Auth.auth().currentUser
+        // providerData is already in memory — no round trip. Covers the common case
+        // where Apple was linked on top of an existing email/password or Google login.
+        user?.providerData.forEach { add($0.email) }
+
+        let primaryIsRelay = normalizeInvitationEmail(email).hasSuffix(applePrivateRelaySuffix)
+        let haveRealEmail = ordered.contains { !$0.hasSuffix(applePrivateRelaySuffix) }
+
+        // Only pay for a profile read when we're still left with nothing but a relay
+        // address — i.e. the user manually set a real email in their profile.
+        if primaryIsRelay, !haveRealEmail, let uid = user?.uid {
+            let snap = try? await db.collection(FC.users).document(uid).getDocument()
+            add(snap?.data()?["email"] as? String)
+        }
+
+        return Array(ordered.prefix(10))
+    }
+
+    /// Fetches pending invitations from coaches for an athlete, matching any of the
+    /// candidate emails resolved by `candidateInvitationEmails(primary:)`.
+    func fetchPendingCoachInvitations(forAthleteEmails emails: [String]) async throws -> [CoachToAthleteInvitation] {
+        let candidates = Array(Set(emails.map(normalizeInvitationEmail)).subtracting([""])).prefix(10)
+        guard !candidates.isEmpty else { return [] }
         do {
             let snapshot = try await db.collection(FC.invitations)
                 .whereField("type", isEqualTo: "coach_to_athlete")
-                .whereField("athleteEmail", isEqualTo: normalizeInvitationEmail(email))
+                .whereField("athleteEmail", in: Array(candidates))
                 .whereField("status", isEqualTo: "pending")
                 .whereField("expiresAt", isGreaterThan: Timestamp(date: Date()))
                 .limit(to: 100)
@@ -647,15 +694,20 @@ extension FirestoreManager {
             }
     }
 
-    /// Real-time listener for pending coach-to-athlete invitations sent to a given email.
+    /// Real-time listener for pending coach-to-athlete invitations addressed to any of the
+    /// candidate emails resolved by `candidateInvitationEmails(primary:)`.
     /// Returns a `ListenerRegistration` the caller is responsible for removing.
     func listenPendingCoachInvitations(
-        forAthleteEmail email: String,
+        forAthleteEmails emails: [String],
         onUpdate: @escaping @MainActor ([CoachToAthleteInvitation]) -> Void
     ) -> ListenerRegistration {
+        // `in` requires a non-empty array; `[""]` is a valid no-match sentinel that keeps
+        // the registration object alive without ever firing a match.
+        let normalized = Array(Set(emails.map(normalizeInvitationEmail)).subtracting([""])).prefix(10)
+        let candidates = normalized.isEmpty ? [""] : Array(normalized)
         return db.collection(FC.invitations)
             .whereField("type", isEqualTo: "coach_to_athlete")
-            .whereField("athleteEmail", isEqualTo: normalizeInvitationEmail(email))
+            .whereField("athleteEmail", in: candidates)
             .whereField("status", isEqualTo: "pending")
             .whereField("expiresAt", isGreaterThan: Timestamp(date: Date()))
             .limit(to: 100)
