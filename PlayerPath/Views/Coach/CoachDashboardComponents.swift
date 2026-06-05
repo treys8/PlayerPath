@@ -174,10 +174,21 @@ struct CoachFolderRowView: View {
 
 struct CoachEmptyStateView: View {
     @Binding var showingInvitations: Bool
+    /// Opens the Invitations sheet on the Sent tab — wired from the host so a
+    /// coach with no connections yet can still see (and cancel) the invites
+    /// that are consuming their athlete slots.
+    var onViewSentInvitations: () -> Void = {}
     @State private var showingInviteAthlete = false
+    private var invitationManager: CoachInvitationManager { .shared }
 
     var body: some View {
         VStack(spacing: 24) {
+            if invitationManager.pendingSentCount > 0 {
+                PendingSentInvitationsBanner(onView: onViewSentInvitations)
+                    .padding(.horizontal, 24)
+                    .padding(.top, 8)
+            }
+
             Spacer()
 
             ZStack {

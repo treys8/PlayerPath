@@ -24,6 +24,14 @@ class CoachInvitationManager {
     var pendingInvitations: [CoachInvitation] = []
     var pendingInvitationsCount: Int { pendingInvitations.count }
 
+    /// Count of *sent* coach→athlete invitations still awaiting a response.
+    /// These consume athlete slots toward the coach's limit, so the UI surfaces
+    /// them (Dashboard/Athletes banner) — otherwise a coach with outstanding
+    /// invites hits "limit reached" with no visible explanation. Refreshed
+    /// explicitly via `refreshSentPendingCount` (cheap server aggregation) on
+    /// tab appear, pull-to-refresh, and after sending/cancelling an invite.
+    var pendingSentCount: Int = 0
+
     private var listener: ListenerRegistration?
     private var listeningEmail: String?
     private var pendingCheckTask: Task<Void, Never>?
@@ -55,6 +63,17 @@ class CoachInvitationManager {
         // Clear cached invitations so a subsequent role switch or login on the
         // same device doesn't briefly render the previous session's data.
         pendingInvitations = []
+        pendingSentCount = 0
+    }
+
+    /// Refreshes the count of sent coach→athlete invitations still awaiting a
+    /// response. Best-effort: leaves the prior value on transient failure.
+    func refreshSentPendingCount(coachID: String) async {
+        do {
+            pendingSentCount = try await FirestoreManager.shared.countPendingCoachToAthleteInvitations(coachID: coachID)
+        } catch {
+            invitationLog.error("Failed to refresh sent-pending count: \(error.localizedDescription)")
+        }
     }
 
     func checkPendingInvitations(forCoachEmail email: String) async {

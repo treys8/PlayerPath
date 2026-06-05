@@ -22,6 +22,7 @@ struct CoachAthletesTab: View {
     @State private var showingArchived = false
     @State private var showingInviteAthlete = false
     @State private var showingInvitations = false
+    @State private var invitationsInitialTab: CoachInvitationsView.InvitationTab = .received
     @State private var showingStartSession = false
     @State private var cachedActiveGroups: [CoachAthleteGroup] = []
     @State private var cachedArchivedGroups: [CoachAthleteGroup] = []
@@ -37,7 +38,10 @@ struct CoachAthletesTab: View {
                 if sharedFolderManager.isLoading && sharedFolderManager.coachFolders.isEmpty {
                     ProgressView("Loading athletes...")
                 } else if sharedFolderManager.coachFolders.isEmpty {
-                    CoachEmptyStateView(showingInvitations: $showingInvitations)
+                    CoachEmptyStateView(
+                        showingInvitations: $showingInvitations,
+                        onViewSentInvitations: openSentInvitations
+                    )
                 } else {
                     athletesList
                 }
@@ -104,7 +108,10 @@ struct CoachAthletesTab: View {
         // Re-run only when the signed-in coach changes — not on every appear
         // — so the initial folder group computation is stable across sheet
         // dismissals re-rendering this tab.
-        .task(id: authManager.userID) { updateFolderGroups() }
+        .task(id: authManager.userID) {
+            updateFolderGroups()
+            await refreshSentPendingCount()
+        }
         .onChange(of: searchText) { _, _ in
             debouncedFolderGroupUpdate()
         }
@@ -124,12 +131,17 @@ struct CoachAthletesTab: View {
                 showingInviteAthlete = true
             })
         }
-        .sheet(isPresented: $showingInviteAthlete) {
+        .sheet(isPresented: $showingInviteAthlete, onDismiss: {
+            Task { await refreshSentPendingCount() }
+        }) {
             InviteAthleteSheet()
         }
-        .sheet(isPresented: $showingInvitations) {
+        .sheet(isPresented: $showingInvitations, onDismiss: {
+            invitationsInitialTab = .received
+            Task { await refreshSentPendingCount() }
+        }) {
             NavigationStack {
-                CoachInvitationsView()
+                CoachInvitationsView(initialTab: invitationsInitialTab)
                     .environmentObject(authManager)
             }
         }
@@ -182,6 +194,9 @@ struct CoachAthletesTab: View {
 
                 // Pending invitations banner at top
                 PendingInvitationsBanner(showingInvitations: $showingInvitations)
+
+                // Sent invitations awaiting response (consume athlete slots)
+                PendingSentInvitationsBanner(onView: openSentInvitations)
 
                 ForEach(cachedFilteredGroups, id: \.athleteID) { group in
                     AthleteSection(
@@ -284,6 +299,17 @@ struct CoachAthletesTab: View {
         }
     }
 
+    /// Opens the Invitations sheet on the Sent tab (from the sent-pending banner).
+    private func openSentInvitations() {
+        invitationsInitialTab = .sent
+        showingInvitations = true
+    }
+
+    private func refreshSentPendingCount() async {
+        guard let coachID = authManager.userID else { return }
+        await invitationManager.refreshSentPendingCount(coachID: coachID)
+    }
+
     @MainActor
     private func reloadData() async {
         guard let coachID = authManager.userID else { return }
@@ -292,6 +318,7 @@ struct CoachAthletesTab: View {
             if let coachEmail = authManager.userEmail {
                 await invitationManager.checkPendingInvitations(forCoachEmail: coachEmail)
             }
+            await invitationManager.refreshSentPendingCount(coachID: coachID)
         } catch {
             ErrorHandlerService.shared.handle(error, context: "CoachAthletesTab.reloadData", showAlert: true)
         }

@@ -19,6 +19,8 @@ struct InviteAthleteSheet: View {
     @State private var showingSuccess = false
     @State private var errorMessage: String?
     @State private var isAtLimit = false
+    @State private var connectedCount = 0
+    @State private var pendingCount = 0
     @State private var showingPaywall = false
 
     private enum Field: Hashable { case name, email, message }
@@ -42,9 +44,9 @@ struct InviteAthleteSheet: View {
                             Image(systemName: "exclamationmark.triangle.fill")
                                 .foregroundColor(Theme.warning)
                             VStack(alignment: .leading, spacing: 4) {
-                                Text("Athlete limit reached")
+                                Text(pendingCount > 0 ? "All athlete slots in use" : "Athlete limit reached")
                                     .font(.subheadline).fontWeight(.semibold)
-                                Text("Your plan allows \(authManager.coachAthleteLimit) athletes. Upgrade to invite more.")
+                                Text(limitDetailText)
                                     .font(.caption).foregroundColor(.secondary)
                             }
                             Spacer()
@@ -224,11 +226,35 @@ struct InviteAthleteSheet: View {
     /// again whenever the upgrade paywall is dismissed.
     private func refreshLimit() async {
         guard let coachID = authManager.userID else { return }
-        isAtLimit = await SubscriptionGate.isAtAthleteLimit(
-            coachID: coachID,
-            authManager: authManager,
-            includingPending: true
-        )
+        // Fetch the breakdown (connected + pending) rather than just a Bool so
+        // the banner can explain *why* the coach is at their limit — pending
+        // sent invitations consume slots, and a coach seeing only their
+        // connected athletes otherwise has no way to know.
+        let connected = await SubscriptionGate.fullConnectedAthleteCount(coachID: coachID)
+        let pending = (try? await FirestoreManager.shared.countPendingCoachToAthleteInvitations(coachID: coachID)) ?? 0
+        connectedCount = connected
+        pendingCount = pending
+        isAtLimit = (connected + pending) >= authManager.coachAthleteLimit
+    }
+
+    /// Banner detail copy. When pending invitations are part of why the coach
+    /// is at their limit, break down connected vs. pending so they know
+    /// cancelling a pending invite (in Invitations → Sent) frees a slot.
+    private var limitDetailText: String {
+        let limit = authManager.coachAthleteLimit
+        let used = connectedCount + pendingCount
+        guard pendingCount > 0 else {
+            return "Your plan allows \(limit) athlete\(limit == 1 ? "" : "s"). Upgrade to invite more."
+        }
+        let pend = "\(pendingCount) pending invitation\(pendingCount == 1 ? "" : "s")"
+        let breakdown = "\(connectedCount) connected · \(pend) (\(used) of \(limit))."
+        // Cancelling a pending invite only frees a slot when connected athletes
+        // alone are under the limit; once connected hits the limit, only an
+        // upgrade helps — so don't suggest cancelling in that case.
+        let action = connectedCount < limit
+            ? "Cancel a pending invite or upgrade to invite more."
+            : "Upgrade to invite more."
+        return "\(breakdown) \(action)"
     }
 
     private func sendInvitation() {

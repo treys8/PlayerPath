@@ -20,6 +20,7 @@ struct CoachDashboardView: View {
     @State private var showingStartSession = false
     @State private var showingInviteAthlete = false
     @State private var showingInvitations = false
+    @State private var invitationsInitialTab: CoachInvitationsView.InvitationTab = .received
     /// Flag set when the StartSessionSheet is dismissing toward the invite
     /// flow. Consumed by the start sheet's onDismiss callback to present the
     /// next sheet without timer-based chaining.
@@ -54,7 +55,7 @@ struct CoachDashboardView: View {
     @State private var cachedRecentAthleteCards: [RecentAthleteCard] = []
     @State private var cachedThisMonthSessionCount = 0
     @State private var cachedThisMonthDurationLabel = "0s"
-    @State private var cachedThisMonthAvgClipsLabel = "0"
+    @State private var cachedThisMonthClipsLabel = "0"
     @State private var cachedThisMonthSessions: [CoachSession] = []
     @State private var showingCompletedSessions = false
     @State private var isOverAthleteLimit = false
@@ -83,6 +84,13 @@ struct CoachDashboardView: View {
                     // most action-worthy item, surfaced here so it isn't buried
                     // in the Athletes tab. Self-gates on pendingInvitationsCount.
                     PendingInvitationsBanner(showingInvitations: $showingInvitations)
+
+                    // Sent invitations awaiting response — surfaced so the
+                    // coach can see the invites consuming their athlete slots.
+                    PendingSentInvitationsBanner(onView: {
+                        invitationsInitialTab = .sent
+                        showingInvitations = true
+                    })
 
                     // Stale data warning
                     if let listenerError = sharedFolderManager.listenerError {
@@ -165,12 +173,17 @@ struct CoachDashboardView: View {
         } message: {
             Text("This scheduled session will be removed.")
         }
-        .sheet(isPresented: $showingInviteAthlete) {
+        .sheet(isPresented: $showingInviteAthlete, onDismiss: {
+            Task { await refreshSentPendingCount() }
+        }) {
             InviteAthleteSheet()
         }
-        .sheet(isPresented: $showingInvitations) {
+        .sheet(isPresented: $showingInvitations, onDismiss: {
+            invitationsInitialTab = .received
+            Task { await refreshSentPendingCount() }
+        }) {
             NavigationStack {
-                CoachInvitationsView()
+                CoachInvitationsView(initialTab: invitationsInitialTab)
                     .environmentObject(authManager)
             }
         }
@@ -239,6 +252,7 @@ struct CoachDashboardView: View {
                 folders: sharedFolderManager.coachFolders
             )
             await refreshAthleteLimit(coachID: coachID)
+            await invitationManager.refreshSentPendingCount(coachID: coachID)
             if sessionManager.sessions.isEmpty {
                 await sessionManager.fetchSessions(coachID: coachID)
             }
@@ -767,14 +781,14 @@ struct CoachDashboardView: View {
 
                     CoachSummaryCard(
                         icon: "clock.fill",
-                        title: "Duration",
+                        title: "Total time",
                         value: cachedThisMonthDurationLabel
                     )
 
                     CoachSummaryCard(
                         icon: "film.stack",
-                        title: "Avg clips",
-                        value: cachedThisMonthAvgClipsLabel
+                        title: "Clips",
+                        value: cachedThisMonthClipsLabel
                     )
                 }
             }
@@ -800,9 +814,14 @@ struct CoachDashboardView: View {
         }
         cachedThisMonthDurationLabel = totalDuration.durationCompact
 
+        // Clips captured *during live sessions* this month. This is distinct
+        // from videos in shared folders (which can arrive via athlete shares or
+        // post-session uploads) — only session-recorded clips increment
+        // CoachSession.clipCount, so this stays 0 until the coach records in a
+        // session. Shown as a total rather than a per-session average, which
+        // read as a misleading "0" when only one session exists.
         let totalClips = monthSessions.reduce(0) { $0 + $1.clipCount }
-        let avg = monthSessions.isEmpty ? 0 : Int((Double(totalClips) / Double(monthSessions.count)).rounded())
-        cachedThisMonthAvgClipsLabel = "\(avg)"
+        cachedThisMonthClipsLabel = "\(totalClips)"
     }
 
     private func refreshAthleteLimit(coachID: String) async {
@@ -926,9 +945,15 @@ struct CoachDashboardView: View {
             if let coachEmail = authManager.userEmail {
                 await invitationManager.checkPendingInvitations(forCoachEmail: coachEmail)
             }
+            await invitationManager.refreshSentPendingCount(coachID: coachID)
         } catch {
             ErrorHandlerService.shared.handle(error, context: "CoachDashboard.reloadData", showAlert: true)
         }
+    }
+
+    private func refreshSentPendingCount() async {
+        guard let coachID = authManager.userID else { return }
+        await invitationManager.refreshSentPendingCount(coachID: coachID)
     }
 
 }

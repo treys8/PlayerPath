@@ -146,10 +146,10 @@ enum CoachHelpArticle: HelpArticleProtocol {
             When you're ready, start the session to go live. Tap "Record" on the live session card to capture clips with the built-in camera. Each clip is linked to the session.
 
             **Sharing What You Record**
-            Clips you record in a session start as drafts in the athlete's Lessons folder, under "My Drafts." They are not visible to the athlete until you Publish them. Review your drafts, then publish the ones you want the athlete to see.
+            Clips you record in a session start as drafts in the athlete's Lessons folder, under "My Drafts." They are not visible to the athlete until you tap "Share Now." Review your drafts, then share the ones you want the athlete to see.
 
             **Wrapping Up**
-            End the session when the lesson is over. You can keep reviewing and publishing clips afterward, then mark the session complete to archive it.
+            End the session when the lesson is over. You can keep reviewing and sharing clips afterward, then mark the session complete to archive it.
             """
 
         case .coachTiersLimits:

@@ -15,13 +15,20 @@ struct CoachInvitationsView: View {
     @State private var showingPaywall = false
     @State private var lastFetchDate: Date?
     @State private var showingError = false
-    @State private var selectedTab: InvitationTab = .received
+    @State private var selectedTab: InvitationTab
     @State private var showAcceptedToast = false
     @State private var acceptedAthleteName = ""
 
     enum InvitationTab: String, CaseIterable {
         case received = "Received"
         case sent = "Sent"
+    }
+
+    /// `initialTab` lets callers open straight to a tab — e.g. the
+    /// "pending invitations awaiting response" banner opens the Sent tab so
+    /// the coach lands on the invites that are consuming their athlete slots.
+    init(initialTab: InvitationTab = .received) {
+        _selectedTab = State(initialValue: initialTab)
     }
 
     var body: some View {
