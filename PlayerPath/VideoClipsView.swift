@@ -188,20 +188,19 @@ struct VideoClipsView: View {
                 }
             }
 
-            if !videosForActiveSport.isEmpty {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        Haptics.light()
-                        showingAdvancedSearch = true
-                    } label: {
-                        Image(systemName: "line.3.horizontal.decrease.circle")
-                    }
-                    .accessibilityLabel("Advanced Search")
-                }
-            }
-
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
+                    if !videosForActiveSport.isEmpty {
+                        Button {
+                            Haptics.light()
+                            showingAdvancedSearch = true
+                        } label: {
+                            Label("Advanced Search", systemImage: "text.magnifyingglass")
+                        }
+
+                        Divider()
+                    }
+
                     Button {
                         Haptics.light()
                         importTrigger = true

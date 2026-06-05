@@ -14,6 +14,11 @@ struct VideoClipCard: View {
     var isSelectionMode: Bool = false
     var isSelected: Bool = false
     var hasCoachingAccess: Bool = false
+    /// Whether to draw the bookmark highlight marker on the thumbnail. Defaults
+    /// to `true` for general lists (Videos tab) where it distinguishes
+    /// highlighted clips; `HighlightsView` passes `false` since every clip there
+    /// is a highlight, making the badge redundant clutter.
+    var showHighlight: Bool = true
     let onPlay: () -> Void
     let onDelete: () -> Void
     var onToggleSelection: (() -> Void)? = nil
@@ -43,7 +48,7 @@ struct VideoClipCard: View {
                         size: .thumbnailLarge,
                         cornerRadius: 0,
                         showPlayResult: true,
-                        showHighlight: true,
+                        showHighlight: showHighlight,
                         showSeason: false,
                         showContext: false,
                         showDuration: true,
@@ -472,7 +477,10 @@ struct BackupStatusBadge: View {
         // badge instead of the whole card (and, transitively, the whole grid),
         // which was previously causing the post-upload "shutter" effect.
         if clip.isUploaded && clip.firestoreId != nil {
-            icon("checkmark.icloud.fill", color: .green)
+            // Fully backed up — the expected resting state. Render nothing: the
+            // badge exists to surface clips that are NOT yet safe in the cloud,
+            // not to decorate the ones that are.
+            EmptyView()
         } else if clip.isUploaded && clip.firestoreId == nil {
             icon("exclamationmark.icloud.fill", color: .yellow)
         } else if let progress = uploadManager.activeUploads[clip.id] {
@@ -487,10 +495,12 @@ struct BackupStatusBadge: View {
             .frame(minHeight: 22)
         } else if uploadManager.pendingUploads.contains(where: { $0.clipId == clip.id }) {
             icon("clock.fill", color: Theme.warning)
+        } else {
+            // Local-only: not yet in the cloud. Flag it quietly (muted, not an
+            // alarm color) — clips pass through this state transiently after
+            // recording, so a loud indicator here would be noise.
+            icon("icloud.slash", color: .secondary)
         }
-        // Local-only state renders nothing — absence of a badge implies "not yet
-        // uploaded". Showing icloud.slash on every unsynced clip is too loud
-        // since most clips spend time in this state before background upload.
     }
 
     private func icon(_ name: String, color: Color) -> some View {

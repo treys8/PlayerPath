@@ -291,7 +291,7 @@ private struct CoachHowItWorksPage: View {
             ("envelope.fill",         ppAccent, "Athlete Sends an Invite",   "An athlete adds your email address to share their folder with you."),
             ("checkmark.seal.fill",   ppAccent, "You Accept the Invitation", "Open your Dashboard and tap the invitation to accept. You're in."),
             ("video.fill",            ppAccent, "Review Their Videos",        "Browse game and practice clips organized by the athlete."),
-            ("bubble.left.fill",      ppAccent, "Leave Coaching Feedback",    "Annotate videos with timestamps and written notes athletes can act on."),
+            ("bubble.left.fill",      ppAccent, "Leave Coaching Feedback",    "Mark up videos with drawings and written notes athletes can act on."),
         ]
     }
 

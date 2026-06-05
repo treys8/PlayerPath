@@ -8,8 +8,14 @@
 import SwiftUI
 
 struct FAQView: View {
+    @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @State private var expandedQuestions: Set<Int> = []
     @State private var searchText = ""
+
+    private var isCoach: Bool { authManager.userRole == .coach }
+
+    /// The active question set for the current role.
+    private var faqs: [(question: String, answer: String)] { isCoach ? coachFAQs : athleteFAQs }
 
     private var filteredFaqs: [(question: String, answer: String)] {
         guard !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return faqs }
@@ -44,7 +50,7 @@ struct FAQView: View {
         .navigationTitle("FAQ")
     }
 
-    private let faqs: [(question: String, answer: String)] = [
+    private let athleteFAQs: [(question: String, answer: String)] = [
         (
             question: "How do I record my first video?",
             answer: "Tap the 'Quick Record' button on your Dashboard. The camera opens instantly—just record your at-bat and tag the play result. Done!"
@@ -63,7 +69,7 @@ struct FAQView: View {
         ),
         (
             question: "How do I mark a game as 'Live'?",
-            answer: "When creating a game, toggle the 'Start Live' switch. Or for existing games, swipe right on the game in the Games tab and tap 'Start'. When a game is live, all videos automatically link to it."
+            answer: "When creating a game, toggle the 'Start as Live Game' switch. Or for an existing upcoming game, swipe left on it in the Games tab and tap 'Start' (or open the game and tap 'Start Game' from the ••• menu). When a game is live, all videos automatically link to it."
         ),
         (
             question: "What do the statistics mean?",
@@ -91,7 +97,7 @@ struct FAQView: View {
         ),
         (
             question: "Can I share videos with my coach?",
-            answer: "Yes! With the Coaching Add-On, you can create Shared Folders and invite coaches by email. Coaches can view your videos and leave timestamped feedback directly on them. Go to More → Shared Folders to get started."
+            answer: "Yes! With a Pro subscription, you can create Shared Folders and invite coaches by email. Coaches can view your videos and leave notes and drawings directly on them. Go to More → Shared Folders to get started."
         ),
         (
             question: "How much storage do videos use?",
@@ -124,6 +130,49 @@ struct FAQView: View {
         (
             question: "Is my data private?",
             answer: "Yes! Your data is protected with industry-standard encryption. Videos are uploaded to Firebase Storage (Google Cloud) for backup and cross-device access. Only you and coaches you explicitly invite can see your content. See our Privacy Policy for full details."
+        )
+    ]
+
+    private let coachFAQs: [(question: String, answer: String)] = [
+        (
+            question: "How do I accept an athlete's request to connect with me?",
+            answer: "Open the Invitations screen and go to the 'Received' tab. Tap 'Accept' on the pending invitation. Once accepted, the athlete's shared folder appears in your athletes and you can start reviewing their clips."
+        ),
+        (
+            question: "How do I invite an athlete who isn't on PlayerPath yet?",
+            answer: "Tap 'Invite Athlete' from your Dashboard, then enter the athlete's name and the Parent/Guardian Email. They'll receive an email invitation, and once they accept you'll be able to see the clips they share. You can track invitations you've sent in the 'Sent' tab."
+        ),
+        (
+            question: "Why can't I see all of an athlete's videos?",
+            answer: "You only see the clips an athlete explicitly shares with you in a shared folder. You can't browse their full video library, statistics, or account — only what they choose to share."
+        ),
+        (
+            question: "How do I leave feedback on a clip?",
+            answer: "Open the clip and use any of four tools: write a note, draw on a frame with the pencil (telestration), build a drill card with ratings, or apply a quick cue. Your athlete sees feedback in real time as you add it."
+        ),
+        (
+            question: "What's the difference between a note, a drawing, a drill card, and a quick cue?",
+            answer: "A note is plain written feedback (one per clip — a new note replaces the old one). A drawing is marked up directly on a video frame. A drill card is a structured checklist with 1–5 ratings per category. A quick cue is a short reusable phrase like 'Stay back' you can tap to apply to any clip."
+        ),
+        (
+            question: "Can my athlete reply to my feedback?",
+            answer: "Not in this version. Feedback is one-way — from coach to athlete. Your athlete can see everything you leave, but in-app replies aren't available yet."
+        ),
+        (
+            question: "How do I run a live session?",
+            answer: "Tap 'New Session' from your Dashboard, pick one or more athletes, and optionally set a date or notes. Start the session to go live, then tap 'Record' to capture clips during the lesson."
+        ),
+        (
+            question: "Why isn't my athlete seeing the clips from my live session?",
+            answer: "Clips you record in a session start as drafts under 'My Drafts' and aren't visible to the athlete until you Publish them. Review your drafts, then publish the ones you want them to see."
+        ),
+        (
+            question: "How many athletes can I coach, and what happens if I go over my limit?",
+            answer: "Free supports 2 athletes, Instructor 10, Pro Instructor 30, and Academy is unlimited. If you downgrade while over your limit, you get a 7-day grace period to upgrade or choose which athletes to keep. You can see your plan and athlete count in Profile."
+        ),
+        (
+            question: "Do invitations expire?",
+            answer: "Yes — invitations expire after 30 days if they aren't accepted. If one expires, just send a new one."
         )
     ]
 }
@@ -168,5 +217,6 @@ struct FAQItem: View {
 #Preview {
     NavigationStack {
         FAQView()
+            .environmentObject(ComprehensiveAuthManager())
     }
 }

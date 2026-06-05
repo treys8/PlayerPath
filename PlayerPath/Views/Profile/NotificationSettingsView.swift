@@ -284,7 +284,9 @@ struct NotificationSettingsView: View {
                     Label("Notifications not yet enabled", systemImage: "bell.badge.fill")
                         .foregroundColor(Theme.warning)
                         .font(.headingSmall)
-                    Text("Enable notifications to receive game reminders, upload alerts, and weekly performance summaries.")
+                    Text(isCoach
+                         ? "Enable notifications to receive review reminders, athlete activity, and upload alerts."
+                         : "Enable notifications to receive game reminders, upload alerts, and weekly performance summaries.")
                         .font(.bodySmall)
                         .foregroundColor(.secondary)
                     Button("Enable Notifications") {

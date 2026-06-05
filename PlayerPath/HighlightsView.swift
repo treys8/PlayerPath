@@ -70,11 +70,19 @@ struct HighlightsView: View {
         )
     }
     
+    /// Large-title text. Names the screen as "Highlights" (the old title was a
+    /// bare "Name (count)" that never said what the screen was) while keeping
+    /// the athlete context and count.
+    private var navigationTitleText: String {
+        guard let name = athlete?.name else { return "Highlights" }
+        return "\(name)'s Highlights (\(viewModel.totalCount))"
+    }
+
     var body: some View {
         contentView
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Theme.surface)
-            .navigationTitle("\(athlete?.name ?? "Highlights") (\(viewModel.totalCount))")
+            .navigationTitle(navigationTitleText)
             .navigationBarTitleDisplayMode(.large)
             .searchable(text: $viewModel.searchText, placement: .navigationBarDrawer(displayMode: .always))
             .toolbar {
@@ -294,6 +302,7 @@ struct HighlightsView: View {
                             isSelectionMode: editMode == .active,
                             isSelected: selection.contains(clip.id),
                             hasCoachingAccess: hasCoachingAccess,
+                            showHighlight: false,
                             onPlay: {
                                 if editMode == .inactive {
                                     selectedClip = clip
@@ -334,21 +343,23 @@ struct HighlightsView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        // Season filter (only show if we have highlights)
-        if !viewModel.feed.isEmpty {
-            ToolbarItem(placement: .topBarLeading) {
-                SeasonFilterMenu(
-                    selectedSeasonID: $viewModel.selectedSeasonFilter,
-                    availableSeasons: viewModel.availableSeasons,
-                    showNoSeasonOption: viewModel.hasNoSeasonClips
-                )
-            }
-        }
-
-        // Combined Filter & Sort menu
+        // Combined Season / Filter / Sort menu. Season lives here (rather than a
+        // separate leading button) so the screen never shows two identical
+        // filter glyphs competing for the same meaning.
         if !viewModel.feed.isEmpty {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
+                    Section("Season") {
+                        Picker("Season", selection: $viewModel.selectedSeasonFilter) {
+                            Text("All Seasons").tag(String?.none)
+                            ForEach(viewModel.availableSeasons) { season in
+                                Text(season.displayName).tag(Optional(season.id.uuidString))
+                            }
+                            if viewModel.hasNoSeasonClips {
+                                Text("No Season").tag(Optional("no_season"))
+                            }
+                        }
+                    }
                     Section("Filter") {
                         let isGolf = athlete?.sport == .golf
                         Picker("Type", selection: $viewModel.filter) {
@@ -364,7 +375,7 @@ struct HighlightsView: View {
                         }
                     }
                 } label: {
-                    Image(systemName: (viewModel.filter != .all || viewModel.sortOrder != .newest) ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                    Image(systemName: (viewModel.selectedSeasonFilter != nil || viewModel.filter != .all || viewModel.sortOrder != .newest) ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
                 }
                 .accessibilityLabel("Filter and sort highlights")
             }

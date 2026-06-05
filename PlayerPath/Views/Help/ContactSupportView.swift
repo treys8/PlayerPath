@@ -8,6 +8,7 @@
 import SwiftUI
 
 struct ContactSupportView: View {
+    @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @State private var subject = ""
     @State private var message = ""
     @State private var selectedCategory: SupportCategory = .general
@@ -17,6 +18,13 @@ struct ContactSupportView: View {
     @FocusState private var focusedField: FormField?
 
     private enum FormField: Hashable { case subject, message }
+
+    /// Coaches don't have statistics, so hide that category for them.
+    private var availableCategories: [SupportCategory] {
+        authManager.userRole == .coach
+            ? SupportCategory.allCases.filter { $0 != .statistics }
+            : SupportCategory.allCases
+    }
 
     var body: some View {
         Form {
@@ -38,7 +46,7 @@ struct ContactSupportView: View {
 
             Section("Category") {
                 Picker("Select Category", selection: $selectedCategory) {
-                    ForEach(SupportCategory.allCases) { category in
+                    ForEach(availableCategories) { category in
                         Label(category.displayName, systemImage: category.icon)
                             .tag(category)
                     }
@@ -189,5 +197,6 @@ enum SupportCategory: String, CaseIterable, Identifiable {
 #Preview {
     NavigationStack {
         ContactSupportView()
+            .environmentObject(ComprehensiveAuthManager())
     }
 }

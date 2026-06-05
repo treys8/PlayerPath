@@ -16,6 +16,9 @@ struct HelpSupportView: View {
 
 struct AboutView: View {
     @Environment(\.ppAccent) private var ppAccent
+    @EnvironmentObject private var authManager: ComprehensiveAuthManager
+
+    private var isCoach: Bool { authManager.userRole == .coach }
 
     var body: some View {
         VStack(spacing: 30) {
@@ -32,7 +35,9 @@ struct AboutView: View {
                     .foregroundColor(.secondary)
             }
 
-            Text("The ultimate journal for tracking your athletic journey. Record videos, track statistics, and relive your greatest moments.")
+            Text(isCoach
+                 ? "Review your athletes' clips, leave precise feedback, and run live sessions — all in one place."
+                 : "The ultimate journal for tracking your athletic journey. Record videos, track statistics, and relive your greatest moments.")
                 .font(.bodyMedium)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
@@ -40,7 +45,7 @@ struct AboutView: View {
 
             Spacer()
 
-            Text("Made for athletes")
+            Text(isCoach ? "Made for coaches" : "Made for athletes")
                 .font(.bodySmall)
                 .foregroundColor(.secondary)
         }

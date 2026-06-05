@@ -14,7 +14,7 @@ struct TermsOfServiceView: View {
                 Text("Terms of Use (EULA)")
                     .font(.displayLarge)
 
-                Text("Last updated: January 25, 2026")
+                Text("Last updated: June 5, 2026")
                     .font(.bodyMedium)
                     .foregroundColor(.secondary)
 
@@ -33,7 +33,7 @@ struct TermsOfServiceView: View {
                     content: """
                     PlayerPath is a mobile application designed to help athletes track their performance through video recording, play and round tagging, and statistical analysis. The App allows users to:
 
-                    • Record and store videos of games, at-bats, swings, and practices
+                    • Record and store videos and photos of games, at-bats, swings, and practices
                     • Tag play results and scores (hits, outs, strokes, etc.)
                     • Track statistics and performance metrics
                     • Manage seasons, games, rounds, and practice sessions
@@ -84,8 +84,8 @@ struct TermsOfServiceView: View {
                     content: """
                     Your use of the App is also governed by our Privacy Policy. By using the App, you consent to our collection and use of data as described in the Privacy Policy.
 
-                    • Video files are stored locally on your device
-                    • Metadata and statistics may be synced to cloud storage
+                    • Video and photo files are stored locally on your device and uploaded to cloud storage for backup and cross-device access
+                    • Metadata and statistics are synced to cloud storage
                     • We implement security measures to protect your data
                     • You can export or delete your data at any time
                     """

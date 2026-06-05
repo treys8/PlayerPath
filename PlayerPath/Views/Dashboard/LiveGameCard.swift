@@ -26,19 +26,25 @@ struct LiveGameCard: View {
     /// user can score the current hole without navigating into the detail
     /// screen.
     private let onScore: (() -> Void)?
+    /// Set on baseball live games to surface a "Record" CTA that captures a clip
+    /// straight into the live game without navigating into the detail screen.
+    /// The golf equivalent is `onScore`; the two never coexist on one card.
+    private let onRecord: (() -> Void)?
     private let onEnd: (() -> Void)?
 
-    init(game: Game, isEnding: Bool = false, onScore: (() -> Void)? = nil, onEnd: (() -> Void)? = nil) {
+    init(game: Game, isEnding: Bool = false, onScore: (() -> Void)? = nil, onRecord: (() -> Void)? = nil, onEnd: (() -> Void)? = nil) {
         self.parent = .game(game)
         self.isEnding = isEnding
         self.onScore = onScore
+        self.onRecord = onRecord
         self.onEnd = onEnd
     }
 
-    init(practiceRound practice: Practice, isEnding: Bool = false, onScore: (() -> Void)? = nil, onEnd: (() -> Void)? = nil) {
+    init(practiceRound practice: Practice, isEnding: Bool = false, onScore: (() -> Void)? = nil, onRecord: (() -> Void)? = nil, onEnd: (() -> Void)? = nil) {
         self.parent = .practiceRound(practice)
         self.isEnding = isEnding
         self.onScore = onScore
+        self.onRecord = onRecord
         self.onEnd = onEnd
     }
 
@@ -145,7 +151,7 @@ struct LiveGameCard: View {
 
     /// True when the card has at least one CTA to render in its action row.
     private var hasActions: Bool {
-        (isGolf && onScore != nil) || onEnd != nil
+        (isGolf && onScore != nil) || onRecord != nil || onEnd != nil
     }
 
     var body: some View {
@@ -304,6 +310,35 @@ struct LiveGameCard: View {
                                 )
                                 .clipShape(Capsule())
                                 .shadow(color: .brandNavy.opacity(0.3), radius: 4, x: 0, y: 2)
+                        }
+                        .buttonStyle(.borderless)
+                    }
+
+                    if let onRecord {
+                        // Primary CTA for live baseball games — capture a clip
+                        // straight into the live game without bubbling up to the
+                        // parent NavigationLink.
+                        Button {
+                            Haptics.medium()
+                            onRecord()
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "video.fill")
+                                Text("Record")
+                            }
+                            .font(.custom("Inter18pt-Bold", size: 13, relativeTo: .footnote))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 11)
+                            .background(
+                                LinearGradient(
+                                    colors: [.brandNavy, .brandNavy.opacity(0.85)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .clipShape(Capsule())
+                            .shadow(color: .brandNavy.opacity(0.3), radius: 4, x: 0, y: 2)
                         }
                         .buttonStyle(.borderless)
                     }

@@ -41,6 +41,16 @@ struct JournalView: View {
     /// push) so it matches how clips open everywhere else in the app.
     @State private var selectedClip: VideoClip?
 
+    /// Live game whose "Record" pill was tapped — drives a full-screen camera
+    /// cover that captures straight into the game (no tab change). Nil = closed.
+    @State private var recordingGame: Game?
+    /// Game ids currently being ended, so the card's End pill can show a spinner
+    /// and ignore double-taps while `GameService.end` runs.
+    @State private var isEndingGame: Set<UUID> = []
+    /// Guards the async permission check behind Record so a double-tap can't open
+    /// two camera covers.
+    @State private var isCheckingPermissions = false
+
     init(user: User, athlete: Athlete) {
         self.user = user
         self.athlete = athlete
@@ -256,6 +266,9 @@ struct JournalView: View {
         .fullScreenCover(item: $selectedClip) { clip in
             VideoPlayerView(clip: clip)
         }
+        .fullScreenCover(item: $recordingGame) { game in
+            DirectCameraRecorderView(athlete: athlete, game: game)
+        }
         .onChange(of: filters) { _, newValue in
             // If the active pill no longer has any matching entries (e.g. the
             // last highlight was un-starred), fall back to All so the feed
@@ -266,6 +279,41 @@ struct JournalView: View {
             ToolbarItem(placement: .principal) {
                 PPAthleteSwitcher(athlete: athlete)
             }
+        }
+    }
+
+    // MARK: - Live game actions
+
+    /// End a live baseball game from its card. Mirrors DashboardView.endLiveGame:
+    /// optimistic spinner via `isEndingGame`, single-flight guard, delegate to
+    /// GameService so end-of-game side effects (stats finalize, sync) stay in one
+    /// place.
+    private func endLiveGame(_ game: Game) {
+        guard !isEndingGame.contains(game.id) else { return }
+        isEndingGame.insert(game.id)
+        Haptics.light()
+
+        Task { @MainActor in
+            defer { isEndingGame.remove(game.id) }
+            await GameService(modelContext: modelContext).end(game)
+        }
+    }
+
+    /// Open the camera straight over the Journal, bound to the live game so the
+    /// captured clip attaches to it (clip→game wiring lives in the recorder /
+    /// ClipPersistenceService). Permission check gates the present so we never
+    /// show a black camera; `isCheckingPermissions` blocks a double-tap.
+    private func recordIntoGame(_ game: Game) {
+        Task { @MainActor in
+            guard !isCheckingPermissions else { return }
+            isCheckingPermissions = true
+            defer { isCheckingPermissions = false }
+
+            let status = await RecorderPermissions.ensureCapturePermissions(context: "JournalLiveRecord")
+            guard status == .granted else { return }
+
+            recordingGame = game
+            Haptics.medium()
         }
     }
 
@@ -281,14 +329,22 @@ struct JournalView: View {
             }
             .padding(.horizontal, 18)
 
-            // Display-only cards: nil action closures, tap opens detail.
+            // Tap opens detail; the card's own Record/End pills capture into the
+            // live game and end it without leaving the Journal. Golf live games
+            // route scoring through the detail screen, so they get no Record pill
+            // here (only End) — `onRecord` is baseball-only.
             ForEach(liveGames) { game in
                 NavigationLink {
                     GameDetailView(game: game)
                 } label: {
-                    LiveGameCard(game: game)
-                        .padding(.horizontal, 18)
-                        .contentShape(Rectangle())
+                    LiveGameCard(
+                        game: game,
+                        isEnding: isEndingGame.contains(game.id),
+                        onRecord: game.season?.sport == .golf ? nil : { recordIntoGame(game) },
+                        onEnd: { endLiveGame(game) }
+                    )
+                    .padding(.horizontal, 18)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }

@@ -7,7 +7,15 @@
 
 import SwiftUI
 
-enum HelpArticle {
+/// Shared shape for a help article so `HelpArticleDetailView` can render either
+/// the athlete `HelpArticle` enum or the coach `CoachHelpArticle` enum.
+protocol HelpArticleProtocol {
+    var title: String { get }
+    var icon: String { get }
+    var content: String { get }
+}
+
+enum HelpArticle: HelpArticleProtocol {
     case recordingVideos
     case taggingPlays
     case understandingStats
@@ -458,14 +466,14 @@ enum HelpArticle {
             • Or open the photo detail and tap the trash icon
 
             **Storage:**
-            Photos are stored locally on your device. They are not included in cloud sync.
+            Photos sync to the cloud automatically, just like videos. They back up and appear on your other devices when you're signed in and connected to the internet.
             """
 
         case .coachSharing:
             return """
             PlayerPath lets you share your videos and stats with coaches:
 
-            **Shared Folders (Coaching Add-On)**
+            **Shared Folders (Pro Feature)**
             Shared Folders allow you to share clips directly with a coach:
             1. Go to More tab → "Shared Folders"
             2. Tap "+" to create a new folder
@@ -490,8 +498,8 @@ enum HelpArticle {
             • Your account information
             • Other athletes' data
 
-            **Coach Annotations**
-            Coaches can leave timestamped notes directly on your videos. You'll receive a notification when feedback is added.
+            **Coach Feedback**
+            Coaches can leave notes on your videos and mark up frames with drawings. You'll receive a notification when feedback is added.
 
             **Removing Access**
             To revoke a coach's access, open the shared folder, tap the coach's name, and tap "Remove Access."
@@ -500,8 +508,8 @@ enum HelpArticle {
     }
 }
 
-struct HelpArticleDetailView: View {
-    let article: HelpArticle
+struct HelpArticleDetailView<Article: HelpArticleProtocol>: View {
+    let article: Article
 
     var body: some View {
         ScrollView {
@@ -536,6 +544,6 @@ struct HelpArticleDetailView: View {
 
 #Preview {
     NavigationStack {
-        HelpArticleDetailView(article: .recordingVideos)
+        HelpArticleDetailView(article: HelpArticle.recordingVideos)
     }
 }

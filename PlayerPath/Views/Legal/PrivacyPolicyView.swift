@@ -14,7 +14,7 @@ struct PrivacyPolicyView: View {
                 Text("Privacy Policy")
                     .font(.displayLarge)
 
-                Text("Last updated: March 1, 2026")
+                Text("Last updated: June 5, 2026")
                     .font(.bodyMedium)
                     .foregroundColor(.secondary)
 
@@ -36,7 +36,8 @@ struct PrivacyPolicyView: View {
                     • Account Information: Email address, name, and password (encrypted)
                     • Profile Data: Athlete names, seasons, games, and practice information
                     • Video Content: Videos you record are stored locally on your device and uploaded to Firebase Storage for cloud backup and cross-device access.
-                    • Usage Statistics: Play results, batting statistics, game scores
+                    • Photo Content: Photos you capture or import are stored locally on your device and uploaded to Firebase Storage for cloud backup and cross-device access.
+                    • Usage Statistics: Play results, batting and pitching statistics, game scores, and golf round scores
                     • Device Information: Device type, operating system version for app optimization
                     • Sync Data: When you use our cross-device sync feature, data is stored in Firebase Firestore
                     • Push Notification Token: Your device token is stored in Firestore to deliver in-app and push notifications
@@ -60,8 +61,8 @@ struct PrivacyPolicyView: View {
                 PolicySection(
                     title: "Data Storage and Security",
                     content: """
-                    • Video files are stored locally on your device in the app's secure container
-                    • Video files are uploaded to Firebase Storage (Google Cloud) for cloud backup and cross-device access
+                    • Video and photo files are stored locally on your device in the app's secure container
+                    • Video and photo files are uploaded to Firebase Storage (Google Cloud) for cloud backup and cross-device access
                     • Account data and metadata are stored using Firebase Authentication and Firestore
                     • All data transmission uses industry-standard encryption (HTTPS/TLS)
                     • We implement appropriate security measures to protect against unauthorized access
@@ -75,7 +76,7 @@ struct PrivacyPolicyView: View {
 
                     • Firebase Authentication (Google): Account sign-in and identity management
                     • Firebase Firestore (Google): Cloud database for syncing app data
-                    • Firebase Storage (Google): Cloud storage for videos shared with coaches
+                    • Firebase Storage (Google): Cloud storage for video and photo backup, cross-device access, and content shared with coaches
                     • Firebase Analytics (Google): Anonymous usage analytics to improve the app
                     • Apple Sign In: Optional authentication method
                     • Apple StoreKit: Subscription and in-app purchase processing

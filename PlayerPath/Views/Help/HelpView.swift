@@ -10,170 +10,19 @@ import MessageUI
 
 struct HelpView: View {
     @Environment(\.ppAccent) private var ppAccent
+    @EnvironmentObject private var authManager: ComprehensiveAuthManager
+
+    private var isCoach: Bool { authManager.userRole == .coach }
 
     var body: some View {
         List {
-            Section {
-                HelpCard(
-                    icon: "graduationcap.fill",
-                    iconColor: ppAccent,
-                    title: "Getting Started Guide",
-                    description: "New to PlayerPath? Start here!"
-                ) {
-                    NavigationLink("View Guide") {
-                        GettingStartedView()
-                    }
-                }
+            if isCoach {
+                coachSections
+            } else {
+                athleteSections
             }
 
-            Section("Quick Help") {
-                NavigationLink {
-                    HelpArticleDetailView(article: .recordingVideos)
-                } label: {
-                    HelpRowLabel(
-                        icon: "video",
-                        title: "Recording Videos",
-                        subtitle: "Learn how to capture at-bats"
-                    )
-                }
-
-                NavigationLink {
-                    HelpArticleDetailView(article: .taggingPlays)
-                } label: {
-                    HelpRowLabel(
-                        icon: "tag.fill",
-                        title: "Tagging Play Results",
-                        subtitle: "Mark hits, outs, and more"
-                    )
-                }
-
-                NavigationLink {
-                    HelpArticleDetailView(article: .understandingStats)
-                } label: {
-                    HelpRowLabel(
-                        icon: "chart.bar.fill",
-                        title: "Understanding Statistics",
-                        subtitle: "AVG, SLG, OPS explained"
-                    )
-                }
-            }
-
-            Section("Managing Data") {
-                NavigationLink {
-                    HelpArticleDetailView(article: .managingAthletes)
-                } label: {
-                    HelpRowLabel(
-                        icon: "person.fill",
-                        title: "Managing Athletes",
-                        subtitle: "Create and switch profiles"
-                    )
-                }
-
-                NavigationLink {
-                    HelpArticleDetailView(article: .seasonTracking)
-                } label: {
-                    HelpRowLabel(
-                        icon: "calendar",
-                        title: "Season Tracking",
-                        subtitle: "Organize by season"
-                    )
-                }
-
-                NavigationLink {
-                    HelpArticleDetailView(article: .gameManagement)
-                } label: {
-                    HelpRowLabel(
-                        icon: "baseball.diamond.bases",
-                        title: "Game Management",
-                        subtitle: "Track live games"
-                    )
-                }
-
-                NavigationLink {
-                    HelpArticleDetailView(article: .managingPhotos)
-                } label: {
-                    HelpRowLabel(
-                        icon: "photo.fill",
-                        title: "Managing Photos",
-                        subtitle: "Capture and organize photos"
-                    )
-                }
-
-                NavigationLink {
-                    HelpArticleDetailView(article: .coachSharing)
-                } label: {
-                    HelpRowLabel(
-                        icon: "person.2.fill",
-                        title: "Sharing with Coaches",
-                        subtitle: "Share clips via shared folders"
-                    )
-                }
-            }
-
-            Section("Sync & Storage") {
-                NavigationLink {
-                    HelpArticleDetailView(article: .crossDeviceSync)
-                } label: {
-                    HelpRowLabel(
-                        icon: "arrow.triangle.2.circlepath",
-                        title: "Cross-Device Sync",
-                        subtitle: "Access data anywhere"
-                    )
-                }
-
-                NavigationLink {
-                    HelpArticleDetailView(article: .videoStorage)
-                } label: {
-                    HelpRowLabel(
-                        icon: "externaldrive.fill",
-                        title: "Video Storage",
-                        subtitle: "Where videos are saved"
-                    )
-                }
-            }
-
-            Section("Account & Privacy") {
-                NavigationLink {
-                    HelpArticleDetailView(article: .exportingData)
-                } label: {
-                    HelpRowLabel(
-                        icon: "arrow.down.doc",
-                        title: "Exporting Your Data",
-                        subtitle: "Download your information"
-                    )
-                }
-
-                NavigationLink {
-                    HelpArticleDetailView(article: .deletingAccount)
-                } label: {
-                    HelpRowLabel(
-                        icon: "trash",
-                        title: "Deleting Your Account",
-                        subtitle: "Permanent data removal"
-                    )
-                }
-
-                NavigationLink {
-                    PrivacyPolicyView()
-                } label: {
-                    HelpRowLabel(
-                        icon: "hand.raised.fill",
-                        title: "Privacy Policy",
-                        subtitle: "How we protect your data"
-                    )
-                }
-
-                NavigationLink {
-                    TermsOfServiceView()
-                } label: {
-                    HelpRowLabel(
-                        icon: "doc.text.fill",
-                        title: "Terms of Use (EULA)",
-                        subtitle: "User agreement"
-                    )
-                }
-            }
-
+            // Shared across roles
             Section("Support") {
                 NavigationLink {
                     FAQView()
@@ -211,6 +60,272 @@ struct HelpView: View {
         .background(Theme.surface)
         .tint(ppAccent)
         .navigationTitle("Help & Support")
+    }
+
+    // MARK: - Athlete content
+
+    @ViewBuilder private var athleteSections: some View {
+        Section {
+            HelpCard(
+                icon: "graduationcap.fill",
+                iconColor: ppAccent,
+                title: "Getting Started Guide",
+                description: "New to PlayerPath? Start here!"
+            ) {
+                NavigationLink("View Guide") {
+                    GettingStartedView()
+                }
+            }
+        }
+
+        Section("Quick Help") {
+            NavigationLink {
+                HelpArticleDetailView(article: HelpArticle.recordingVideos)
+            } label: {
+                HelpRowLabel(
+                    icon: "video",
+                    title: "Recording Videos",
+                    subtitle: "Learn how to capture at-bats"
+                )
+            }
+
+            NavigationLink {
+                HelpArticleDetailView(article: HelpArticle.taggingPlays)
+            } label: {
+                HelpRowLabel(
+                    icon: "tag.fill",
+                    title: "Tagging Play Results",
+                    subtitle: "Mark hits, outs, and more"
+                )
+            }
+
+            NavigationLink {
+                HelpArticleDetailView(article: HelpArticle.understandingStats)
+            } label: {
+                HelpRowLabel(
+                    icon: "chart.bar.fill",
+                    title: "Understanding Statistics",
+                    subtitle: "AVG, SLG, OPS explained"
+                )
+            }
+        }
+
+        Section("Managing Data") {
+            NavigationLink {
+                HelpArticleDetailView(article: HelpArticle.managingAthletes)
+            } label: {
+                HelpRowLabel(
+                    icon: "person.fill",
+                    title: "Managing Athletes",
+                    subtitle: "Create and switch profiles"
+                )
+            }
+
+            NavigationLink {
+                HelpArticleDetailView(article: HelpArticle.seasonTracking)
+            } label: {
+                HelpRowLabel(
+                    icon: "calendar",
+                    title: "Season Tracking",
+                    subtitle: "Organize by season"
+                )
+            }
+
+            NavigationLink {
+                HelpArticleDetailView(article: HelpArticle.gameManagement)
+            } label: {
+                HelpRowLabel(
+                    icon: "baseball.diamond.bases",
+                    title: "Game Management",
+                    subtitle: "Track live games"
+                )
+            }
+
+            NavigationLink {
+                HelpArticleDetailView(article: HelpArticle.managingPhotos)
+            } label: {
+                HelpRowLabel(
+                    icon: "photo.fill",
+                    title: "Managing Photos",
+                    subtitle: "Capture and organize photos"
+                )
+            }
+
+            NavigationLink {
+                HelpArticleDetailView(article: HelpArticle.coachSharing)
+            } label: {
+                HelpRowLabel(
+                    icon: "person.2.fill",
+                    title: "Sharing with Coaches",
+                    subtitle: "Share clips via shared folders"
+                )
+            }
+        }
+
+        Section("Sync & Storage") {
+            syncAndStorageRows
+        }
+
+        Section("Account & Privacy") {
+            accountAndPrivacyRows
+        }
+    }
+
+    // MARK: - Coach content
+
+    @ViewBuilder private var coachSections: some View {
+        Section {
+            HelpCard(
+                icon: "graduationcap.fill",
+                iconColor: ppAccent,
+                title: "Coaching Guide",
+                description: "New to coaching on PlayerPath? Start here!"
+            ) {
+                NavigationLink("View Guide") {
+                    GettingStartedView()
+                }
+            }
+        }
+
+        Section("Getting Started") {
+            NavigationLink {
+                HelpArticleDetailView(article: CoachHelpArticle.coachGettingStarted)
+            } label: {
+                HelpRowLabel(
+                    icon: "graduationcap.fill",
+                    title: "Coaching on PlayerPath",
+                    subtitle: "How your coach account works"
+                )
+            }
+
+            NavigationLink {
+                HelpArticleDetailView(article: CoachHelpArticle.managingInvitations)
+            } label: {
+                HelpRowLabel(
+                    icon: "person.crop.circle.badge.plus",
+                    title: "Connecting with Athletes",
+                    subtitle: "Send and accept invitations"
+                )
+            }
+        }
+
+        Section("Reviewing & Feedback") {
+            NavigationLink {
+                HelpArticleDetailView(article: CoachHelpArticle.reviewingClips)
+            } label: {
+                HelpRowLabel(
+                    icon: "rectangle.stack.badge.play",
+                    title: "Reviewing Shared Clips",
+                    subtitle: "Find clips athletes share"
+                )
+            }
+
+            NavigationLink {
+                HelpArticleDetailView(article: CoachHelpArticle.leavingFeedback)
+            } label: {
+                HelpRowLabel(
+                    icon: "pencil.and.outline",
+                    title: "Leaving Feedback",
+                    subtitle: "Notes, drawings, drill cards, cues"
+                )
+            }
+
+            NavigationLink {
+                HelpArticleDetailView(article: CoachHelpArticle.liveSessions)
+            } label: {
+                HelpRowLabel(
+                    icon: "dot.radiowaves.left.and.right",
+                    title: "Live Sessions",
+                    subtitle: "Capture clips during a lesson"
+                )
+            }
+        }
+
+        Section("Your Plan") {
+            NavigationLink {
+                HelpArticleDetailView(article: CoachHelpArticle.coachTiersLimits)
+            } label: {
+                HelpRowLabel(
+                    icon: "person.3.fill",
+                    title: "Plans & Athlete Limits",
+                    subtitle: "Tiers and over-limit behavior"
+                )
+            }
+        }
+
+        Section("Sync & Storage") {
+            syncAndStorageRows
+        }
+
+        Section("Account & Privacy") {
+            accountAndPrivacyRows
+        }
+    }
+
+    // MARK: - Shared article rows (apply to both roles)
+
+    @ViewBuilder private var syncAndStorageRows: some View {
+        NavigationLink {
+            HelpArticleDetailView(article: HelpArticle.crossDeviceSync)
+        } label: {
+            HelpRowLabel(
+                icon: "arrow.triangle.2.circlepath",
+                title: "Cross-Device Sync",
+                subtitle: "Access data anywhere"
+            )
+        }
+
+        NavigationLink {
+            HelpArticleDetailView(article: HelpArticle.videoStorage)
+        } label: {
+            HelpRowLabel(
+                icon: "externaldrive.fill",
+                title: "Video Storage",
+                subtitle: "Where videos are saved"
+            )
+        }
+    }
+
+    @ViewBuilder private var accountAndPrivacyRows: some View {
+        NavigationLink {
+            HelpArticleDetailView(article: HelpArticle.exportingData)
+        } label: {
+            HelpRowLabel(
+                icon: "arrow.down.doc",
+                title: "Exporting Your Data",
+                subtitle: "Download your information"
+            )
+        }
+
+        NavigationLink {
+            HelpArticleDetailView(article: HelpArticle.deletingAccount)
+        } label: {
+            HelpRowLabel(
+                icon: "trash",
+                title: "Deleting Your Account",
+                subtitle: "Permanent data removal"
+            )
+        }
+
+        NavigationLink {
+            PrivacyPolicyView()
+        } label: {
+            HelpRowLabel(
+                icon: "hand.raised.fill",
+                title: "Privacy Policy",
+                subtitle: "How we protect your data"
+            )
+        }
+
+        NavigationLink {
+            TermsOfServiceView()
+        } label: {
+            HelpRowLabel(
+                icon: "doc.text.fill",
+                title: "Terms of Use (EULA)",
+                subtitle: "User agreement"
+            )
+        }
     }
 }
 
@@ -286,5 +401,6 @@ struct HelpRowLabel: View {
 #Preview {
     NavigationStack {
         HelpView()
+            .environmentObject(ComprehensiveAuthManager())
     }
 }
