@@ -272,14 +272,21 @@ final class AnalyticsService {
         ])
     }
 
-    func trackWinBackReasonSubmitted(productID: String, tierName: String, reason: String, cancellationReason: String, hasFreeText: Bool) {
-        logEvent(.winBackReasonSubmitted, parameters: [
+    func trackWinBackReasonSubmitted(productID: String, tierName: String, reason: String, cancellationReason: String, hasFreeText: Bool, feedbackText: String = "") {
+        var parameters: [String: Any] = [
             "product_id": productID,
             "tier": tierName,
             "lapse_reason": reason,
             "cancellation_reason": cancellationReason,
             "has_free_text": hasFreeText
-        ])
+        ]
+        // Capture the user's verbatim feedback (previously collected then discarded).
+        // Firebase Analytics caps string parameter values at 100 chars, so truncate.
+        let trimmed = feedbackText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            parameters["feedback_text"] = String(trimmed.prefix(100))
+        }
+        logEvent(.winBackReasonSubmitted, parameters: parameters)
     }
 
     func trackWinBackDismissed(productID: String, tierName: String, reason: String) {

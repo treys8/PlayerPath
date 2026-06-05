@@ -293,7 +293,7 @@ struct StatisticsExportView: View {
 
     private func generateFilename(format: String) -> String {
         let athleteName = selectedAthlete?.name.replacingOccurrences(of: " ", with: "_") ?? "Athlete"
-        let reportName = selectedReportType.shortName.replacingOccurrences(of: " ", with: "_")
+        let reportName = selectedReportType.shortName(isGolf: isGolfAthlete).replacingOccurrences(of: " ", with: "_")
         let dateString = Date().formatted(date: .numeric, time: .omitted).replacingOccurrences(of: "/", with: "-")
 
         if let season = selectedSeason {

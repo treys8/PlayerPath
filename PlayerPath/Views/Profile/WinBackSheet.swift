@@ -180,7 +180,8 @@ struct WinBackSheet: View {
                 tierName: opportunity.tierName,
                 reason: opportunity.reason.rawValue,
                 cancellationReason: reason.rawValue,
-                hasFreeText: !trimmed.isEmpty
+                hasFreeText: !trimmed.isEmpty,
+                feedbackText: trimmed
             )
         }
         StoreKitManager.shared.dismissWinBackOpportunity()

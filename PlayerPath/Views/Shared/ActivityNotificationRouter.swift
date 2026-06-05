@@ -39,11 +39,15 @@ enum ActivityNotificationRouter {
             } else {
                 postSwitchTab(.more)
             }
-        case .invitationReceived:
+        case .invitationReceived, .invitationDeclined:
             // Role-agnostic: the mounted tab bar routes to its own invitations
-            // surface (coach list vs athlete Home banner).
+            // surface (coach list vs athlete Home banner). A decline notification
+            // goes to the original sender — opening their invitations list is the
+            // natural destination.
             NotificationCenter.default.post(name: .openInvitations, object: nil)
-        case .accessRevoked, .accessLapsed:
+        case .accessRevoked, .accessLapsed, .accessRestorePending:
+            // Coach taps "athlete wants to reconnect" → their athletes/roster tab
+            // (where they upgrade). Athlete-side restore-pending is informational.
             if isCoach {
                 NotificationCenter.default.post(name: .switchCoachTab, object: CoachTab.athletes.rawValue)
             }
@@ -57,6 +61,10 @@ enum ActivityNotificationRouter {
             } else {
                 postSwitchTab(.more)
             }
+        case .unknown:
+            // A type this build doesn't recognize yet — just open the app; there's
+            // no meaningful destination to route to.
+            break
         }
     }
 
@@ -66,9 +74,12 @@ enum ActivityNotificationRouter {
         case .coachComment:       return "bubble.left.fill"
         case .invitationReceived: return "envelope.fill"
         case .invitationAccepted: return "checkmark.circle.fill"
+        case .invitationDeclined: return "xmark.circle.fill"
         case .accessRevoked:      return "minus.circle.fill"
         case .accessLapsed:       return "exclamationmark.triangle.fill"
+        case .accessRestorePending: return "clock.arrow.circlepath"
         case .uploadFailed:       return "exclamationmark.arrow.triangle.2.circlepath"
+        case .unknown:            return "bell.fill"
         }
     }
 
@@ -78,9 +89,12 @@ enum ActivityNotificationRouter {
         case .coachComment:       return .green
         case .invitationReceived: return .indigo
         case .invitationAccepted: return .green
+        case .invitationDeclined: return .secondary
         case .accessRevoked:      return Theme.warning
         case .accessLapsed:       return .yellow
+        case .accessRestorePending: return Theme.warning
         case .uploadFailed:       return .red
+        case .unknown:            return .secondary
         }
     }
 }

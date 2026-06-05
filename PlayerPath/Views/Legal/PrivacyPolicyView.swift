@@ -24,7 +24,7 @@ struct PrivacyPolicyView: View {
                 PolicySection(
                     title: "Introduction",
                     content: """
-                    Welcome to PlayerPath. We respect your privacy and are committed to protecting your personal data. This privacy policy explains how we collect, use, and safeguard your information when you use our baseball and softball video tracking application.
+                    Welcome to PlayerPath. We respect your privacy and are committed to protecting your personal data. This privacy policy explains how we collect, use, and safeguard your information when you use our sports performance-tracking application.
                     """
                 )
 
@@ -40,7 +40,6 @@ struct PrivacyPolicyView: View {
                     • Device Information: Device type, operating system version for app optimization
                     • Sync Data: When you use our cross-device sync feature, data is stored in Firebase Firestore
                     • Push Notification Token: Your device token is stored in Firestore to deliver in-app and push notifications
-                    • Biometric Data: If you enable Face ID, your biometric credentials are managed by iOS and never accessed or stored by us
                     """
                 )
 

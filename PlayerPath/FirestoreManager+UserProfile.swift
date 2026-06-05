@@ -89,6 +89,30 @@ extension FirestoreManager {
         }
     }
 
+    /// Mirrors the two activity-push toggles to the user's Firestore document so
+    /// the `sendPushNotification` Cloud Function can suppress *background* pushes
+    /// when a user has turned them off. The client already suppresses the
+    /// in-app foreground banner; without this sync the server kept delivering
+    /// backgrounded pushes regardless of the toggle.
+    ///
+    /// Only these two toggles are server-relevant — uploads, weekly stats, and
+    /// game reminders are scheduled as *local* notifications on-device, and
+    /// invitations are transactional. Best-effort: a failure just means the
+    /// pref retries on the next toggle change or screen open.
+    func syncNotificationPreferences(coachActivity: Bool, athleteActivity: Bool) async {
+        guard let userID = Auth.auth().currentUser?.uid else { return }
+        do {
+            try await db.collection(FC.users).document(userID).setData([
+                "notificationPreferences": [
+                    "coachActivity": coachActivity,
+                    "athleteActivity": athleteActivity
+                ]
+            ], merge: true)
+        } catch {
+            firestoreLog.error("Failed to sync notification preferences: \(error.localizedDescription)")
+        }
+    }
+
     /// Syncs StoreKit-resolved subscription tiers to the user's Firestore doc
     /// via the `syncSubscriptionTier` Cloud Function, which validates the App Store
     /// receipt server-side before writing. This prevents clients from bypassing

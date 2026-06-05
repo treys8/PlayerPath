@@ -217,12 +217,30 @@ struct NotificationSettingsView: View {
             if weeklyStats, let athleteId, let athlete = findAthlete(id: athleteId) {
                 await WeeklySummaryScheduler.schedule(for: athlete)
             }
+            // Backfill the server-side prefs for existing users who set these
+            // toggles before the Firestore sync existed.
+            await syncActivityPushPreferences()
+        }
+        .onChange(of: coachActivity) { _, _ in
+            Task { await syncActivityPushPreferences() }
+        }
+        .onChange(of: athleteActivity) { _, _ in
+            Task { await syncActivityPushPreferences() }
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 Task { await refreshAuthorizationStatus() }
             }
         }
+    }
+
+    /// Pushes the two activity-banner toggles to Firestore so the
+    /// `sendPushNotification` Cloud Function can honor them for background pushes.
+    private func syncActivityPushPreferences() async {
+        await FirestoreManager.shared.syncNotificationPreferences(
+            coachActivity: coachActivity,
+            athleteActivity: athleteActivity
+        )
     }
 
     private func findAthlete(id: String) -> Athlete? {

@@ -254,8 +254,17 @@ struct AccountDeletionView: View {
         isDeleting = true
         defer { isDeleting = false }
         do {
-            let credential = try await appleReAuthManager.reauthenticate()
-            try await Auth.auth().currentUser?.reauthenticate(with: credential)
+            let reauth = try await appleReAuthManager.reauthenticate()
+            try await Auth.auth().currentUser?.reauthenticate(with: reauth.credential)
+            // Revoke the Sign in with Apple token (App Store Guideline 5.1.1(v)).
+            // Best-effort: a revoke failure must not block account deletion.
+            if let code = reauth.authorizationCode {
+                do {
+                    try await Auth.auth().revokeToken(withAuthorizationCode: code)
+                } catch {
+                    ErrorHandlerService.shared.handle(error, context: "AccountDeletion.revokeAppleToken", showAlert: false)
+                }
+            }
             try await authManager.deleteAccount()
         } catch let error as NSError {
             if error.code == ASAuthorizationError.canceled.rawValue { return }

@@ -60,9 +60,8 @@ Some services live in `PlayerPath/Services/`, others at the `PlayerPath/` top le
 - `VideoCloudManager` — Firebase Storage uploads with progress tracking
 - `ClipPersistenceService` — Local video file management
 - `StoreKitManager` — Singleton (`StoreKitManager.shared`), `@MainActor`. Manages entitlements and subscription tiers
-- `ComprehensiveAuthManager` — Firebase Auth (email/password + Apple Sign In) + biometric auth
+- `ComprehensiveAuthManager` — Firebase Auth (email/password + Apple Sign In)
 - `SharedFolderManager` — Coach shared folder management with real-time Firestore listeners
-- `BiometricAuthenticationManager` — Face ID/Touch ID session locking
 - `PushNotificationService` — Push notification authorization and scheduling
 
 **In `PlayerPath/Services/`:**

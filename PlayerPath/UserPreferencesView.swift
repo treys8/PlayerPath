@@ -15,10 +15,9 @@ struct UserPreferencesView: View {
     @State private var viewModel = UserPreferencesViewModel()
     @State private var showingResetTipsConfirm = false
 
-    // Haptics.swift and ThemeManager read these UserDefaults keys directly, so
-    // the view writes to them directly too — no SwiftData mirroring.
+    // Haptics.swift reads this UserDefaults key directly, so the view writes to
+    // it directly too — no SwiftData mirroring.
     @AppStorage("hapticFeedbackEnabled") private var hapticFeedbackEnabled: Bool = true
-    @AppStorage("appTheme") private var appThemeRaw: String = AppTheme.system.rawValue
 
     private var isCoach: Bool { authManager.userRole == .coach }
 
@@ -112,18 +111,6 @@ struct UserPreferencesView: View {
 
     private func uiPreferencesSection() -> some View {
         Section {
-            Picker("App Theme", selection: Binding<AppTheme>(
-                get: { AppTheme(rawValue: appThemeRaw) ?? .system },
-                set: {
-                    appThemeRaw = $0.rawValue
-                    ThemeManager.shared.reload()
-                }
-            )) {
-                ForEach(AppTheme.allCases, id: \.self) { theme in
-                    Text(theme.displayName).tag(theme)
-                }
-            }
-
             Toggle("Show Onboarding Tips", isOn: Binding(
                 get: { viewModel.preferences?.showOnboardingTips ?? false },
                 set: { viewModel.update(\.showOnboardingTips, to: $0) }

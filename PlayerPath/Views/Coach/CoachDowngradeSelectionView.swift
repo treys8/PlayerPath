@@ -175,40 +175,53 @@ struct CoachDowngradeSelectionView: View {
     private func loadAthletes() async {
         let folders = sharedFolderManager.coachFolders
 
-        // Group folders by athlete
-        var athleteMap: [String: (name: String, folderCount: Int, videoCount: Int)] = [:]
+        // Group folders by canonical PERSON key so a dual-sport person (two
+        // profiles sharing one personGroupID) shows as ONE row — matching the
+        // billing count (SubscriptionGate.connectedAthleteKeys). Alongside each
+        // person we collect every identifier axis seen, so revocation can match
+        // their folders/invitations regardless of which key each doc carries.
+        // `keys` only includes the account UID for UUID-less (legacy) rows, so a
+        // sibling profile under the same account is never swept into a revoke.
+        typealias Acc = (name: String?, folderCount: Int, videoCount: Int, keys: Set<String>)
+        var athleteMap: [String: Acc] = [:]
         for folder in folders {
-            // One slot per real athlete post-migration; legacy folders fall back to account UID.
-            let id = folder.athleteUUID ?? folder.ownerAthleteID
-            let existing = athleteMap[id]
-            athleteMap[id] = (
-                name: existing?.name ?? folder.ownerAthleteName ?? "Unknown Athlete",
-                folderCount: (existing?.folderCount ?? 0) + 1,
-                videoCount: (existing?.videoCount ?? 0) + (folder.videoCount ?? 0)
-            )
+            let canonical = folder.personGroupID ?? folder.athleteUUID ?? folder.ownerAthleteID
+            var entry = athleteMap[canonical] ?? (name: nil, folderCount: 0, videoCount: 0, keys: [])
+            if entry.name == nil { entry.name = folder.ownerAthleteName }
+            entry.folderCount += 1
+            entry.videoCount += (folder.videoCount ?? 0)
+            if let pg = folder.personGroupID, !pg.isEmpty { entry.keys.insert(pg) }
+            if let uuid = folder.athleteUUID, !uuid.isEmpty {
+                entry.keys.insert(uuid)
+            } else {
+                entry.keys.insert(folder.ownerAthleteID)
+            }
+            athleteMap[canonical] = entry
         }
 
         // Also include athletes connected via accepted invitations whose folders
         // aren't present locally yet, so the count matches SubscriptionGate.
-        // Reconcile on both ID axes so an athlete already shown via a folder isn't
-        // re-added as a phantom invitation-only entry.
+        // Reconcile on the canonical axis so an athlete already shown via a folder
+        // is enriched (more revoke keys) rather than re-added as a phantom row.
         do {
             let invitationRefs = try await FirestoreManager.shared
                 .fetchAcceptedCoachToAthleteRefs(coachID: coachID)
             let unmatched = SubscriptionGate.unmatchedInvitationRefs(folders: folders, invitationRefs: invitationRefs)
             for ref in unmatched {
-                guard let key = ref.canonicalKey, athleteMap[key] == nil else { continue }
+                guard let key = ref.canonicalKey else { continue }
+                var entry = athleteMap[key] ?? (name: nil, folderCount: 0, videoCount: 0, keys: [])
                 // Name lookup uses the account UID (the Athlete UUID isn't a user doc ID).
-                var name: String?
-                if let uid = ref.athleteUserID {
-                    name = (try? await FirestoreManager.shared.fetchUserProfile(userID: uid))?
+                if entry.name == nil, let uid = ref.athleteUserID {
+                    entry.name = (try? await FirestoreManager.shared.fetchUserProfile(userID: uid))?
                         .email.components(separatedBy: "@").first
                 }
-                athleteMap[key] = (
-                    name: name ?? "Unknown Athlete",
-                    folderCount: 0,
-                    videoCount: 0
-                )
+                if let pg = ref.personGroupID, !pg.isEmpty { entry.keys.insert(pg) }
+                if let uuid = ref.athleteUUID, !uuid.isEmpty {
+                    entry.keys.insert(uuid)
+                } else if let uid = ref.athleteUserID, !uid.isEmpty {
+                    entry.keys.insert(uid)
+                }
+                athleteMap[key] = entry
             }
         } catch {
             // Best-effort: proceed with folder-based athletes only
@@ -216,7 +229,11 @@ struct CoachDowngradeSelectionView: View {
         }
 
         athletes = athleteMap.map { id, info in
-            ConnectedAthlete(id: id, name: info.name, folderCount: info.folderCount, videoCount: info.videoCount)
+            ConnectedAthlete(id: id,
+                             name: info.name ?? "Unknown Athlete",
+                             folderCount: info.folderCount,
+                             videoCount: info.videoCount,
+                             revokeKeys: info.keys)
         }
         .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
 
@@ -227,7 +244,13 @@ struct CoachDowngradeSelectionView: View {
         isSubmitting = true
         errorMessage = nil
 
-        let athleteIDsToRevoke = athletes.map(\.id).filter { !selectedIDs.contains($0) }
+        // Expand each unselected person to ALL their identifier axes so the revoke
+        // matches their folders + invitations no matter which key each doc carries
+        // (personGroupID / athleteUUID / account UID) — not just the display id.
+        let revokeSet = athletes
+            .filter { !selectedIDs.contains($0.id) }
+            .reduce(into: Set<String>()) { $0.formUnion($1.revokeKeys) }
+        let athleteIDsToRevoke = Array(revokeSet)
 
         do {
             try await FirestoreManager.shared.batchRevokeCoachAccess(
@@ -236,9 +259,13 @@ struct CoachDowngradeSelectionView: View {
             )
 
             // End active sessions and notify affected athletes
-            let revokeSet = Set(athleteIDsToRevoke)
-            let affectedFolders = sharedFolderManager.coachFolders.filter {
-                revokeSet.contains($0.athleteUUID ?? $0.ownerAthleteID)
+            let affectedFolders = sharedFolderManager.coachFolders.filter { folder in
+                SubscriptionGate.personMatches(
+                    personGroupID: folder.personGroupID,
+                    athleteUUID: folder.athleteUUID,
+                    accountID: folder.ownerAthleteID,
+                    in: revokeSet
+                )
             }
             let coachName = Auth.auth().currentUser?.displayName
                 ?? Auth.auth().currentUser?.email?.components(separatedBy: "@").first
@@ -276,4 +303,8 @@ private struct ConnectedAthlete: Identifiable {
     let name: String
     let folderCount: Int
     let videoCount: Int
+    /// Every identifier axis (personGroupID / athleteUUID / account UID) that maps
+    /// to this person across folders + invitations, so revocation matches all of
+    /// their docs regardless of which key each one carries. See `personMatches`.
+    let revokeKeys: Set<String>
 }

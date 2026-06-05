@@ -131,18 +131,3 @@ enum AutoUploadMode: String, CaseIterable, Codable {
         }
     }
 }
-
-/// App theme preference; raw values are stable storage keys, not UI strings.
-enum AppTheme: String, CaseIterable, Codable {
-    case light = "light"
-    case dark = "dark"
-    case system = "system"
-
-    var displayName: String {
-        switch self {
-        case .light: return "Light"
-        case .dark: return "Dark"
-        case .system: return "System"
-        }
-    }
-}

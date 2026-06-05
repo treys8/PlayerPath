@@ -137,6 +137,31 @@ enum SubscriptionGate {
         return keys
     }
 
+    /// Whether an entity (a folder or an invitation) belongs to one of the people
+    /// in `revokeSet`. Mirrors `isRepresentedByFolder`'s axis priority so a revoke
+    /// never sweeps in a *different* profile that merely shares the same parent
+    /// account: prefer the person-group key, then the stable Athlete UUID, and fall
+    /// back to the account UID ONLY when no UUID is present (legacy, single-profile
+    /// data). Callers must therefore seed `revokeSet` with each revoked person's
+    /// personGroupID + athleteUUID(s), plus the account UID only for UUID-less rows.
+    static func personMatches(personGroupID: String?,
+                              athleteUUID: String?,
+                              accountID: String?,
+                              in revokeSet: Set<String>) -> Bool {
+        if let group = personGroupID, !group.isEmpty, revokeSet.contains(group) {
+            return true
+        }
+        if let uuid = athleteUUID, !uuid.isEmpty {
+            // A UUID-bearing row is THIS profile only — never fall through to the
+            // shared account axis (that would catch siblings under one account).
+            return revokeSet.contains(uuid)
+        }
+        if let account = accountID, !account.isEmpty {
+            return revokeSet.contains(account)
+        }
+        return false
+    }
+
     /// Full connected athlete count merging folder owners + accepted coach-to-athlete invitations.
     /// This is the single source of truth for athlete limit checks.
     /// Returns `isConfirmed: false` on network failure (uses local folder count as fallback).

@@ -21,6 +21,15 @@ class PlayerPathAppDelegate: NSObject, UIApplicationDelegate {
     
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
 
+        // Seed UserDefaults defaults that are read via `UserDefaults.bool(forKey:)`
+        // before the settings screen (which declares them via @AppStorage) is ever
+        // opened. Without this, `skipTrimmerForShortClips` reads false on a fresh
+        // install even though its intended default is true.
+        UserDefaults.standard.register(defaults: [
+            TrimmerPrefKeys.skipTrimmerForShortClips: true,
+            TrimmerPrefKeys.autoShowTrimmer: false
+        ])
+
         configureAppearance()
 
         // Configure App Check before Firebase — must be set before FirebaseApp.configure()
@@ -157,9 +166,11 @@ class PlayerPathAppDelegate: NSObject, UIApplicationDelegate {
         case coachComment = "coach_comment"
         case invitationReceived = "invitation_received"
         case invitationAccepted = "invitation_accepted"
+        case invitationDeclined = "invitation_declined"
         case accessRevoked = "access_revoked"
         case drillCard = "drill_card"
         case accessLapsed = "access_lapsed"
+        case accessRestorePending = "access_restore_pending"
     }
     
     // MARK: - Remote Notifications
@@ -218,9 +229,9 @@ class PlayerPathAppDelegate: NSObject, UIApplicationDelegate {
                 return true
             case .newVideo, .coachComment, .drillCard:
                 return true
-            case .invitationReceived, .invitationAccepted:
+            case .invitationReceived, .invitationAccepted, .invitationDeclined:
                 return true
-            case .accessRevoked, .accessLapsed:
+            case .accessRevoked, .accessLapsed, .accessRestorePending:
                 return true
             }
         } else if let unknown = userInfo[RemoteNotificationKey.type] {

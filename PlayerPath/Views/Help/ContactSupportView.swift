@@ -13,6 +13,7 @@ struct ContactSupportView: View {
     @State private var selectedCategory: SupportCategory = .general
     @State private var showingAlert = false
     @State private var alertMessage = ""
+    @State private var showingNoMailAlert = false
     @FocusState private var focusedField: FormField?
 
     private enum FormField: Hashable { case subject, message }
@@ -98,7 +99,15 @@ struct ContactSupportView: View {
                 }
             }
         }
-        .toast(isPresenting: $showingAlert, message: "Message Sent")
+        .toast(isPresenting: $showingAlert, message: alertMessage)
+        .alert("No Mail App Found", isPresented: $showingNoMailAlert) {
+            Button("Copy Email Address") {
+                UIPasteboard.general.string = AuthConstants.supportEmail
+            }
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text("We couldn't open Mail on this device. Please email us directly at \(AuthConstants.supportEmail).")
+        }
     }
 
     private func sendSupportEmail() {
@@ -131,7 +140,12 @@ struct ContactSupportView: View {
             subject = ""
             message = ""
             selectedCategory = .general
+            // Honest copy: we opened a pre-filled draft, we did not "send" anything.
+            alertMessage = "Opening Mail…"
             showingAlert = true
+        } else {
+            // No mail client configured — surface the address instead of failing silently.
+            showingNoMailAlert = true
         }
     }
 }

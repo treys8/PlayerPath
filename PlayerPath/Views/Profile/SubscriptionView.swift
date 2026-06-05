@@ -16,6 +16,7 @@ struct SubscriptionView: View {
     @Environment(\.openURL) private var openURL
     @Environment(\.ppAccent) private var ppAccent
     @State private var showingPaywall = false
+    @State private var isRestoring = false
 
     var body: some View {
         List {
@@ -102,6 +103,27 @@ struct SubscriptionView: View {
                 }
             }
             .foregroundColor(ppAccent)
+
+            // Restore Purchases must be reachable from the subscribed UI too
+            // (App Store Guideline 3.1.1) — e.g. reinstall, new device, Family Sharing.
+            Button {
+                guard !isRestoring else { return }
+                isRestoring = true
+                Task {
+                    await storeManager.restorePurchases()
+                    isRestoring = false
+                }
+            } label: {
+                HStack {
+                    Text("Restore Purchases")
+                    if isRestoring {
+                        Spacer()
+                        ProgressView()
+                    }
+                }
+            }
+            .foregroundColor(ppAccent)
+            .disabled(isRestoring)
         }
     }
 

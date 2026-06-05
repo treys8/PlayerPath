@@ -366,7 +366,11 @@ extension FirestoreManager {
         // SharedFolderManager.coachFolders — the cache can be stale if another
         // device modified folders, and a compliance-sensitive revocation flow
         // must operate on authoritative state.
-        // revokeSet contains athleteUUIDs (new folders) or account UIDs (legacy). Match on either.
+        // revokeSet carries each revoked person's personGroupID + athleteUUID(s)
+        // (+ account UID only for legacy UUID-less rows). Match person-first via
+        // SubscriptionGate.personMatches so a dual-sport person's folders are all
+        // caught regardless of which key each carries, without sweeping in a
+        // sibling profile that merely shares the same parent account.
         let snapshot = try await db.collection(FC.sharedFolders)
             .whereField("sharedWithCoachIDs", arrayContains: coachID)
             .limit(to: 2000)
@@ -380,7 +384,14 @@ extension FirestoreManager {
                 firestoreLog.warning("Failed to decode SharedFolder from doc \(doc.documentID): \(error.localizedDescription)")
                 return nil
             }
-        }.filter { revokeSet.contains($0.athleteUUID ?? $0.ownerAthleteID) }
+        }.filter {
+            SubscriptionGate.personMatches(
+                personGroupID: $0.personGroupID,
+                athleteUUID: $0.athleteUUID,
+                accountID: $0.ownerAthleteID,
+                in: revokeSet
+            )
+        }
 
         // Fetch coach email once for revocation docs
         let coachSnapshot = try await db.collection(FC.users).document(coachID).getDocument()
@@ -440,8 +451,14 @@ extension FirestoreManager {
                 .getDocuments()
 
             for doc in c2aSnapshot.documents {
-                let athleteUID = doc.data()["athleteUserID"] as? String ?? ""
-                if revokeSet.contains(athleteUID) {
+                let data = doc.data()
+                let matches = SubscriptionGate.personMatches(
+                    personGroupID: data["personGroupID"] as? String,
+                    athleteUUID: data["athleteUUID"] as? String,
+                    accountID: data["athleteUserID"] as? String,
+                    in: revokeSet
+                )
+                if matches {
                     do {
                         try await doc.reference.delete()
                     } catch {
@@ -465,8 +482,14 @@ extension FirestoreManager {
                 .getDocuments()
 
             for doc in a2cSnapshot.documents {
-                let athleteID = doc.data()["athleteID"] as? String ?? ""
-                if revokeSet.contains(athleteID) {
+                let data = doc.data()
+                let matches = SubscriptionGate.personMatches(
+                    personGroupID: data["personGroupID"] as? String,
+                    athleteUUID: data["athleteUUID"] as? String,
+                    accountID: data["athleteID"] as? String,
+                    in: revokeSet
+                )
+                if matches {
                     do {
                         try await doc.reference.delete()
                     } catch {

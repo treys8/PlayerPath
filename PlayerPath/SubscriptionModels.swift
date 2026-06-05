@@ -51,6 +51,16 @@ enum SubscriptionTier: String, Comparable, CaseIterable {
         }
     }
 
+    /// The next tier up, or nil if already at the top (Pro). Used to drive
+    /// tier-aware upsell copy instead of hardcoding "Pro".
+    var nextTier: SubscriptionTier? {
+        switch self {
+        case .free: return .plus
+        case .plus: return .pro
+        case .pro:  return nil
+        }
+    }
+
     /// Cloud storage limit in GB
     var storageLimitGB: Int {
         switch self {

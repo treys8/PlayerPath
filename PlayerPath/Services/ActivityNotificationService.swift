@@ -38,9 +38,25 @@ struct ActivityNotification: Identifiable, Codable {
         case coachComment        = "coach_comment"
         case invitationReceived  = "invitation_received"
         case invitationAccepted  = "invitation_accepted"
+        case invitationDeclined  = "invitation_declined"
         case accessRevoked       = "access_revoked"
         case accessLapsed        = "access_lapsed"
+        // Athlete renewed Pro but a coach was at capacity, so access couldn't be
+        // auto-restored (also sent to the coach to prompt an upgrade/re-invite).
+        case accessRestorePending = "access_restore_pending"
         case uploadFailed        = "upload_failed"
+        /// Forward-compat: any server-written type this build doesn't recognize yet
+        /// decodes to `.unknown` instead of THROWING — without this, an unknown raw
+        /// value fails the whole-notification decode and the doc is silently dropped
+        /// (ActivityNotification is decoded per-doc with try/catch). Lets a newer
+        /// Cloud Function ship new notification types without older app builds losing
+        /// the notification entirely; it just renders as a generic entry until update.
+        case unknown             = "__unknown__"
+
+        init(from decoder: Decoder) throws {
+            let raw = try decoder.singleValueContainer().decode(String.self)
+            self = NotificationType(rawValue: raw) ?? .unknown
+        }
     }
 
     enum TargetType: String, Codable {
@@ -427,14 +443,15 @@ final class ActivityNotificationService: ObservableObject {
     /// leaving folder/video notifications unread for the Athletes tab.
     func markDashboardNotificationsRead(forUserID userID: String) async {
         let dashboardTypes: Set<ActivityNotification.NotificationType> = [
-            .invitationReceived, .invitationAccepted, .accessRevoked, .accessLapsed
+            .invitationReceived, .invitationAccepted, .invitationDeclined,
+            .accessRevoked, .accessLapsed, .accessRestorePending
         ]
         await markBatchRead(forUserID: userID, label: "dashboard") { dashboardTypes.contains($0.type) }
     }
 
     func markInvitationNotificationsRead(forUserID userID: String) async {
         await markBatchRead(forUserID: userID, label: "invitation") {
-            $0.type == .invitationAccepted || $0.type == .invitationReceived
+            $0.type == .invitationAccepted || $0.type == .invitationReceived || $0.type == .invitationDeclined
         }
     }
 

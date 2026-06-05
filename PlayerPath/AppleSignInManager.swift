@@ -11,6 +11,14 @@ import FirebaseAuth
 import CryptoKit
 import Combine
 
+/// Result of an Apple re-authentication: the Firebase credential plus the raw
+/// Apple `authorizationCode`. The code is required to revoke the Sign in with
+/// Apple token when deleting an account (App Store Guideline 5.1.1(v)).
+struct AppleReauthResult {
+    let credential: OAuthCredential
+    let authorizationCode: String?
+}
+
 @MainActor
 final class AppleSignInManager: NSObject, ObservableObject {
     @Published var isLoading = false
@@ -61,7 +69,7 @@ final class AppleSignInManager: NSObject, ObservableObject {
     
     // MARK: - Re-authentication
 
-    func reauthenticate() async throws -> OAuthCredential {
+    func reauthenticate() async throws -> AppleReauthResult {
         let nonce = randomNonceString()
         reAuthNonce = nonce
         let appleCredential: ASAuthorizationAppleIDCredential = try await withTaskCancellationHandler {
@@ -93,7 +101,12 @@ final class AppleSignInManager: NSObject, ObservableObject {
                           userInfo: [NSLocalizedDescriptionKey: "Apple re-auth credential invalid"])
         }
         reAuthNonce = nil
-        return OAuthProvider.appleCredential(withIDToken: idTokenString, rawNonce: rawNonce, fullName: nil)
+        // Capture the authorization code (returned even with empty scopes) so the
+        // caller can revoke the Apple token on account deletion.
+        let authorizationCode = appleCredential.authorizationCode
+            .flatMap { String(data: $0, encoding: .utf8) }
+        let credential = OAuthProvider.appleCredential(withIDToken: idTokenString, rawNonce: rawNonce, fullName: nil)
+        return AppleReauthResult(credential: credential, authorizationCode: authorizationCode)
     }
 
     // MARK: - Helper Methods

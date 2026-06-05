@@ -10,7 +10,7 @@ import SwiftUI
 import FirebaseAuth
 
 struct CoachProfileView: View {
-    @EnvironmentObject private var authManager: ComprehensiveAuthManager
+    @EnvironmentObject var authManager: ComprehensiveAuthManager
     private var sharedFolderManager: SharedFolderManager { .shared }
     @ObservedObject private var storeManager = StoreKitManager.shared
     private var invitationManager: CoachInvitationManager { .shared }
@@ -22,12 +22,15 @@ struct CoachProfileView: View {
     @State private var showingInvitations = false
     @State private var coachToAthleteRefs: [CoachAthleteRef] = []
     @State private var lastConnectedIDsFetch: Date?
+    @State var searchText = ""
 
     // Drives the invitations sheet from deep links (push notification / inbox).
     @Environment(CoachNavigationCoordinator.self) private var coordinator
 
     var body: some View {
             List {
+                coachSearchSection
+
                 // Profile Section
                 Section {
                     HStack(spacing: 16) {
@@ -208,6 +211,10 @@ struct CoachProfileView: View {
                         Label("Video Recording", systemImage: "video.fill")
                     }
 
+                    NavigationLink(destination: StorageSettingsView()) {
+                        Label("Manage Storage", systemImage: "internaldrive")
+                    }
+
                     NavigationLink(destination: NotificationSettingsView(athleteId: nil)) {
                         Label("Notifications", systemImage: "bell")
                     }
@@ -235,6 +242,18 @@ struct CoachProfileView: View {
                     }
                 }
 
+                // Legal — coaches buy auto-renewing subscriptions, so the EULA
+                // and Privacy Policy must be surfaced (not buried in Help articles).
+                Section("Legal") {
+                    NavigationLink(destination: PrivacyPolicyView()) {
+                        Label("Privacy Policy", systemImage: "hand.raised")
+                    }
+
+                    NavigationLink(destination: TermsOfServiceView()) {
+                        Label("Terms of Use (EULA)", systemImage: "doc.text")
+                    }
+                }
+
                 // Account Section
                 Section("Account") {
                     NavigationLink(destination: DataExportView().environmentObject(authManager)) {
@@ -255,6 +274,22 @@ struct CoachProfileView: View {
                     }
                 }
                 
+                // Spread the Word — hidden until a real App Store ID is set.
+                if AppStoreConstants.isConfigured {
+                    Section("Spread the Word") {
+                        if let reviewURL = AppStoreConstants.writeReviewURL {
+                            Link(destination: reviewURL) {
+                                Label("Rate PlayerPath", systemImage: "star")
+                            }
+                        }
+                        if let shareURL = AppStoreConstants.appStoreURL {
+                            ShareLink(item: shareURL) {
+                                Label("Share PlayerPath", systemImage: "square.and.arrow.up")
+                            }
+                        }
+                    }
+                }
+
                 // App Info
                 Section {
                     HStack {
@@ -265,6 +300,7 @@ struct CoachProfileView: View {
                     }
                 }
             }
+            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search settings...")
             .tabRootNavigationBar(title: "More")
             .onAppear {
                 // Catch a deep link that set the flag before this view subscribed
@@ -372,9 +408,11 @@ struct EditCoachProfileView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var displayName = ""
+    @State private var email = ""
     @State private var isSaving = false
     @State private var showError = false
     @State private var errorMessage = ""
+    @State private var showEmailVerificationAlert = false
 
     var body: some View {
         NavigationStack {
@@ -383,6 +421,15 @@ struct EditCoachProfileView: View {
                     TextField("Your name", text: $displayName)
                         .textContentType(.name)
                         .autocorrectionDisabled()
+                        .submitLabel(.next)
+                }
+
+                Section("Email") {
+                    TextField("Email address", text: $email)
+                        .textContentType(.emailAddress)
+                        .keyboardType(.emailAddress)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
                         .submitLabel(.done)
                         .onSubmit {
                             Task { await saveProfile() }
@@ -390,7 +437,7 @@ struct EditCoachProfileView: View {
                 }
 
                 Section {
-                    Text("Your display name is visible to athletes you coach.")
+                    Text("Your display name is visible to athletes you coach. Changing your email requires confirming a verification link.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
@@ -413,24 +460,73 @@ struct EditCoachProfileView: View {
             } message: {
                 Text(errorMessage)
             }
+            .alert("Verify Your Email", isPresented: $showEmailVerificationAlert) {
+                Button("OK") { dismiss() }
+            } message: {
+                Text("A verification link was sent to \(email.trimmingCharacters(in: .whitespacesAndNewlines)). Click it to confirm your new email address.")
+            }
             .onAppear {
                 displayName = authManager.userDisplayName ?? ""
+                email = authManager.userEmail ?? ""
             }
         }
     }
 
     private func saveProfile() async {
-        let trimmed = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        let trimmedName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else { return }
         isSaving = true
-        do {
-            try await authManager.updateDisplayName(trimmed)
-            await MainActor.run { dismiss() }
-        } catch {
-            errorMessage = error.localizedDescription
-            showError = true
+        defer { isSaving = false }
+
+        let emailChanged = trimmedEmail.lowercased() != (authManager.userEmail ?? "").lowercased()
+
+        // Email change goes through Firebase's verify-before-update flow (mirrors
+        // the athlete EditAccountView). Firestore email syncs on next sign-in.
+        if emailChanged {
+            let validation = trimmedEmail.validateEmail()
+            guard validation.isValid else {
+                errorMessage = validation.message
+                showError = true
+                return
+            }
+            guard let firebaseUser = Auth.auth().currentUser else {
+                errorMessage = "You must be signed in to change your email."
+                showError = true
+                return
+            }
+            do {
+                try await firebaseUser.sendEmailVerification(beforeUpdatingEmail: trimmedEmail)
+            } catch AuthErrorCode.requiresRecentLogin {
+                errorMessage = "For security, please sign out and sign back in before changing your email."
+                showError = true
+                return
+            } catch AuthErrorCode.emailAlreadyInUse {
+                errorMessage = "That email address is already associated with another account."
+                showError = true
+                return
+            } catch {
+                errorMessage = "Unable to update email: \(error.localizedDescription)"
+                showError = true
+                return
+            }
         }
-        isSaving = false
+
+        if trimmedName != (authManager.userDisplayName ?? "") {
+            do {
+                try await authManager.updateDisplayName(trimmedName)
+            } catch {
+                errorMessage = error.localizedDescription
+                showError = true
+                return
+            }
+        }
+
+        if emailChanged {
+            showEmailVerificationAlert = true
+        } else {
+            dismiss()
+        }
     }
 }
 

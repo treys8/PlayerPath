@@ -154,6 +154,22 @@ async function sendPushNotification(
     const fcmTokens: string[] = userData.fcmTokens || [];
     if (fcmTokens.length === 0) return;
 
+    // Respect the recipient's activity-notification toggles. Only these two
+    // push types are user-toggleable; uploads/weekly-stats/game-reminders are
+    // local (on-device) notifications and invitations are transactional, so
+    // they are never gated here. Suppress only on an explicit `false` — a
+    // missing pref defaults to enabled, matching the client default.
+    const prefs = userData.notificationPreferences || {};
+    const pushType = data.type || '';
+    if ((pushType === 'coach_comment' || pushType === 'drill_card') && prefs.coachActivity === false) {
+      console.log(`Suppressing ${pushType} push for ${userID} — coachActivity off`);
+      return;
+    }
+    if (pushType === 'new_video' && prefs.athleteActivity === false) {
+      console.log(`Suppressing ${pushType} push for ${userID} — athleteActivity off`);
+      return;
+    }
+
     const message: admin.messaging.MulticastMessage = {
       tokens: fcmTokens,
       notification: { title, body },
@@ -715,6 +731,101 @@ export const onInvitationAccepted = functions.firestore
         'Athlete Accepted Your Invitation',
         body,
         { type: 'invitation_accepted', folderID: folderID || '' },
+        'INVITATION'
+      );
+    }
+  });
+
+/**
+ * Fires on invitation status transitions to `declined` or `cancelled`.
+ *
+ *   declined  (the RECIPIENT said no)        → notify the original SENDER, and
+ *                                               clear the recipient's own
+ *                                               `invitation_received` notice.
+ *   cancelled (the SENDER pulled it back)    → silently clear the RECIPIENT's
+ *                                               stale `invitation_received` notice
+ *                                               so they don't tap a dead invite.
+ *                                               No new ping — a cancel the
+ *                                               recipient may never have seen
+ *                                               isn't worth a notification.
+ *
+ * Direction handling mirrors onInvitationCreated/onInvitationAccepted. Best-effort
+ * throughout: a recipient with no account yet (invite to an unregistered email)
+ * simply has nothing to clear.
+ */
+export const onInvitationResolvedNegatively = functions.firestore
+  .document('invitations/{invitationId}')
+  .onUpdate(async (change, context) => {
+    const before = change.before.data();
+    const after = change.after.data();
+    const status = after.status;
+    if (status !== 'declined' && status !== 'cancelled') return;
+    if (before.status === status) return; // only on the transition into this state
+
+    const invitationId = context.params.invitationId;
+    const db = admin.firestore();
+
+    // Resolve sender + recipient for this direction.
+    let senderID = '';
+    let recipientUID: string | null = null;
+    let recipientName = '';
+    let recipientIsCoach = false;
+    if (after.type === 'athlete_to_coach') {
+      senderID = after.athleteID || '';
+      recipientUID = await lookupUserIDByEmail(after.coachEmail || '');
+      recipientName = after.coachName || '';
+      recipientIsCoach = true;
+    } else if (after.type === 'coach_to_athlete') {
+      senderID = after.coachID || '';
+      recipientUID = (after.athleteUserID as string) || await lookupUserIDByEmail(after.athleteEmail || '');
+      recipientName = after.athleteName || '';
+    } else {
+      return;
+    }
+
+    // Both decline and cancel clear the recipient's stale "invitation received" notice.
+    if (recipientUID) {
+      try {
+        await db.collection('notifications').doc(recipientUID)
+          .collection('items').doc(`invreceived_${invitationId}_${recipientUID}`).delete();
+      } catch { /* nothing to clear */ }
+    }
+
+    // Only a decline produces a new notification — to the original sender.
+    if (status === 'declined' && senderID) {
+      if (recipientUID && !recipientName) {
+        try {
+          const rDoc = await db.collection('users').doc(recipientUID).get();
+          const rd = rDoc.data();
+          recipientName = (rd?.displayName as string) || (rd?.email as string)?.split('@')[0] || '';
+        } catch { /* fall back below */ }
+      }
+      const who = recipientName || (recipientIsCoach ? 'A coach' : 'An athlete');
+      const folderName: string = after.folderName || '';
+      const title = 'Invitation Declined';
+      const body = recipientIsCoach
+        ? (folderName
+            ? `${who} declined your invitation to "${folderName}"`
+            : `${who} declined your folder invitation`)
+        : `${who} declined your invitation to connect`;
+      await writeActivityNotification(
+        senderID,
+        `invdeclined_${invitationId}_${senderID}`,
+        {
+          type: 'invitation_declined',
+          title,
+          body,
+          senderName: who,
+          senderID: recipientUID || 'system',
+          targetID: invitationId,
+          targetType: 'invitation',
+        }
+      );
+      await sendPushNotification(
+        senderID,
+        title,
+        body,
+        { type: 'invitation_declined', invitationID: invitationId },
         'INVITATION'
       );
     }
@@ -1707,6 +1818,16 @@ export const sendCoachAccessRevokedEmail = functions.firestore
       }
     }
 
+    // Coach-initiated downgrade: the coach knowingly shed this athlete in the
+    // in-app selection flow, so a per-folder "your access was revoked" email to
+    // them is redundant noise — and the generic copy wrongly blames the athlete.
+    // (The athlete is notified separately, client-side.) The counter recompute
+    // above still runs for downgrades; only the email + coach in-app notice are
+    // skipped here.
+    if (revocation.reason === 'downgrade') {
+      return;
+    }
+
     // Rate limit the revoking user
     const revokerUID = revocation.athleteID || revocation.revokedBy;
     if (revokerUID && !(await checkEmailRateLimit(revokerUID))) {
@@ -1722,12 +1843,17 @@ export const sendCoachAccessRevokedEmail = functions.firestore
         return;
       }
 
+      // A subscription lapse isn't a deliberate removal — phrase the subject +
+      // body accordingly so a paying coach isn't told the athlete cut them off.
+      const isLapse = revocation.reason === 'lapse';
       const msg = {
         to: revocation.coachEmail,
         from: 'PlayerPath <noreply@playerpath.net>',
-        subject: `Access to "${revocation.folderName}" has been revoked`,
-        text: generateRevokedAccessPlainTextEmail(revocation),
-        html: generateRevokedAccessHtmlEmail(revocation),
+        subject: isLapse
+          ? `Your access to "${revocation.folderName}" has been paused`
+          : `Access to "${revocation.folderName}" has been revoked`,
+        text: generateRevokedAccessPlainTextEmail(revocation, isLapse),
+        html: generateRevokedAccessHtmlEmail(revocation, isLapse),
       };
 
       await getResend().emails.send(msg);
@@ -1800,7 +1926,22 @@ export const sendCoachAccessRevokedEmail = functions.firestore
 /**
  * Generates plain text email for access revocation
  */
-function generateRevokedAccessPlainTextEmail(revocation: any): string {
+function generateRevokedAccessPlainTextEmail(revocation: any, isLapse: boolean = false): string {
+  if (isLapse) {
+    return `
+Hi there,
+
+Your access to the shared folder "${revocation.folderName}" on PlayerPath has been paused because ${revocation.athleteName}'s subscription is no longer Pro.
+
+Coach sharing is a Pro feature. If ${revocation.athleteName} renews their Pro plan, your access will be restored automatically — you won't need to be re-invited.
+
+Thanks,
+The PlayerPath Team
+
+---
+PlayerPath - Simplifying baseball video analysis for athletes and coaches
+    `.trim();
+  }
   return `
 Hi there,
 
@@ -1824,7 +1965,14 @@ PlayerPath - Simplifying baseball video analysis for athletes and coaches
 /**
  * Generates HTML email for access revocation
  */
-function generateRevokedAccessHtmlEmail(revocation: any): string {
+function generateRevokedAccessHtmlEmail(revocation: any, isLapse: boolean = false): string {
+  const headerTitle = isLapse ? 'Access Paused' : 'Access Revoked';
+  const introHtml = isLapse
+    ? `Your access to the following shared folder has been <strong>paused</strong> because <strong>${escapeHtml(revocation.athleteName)}</strong>'s subscription is no longer Pro:`
+    : `This is a notification that <strong>${escapeHtml(revocation.athleteName)}</strong> has removed your access to the following shared folder:`;
+  const noticeHtml = isLapse
+    ? `<strong>Good news:</strong> coach sharing is a Pro feature. If ${escapeHtml(revocation.athleteName)} renews their Pro plan, your access is restored automatically — no need to be re-invited.`
+    : `<strong>Note:</strong> If you believe this was done in error, please contact ${escapeHtml(revocation.athleteName)} directly.`;
   return `
 <!DOCTYPE html>
 <html lang="en">
@@ -1906,7 +2054,7 @@ function generateRevokedAccessHtmlEmail(revocation: any): string {
 <body>
   <div class="container">
     <div class="header">
-      <h1>Access Revoked</h1>
+      <h1>${headerTitle}</h1>
       <p>Folder access notification</p>
     </div>
 
@@ -1914,7 +2062,7 @@ function generateRevokedAccessHtmlEmail(revocation: any): string {
       <p style="font-size: 16px; margin-bottom: 8px;">Hi there,</p>
 
       <p style="font-size: 16px; line-height: 1.8;">
-        This is a notification that <strong>${escapeHtml(revocation.athleteName)}</strong> has removed your access to the following shared folder:
+        ${introHtml}
       </p>
 
       <div class="folder-name">
@@ -1932,7 +2080,7 @@ function generateRevokedAccessHtmlEmail(revocation: any): string {
 
       <div class="notice">
         <p>
-          <strong>Note:</strong> If you believe this was done in error, please contact ${escapeHtml(revocation.athleteName)} directly.
+          ${noticeHtml}
         </p>
       </div>
 
@@ -2312,14 +2460,16 @@ export const acceptCoachToAthleteInvitation = functions.https.onCall(async (data
   const incomingKey = resolvedPersonGroupID || athleteUUID || athleteUserID;
 
   if (!connectedAthletes.has(incomingKey) && connectedAthletes.size >= limit) {
-    await db.collection('invitations').doc(invitationID).update({
-      status: 'rejected_limit',
-      rejectedReason: 'Coach athlete limit reached',
-      rejectedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
+    // Leave the invitation PENDING (do NOT mark rejected_limit). Unlike the
+    // athlete→coach flow — where the COACH accepts and recovers a rejected invite
+    // from their own "Couldn't Accept" list — here the ATHLETE is accepting and
+    // can't act on the coach's limit. Marking it rejected_limit would drop it from
+    // the athlete's (pending-only) list AND block re-accept (the transaction below
+    // requires status==='pending'). Keeping it pending lets the athlete simply try
+    // again once the coach upgrades or frees a seat.
     throw new functions.https.HttpsError(
       'resource-exhausted',
-      'This coach has reached their athlete limit. The invitation cannot be accepted.'
+      'This coach has reached their athlete limit. Ask them to upgrade or free a spot, then try again.'
     );
   }
 
@@ -2388,14 +2538,12 @@ export const acceptCoachToAthleteInvitation = functions.https.onCall(async (data
     if (isNewConnection) {
       const currentCount = coachSnap.data()?.coachAthleteCount ?? connectedAthletes.size;
       if (currentCount >= limit) {
-        transaction.update(invRef, {
-          status: 'rejected_limit',
-          rejectedReason: 'Coach athlete limit reached',
-          rejectedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
+        // Leave PENDING (see the pre-check note above) — throwing aborts the
+        // transaction with no write, so the athlete can retry once the coach
+        // makes room, instead of the invite becoming a dead rejected_limit doc.
         throw new functions.https.HttpsError(
           'resource-exhausted',
-          'This coach has reached their athlete limit. The invitation cannot be accepted.'
+          'This coach has reached their athlete limit. Ask them to upgrade or free a spot, then try again.'
         );
       }
       // Explicit value from the in-transaction read (not increment()) so
@@ -3281,31 +3429,50 @@ async function restoreCoachAccessForResubscribedAthlete(
   const lapseRevs = revSnap.docs.filter(d => d.data().reason === 'lapse');
   if (lapseRevs.length === 0) return;
 
-  const coachNameCache = new Map<string, string>();
-  const getCoachName = async (coachID: string): Promise<string> => {
-    if (coachNameCache.has(coachID)) return coachNameCache.get(coachID)!;
+  const athleteName = (lapseRevs[0].data().athleteName as string) || 'An athlete';
+
+  // Read each coach's display name + tier once (the tier drives the room check).
+  const coachCache = new Map<string, { name: string; tier: string }>();
+  const getCoach = async (coachID: string): Promise<{ name: string; tier: string }> => {
+    if (coachCache.has(coachID)) return coachCache.get(coachID)!;
     let name = 'Coach';
+    let tier = 'coach_free';
     try {
       const cDoc = await db.collection('users').doc(coachID).get();
-      name = (cDoc.data()?.displayName as string) || (cDoc.data()?.email as string)?.split('@')[0] || 'Coach';
-    } catch { /* default name */ }
-    coachNameCache.set(coachID, name);
-    return name;
+      const cd = cDoc.data();
+      name = (cd?.displayName as string) || (cd?.email as string)?.split('@')[0] || 'Coach';
+      tier = (cd?.coachSubscriptionTier as string) || 'coach_free';
+    } catch { /* defaults */ }
+    const v = { name, tier };
+    coachCache.set(coachID, v);
+    return v;
   };
 
-  const defaultPerms = { canUpload: true, canComment: true, canDelete: false };
-  const restoredCoachIDs = new Set<string>();
-
+  // Group the lapse revocations by coach so each coach's roster room is checked
+  // once for the whole athlete (one person = one slot, even across Games+Lessons).
+  const revsByCoach = new Map<string, admin.firestore.QueryDocumentSnapshot[]>();
   for (const rev of lapseRevs) {
     const data = rev.data();
     const folderID = data.folderID as string | undefined;
     const coachID = data.coachID as string | undefined;
     if (!folderID || !coachID) { await rev.ref.delete(); continue; }
+    const list = revsByCoach.get(coachID) || [];
+    list.push(rev as admin.firestore.QueryDocumentSnapshot);
+    revsByCoach.set(coachID, list);
+  }
 
-    const folderRef = db.collection('sharedFolders').doc(folderID);
-    const folderSnap = await folderRef.get();
+  const defaultPerms = { canUpload: true, canComment: true, canDelete: false };
+  const restoredCoachIDs = new Set<string>();
+  const blockedCoachIDs: string[] = [];
+
+  // Reused across coaches: re-add one coach to one folder, recording the folder snap.
+  const reAdd = async (
+    folderRef: admin.firestore.DocumentReference,
+    folderSnap: admin.firestore.DocumentSnapshot,
+    coachID: string,
+    coachName: string,
+  ): Promise<void> => {
     if (folderSnap.exists) {
-      const coachName = await getCoachName(coachID);
       await folderRef.update({
         sharedWithCoachIDs: admin.firestore.FieldValue.arrayUnion(coachID),
         [`permissions.${coachID}`]: defaultPerms,
@@ -3314,12 +3481,103 @@ async function restoreCoachAccessForResubscribedAthlete(
       });
       restoredCoachIDs.add(coachID);
     }
-    // Deleting the lapse doc lets canAccessFolder allow the coach again. A
-    // delete does not re-fire sendCoachAccessRevokedEmail (onCreate only).
-    await rev.ref.delete();
+  };
+
+  for (const [coachID, revs] of revsByCoach) {
+    const { name: coachName, tier } = await getCoach(coachID);
+    const limit = getCoachAthleteLimit(tier);
+
+    // Read each revocation's folder once to learn WHICH PERSON it belongs to, and
+    // group revs by that person key (a person spans Games+Lessons = one slot, and
+    // a parent account can host several distinct people). Cache the snap so re-add
+    // doesn't re-read it.
+    type RevEntry = { rev: admin.firestore.QueryDocumentSnapshot; ref: admin.firestore.DocumentReference; snap: admin.firestore.DocumentSnapshot };
+    const revsByPerson = new Map<string, RevEntry[]>();
+    for (const rev of revs) {
+      const folderID = rev.data().folderID as string;
+      const ref = db.collection('sharedFolders').doc(folderID);
+      const snap = await ref.get(); // a transient read error propagates to the outer catch, as before
+      let key = uid; // fall back to the account UID if the folder doc is gone
+      if (snap.exists) {
+        const fd = snap.data()!;
+        key = (fd.personGroupID as string) || (fd.athleteUUID as string) || (fd.ownerAthleteID as string) || uid;
+      }
+      const list = revsByPerson.get(key) || [];
+      list.push({ rev, ref, snap });
+      revsByPerson.set(key, list);
+    }
+
+    // Who already counts toward this coach's limit. A person still represented here
+    // (e.g. a Flow-B athlete whose accepted coach→athlete invitation survives the
+    // lapse) restores for FREE — they never gave up their seat. Only a person NOT
+    // in this set is a genuinely-new seat that must fit under the limit.
+    const unlimited = limit === Number.MAX_SAFE_INTEGER;
+    let existingKeys = new Set<string>();
+    let constrained = !unlimited;
+    if (constrained) {
+      try {
+        existingKeys = await computeCoachConnectionKeys(db, coachID);
+      } catch (e) {
+        // Can't read the roster → restore everything (the prior seamless behavior
+        // beats blocking a legitimate renewal on a transient read error).
+        console.warn(`Restore room-check failed for coach ${coachID}; restoring all:`, e);
+        constrained = false;
+      }
+    }
+    let availableSeats = constrained ? Math.max(0, limit - existingKeys.size) : Number.MAX_SAFE_INTEGER;
+
+    let blockedPersonName: string | null = null;
+    for (const [personKey, entries] of revsByPerson) {
+      const alreadyCounted = existingKeys.has(personKey);
+      if (!alreadyCounted && availableSeats <= 0) {
+        // No room for this NEW person — leave their revocations (access stays denied),
+        // stamp a deferral marker (keeps reason:'lapse' so a future restore retries;
+        // merge-set does NOT re-fire the onCreate revocation email).
+        if (!blockedPersonName) blockedPersonName = (entries[0].rev.data().athleteName as string) || athleteName;
+        for (const { rev } of entries) {
+          try {
+            await rev.ref.set({
+              restoreDeferred: true,
+              restoreDeferredReason: 'coach_at_limit',
+              restoreDeferredAt: admin.firestore.FieldValue.serverTimestamp(),
+            }, { merge: true });
+          } catch (e) {
+            console.warn(`Failed to mark restore-deferred on ${rev.id}:`, e);
+          }
+        }
+        continue;
+      }
+      // Admit. Consume a seat only for a genuinely-new person (an already-counted
+      // one is free, and adding their key again is a no-op).
+      if (!alreadyCounted) { availableSeats--; existingKeys.add(personKey); }
+      for (const { rev, ref, snap } of entries) {
+        await reAdd(ref, snap, coachID, coachName);
+        // Deleting the lapse doc lets canAccessFolder allow the coach again.
+        await rev.ref.delete();
+      }
+    }
+
+    if (blockedPersonName) {
+      blockedCoachIDs.push(coachID);
+      const body = `${blockedPersonName} renewed Pro and wants to reconnect, but you're at your athlete limit. Upgrade or remove an athlete, then they can re-invite you.`;
+      await writeActivityNotification(coachID, `restore_blocked_${uid}_${coachID}`, {
+        type: 'access_restore_pending',
+        title: 'Athlete Wants to Reconnect',
+        body,
+        senderName: blockedPersonName,
+        senderID: uid,
+      });
+      await sendPushNotification(
+        coachID,
+        'Athlete Wants to Reconnect',
+        body,
+        { type: 'access_restore_pending' },
+        'INVITATION'
+      );
+    }
   }
 
-  // The coaches are connected again — recompute each one's athlete counter.
+  // The restored coaches are connected again — recompute each one's counter.
   for (const coachID of restoredCoachIDs) {
     try {
       const trueCount = await computeCoachConnectionCount(db, coachID);
@@ -3329,10 +3587,31 @@ async function restoreCoachAccessForResubscribedAthlete(
     }
   }
 
-  // Clear the athlete's "Coach Access Paused" notice now that it's resolved.
+  // Clear the generic "Coach Access Paused" notice now that the lapse is resolved.
+  // Also clear any prior "some coaches couldn't be restored" summary so the one we
+  // (maybe) write below reflects THIS restore — writeActivityNotification uses
+  // create() semantics and would otherwise skip over a stale doc.
   try {
     await db.collection('notifications').doc(uid).collection('items').doc(`lapse_${uid}`).delete();
   } catch { /* nothing to clear */ }
+  try {
+    await db.collection('notifications').doc(uid).collection('items').doc(`restore_blocked_${uid}`).delete();
+  } catch { /* nothing to clear */ }
+
+  // If some coaches couldn't be restored (at capacity), tell the athlete why so
+  // the cleared lapse notice isn't simply replaced by silence.
+  if (blockedCoachIDs.length > 0) {
+    const n = blockedCoachIDs.length;
+    await writeActivityNotification(uid, `restore_blocked_${uid}`, {
+      type: 'access_restore_pending',
+      title: 'Some Coaches Need to Reconnect',
+      body: n === 1
+        ? "One of your coaches is at their athlete limit, so access couldn't be restored automatically. Ask them to upgrade, then re-invite them."
+        : `${n} of your coaches are at their athlete limit, so access couldn't be restored automatically. Ask them to upgrade, then re-invite them.`,
+      senderName: 'PlayerPath',
+      senderID: 'system',
+    });
+  }
 }
 
 // =============================================================================
@@ -3373,6 +3652,23 @@ async function computeCoachConnectionCount(
   db: admin.firestore.Firestore,
   coachID: string
 ): Promise<number> {
+  return (await computeCoachConnectionKeys(db, coachID)).size;
+}
+
+/**
+ * The resolved SET of distinct connected-athlete keys behind
+ * computeCoachConnectionCount (which is just `.size` of this). Exposed so a
+ * caller can also ask "is THIS person already counted?" — e.g. lapse-restore
+ * must not treat a Flow-B athlete (still counted via their persistent accepted
+ * coach→athlete invitation) as a new seat. Each returned key is a folder/invite's
+ * `personGroupID || athleteUUID` (the UUID axis), plus the account UID for legacy
+ * entries that never carried a UUID anywhere — so a membership test on a folder's
+ * `personGroupID ?? athleteUUID ?? ownerAthleteID` lines up exactly.
+ */
+async function computeCoachConnectionKeys(
+  db: admin.firestore.Firestore,
+  coachID: string
+): Promise<Set<string>> {
   const uuids = new Set<string>();            // distinct athlete UUIDs
   const accountsWithUUID = new Set<string>(); // accounts that have a UUID-bearing entry
   const accountsNoUUID = new Set<string>();   // accounts seen only without a UUID
@@ -3406,12 +3702,11 @@ async function computeCoachConnectionCount(
 
   // Legacy accounts that never carried a UUID anywhere count once each;
   // accounts that also appear with a UUID reconcile onto that UUID.
-  let legacyCount = 0;
+  const keys = new Set<string>(uuids);
   for (const acc of accountsNoUUID) {
-    if (!accountsWithUUID.has(acc)) legacyCount++;
+    if (!accountsWithUUID.has(acc)) keys.add(acc);
   }
-
-  return uuids.size + legacyCount;
+  return keys;
 }
 
 /**

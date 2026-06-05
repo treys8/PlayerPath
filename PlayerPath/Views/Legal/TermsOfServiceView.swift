@@ -31,12 +31,12 @@ struct TermsOfServiceView: View {
                 TermsSection(
                     title: "Description of Service",
                     content: """
-                    PlayerPath is a mobile application designed to help baseball and softball players track their performance through video recording, play tagging, and statistical analysis. The App allows users to:
+                    PlayerPath is a mobile application designed to help athletes track their performance through video recording, play and round tagging, and statistical analysis. The App allows users to:
 
-                    • Record and store videos of at-bats and practices
-                    • Tag play results (hits, outs, walks, etc.)
-                    • Track batting statistics and performance metrics
-                    • Manage seasons, games, and practice sessions
+                    • Record and store videos of games, at-bats, swings, and practices
+                    • Tag play results and scores (hits, outs, strokes, etc.)
+                    • Track statistics and performance metrics
+                    • Manage seasons, games, rounds, and practice sessions
                     • Sync data across devices (optional)
                     """
                 )

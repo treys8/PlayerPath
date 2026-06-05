@@ -8,6 +8,7 @@
 import SwiftUI
 import SwiftData
 import UIKit
+import FirebaseAuth
 
 // MARK: - Profile View (Main "More" Tab Root)
 
@@ -48,6 +49,7 @@ struct ProfileView: View {
             athletesSection
             settingsSection
             legalSection
+            shareSection
             accountSection
             appVersionSection
         }
@@ -413,6 +415,114 @@ struct ProfileView: View {
             )
         ))
 
+        // Activity inbox
+        items.append(SearchResult(
+            title: "Activity",
+            icon: "bell.badge",
+            keywords: ["activity", "inbox", "notifications", "updates", "feed"],
+            link: AnyView(
+                NavigationLink {
+                    NotificationInboxView()
+                } label: {
+                    Label("Activity", systemImage: "bell.badge")
+                }
+            )
+        ))
+
+        // Athlete Settings (only meaningful with a selected athlete)
+        if let selectedAthlete = selectedAthlete {
+            items.append(SearchResult(
+                title: "Athlete Settings",
+                icon: "slider.horizontal.3",
+                keywords: ["athlete", "settings", "edit", "profile", "name", "sport"],
+                link: AnyView(
+                    NavigationLink {
+                        EditAthleteView(athlete: selectedAthlete)
+                    } label: {
+                        Label("Athlete Settings", systemImage: "slider.horizontal.3")
+                    }
+                )
+            ))
+        }
+
+        // Add Athlete (mirrors the live row's tier gate)
+        items.append(SearchResult(
+            title: "Add Athlete",
+            icon: "person.badge.plus",
+            keywords: ["add", "athlete", "new", "player", "create"],
+            link: AnyView(
+                Button {
+                    if canAddMoreAthletes {
+                        showingAddAthlete = true
+                    } else {
+                        Haptics.warning()
+                        showingPaywall = true
+                    }
+                } label: {
+                    Label("Add Athlete", systemImage: "person.badge.plus")
+                }
+                .foregroundColor(.primary)
+            )
+        ))
+
+        // Nested Settings children — surfaced so search finds screens that live
+        // one level under "Settings" (Edit Info / Storage / Preferences / Password).
+        items.append(SearchResult(
+            title: "Edit Information",
+            icon: "pencil",
+            keywords: ["edit", "information", "account", "username", "email", "profile", "name", "photo", "picture", "avatar"],
+            link: AnyView(
+                NavigationLink {
+                    EditAccountView(user: user)
+                } label: {
+                    Label("Edit Information", systemImage: "pencil")
+                }
+            )
+        ))
+
+        items.append(SearchResult(
+            title: "Manage Storage",
+            icon: "internaldrive",
+            keywords: ["storage", "manage", "space", "cache", "cleanup", "videos", "disk"],
+            link: AnyView(
+                NavigationLink {
+                    StorageSettingsView()
+                } label: {
+                    Label("Manage Storage", systemImage: "internaldrive")
+                }
+            )
+        ))
+
+        items.append(SearchResult(
+            title: "App Preferences",
+            icon: "slider.horizontal.3",
+            keywords: ["app", "preferences", "haptics", "tips", "auto-upload", "analytics", "interface"],
+            link: AnyView(
+                NavigationLink {
+                    UserPreferencesView()
+                } label: {
+                    Label("App Preferences", systemImage: "slider.horizontal.3")
+                }
+            )
+        ))
+
+        // Change Password is hidden for Apple Sign In accounts — match that here.
+        let signInProvider = Auth.auth().currentUser?.providerData.first?.providerID ?? "email"
+        if signInProvider != "apple.com" {
+            items.append(SearchResult(
+                title: "Change Password",
+                icon: "lock.rotation",
+                keywords: ["change", "password", "reset", "security", "login"],
+                link: AnyView(
+                    NavigationLink {
+                        ChangePasswordView(email: user.email)
+                    } label: {
+                        Label("Change Password", systemImage: "lock.rotation")
+                    }
+                )
+            ))
+        }
+
         return items
     }
 
@@ -489,15 +599,19 @@ struct ProfileView: View {
             .tint(ppAccent)
             
             if user.athleteSlotsUsed >= authManager.currentTier.athleteLimit {
-                HStack {
-                    Image(systemName: "crown.fill")
-                        .foregroundColor(.yellow)
-                        .font(.caption)
-                    Text("Upgrade to Pro for up to 5 athletes")
-                        .font(.bodySmall)
-                        .foregroundColor(.secondary)
+                // Only show an upsell when there's actually a higher tier to sell.
+                // A maxed-out Pro user gets no dead-end "upgrade to the tier you own" hint.
+                if let next = authManager.currentTier.nextTier {
+                    HStack {
+                        Image(systemName: "crown.fill")
+                            .foregroundColor(.yellow)
+                            .font(.caption)
+                        Text("Upgrade to \(next.displayName) for up to \(next.athleteLimit) athletes")
+                            .font(.bodySmall)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.vertical, 4)
                 }
-                .padding(.vertical, 4)
             } else {
                 Text("\(user.athleteSlotsUsed) of \(authManager.currentTier.athleteLimit) athlete\(authManager.currentTier.athleteLimit == 1 ? "" : "s") used")
                     .font(.bodySmall)
@@ -628,6 +742,24 @@ struct ProfileView: View {
         }
     }
 
+    // Hidden until a real App Store ID is set in AppStoreConstants.
+    @ViewBuilder private var shareSection: some View {
+        if AppStoreConstants.isConfigured {
+            Section("Spread the Word") {
+                if let reviewURL = AppStoreConstants.writeReviewURL {
+                    Link(destination: reviewURL) {
+                        Label("Rate PlayerPath", systemImage: "star")
+                    }
+                }
+                if let shareURL = AppStoreConstants.appStoreURL {
+                    ShareLink(item: shareURL) {
+                        Label("Share PlayerPath", systemImage: "square.and.arrow.up")
+                    }
+                }
+            }
+        }
+    }
+
     private var appVersionSection: some View {
         Section {
             HStack {
@@ -712,8 +844,10 @@ struct UserProfileHeader: View {
 
     var body: some View {
         HStack(spacing: 15) {
-            EditableProfileImageView(user: user, size: 60) { _ in
-                // Save context when profile image is updated
+            EditableProfileImageView(user: user, size: 60) { newPath in
+                // Persist the saved (or removed) image path on the model — without
+                // this assignment the avatar is lost on relaunch and the file orphaned.
+                user.profileImagePath = newPath
                 do {
                     try modelContext.save()
                 } catch {

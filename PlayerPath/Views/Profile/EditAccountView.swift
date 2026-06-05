@@ -43,7 +43,10 @@ struct EditAccountView: View {
             Section("Profile Picture") {
                 HStack {
                     Spacer()
-                    EditableProfileImageView(user: user, size: .profileLarge) { _ in
+                    EditableProfileImageView(user: user, size: .profileLarge) { newPath in
+                        // Persist the saved (or removed) image path on the model — without
+                        // this assignment the avatar is lost on relaunch and the file orphaned.
+                        user.profileImagePath = newPath
                         do {
                             try modelContext.save()
                             Haptics.light()
