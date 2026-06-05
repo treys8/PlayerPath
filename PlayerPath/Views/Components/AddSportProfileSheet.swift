@@ -163,8 +163,8 @@ struct AddSportProfileSheet: View {
     }
 
     private func createSpinoff() {
-        // Bridge SportType (capitalized) back to Athlete.Sport (lowercase).
-        guard let mappedSport = Sport(rawValue: selectedSport.rawValue.lowercased()) else { return }
+        // Explicit, total bridge SportType → Athlete.Sport (see Season.SportType).
+        let mappedSport = selectedSport.asAthleteSport
 
         // Claim a group ID for the source if it doesn't already have one.
         // First spinoff sets source.personGroupID = source.id; subsequent

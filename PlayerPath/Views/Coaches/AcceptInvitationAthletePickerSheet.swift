@@ -16,6 +16,7 @@ struct AcceptInvitationAthletePickerSheet: View {
     let onCancel: () -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.ppAccent) private var ppAccent
 
     var body: some View {
         NavigationStack {
@@ -23,7 +24,8 @@ struct AcceptInvitationAthletePickerSheet: View {
                 Section {
                     Text("Which athlete is \(invitation.coachName) working with?")
                         .font(.subheadline)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(Theme.textSecondary)
+                        .listRowBackground(Theme.card)
                 } header: {
                     Text("Coach Invitation")
                 }
@@ -37,20 +39,23 @@ struct AcceptInvitationAthletePickerSheet: View {
                             HStack {
                                 Image(systemName: "person.crop.circle.fill")
                                     .font(.title2)
-                                    .foregroundColor(.brandNavy)
+                                    .foregroundColor(ppAccent)
                                 Text(athlete.name)
                                     .font(.body)
-                                    .foregroundColor(.primary)
+                                    .foregroundColor(Theme.textPrimary)
                                 Spacer()
                                 Image(systemName: "chevron.right")
                                     .font(.caption)
-                                    .foregroundColor(.secondary)
+                                    .foregroundColor(Theme.textTertiary)
                             }
                         }
                         .buttonStyle(.plain)
+                        .listRowBackground(Theme.card)
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(Theme.surface)
             .navigationTitle("Choose Athlete")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

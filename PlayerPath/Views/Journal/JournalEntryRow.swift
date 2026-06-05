@@ -12,9 +12,10 @@ import SwiftUI
 
 struct JournalEntryRow: View {
     let entry: JournalEntry
-    /// Season milestones (for the auto-headline + the marker). Defaults empty
-    /// so previews / non-milestone callers fall back to the matchup headline.
-    var milestones: [Milestone] = []
+    /// This row's already-resolved top milestone (for the auto-headline + the
+    /// marker), or nil for non-game entries / games without one. The feed resolves
+    /// it once from a `[UUID: Milestone]` index, so the row never scans an array.
+    var milestone: Milestone? = nil
 
     @Environment(\.ppAccent) private var ppAccent
 
@@ -22,11 +23,11 @@ struct JournalEntryRow: View {
         VStack(alignment: .leading, spacing: .spacingMedium) {
             dateRail
 
-            if let marker = entryMilestone?.markerLabel {
+            if let marker = milestone?.markerLabel {
                 PPMilestoneMarker(label: marker)
             }
 
-            Text(HeadlineBuilder.headline(for: entry, milestones: milestones))
+            Text(HeadlineBuilder.headline(for: entry, milestone: milestone))
                 .font(.ppTitle3)                       // Fraunces serif
                 .foregroundStyle(Theme.textPrimary)
                 .multilineTextAlignment(.leading)
@@ -46,23 +47,6 @@ struct JournalEntryRow: View {
         .padding(.spacingLarge)
         .frame(maxWidth: .infinity, alignment: .leading)
         .ppCard()
-    }
-
-    /// The most significant milestone linked to this entry's game, if any.
-    private var entryMilestone: Milestone? {
-        guard case .game(let game) = entry else { return nil }
-        return milestones
-            .filter { $0.gameID == game.id }
-            .max { rank($0.kind) < rank($1.kind) }
-    }
-
-    private func rank(_ kind: Milestone.Kind) -> Int {
-        switch kind {
-        case .seasonFirst:  return 4
-        case .personalBest: return 3
-        case .streak:       return 2
-        case .milestone:    return 1
-        }
     }
 
     // MARK: - Date rail
@@ -112,7 +96,7 @@ struct JournalEntryRow: View {
     /// "· vs HA" onto the stat line. No-op for non-milestone cards (their
     /// headline already carries the matchup) and when the opponent is blank.
     private func appendingOpponent(to subline: String?, game: Game) -> String? {
-        guard entryMilestone != nil else { return subline }
+        guard milestone != nil else { return subline }
         let opponent = game.opponent.trimmingCharacters(in: .whitespaces)
         guard !opponent.isEmpty else { return subline }
         guard let subline else { return game.opponentLabel }

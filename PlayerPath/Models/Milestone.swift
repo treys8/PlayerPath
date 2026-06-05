@@ -25,6 +25,19 @@ struct Milestone: Identifiable, Hashable {
 
         /// Uppercased overline label ("SEASON FIRST").
         var markerLabel: String { rawValue.uppercased() }
+
+        /// Significance ordering for "most important milestone for this game" —
+        /// higher wins. The single source of truth for milestone ranking, used by
+        /// the feed's milestone index and the headline builder (so the rule never
+        /// drifts across copies).
+        var sortRank: Int {
+            switch self {
+            case .seasonFirst:  return 4
+            case .personalBest: return 3
+            case .streak:       return 2
+            case .milestone:    return 1
+            }
+        }
     }
 
     /// Stable identity so the same milestone dedupes across recomputes.

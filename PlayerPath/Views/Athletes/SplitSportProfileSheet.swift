@@ -23,6 +23,8 @@ struct SplitSportProfileSheet: View {
     @Environment(\.ppAccent) private var ppAccent
 
     @State private var showingConfirmation = false
+    @State private var errorMessage = ""
+    @State private var showingError = false
 
     private var previews: [SportProfileSplitService.MovePreview] {
         SportProfileSplitService.previews(for: athlete)
@@ -136,6 +138,11 @@ struct SplitSportProfileSheet: View {
         } message: {
             Text("Creates \(previews.count) new linked profile\(previews.count == 1 ? "" : "s") and moves each sport's seasons, games, videos, and photos. Your \(primarySport.displayName) data stays here. This can't be undone automatically.")
         }
+        .alert("Unable to Split", isPresented: $showingError) {
+            Button("OK") {}
+        } message: {
+            Text(errorMessage)
+        }
     }
 
     private var primaryRow: some View {
@@ -201,18 +208,31 @@ struct SplitSportProfileSheet: View {
 
     private func performSplit() {
         guard block == nil else { Haptics.warning(); return }
-        let newRows = (try? SportProfileSplitService.split(athlete: athlete, in: modelContext)) ?? []
-        guard !newRows.isEmpty else { dismiss(); return }
+        do {
+            let newRows = try SportProfileSplitService.split(athlete: athlete, in: modelContext)
+            guard !newRows.isEmpty else { dismiss(); return }
 
-        // Propagate: syncAll syncs Athletes FIRST, so each new row gets a firestoreId
-        // before its moved children upload (children skip until the parent has synced).
-        if let user = athlete.user {
-            Task { try? await SyncCoordinator.shared.syncAll(for: user) }
+            // Propagate: syncAll syncs Athletes FIRST, so each new row gets a firestoreId
+            // before its moved children upload (children skip until the parent has synced).
+            if let user = athlete.user {
+                Task { try? await SyncCoordinator.shared.syncAll(for: user) }
+            }
+
+            // The original row (still selected) sheds the moved sports in place — no
+            // athlete switch, matching "keep my main profile, peel off the other sport."
+            Haptics.success()
+            dismiss()
+        } catch {
+            // The service rolled back on save failure, so nothing changed — surface a
+            // clean error and stay on the sheet rather than syncing a ghost move.
+            Haptics.error()
+            ErrorHandlerService.shared.reportError(
+                error,
+                context: "SplitSportProfileSheet.split",
+                message: $errorMessage,
+                isPresented: $showingError,
+                userMessage: "Couldn't move that sport to its own profile. Nothing was changed — please try again."
+            )
         }
-
-        // The original row (still selected) sheds the moved sports in place — no
-        // athlete switch, matching "keep my main profile, peel off the other sport."
-        Haptics.success()
-        dismiss()
     }
 }

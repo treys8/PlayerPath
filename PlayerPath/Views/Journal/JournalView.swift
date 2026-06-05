@@ -65,29 +65,11 @@ struct JournalView: View {
     }
 
     // MARK: - Derived data
-
-    /// Live games/practices for the active sport (display-only strip).
-    private var liveGames: [Game] {
-        games.filter { $0.isLive && sportMatches($0.season?.sport) }
-    }
-
-    private var livePractices: [Practice] {
-        practices.filter { $0.isLive && sportMatches($0.season?.sport) }
-    }
-
-    private var hasLiveActivity: Bool {
-        !liveGames.isEmpty || !livePractices.isEmpty
-    }
-
-    /// True when this profile has any content FOR ITS PINNED SPORT — independent
-    /// of the active filter. Drives the new-user welcome vs. the "this filter
-    /// matched nothing" message: a profile that HAS data but tapped a filter that
-    /// excludes it should never see "Welcome". Sport-scoped (via `allEntries`) so
-    /// a baseball profile carrying only stray golf data still reads as new here
-    /// and shows the welcome state, not an empty, pill-less feed.
-    private var hasAnyContent: Bool {
-        !allEntries.isEmpty
-    }
+    //
+    // Everything below is a pure function of the @Query arrays. `body` computes
+    // each ONCE per render and threads the result through, instead of re-deriving
+    // it per reference (which previously ran the feed pipeline ~7× per body). Live
+    // games/practices are filtered inline in `body`.
 
     /// Photos with no game/practice parent — the ones that earn their own feed
     /// row (parented photos surface as a count inside their game/practice).
@@ -126,11 +108,13 @@ struct JournalView: View {
     /// pill. Scoped to `activeSport` (seasonless clips/photos pass through) so a
     /// baseball profile never surfaces golf entries — and therefore never shows a
     /// golf pill. Mirrors the sport scoping the live strip already applies above.
-    /// Drives both the displayed `entries` and the set of pills worth showing.
-    /// Live games/practices are excluded here: they appear only in the pinned
-    /// live strip above, never as a duplicate feed row — and so never inflate the
-    /// pills or the content-count either.
-    private var allEntries: [JournalEntry] {
+    /// Drives the displayed entries, the pills worth showing, AND the welcome-vs-
+    /// content decision (a profile carrying only stray off-sport data still reads
+    /// as new and shows the welcome state, not an empty pill-less feed). Live
+    /// games/practices are excluded here: they appear only in the pinned live
+    /// strip, never as a duplicate feed row — so they never inflate the pills or
+    /// the content check. Computed once per body.
+    private func buildFeed() -> [JournalEntry] {
         JournalFeedBuilder.build(
             games: games.filter { !$0.isLive },
             practices: practices.filter { !$0.isLive },
@@ -141,40 +125,57 @@ struct JournalView: View {
         .filter { sportMatches($0.sport) }
     }
 
-    private var entries: [JournalEntry] {
-        allEntries.filter { filter.matches($0) }
-    }
-
     /// Pills that actually have something to show — `.all` plus any content-type
     /// filter (Games, Practices, Photos, Highlights) that matches ≥1 entry. Never
     /// renders a filter that returns nothing, so Practices appears only once a
     /// practice exists and Photos only once a standalone photo does. Because the
     /// feed is sport-scoped upstream, no golf entry reaches a baseball profile —
     /// which is what keeps the (now-removed) Golf pill from ever reappearing.
-    private var availableFilters: [JournalFilter] {
-        let feed = allEntries
-        return JournalFilter.allCases.filter { option in
+    /// Takes the already-built feed so the body never re-derives it.
+    private func availableFilters(from feed: [JournalEntry]) -> [JournalFilter] {
+        JournalFilter.allCases.filter { option in
             option == .all || feed.contains { option.matches($0) }
         }
     }
 
-    /// Milestones across every season represented in the feed — feeds the
-    /// per-row auto-headline and milestone marker. Pure compute (no Firestore).
-    private var milestones: [Milestone] {
+    /// Highest-significance milestone per game across every season in the feed,
+    /// resolved ONCE per body so each row does an O(1) lookup instead of scanning
+    /// (and re-ranking) the full milestone list twice — once for the marker, once
+    /// for the headline. Season-spanning milestones (nil `gameID`) are skipped:
+    /// they don't anchor a single row. Pure compute (no Firestore).
+    private func milestoneIndex() -> [UUID: Milestone] {
         var seenSeasonIDs = Set<UUID>()
-        var result: [Milestone] = []
+        var index: [UUID: Milestone] = [:]
         for game in games {
             guard let season = game.season,
                   seenSeasonIDs.insert(season.id).inserted else { continue }
-            result += MilestoneEngine.milestones(for: season)
+            for milestone in MilestoneEngine.milestones(for: season) {
+                guard let gameID = milestone.gameID else { continue }
+                if let existing = index[gameID],
+                   existing.kind.sortRank >= milestone.kind.sortRank { continue }
+                index[gameID] = milestone
+            }
         }
-        return result
+        return index
     }
 
     // MARK: - Body
 
     var body: some View {
-        ScrollView {
+        // Derive everything ONCE per render and thread it through. Previously each
+        // of these was a computed property re-evaluated on every reference, so a
+        // single body ran the feed pipeline ~7× and re-scanned milestones per row.
+        let liveGames = games.filter { $0.isLive && sportMatches($0.season?.sport) }
+        let livePractices = practices.filter { $0.isLive && sportMatches($0.season?.sport) }
+        let hasLiveActivity = !liveGames.isEmpty || !livePractices.isEmpty
+
+        let feed = buildFeed()
+        let hasContent = !feed.isEmpty
+        let visibleEntries = feed.filter { filter.matches($0) }
+        let filters = availableFilters(from: feed)
+        let milestonesByGame = milestoneIndex()
+
+        return ScrollView {
             LazyVStack(spacing: .spacingLarge) {
                 // Pending coach invitations — self-hides when none. Ported from
                 // the retired DashboardView: the home tab carries an invitation
@@ -186,32 +187,34 @@ struct JournalView: View {
                     .padding(.horizontal, 18)
 
                 if hasLiveActivity {
-                    liveStrip
+                    liveStrip(games: liveGames, practices: livePractices)
                 }
 
                 // Pills only earn their place once there's something to filter.
                 // A brand-new athlete sees the welcome state instead — no point
                 // offering a "Golf" filter over an empty page.
-                if hasAnyContent {
+                if hasContent {
                     PPFilterPillRow(
-                        options: availableFilters,
+                        options: filters,
                         title: pillTitle,
                         selection: $filter
                     )
 
-                    if entries.isEmpty {
+                    if visibleEntries.isEmpty {
                         filteredEmptyState
                     } else {
-                        ForEach(entries) { entry in
+                        ForEach(visibleEntries) { entry in
+                            // O(1) lookup of this row's milestone — no per-row scan.
+                            let milestone = entry.gameID.flatMap { milestonesByGame[$0] }
                             if case .clip(let clip) = entry {
                                 // Clips open in the immersive full-screen player as
                                 // a cover — matching every other entry point in the
                                 // app — so the player's own ✕ is the single dismiss
                                 // control, with no stacked nav back chevron.
-                                Button { selectedClip = clip } label: { feedRow(entry) }
+                                Button { selectedClip = clip } label: { feedRow(entry, milestone: milestone) }
                                     .buttonStyle(.plain)
                             } else {
-                                NavigationLink { destination(for: entry) } label: { feedRow(entry) }
+                                NavigationLink { destination(for: entry) } label: { feedRow(entry, milestone: milestone) }
                                     .buttonStyle(.plain)
                             }
                         }
@@ -238,8 +241,8 @@ struct JournalView: View {
         .background(Theme.surface)
         // The empty state carries its own in-body serif title block, so suppress
         // the large nav title there — otherwise "The Journal." renders twice.
-        .navigationTitle(hasAnyContent ? "The Journal." : "")
-        .navigationBarTitleDisplayMode(hasAnyContent ? .large : .inline)
+        .navigationTitle(hasContent ? "The Journal." : "")
+        .navigationBarTitleDisplayMode(hasContent ? .large : .inline)
         .confirmationDialog("Add to your journal", isPresented: $showingAddSheet, titleVisibility: .visible) {
             Button("Record a Video") {
                 NotificationCenter.default.post(name: .presentVideoRecorder, object: nil)
@@ -253,7 +256,7 @@ struct JournalView: View {
         .fullScreenCover(item: $selectedClip) { clip in
             VideoPlayerView(clip: clip)
         }
-        .onChange(of: availableFilters) { _, newValue in
+        .onChange(of: filters) { _, newValue in
             // If the active pill no longer has any matching entries (e.g. the
             // last highlight was un-starred), fall back to All so the feed
             // doesn't strand on an empty filter whose pill has disappeared.
@@ -269,7 +272,7 @@ struct JournalView: View {
     // MARK: - Live strip
 
     @ViewBuilder
-    private var liveStrip: some View {
+    private func liveStrip(games liveGames: [Game], practices livePractices: [Practice]) -> some View {
         VStack(spacing: .spacingMedium) {
             HStack(spacing: 6) {
                 Circle().fill(ppAccent).frame(width: 7, height: 7)
@@ -321,8 +324,8 @@ struct JournalView: View {
     /// matters: without `.contentShape`, an eager NavigationLink in a LazyVStack
     /// claims a region that bleeds past its frame and — being a later (z-above)
     /// sibling — steals taps from the filter pills above it.
-    private func feedRow(_ entry: JournalEntry) -> some View {
-        JournalEntryRow(entry: entry, milestones: milestones)
+    private func feedRow(_ entry: JournalEntry, milestone: Milestone?) -> some View {
+        JournalEntryRow(entry: entry, milestone: milestone)
             .padding(.horizontal, 18)
             .contentShape(Rectangle())
     }

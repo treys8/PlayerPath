@@ -39,6 +39,18 @@ extension SyncCoordinator {
 
         var syncedReels: [HighlightReel] = []
 
+        // Re-home support (legacy-split migration): `fetchHighlightReels` is per-athlete,
+        // so accumulate the FULL remote id set across every athlete for ONE global delete
+        // pass after the loop, and map every local reel by firestoreId so a reel moved to
+        // another profile is repointed to its new owner instead of being mistaken for a
+        // remote delete. Mirrors SyncCoordinator+Photos.
+        var globalRemoteReelIds = Set<String>()
+        var allFetchesSucceeded = true
+        let globalLocalReelsByFirestoreId = Dictionary(
+            allReels.compactMap { reel in reel.firestoreId.map { ($0, reel) } },
+            uniquingKeysWith: { existing, _ in existing }
+        )
+
         for athlete in athletes {
             let athleteID = athlete.id
             let athleteReels = allReels.filter { $0.athleteID == athleteID }
@@ -85,6 +97,7 @@ extension SyncCoordinator {
                     userId: userId,
                     athleteId: athleteID.uuidString
                 )
+                for remote in remoteReels { if let id = remote.id { globalRemoteReelIds.insert(id) } }
                 // Map firestoreId → local reel for both the exists-check and
                 // the S1 reconcile branch below.
                 let localByFirestoreId = Dictionary(
@@ -93,6 +106,22 @@ extension SyncCoordinator {
                 )
                 for remote in remoteReels {
                     guard let remoteId = remote.id else { continue }
+
+                    // Re-home (legacy-split migration): this reel exists locally under a
+                    // DIFFERENT profile. Repoint its denormalized athleteID to the new
+                    // owner — a scalar assignment (no @Relationship) — instead of the old
+                    // delete-under-old + reinsert-under-new churn. If the local row has
+                    // pending edits, leave it (its own upload wins); either way `continue`
+                    // so a re-homed reel can NEVER fall through to a duplicate insert under
+                    // the new owner. No needsSync / lastSyncDate bump on repoint: the remote
+                    // already holds the new owner. (Same-athlete reels fail the `!=` guard
+                    // and fall through to the S1 merge below.) Mirrors the unconditional
+                    // `continue` in SyncCoordinator+Photos' re-home branch.
+                    if let existing = globalLocalReelsByFirestoreId[remoteId],
+                       existing.athleteID != athleteID {
+                        if !existing.needsSync { existing.athleteID = athleteID }
+                        continue
+                    }
 
                     if let local = localByFirestoreId[remoteId] {
                         // S1: absorb remote field edits onto an existing local
@@ -152,24 +181,29 @@ extension SyncCoordinator {
                     context.insert(local)
                 }
 
-                // Tombstone reconciliation — a previously-synced local reel
-                // that's no longer in the remote alive set was deleted on
-                // another device. The local @Query already hides deleted reels
-                // and there's no undo, so we hard-delete. Gated on connectivity:
-                // persistent cache means an offline getDocuments can return a
-                // stale/empty set without throwing, which must not drive
-                // destructive deletes (inserts above are harmless either way).
-                if ConnectivityMonitor.shared.isConnected {
-                    let remoteAliveIds = Set(remoteReels.compactMap(\.id))
-                    for reel in athleteReels {
-                        guard let fid = reel.firestoreId, !reel.needsSync else { continue }
-                        if !remoteAliveIds.contains(fid) {
-                            context.delete(reel)
-                        }
-                    }
-                }
             } catch {
+                // Swallow-and-continue keeps one athlete's fetch failure from aborting the
+                // whole sync — but globalRemoteReelIds is now incomplete, so the global
+                // delete pass below must be skipped (see allFetchesSucceeded) or it would
+                // mistake that athlete's live reels for deletions.
+                allFetchesSucceeded = false
                 reelSyncLog.error("Failed to fetch remote HighlightReels for athlete \(athleteID.uuidString): \(error.localizedDescription)")
+            }
+        }
+
+        // Global tombstone reconciliation — a previously-synced local reel absent from the
+        // FULL remote set (across every athlete) was deleted on another device. A re-homed
+        // reel survives because its firestoreId is still present under its new owner. Skip
+        // if any per-athlete fetch failed (the set would be partial) or when offline (a
+        // stale cached getDocuments must not drive destructive deletes). The local @Query
+        // already hides deleted reels and there's no undo, so we hard-delete. Mirrors
+        // SyncCoordinator+Photos' global delete pass.
+        if allFetchesSucceeded && ConnectivityMonitor.shared.isConnected {
+            for reel in allReels {
+                guard let fid = reel.firestoreId, !reel.needsSync else { continue }
+                if !globalRemoteReelIds.contains(fid) {
+                    context.delete(reel)
+                }
             }
         }
 

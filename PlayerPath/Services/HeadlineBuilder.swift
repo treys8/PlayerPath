@@ -17,20 +17,22 @@ import Foundation
 
 enum HeadlineBuilder {
 
-    /// Headline for a Journal feed entry, given the season's milestones.
-    static func headline(for entry: JournalEntry, milestones: [Milestone]) -> String {
+    /// Headline for a Journal feed entry, given the pre-resolved top milestone for
+    /// its game (nil for non-game entries, or a game with none). The feed indexes
+    /// milestones by game once, so this path never re-scans the array per row.
+    static func headline(for entry: JournalEntry, milestone: Milestone?) -> String {
         switch entry {
         case .game(let game):
-            return headline(for: game, milestones: milestones)
+            return headline(for: game, milestone: milestone)
         case .practice, .clip, .photo:
             // Practices/standalone clips/photos don't carry batting/scoring lines.
             return entry.fallbackHeadline
         }
     }
 
-    /// Headline for a single game (used by the feed, Stats, and clip markers).
-    static func headline(for game: Game, milestones: [Milestone]) -> String {
-        if let milestone = topMilestone(for: game, in: milestones) {
+    /// Headline for a single game, given its already-resolved top milestone.
+    static func headline(for game: Game, milestone: Milestone?) -> String {
+        if let milestone {
             return milestone.title
         }
         if let standout = standoutLine(for: game) {
@@ -39,22 +41,28 @@ enum HeadlineBuilder {
         return matchupFallback(game)
     }
 
+    /// Array variant — resolves the game's top milestone, then delegates. Kept for
+    /// callers that hold the whole season milestone list (Stats / clip markers).
+    static func headline(for entry: JournalEntry, milestones: [Milestone]) -> String {
+        switch entry {
+        case .game(let game):
+            return headline(for: game, milestones: milestones)
+        case .practice, .clip, .photo:
+            return entry.fallbackHeadline
+        }
+    }
+
+    static func headline(for game: Game, milestones: [Milestone]) -> String {
+        headline(for: game, milestone: topMilestone(for: game, in: milestones))
+    }
+
     // MARK: - Priority 1 — milestone
 
     /// The most significant milestone linked to this game, if any.
     private static func topMilestone(for game: Game, in milestones: [Milestone]) -> Milestone? {
         milestones
             .filter { $0.gameID == game.id }
-            .max { rank($0.kind) < rank($1.kind) }
-    }
-
-    private static func rank(_ kind: Milestone.Kind) -> Int {
-        switch kind {
-        case .seasonFirst:  return 4
-        case .personalBest: return 3
-        case .streak:       return 2
-        case .milestone:    return 1
-        }
+            .max { $0.kind.sortRank < $1.kind.sortRank }
     }
 
     // MARK: - Priority 2 — standout day

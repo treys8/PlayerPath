@@ -50,6 +50,14 @@ enum JournalEntry: Identifiable {
 
     var isGolf: Bool { sport == .golf }
 
+    /// The backing game's id for a `.game` entry, else nil. Lets the feed resolve
+    /// this row's milestone from a pre-built `[UUID: Milestone]` index instead of
+    /// scanning the milestone array per row.
+    var gameID: UUID? {
+        if case .game(let g) = self { return g.id }
+        return nil
+    }
+
     // MARK: - Media
 
     private var clips: [VideoClip] {
@@ -75,22 +83,23 @@ enum JournalEntry: Identifiable {
     var photoCount: Int { photos.count }
 
     /// The photo shown on the media tile when an event has photos but no clip —
-    /// most recent photo (mirrors representativeClip).
+    /// most recent photo (mirrors representativeClip). Single O(N) pass.
     var representativePhoto: Photo? {
-        photos.sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }.first
+        photos.max { ($0.createdAt ?? .distantPast) < ($1.createdAt ?? .distantPast) }
     }
 
-    /// The clip used for the entry's media tile — prefer a highlight, else the
-    /// most recent clip. Split into steps to keep the type-checker fast.
+    /// The clip used for the entry's media tile — prefer a highlight (first in
+    /// relationship order, matching the old `first(where:)`), else the most recent
+    /// clip. One O(N) pass, no sort.
     var representativeClip: VideoClip? {
-        let all = clips
-        if let highlight = all.first(where: { $0.isHighlight }) {
-            return highlight
+        var newest: VideoClip?
+        for clip in clips {
+            if clip.isHighlight { return clip }
+            if newest == nil || (clip.createdAt ?? .distantPast) > (newest?.createdAt ?? .distantPast) {
+                newest = clip
+            }
         }
-        let sorted = all.sorted { lhs, rhs in
-            (lhs.createdAt ?? .distantPast) > (rhs.createdAt ?? .distantPast)
-        }
-        return sorted.first
+        return newest
     }
 
     var containsHighlight: Bool {

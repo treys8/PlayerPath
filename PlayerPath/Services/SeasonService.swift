@@ -35,17 +35,16 @@ struct SeasonService {
     /// Archives the season and aggregates its stats. Saves context and triggers Firestore sync.
     /// Rolls back local mutations if the save fails.
     static func endSeason(_ season: Season, modelContext: ModelContext) async throws {
-        let wasActive = season.isActive
-        let previousEndDate = season.endDate
-
         season.archive()
         season.needsSync = true
 
         do {
             try modelContext.save()
         } catch {
-            if wasActive { season.activate() }
-            season.endDate = previousEndDate
+            // Roll back the whole context: archive() also bumps version and recomputes
+            // seasonStatistics, which a field-by-field rollback wouldn't restore. (Using
+            // activate() to "undo" archive() also wrongly mutates athlete.sport.)
+            modelContext.rollback()
             throw SeasonServiceError.saveFailed(underlying: error)
         }
 
@@ -68,12 +67,6 @@ struct SeasonService {
     /// Rolls back local mutations if the save fails.
     static func reactivateSeason(_ season: Season, athlete: Athlete, modelContext: ModelContext) async throws {
         let previousActive = athlete.activeSeason
-        let previousActiveWasActive = previousActive?.isActive ?? false
-        let previousActiveEndDate = previousActive?.endDate
-        let wasActive = season.isActive
-        let previousEndDate = season.endDate
-        // Season.activate() now updates athlete.sport — capture so we can revert on save failure.
-        let previousAthleteSport = athlete.sport
 
         previousActive?.archive()
         season.activate()
@@ -84,15 +77,10 @@ struct SeasonService {
         do {
             try modelContext.save()
         } catch {
-            if previousActiveWasActive {
-                previousActive?.activate()
-                previousActive?.endDate = previousActiveEndDate
-            }
-            if !wasActive {
-                season.isActive = false
-            }
-            season.endDate = previousEndDate
-            athlete.sport = previousAthleteSport
+            // Roll back the whole context: archive()/activate() mutate sibling seasons,
+            // athlete.sport, versions, and stats — far more than a field-by-field rollback
+            // could restore.
+            modelContext.rollback()
             throw SeasonServiceError.saveFailed(underlying: error)
         }
 
@@ -110,6 +98,11 @@ struct SeasonService {
     /// Firestore-first delete. Marks attached games/practices/videos dirty before delinking
     /// so the next sync clears their stale `seasonId` server-side. The user's intent (per the
     /// confirmation alert) is to keep the children but un-associate them from a season.
+    ///
+    /// Success contract: a non-throwing return means the local season and its Firestore doc are
+    /// aligned (both deleted). The trailing `syncSeasons`/`syncGames`/`syncPractices`/`syncVideos`
+    /// calls are best-effort — children are marked `needsSync` and converge on the next sync, so
+    /// their stale `seasonId` may still be clearing server-side when this returns.
     static func deleteSeason(_ season: Season, modelContext: ModelContext) async throws {
         if let firestoreId = season.firestoreId,
            let user = season.athlete?.user {
@@ -139,7 +132,11 @@ struct SeasonService {
         do {
             try modelContext.save()
         } catch {
-            // Firestore is already deleted and is the source of truth — don't re-insert.
+            // Firestore is already deleted and is the source of truth. Roll back the local
+            // in-memory delete/delink so a failed save doesn't poison autosave; the online
+            // season-reconcile pass (SyncCoordinator+Seasons.swift:130–135) deletes this
+            // firestoreId-bearing local season on the next sync.
+            modelContext.rollback()
             ErrorHandlerService.shared.handle(
                 error,
                 context: "SeasonService.deleteSeason.localSave",
@@ -178,9 +175,6 @@ struct SeasonService {
         let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed != season.name else { return }
 
-        let oldName = season.name
-        let oldClipSeasonNames: [(VideoClip, String)] = (season.videoClips ?? []).map { ($0, $0.seasonName ?? "") }
-
         season.name = trimmed
         season.needsSync = true
 
@@ -194,10 +188,9 @@ struct SeasonService {
         do {
             try modelContext.save()
         } catch {
-            season.name = oldName
-            for (clip, oldSeasonName) in oldClipSeasonNames {
-                clip.seasonName = oldSeasonName
-            }
+            // Roll back the whole context: restores season.name and each clip.seasonName to its
+            // true prior value, including nil (a field-by-field rollback turned nil into "").
+            modelContext.rollback()
             throw SeasonServiceError.saveFailed(underlying: error)
         }
 

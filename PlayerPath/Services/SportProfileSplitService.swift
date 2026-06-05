@@ -31,6 +31,14 @@ private let splitLog = Logger(subsystem: "com.playerpath.app", category: "SportP
 @MainActor
 enum SportProfileSplitService {
 
+    /// Thrown when the migration's primary save fails. The context is rolled back
+    /// first, so nothing partial persists and the caller can surface a clean failure
+    /// instead of falsely reporting success and syncing an un-persisted move.
+    enum SplitError: LocalizedError {
+        case saveFailed
+        var errorDescription: String? { "The split couldn't be saved. No changes were made." }
+    }
+
     /// A summary of what splitting one sport off will move — drives the dry-run preview.
     struct MovePreview: Identifiable {
         let sport: Season.SportType
@@ -46,6 +54,9 @@ enum SportProfileSplitService {
 
     /// Distinct sports present across this row's seasons (nil sport → baseball).
     static func presentSports(for athlete: Athlete) -> Set<Season.SportType> {
+        // Legacy seasons predating multi-sport carry a nil `sport`; bucket them as
+        // baseball to stay consistent with `isLegacySplittable` / `moveSet`. A future
+        // default change (e.g. softball) would silently rebucket existing data.
         Set((athlete.seasons ?? []).map { $0.sport ?? .baseball })
     }
 
@@ -109,13 +120,20 @@ enum SportProfileSplitService {
 
         // Reels carry only a denormalized athleteID (no @Relationship), so fetch flat
         // once and re-key by hand — mirrors Athlete.delete(in:).
-        let allReels = (try? context.fetch(FetchDescriptor<HighlightReel>())) ?? []
+        let allReels: [HighlightReel]
+        do {
+            allReels = try context.fetch(FetchDescriptor<HighlightReel>())
+        } catch {
+            splitLog.error("Failed to fetch HighlightReels during split — reels left on original row: \(error.localizedDescription)")
+            allReels = []
+        }
 
         var newRows: [(athlete: Athlete, games: [Game])] = []
 
         for sport in sports {
-            // Bridge SportType (capitalized) → Athlete.Sport (lowercase).
-            guard let mappedSport = Sport(rawValue: sport.rawValue.lowercased()) else { continue }
+            // Explicit, total bridge SportType → Athlete.Sport (see Season.SportType) —
+            // a new sport fails the build here instead of silently dropping its subtree.
+            let mappedSport = sport.asAthleteSport
 
             let newRow = Athlete(name: athlete.name)
             newRow.user = athlete.user
@@ -130,9 +148,16 @@ enum SportProfileSplitService {
             splitLog.info("Split \(sport.displayName): moved \(set.seasons.count) season(s), \(set.games.count) game(s), \(set.practices.count) practice(s), \(set.clips.count) clip(s), \(set.photos.count) photo(s), \(set.tournaments.count) tournament(s), \(set.reels.count) reel(s) for \(athlete.name)")
         }
 
-        // (1) One atomic save of the entire move — SwiftData rolls back wholesale on
-        //     failure, so a partial subtree can never persist (safe-on-failure).
-        ErrorHandlerService.shared.saveContext(context, caller: "SportProfileSplit.move")
+        // (1) One save of the entire local move. saveContext does NOT roll back on its
+        //     own, so on failure roll back explicitly — otherwise the in-memory moves
+        //     (personGroupID claim + every reassigned FK) survive un-persisted, and the
+        //     caller would falsely report success and sync that ghost state to Firestore
+        //     while disk reverts on relaunch. Throw so the caller aborts before syncing.
+        let saved = ErrorHandlerService.shared.saveContext(context, caller: "SportProfileSplit.move")
+        guard saved else {
+            context.rollback()
+            throw SplitError.saveFailed
+        }
 
         // (2) Re-pin a single active season per row (pinned sport wins). The original
         //     may have lost its active season to a moved sport; each new row's lone
@@ -206,6 +231,9 @@ enum SportProfileSplitService {
                 || (ph.game.map { gameIDs.contains($0.id) } ?? false)
                 || (ph.practice.map { practiceIDs.contains($0.id) } ?? false)
         }
+        // Orphans (a clip/photo with no season, game, or practice) have no sport context
+        // and intentionally stay on the original row; an explicit-sport tag would need a
+        // separate pass.
 
         // Golf tournaments are golf-only; their rounds are golf games already captured above.
         let tournaments = sport == .golf ? (athlete.golfTournaments ?? []) : []

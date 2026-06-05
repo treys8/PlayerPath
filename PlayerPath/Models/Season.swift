@@ -171,6 +171,17 @@ final class Season {
 
         var displayName: String { rawValue }
 
+        /// Explicit bridge to `Athlete.Sport` (which stores lowercase raw values). A
+        /// total switch, so adding a `SportType` case fails the build here instead of
+        /// silently dropping that sport in the split / spinoff migrations.
+        var asAthleteSport: Sport {
+            switch self {
+            case .baseball: return .baseball
+            case .softball: return .softball
+            case .golf:     return .golf
+            }
+        }
+
         var icon: String {
             switch self {
             case .baseball: return "figure.baseball"
