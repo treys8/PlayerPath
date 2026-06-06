@@ -101,7 +101,11 @@ final class ComprehensiveAuthManager: ObservableObject {
 
     // Subscription tier — kept in sync with StoreKitManager via Combine.
     // Can be overridden by Firestore for comped users (see loadUserProfile).
-    @Published var currentTier: SubscriptionTier = .free
+    // Mirrored into SubscriptionGate.compedAthleteTier so off-view enforcement
+    // gates (uploads, exports, folder creation) see the comp-aware tier too.
+    @Published var currentTier: SubscriptionTier = .free {
+        didSet { SubscriptionGate.compedAthleteTier = currentTier }
+    }
 
     /// True after the first loadUserProfile() completes. Prevents the StoreKit
     /// publisher from syncing a "free" tier to Firestore before we've had a chance

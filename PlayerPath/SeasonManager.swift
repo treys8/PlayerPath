@@ -153,40 +153,6 @@ struct SeasonManager {
         practice.season = activeSeason
     }
 
-    /// Generates a season summary report (useful for archive view)
-    /// - Parameter season: The season to summarize
-    /// - Returns: A formatted summary string
-    static func generateSeasonSummary(for season: Season) -> String {
-        var summary = "\(season.displayName)\n\n"
-
-        // Date range
-        if let start = season.startDate, let end = season.endDate {
-            summary += "Duration: \(start.formatted(date: .abbreviated, time: .omitted)) - \(end.formatted(date: .abbreviated, time: .omitted))\n\n"
-        }
-
-        // Stats
-        summary += "📊 Season Overview\n"
-        summary += "• Games Played: \(season.completedGames)\n"
-        summary += "• Practices: \((season.practices ?? []).count)\n"
-        summary += "• Videos Recorded: \(season.totalVideos)\n"
-        summary += "• Highlights: \(season.highlights.count)\n\n"
-
-        // Baseball stats if available
-        if let stats = season.seasonStatistics, stats.atBats > 0 {
-            summary += "⚾️ Batting Statistics\n"
-            let avgDisplay = stats.battingAverage >= 1.0 ? "1.000" : String(format: ".%03d", Int(stats.battingAverage * 1000))
-            summary += "• Batting Average: \(avgDisplay)\n"
-            summary += "• At Bats: \(stats.atBats)\n"
-            summary += "• Hits: \(stats.hits)\n"
-            summary += "• Home Runs: \(stats.homeRuns)\n"
-            summary += "• RBIs: \(stats.rbis)\n"
-            summary += "• Walks: \(stats.walks)\n"
-            summary += "• Strikeouts: \(stats.strikeouts)\n"
-        }
-
-        return summary
-    }
-
     /// Checks if an athlete should be prompted to create or end a season.
     /// - Parameters:
     ///   - athlete: The athlete to check.

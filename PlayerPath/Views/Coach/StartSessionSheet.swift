@@ -243,8 +243,7 @@ struct StartSessionSheet: View {
                     coachName: coachName,
                     athletes: selected,
                     scheduledDate: showDatePicker ? scheduledDate : nil,
-                    notes: notes.isEmpty ? nil : notes,
-                    authManager: authManager
+                    notes: notes.isEmpty ? nil : notes
                 )
                 Haptics.success()
                 dismiss()

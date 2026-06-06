@@ -54,7 +54,7 @@ final class BulkVideoImportViewModel {
         var stoppedForQuota = false
         reservedThisSession = 0
 
-        let tier = StoreKitManager.shared.currentTier
+        let tier = SubscriptionGate.effectiveAthleteTier
         let limitBytes = Int64(tier.storageLimitGB) * StorageConstants.bytesPerGB
 
         // Match the canonical creation pattern in ClipPersistenceService:

@@ -17,7 +17,7 @@ final class StatisticsExportService {
 
     /// Export statistics to CSV format (requires Plus tier or higher)
     static func exportToCSV(athlete: Athlete, stats: AthleteStatistics) -> Result<URL, ExportError> {
-        guard StoreKitManager.shared.currentTier >= .plus else {
+        guard SubscriptionGate.effectiveAthleteTier >= .plus else {
             return .failure(.fileCreationFailed("Statistics export requires a Plus or Pro subscription."))
         }
 
@@ -34,7 +34,7 @@ final class StatisticsExportService {
 
     /// Export statistics to PDF format with formatted layout (requires Plus tier or higher)
     static func exportToPDF(athlete: Athlete, stats: AthleteStatistics, season: Season? = nil) -> Result<URL, ExportError> {
-        guard StoreKitManager.shared.currentTier >= .plus else {
+        guard SubscriptionGate.effectiveAthleteTier >= .plus else {
             return .failure(.fileCreationFailed("Statistics export requires a Plus or Pro subscription."))
         }
 

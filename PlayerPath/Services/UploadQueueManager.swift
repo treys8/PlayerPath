@@ -701,7 +701,7 @@ final class UploadQueueManager {
             // both passing the quota check before either finishes.
             if let user = athlete.user {
                 let fileSize = FileManager.default.fileSize(atPath: upload.filePath)
-                let tier = StoreKitManager.shared.currentTier
+                let tier = SubscriptionGate.effectiveAthleteTier
                 let limitBytes = Int64(tier.storageLimitGB) * StorageConstants.bytesPerGB
                 let projectedUsage = user.cloudStorageUsedBytes + fileSize
                 if projectedUsage > limitBytes {

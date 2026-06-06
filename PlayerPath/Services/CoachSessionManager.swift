@@ -52,25 +52,6 @@ final class CoachSessionManager {
         )
     }
 
-    /// Validates the coach hasn't exceeded their tier's athlete limit.
-    /// Uses the strict write-gate decision: an unconfirmed server count is
-    /// treated as block-and-retry rather than passing through on local data.
-    private func enforceAthleteLimit(coachID: String, authManager: ComprehensiveAuthManager) async throws {
-        let decision = await SubscriptionGate.writeGateDecision(
-            coachID: coachID,
-            authManager: authManager,
-            includingPending: false
-        )
-        switch decision {
-        case .allow:
-            return
-        case .block(.atOrOverLimit(_, let limit)):
-            throw CoachSessionError.athleteLimitExceeded(limit: limit)
-        case .block(.unconfirmed):
-            throw CoachSessionError.athleteLimitExceeded(limit: authManager.coachAthleteLimit)
-        }
-    }
-
     // MARK: - Session Lifecycle
 
     /// Transitions session from live to reviewing.
@@ -133,17 +114,19 @@ final class CoachSessionManager {
 
     /// Creates a session. If `scheduledDate` is provided, it's shown on the card;
     /// otherwise the session is ready to go live immediately.
-    /// Validates athlete limit to prevent creating beyond the coach's tier.
+    ///
+    /// Note: deliberately does NOT check the coach's athlete limit. Sessions only ever
+    /// involve already-connected athletes, so creating one never adds a roster slot —
+    /// the limit is enforced where athletes are actually added (invitation accept /
+    /// folder share, server-side). A coach at their limit (e.g. 2 of 2) must still be
+    /// able to run sessions with the athletes they already have.
     func scheduleSession(
         coachID: String,
         coachName: String,
         athletes: [(athleteID: String, athleteName: String, folderID: String)],
         scheduledDate: Date? = nil,
-        notes: String?,
-        authManager: ComprehensiveAuthManager
+        notes: String?
     ) async throws -> String {
-        try await enforceAthleteLimit(coachID: coachID, authManager: authManager)
-
         let (athleteIDs, athleteNames, folderIDs) = athleteData(from: athletes)
 
         var data: [String: Any] = [
@@ -579,17 +562,4 @@ final class CoachSessionManager {
     }
 
 
-}
-
-// MARK: - Errors
-
-enum CoachSessionError: LocalizedError {
-    case athleteLimitExceeded(limit: Int)
-
-    var errorDescription: String? {
-        switch self {
-        case .athleteLimitExceeded(let limit):
-            return "Your plan supports up to \(limit) athletes. Upgrade to add more."
-        }
-    }
 }

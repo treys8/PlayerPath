@@ -164,6 +164,16 @@ final class Season {
         (practices ?? []).count
     }
 
+    /// SF Symbol for the "games / rounds" stat, sport-aware.
+    var gameUnitIcon: String {
+        (sport ?? .baseball) == .golf ? "figure.golf" : "baseball.diamond.bases"
+    }
+
+    /// Plural noun for game-like events, sport-aware ("Games" vs "Rounds").
+    var gameUnitNounPlural: String {
+        (sport ?? .baseball) == .golf ? "Rounds" : "Games"
+    }
+
     enum SportType: String, Codable, CaseIterable {
         case baseball = "Baseball"
         case softball = "Softball"

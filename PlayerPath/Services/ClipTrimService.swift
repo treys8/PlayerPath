@@ -126,7 +126,7 @@ enum ClipTrimService {
         // === Quota pre-check (only if growing — trim usually shrinks) ===
         if newFileSize > oldFileSize {
             let delta = newFileSize - oldFileSize
-            let tier = StoreKitManager.shared.currentTier
+            let tier = SubscriptionGate.effectiveAthleteTier
             let limitBytes = Int64(tier.storageLimitGB) * StorageConstants.bytesPerGB
             if user.cloudStorageUsedBytes + delta > limitBytes {
                 let available = max(0, limitBytes - user.cloudStorageUsedBytes)

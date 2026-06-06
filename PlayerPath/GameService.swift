@@ -165,16 +165,25 @@ class GameService {
             return .failure(.noActiveSeason)
         }
 
-        // Check for duplicate game with same opponent on same day
-        let calendar = Calendar.current
-        let trimmedOpponent = opponent.trimmingCharacters(in: .whitespaces)
-        let isDuplicate = (athlete.games ?? []).contains { existingGame in
-            existingGame.opponent.localizedCaseInsensitiveCompare(trimmedOpponent) == .orderedSame &&
-            existingGame.date.map { calendar.isDate($0, inSameDayAs: date) } == true
-        }
+        // Check for duplicate game with same opponent on same day — but only
+        // for ball sports. In golf `opponent` is the course name, and playing
+        // the same course twice in a day is legitimate (36-hole tournament days,
+        // same-course replays), so course+day can't distinguish an intentional
+        // round from an accidental double-tap. Golf gets no auto-dedupe.
+        // A round created via allowWithoutSeason may have a nil season, so also
+        // treat the presence of golfDetails as a golf signal.
+        let isGolf = (resolvedSeason?.sport == .golf) || (golfDetails != nil)
+        if !isGolf {
+            let calendar = Calendar.current
+            let trimmedOpponent = opponent.trimmingCharacters(in: .whitespaces)
+            let isDuplicate = (athlete.games ?? []).contains { existingGame in
+                existingGame.opponent.localizedCaseInsensitiveCompare(trimmedOpponent) == .orderedSame &&
+                existingGame.date.map { calendar.isDate($0, inSameDayAs: date) } == true
+            }
 
-        guard !isDuplicate else {
-            return .failure(.duplicateGame)
+            guard !isDuplicate else {
+                return .failure(.duplicateGame)
+            }
         }
 
         // End all other live games if this game is going live — but only when

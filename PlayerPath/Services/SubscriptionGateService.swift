@@ -34,6 +34,28 @@ struct CoachAthleteRef {
 /// Uses the auth manager and shared folder data to determine limits.
 enum SubscriptionGate {
 
+    // MARK: - Comp-aware effective athlete tier
+
+    /// The comp-aware athlete tier mirrored from `ComprehensiveAuthManager.currentTier`
+    /// (which honors Firestore admin comps + grace windows). Defaults to `.free` until
+    /// the auth manager publishes a tier. Don't read this directly — use
+    /// `effectiveAthleteTier`, which also floors at the live StoreKit entitlement.
+    static var compedAthleteTier: SubscriptionTier = .free
+
+    /// Effective athlete tier for enforcement gates that run OUTSIDE the SwiftUI
+    /// environment (background uploads, export services) and therefore can't read the
+    /// injected `ComprehensiveAuthManager`. Takes the higher of the live StoreKit
+    /// entitlement and the mirrored comp, so:
+    ///  - a comped Pro user (StoreKit `.free`, Firestore comp `.pro`) is NOT blocked
+    ///    from the features their comp grants, and
+    ///  - a paying user is never under-gated during the brief launch window before the
+    ///    comp mirror is first populated.
+    /// Server-side rules/CFs still key off the Firestore tier, so honoring the comp
+    /// client-side is safe and not a revenue leak.
+    static var effectiveAthleteTier: SubscriptionTier {
+        max(StoreKitManager.shared.currentTier, compedAthleteTier)
+    }
+
     /// Whether the coach has more connected athletes than their tier allows.
     /// Uses the full async count (folders + accepted invitations) for accuracy.
     @MainActor

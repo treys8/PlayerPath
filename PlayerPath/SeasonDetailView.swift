@@ -117,7 +117,7 @@ struct SeasonDetailView: View {
             // Statistics - using computed values for live updates (shown for All filter)
             if selectedFilter == .all {
                 Section(header: Text("Season Stats").smallCapsLabel()) {
-                    LabeledContent("Games Played", value: "\(season.completedGames)")
+                    LabeledContent("\(season.gameUnitNounPlural) Played", value: "\(season.completedGames)")
                     LabeledContent("Total Videos", value: "\(season.totalVideos)")
                     LabeledContent("Highlights", value: "\(season.highlights.count)")
                     LabeledContent("Practices", value: "\(season.practicesCount)")

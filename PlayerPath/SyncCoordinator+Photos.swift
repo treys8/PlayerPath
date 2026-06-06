@@ -56,7 +56,7 @@ extension SyncCoordinator {
                     syncLog.error("Failed to read photo file size at '\(resolvedPath)': \(error.localizedDescription)")
                     continue
                 }
-                let tier = StoreKitManager.shared.currentTier
+                let tier = SubscriptionGate.effectiveAthleteTier
                 let limitBytes = Int64(tier.storageLimitGB) * StorageConstants.bytesPerGB
                 guard user.cloudStorageUsedBytes + fileSize <= limitBytes else {
                     continue

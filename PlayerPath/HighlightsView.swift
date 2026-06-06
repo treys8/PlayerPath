@@ -19,14 +19,11 @@ struct HighlightsView: View {
     @ObservedObject private var autoHighlightSettings = AutoHighlightSettings.shared
     @State private var selectedClip: VideoClip?
     @State private var selectedReel: HighlightReel?
-    @State private var showingVideoPlayer = false
-    @State private var showingReelPlayer = false
     @State private var showingDeleteAlert = false
     @State private var clipToDelete: VideoClip?
     @State private var editMode: EditMode = .inactive
     @State private var showingAutoHighlightSettings = false
-    @State private var stitchedReelURL: URL?
-    @State private var showingStitchedReel = false
+    @State private var stitchedReel: IdentifiableURL?
 
     /// Live source for v6.1 reels. Filtering to non-deleted at the @Query
     /// level keeps the view model out of stale-reel handling — soft-deleted
@@ -69,7 +66,22 @@ struct HighlightsView: View {
             reels: scopedReels
         )
     }
-    
+
+    /// Composite key for `.onChange` that reacts to highlight membership changes,
+    /// not just add/remove. A count-only key misses an in-view "Remove from
+    /// Highlights" or an unstar from the full-screen player — both flip
+    /// `isHighlight` without changing the total clip count. Mirrors
+    /// VideoClipsView.videoClipsChangeKey; Hasher avoids a per-body string alloc.
+    private var highlightsChangeKey: Int {
+        var hasher = Hasher()
+        for clip in (athlete?.videoClips ?? []) {
+            hasher.combine(clip.id)
+            hasher.combine(clip.isHighlight)
+            hasher.combine(clip.playResult?.type.rawValue)
+        }
+        return hasher.finalize()
+    }
+
     /// Large-title text. Names the screen as "Highlights" (the old title was a
     /// bare "Name (count)" that never said what the screen was) while keeping
     /// the athlete context and count.
@@ -89,15 +101,11 @@ struct HighlightsView: View {
                 toolbarContent
             }
             .environment(\.editMode, $editMode)
-        .fullScreenCover(isPresented: $showingVideoPlayer) {
-            if let clip: VideoClip = selectedClip {
-                VideoPlayerView(clip: clip)
-            }
+        .fullScreenCover(item: $selectedClip) { clip in
+            VideoPlayerView(clip: clip)
         }
-        .fullScreenCover(isPresented: $showingReelPlayer) {
-            if let reel = selectedReel {
-                ReelPlayerView(reel: reel)
-            }
+        .fullScreenCover(item: $selectedReel) { reel in
+            ReelPlayerView(reel: reel)
         }
         .alert("Delete Highlight", isPresented: $showingDeleteAlert) {
             Button("Cancel", role: .cancel) {
@@ -117,10 +125,8 @@ struct HighlightsView: View {
                 AutoHighlightSettingsView(athlete: athlete)
             }
         }
-        .fullScreenCover(isPresented: $showingStitchedReel) {
-            if let url = stitchedReelURL {
-                StitchedReelPlayerView(url: url)
-            }
+        .fullScreenCover(item: $stitchedReel) { item in
+            StitchedReelPlayerView(url: item.url)
         }
         .task {
             migrateHitVideosToHighlights()
@@ -135,7 +141,7 @@ struct HighlightsView: View {
         .onAppear {
             AnalyticsService.shared.trackScreenView(screenName: "Highlights", screenClass: "HighlightsView")
         }
-        .onChange(of: athlete?.videoClips?.count) { _, _ in updateViewModel() }
+        .onChange(of: highlightsChangeKey) { _, _ in updateViewModel() }
         .onChange(of: allReels.count) { _, _ in updateViewModel() }
         .onChange(of: viewModel.selectedSeasonFilter) { _, _ in recomputeAll() }
         .onChange(of: viewModel.filter) { _, _ in recomputeAll() }
@@ -281,8 +287,7 @@ struct HighlightsView: View {
                     athleteId: athlete.id,
                     clips: viewModel.todaysHighlightClips,
                     onPlay: { url in
-                        stitchedReelURL = url
-                        showingStitchedReel = true
+                        stitchedReel = IdentifiableURL(url)
                     }
                 )
                 .padding(.horizontal, horizontalSizeClass == .regular ? 32 : 16)
@@ -306,7 +311,6 @@ struct HighlightsView: View {
                             onPlay: {
                                 if editMode == .inactive {
                                     selectedClip = clip
-                                    showingVideoPlayer = true
                                 } else {
                                     toggleSelection(clip)
                                 }
@@ -324,7 +328,6 @@ struct HighlightsView: View {
                             onPlay: {
                                 guard editMode == .inactive else { return }
                                 selectedReel = reel
-                                showingReelPlayer = true
                             },
                             isDimmed: editMode == .active
                         )
@@ -648,6 +651,16 @@ struct HighlightsView: View {
         presentShareSheet(items: fileURLs)
         Haptics.light()
     }
+}
+
+/// Wraps a URL so it can drive `.fullScreenCover(item:)`, which requires an
+/// Identifiable. Identity is the URL itself so re-presenting the same reel is
+/// stable. Using `item:` (vs. `isPresented:` + a separate optional) guarantees
+/// the URL is non-nil when the cover renders — no content-less blank cover.
+private struct IdentifiableURL: Identifiable {
+    let url: URL
+    var id: String { url.absoluteString }
+    init(_ url: URL) { self.url = url }
 }
 
 #Preview {

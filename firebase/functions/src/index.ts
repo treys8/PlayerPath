@@ -1,7 +1,7 @@
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
 import { Resend } from 'resend';
-import { SignedDataVerifier, Environment, JWSTransactionDecodedPayload } from '@apple/app-store-server-library';
+import { SignedDataVerifier, Environment, JWSTransactionDecodedPayload, NotificationTypeV2 } from '@apple/app-store-server-library';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -2964,13 +2964,21 @@ export const enforceStorageQuota = functions.storage
 
     // Sum non-deleted video sizes from Firestore (videos collection uses
     // "uploadedBy" as the owner field; "fileSize" is written by the client).
+    // Filter isDeleted in code rather than with a Firestore `!=` inequality:
+    // the inequality requires a composite (uploadedBy, isDeleted, __name__)
+    // index AND silently drops docs that have no isDeleted field at all,
+    // which would under-count storage. An equality-only query needs no
+    // composite index and correctly counts docs where isDeleted is
+    // missing or false.
     const videosSnap = await db.collection('videos')
       .where('uploadedBy', '==', ownerUID)
-      .where('isDeleted', '!=', true)
+      .select('fileSize', 'isDeleted')
       .get();
     let videosTotal = 0;
     videosSnap.forEach(doc => {
-      videosTotal += (doc.data().fileSize || 0);
+      const data = doc.data();
+      if (data.isDeleted === true) return; // skip soft-deleted
+      videosTotal += (data.fileSize || 0);
     });
 
     // Sum photo sizes by listing the bucket prefix. FirestorePhoto has no
@@ -3051,12 +3059,19 @@ const COACH_TIER_RANK: Record<string, number> = {
  * highest active athlete and coach subscription tiers from the product IDs.
  * Only non-expired, non-revoked transactions are considered.
  */
+interface ActiveTransactionRef {
+  originalTransactionId: string;
+  productId: string;
+  appAccountToken?: string;
+}
+
 async function resolveTransactionTiers(
   transactionTokens: string[],
   verifier: SignedDataVerifier,
-): Promise<{ athleteTier: string; coachTier: string }> {
+): Promise<{ athleteTier: string; coachTier: string; activeTransactions: ActiveTransactionRef[] }> {
   let athleteTier = 'free';
   let coachTier = 'coach_free';
+  const activeTransactions: ActiveTransactionRef[] = [];
   const now = Date.now();
 
   for (const token of transactionTokens) {
@@ -3076,6 +3091,16 @@ async function resolveTransactionTiers(
 
     const productId = tx.productId ?? '';
 
+    // Record the still-active subscription transaction so the App Store Server
+    // Notifications webhook can later map a refund/expiry/revoke back to this user.
+    if (tx.originalTransactionId && (ATHLETE_PRODUCT_TIERS[productId] || COACH_PRODUCT_TIERS[productId])) {
+      activeTransactions.push({
+        originalTransactionId: tx.originalTransactionId,
+        productId,
+        appAccountToken: tx.appAccountToken,
+      });
+    }
+
     // Check athlete products
     const aTier = ATHLETE_PRODUCT_TIERS[productId];
     if (aTier && (ATHLETE_TIER_RANK[aTier] ?? 0) > (ATHLETE_TIER_RANK[athleteTier] ?? 0)) {
@@ -3089,7 +3114,7 @@ async function resolveTransactionTiers(
     }
   }
 
-  return { athleteTier, coachTier };
+  return { athleteTier, coachTier, activeTransactions };
 }
 
 /**
@@ -3127,11 +3152,23 @@ export const syncSubscriptionTier = functions.https.onCall(async (data, context)
 
   // --- Step 1: Verify AppTransaction (proves the app binary is legitimate) ---
   // Always try production first, then sandbox (TestFlight uses sandbox-signed tokens).
-  // If no receiptData is provided, skip AppTransaction verification — this handles
-  // sandbox/Xcode testing where AppTransaction is unavailable. Individual transaction
-  // JWS tokens are still verified in Step 2.
+  // A missing receiptData is honored ONLY in the local emulator (handled below);
+  // in any deployed environment it is rejected. Individual transaction JWS tokens
+  // are still verified in Step 2.
   if (!receiptData || typeof receiptData !== 'string') {
-    console.log('⚠️ No AppTransaction receipt — skipping app verification, using sandbox verifier.');
+    // No AppTransaction receipt. A legitimate release OR TestFlight client ALWAYS
+    // sends a verified AppTransaction — the no-receipt payload is a #if DEBUG-only
+    // client path (see FirestoreManager+UserProfile.swift). In a deployed function
+    // the only callers that reach here are crafted requests trying to skip Step-1
+    // app verification and force the SANDBOX verifier, which would then accept a
+    // free, genuinely-Apple-signed sandbox transaction for a paid product and write
+    // that tier for $0. Only allow the sandbox fallback when running locally in the
+    // emulator; reject it in production/TestFlight.
+    if (!process.env.FUNCTIONS_EMULATOR) {
+      console.error('❌ syncSubscriptionTier called without an AppTransaction receipt in a deployed environment — rejecting.');
+      throw new functions.https.HttpsError('permission-denied', 'App Store receipt required.');
+    }
+    console.log('⚠️ No AppTransaction receipt — emulator/local dev only, using sandbox verifier.');
     activeVerifier = verifiers.sandbox;
   } else {
     let verified = false;
@@ -3156,7 +3193,7 @@ export const syncSubscriptionTier = functions.https.onCall(async (data, context)
   }
 
   // --- Step 2: Verify individual Transaction tokens and derive tiers ---
-  const { athleteTier, coachTier } = await resolveTransactionTiers(transactionTokens, activeVerifier);
+  const { athleteTier, coachTier, activeTransactions } = await resolveTransactionTiers(transactionTokens, activeVerifier);
 
   console.log(`🔍 Server-derived tiers: athlete=${athleteTier}, coach=${coachTier}`);
 
@@ -3174,6 +3211,7 @@ export const syncSubscriptionTier = functions.https.onCall(async (data, context)
   const currentAthleteTier = userDoc.data()?.subscriptionTier ?? 'free';
   const athleteTierSource = userDoc.data()?.athleteTierSource;
   const currentCoachTier = userDoc.data()?.coachSubscriptionTier ?? 'coach_free';
+  const coachTierSource = userDoc.data()?.coachTierSource;
 
   // Preserve manually-granted (comped) athlete tier when server resolves "free"
   if (athleteTier !== 'free') {
@@ -3186,25 +3224,216 @@ export const syncSubscriptionTier = functions.https.onCall(async (data, context)
   }
   // else: currentAthleteTier > free AND tierSource !== 'storekit' = admin comp, preserve it
 
-  // Preserve manually-granted coach tier (e.g. "coach_academy") when server
-  // resolves a lower or free tier. Always keep the HIGHER of the two values.
+  // Coach tier: symmetric to the athlete logic above, with extra protection for
+  // the manually-granted Academy tier (rank 3, no StoreKit product) which must
+  // outrank any purchasable tier. coachTierSource tracks who last wrote the tier:
+  // 'storekit' (this function) vs absent/other (an admin-SDK comp). Previously this
+  // block only ever wrote UP, so a coach who bought then cancelled Instructor kept
+  // that tier — and its athlete limit — in Firestore forever.
+  const currentCoachRank = COACH_TIER_RANK[currentCoachTier] ?? 0;
+  const resolvedCoachRank = COACH_TIER_RANK[coachTier] ?? 0;
+  // A manual grant is a non-free tier this function did NOT write.
+  const coachIsManualGrant = currentCoachTier !== 'coach_free' && coachTierSource !== 'storekit';
+
   if (coachTier !== 'coach_free') {
-    const currentRank = COACH_TIER_RANK[currentCoachTier] ?? 0;
-    const newRank = COACH_TIER_RANK[coachTier] ?? 0;
-    if (newRank >= currentRank) {
+    // StoreKit resolved a paid coach tier (upgrade, renewal, or a paid→paid change).
+    // Take it UNLESS a higher manual grant (e.g. Academy) should be preserved.
+    if (coachIsManualGrant && resolvedCoachRank < currentCoachRank) {
+      // Keep the higher manual grant; don't downgrade a comp to a purchase.
+    } else {
       updateData.coachSubscriptionTier = coachTier;
+      updateData.coachTierSource = 'storekit';
     }
-    // else: keep the existing higher tier (e.g. Academy)
+  } else if (currentCoachTier === 'coach_free' || coachTierSource === 'storekit') {
+    // Resolved free AND (already free OR last tier was StoreKit-written): a purchased
+    // coach subscription expired/cancelled — write the downgrade authoritatively so
+    // the client (CoachDowngradeManager) and the limit checks see the lower tier.
+    updateData.coachSubscriptionTier = 'coach_free';
+    updateData.coachTierSource = 'storekit';
   }
-  // When coachTier resolves to "coach_free", don't write — preserves any manual grant
+  // else: resolved free, current is a manual grant (Academy/comp) → preserve it.
 
   try {
     await admin.firestore().collection('users').doc(uid).set(updateData, { merge: true });
     console.log(`✅ Synced tiers for ${uid}: athlete=${athleteTier}, coach=${coachTier}`);
+
+    // Persist originalTransactionId -> uid so the App Store Server Notifications
+    // webhook can map a future refund/expiry/revoke back to this user. Best-effort:
+    // a mapping failure must not fail the tier sync the client is awaiting.
+    if (activeTransactions.length > 0) {
+      try {
+        const mapBatch = admin.firestore().batch();
+        for (const t of activeTransactions) {
+          mapBatch.set(
+            admin.firestore().collection('appleSubscriptions').doc(t.originalTransactionId),
+            {
+              uid,
+              productId: t.productId,
+              appAccountToken: t.appAccountToken ?? null,
+              updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            },
+            { merge: true },
+          );
+        }
+        await mapBatch.commit();
+      } catch (mapErr) {
+        console.error('⚠️ Failed to persist appleSubscriptions mapping (non-fatal):', mapErr);
+      }
+    }
+
     return { success: true, athleteTier, coachTier };
   } catch (error) {
     console.error('❌ Failed to sync tiers:', error);
     throw new functions.https.HttpsError('internal', 'Failed to update subscription tier');
+  }
+});
+
+/**
+ * App Store Server Notifications V2 webhook.
+ *
+ * Apple POSTs server-authoritative subscription events here (refunds, expiries,
+ * revocations, grace-period expiries) independently of whether the client ever
+ * reopens the app. Without this, a refund or silent expiry left the user's
+ * Firestore tier — and any coach access / storage / athlete-limit it grants —
+ * stuck at the paid value indefinitely.
+ *
+ * SETUP (manual, one-time): set this function's trigger URL as BOTH the Production
+ * and Sandbox "App Store Server Notifications V2" URL in App Store Connect →
+ * your app → App Information → App Store Server Notifications.
+ *
+ * We act only on terminal downgrade events, and only when the affected tier was
+ * StoreKit-sourced (athleteTierSource/coachTierSource === 'storekit'), so admin
+ * comps (Academy, manual Pro) are preserved. The user is resolved via the
+ * originalTransactionId -> uid mapping written by syncSubscriptionTier.
+ */
+export const appStoreServerNotifications = functions.https.onRequest(async (req, res) => {
+  if (req.method !== 'POST') {
+    res.status(405).send('Method Not Allowed');
+    return;
+  }
+
+  const signedPayload = req.body?.signedPayload;
+  if (!signedPayload || typeof signedPayload !== 'string') {
+    res.status(400).send('Missing signedPayload');
+    return;
+  }
+
+  // Verify the notification signature. Production notifications are production-signed;
+  // Sandbox/TestFlight notifications are sandbox-signed — try both environments.
+  const verifiers = createVerifiers();
+  let payload: Awaited<ReturnType<SignedDataVerifier['verifyAndDecodeNotification']>> | undefined;
+  let activeVerifier: SignedDataVerifier | undefined;
+  for (const v of [verifiers.production, verifiers.sandbox]) {
+    try {
+      payload = await v.verifyAndDecodeNotification(signedPayload);
+      activeVerifier = v;
+      break;
+    } catch (e) {
+      // Try the other environment.
+    }
+  }
+  if (!payload || !activeVerifier) {
+    console.error('❌ ASSN: signature verification failed for both environments.');
+    res.status(401).send('Invalid signature');
+    return;
+  }
+
+  const notificationType = payload.notificationType;
+  const subtype = payload.subtype;
+  console.log(`🔔 ASSN received: ${notificationType}${subtype ? '/' + subtype : ''}`);
+
+  if (!notificationType) {
+    res.status(200).send('OK (no type)');
+    return;
+  }
+
+  // Apple sends a TEST notification when the URL is configured — ack it.
+  if (notificationType === NotificationTypeV2.TEST) {
+    res.status(200).send('OK');
+    return;
+  }
+
+  // Only terminal downgrade events change entitlement. AUTO_RENEW_DISABLED
+  // (DID_CHANGE_RENEWAL_STATUS) is NOT terminal — the sub stays active until EXPIRED.
+  const terminalDowngrades: string[] = [
+    NotificationTypeV2.REFUND,
+    NotificationTypeV2.REVOKE,
+    NotificationTypeV2.EXPIRED,
+    NotificationTypeV2.GRACE_PERIOD_EXPIRED,
+  ];
+  if (!terminalDowngrades.includes(notificationType)) {
+    res.status(200).send('OK (no action)');
+    return;
+  }
+
+  const signedTx = payload.data?.signedTransactionInfo;
+  if (!signedTx) {
+    res.status(200).send('OK (no transaction)');
+    return;
+  }
+
+  let tx: JWSTransactionDecodedPayload;
+  try {
+    tx = await activeVerifier.verifyAndDecodeTransaction(signedTx);
+  } catch (e) {
+    console.error('❌ ASSN: transaction decode failed:', e);
+    res.status(200).send('OK');
+    return;
+  }
+
+  // Resolve the user: prefer the originalTransactionId mapping, then appAccountToken.
+  let uid: string | undefined;
+  if (tx.originalTransactionId) {
+    const mapDoc = await admin.firestore()
+      .collection('appleSubscriptions').doc(tx.originalTransactionId).get();
+    uid = mapDoc.data()?.uid;
+  }
+  if (!uid && tx.appAccountToken) {
+    const q = await admin.firestore().collection('appleSubscriptions')
+      .where('appAccountToken', '==', tx.appAccountToken).limit(1).get();
+    if (!q.empty) uid = q.docs[0].data()?.uid;
+  }
+  if (!uid) {
+    console.warn(`⚠️ ASSN: no user mapping for originalTransactionId=${tx.originalTransactionId}, product=${tx.productId}. The user's next in-app sync will reconcile.`);
+    res.status(200).send('OK (unmapped)');
+    return;
+  }
+
+  const productId = tx.productId ?? '';
+  const isAthleteProduct = !!ATHLETE_PRODUCT_TIERS[productId];
+  const isCoachProduct = !!COACH_PRODUCT_TIERS[productId];
+
+  const userRef = admin.firestore().collection('users').doc(uid);
+  try {
+    const userSnap = await userRef.get();
+    const u = userSnap.data() ?? {};
+    const update: Record<string, any> = {};
+
+    // Downgrade only the affected axis, and only when it was StoreKit-sourced —
+    // admin comps (athleteTierSource/coachTierSource !== 'storekit') are preserved.
+    // Writing subscriptionTier to 'free' also fires syncCoachAccessOnAthleteTierChange,
+    // which revokes coach access for a refunded/expired Pro athlete.
+    if (isAthleteProduct && (u.subscriptionTier ?? 'free') !== 'free' && u.athleteTierSource === 'storekit') {
+      update.subscriptionTier = 'free';
+      update.athleteTierSource = 'storekit';
+    }
+    if (isCoachProduct && (u.coachSubscriptionTier ?? 'coach_free') !== 'coach_free' && u.coachTierSource === 'storekit') {
+      update.coachSubscriptionTier = 'coach_free';
+      update.coachTierSource = 'storekit';
+    }
+
+    if (Object.keys(update).length > 0) {
+      update.updatedAt = admin.firestore.FieldValue.serverTimestamp();
+      await userRef.set(update, { merge: true });
+      console.log(`✅ ASSN ${notificationType}: downgraded ${uid} ${JSON.stringify(update)}`);
+    } else {
+      console.log(`ℹ️ ASSN ${notificationType}: no downgrade applied for ${uid} (admin comp or already free).`);
+    }
+    res.status(200).send('OK');
+  } catch (e) {
+    // 500 so Apple retries — this is a transient Firestore failure, not a bad request.
+    console.error(`❌ ASSN: failed to apply downgrade for ${uid}:`, e);
+    res.status(500).send('Internal error');
   }
 });
 

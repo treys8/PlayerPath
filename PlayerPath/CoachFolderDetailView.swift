@@ -683,8 +683,7 @@ struct CoachFolderDetailView: View {
                     coachName: coachName,
                     athletes: [athlete],
                     scheduledDate: nil,
-                    notes: nil,
-                    authManager: authManager
+                    notes: nil
                 )
                 try await CoachSessionManager.shared.startScheduledSession(sessionID: sessionID)
                 Haptics.success()

@@ -107,8 +107,8 @@ struct SeasonsView: View {
                 HStack(alignment: .top, spacing: 20) {
                     SeasonStatBadge(
                         value: activeSeason.completedGames,
-                        label: "Games Played",
-                        icon: "baseball.diamond.bases"
+                        label: "\(activeSeason.gameUnitNounPlural) Played",
+                        icon: activeSeason.gameUnitIcon
                     )
                     SeasonStatBadge(
                         value: activeSeason.totalVideos,
@@ -198,7 +198,7 @@ struct SeasonRow: View {
                 }
 
                 HStack(spacing: 12) {
-                    Label("\(season.completedGames)", systemImage: "baseball.diamond.bases")
+                    Label("\(season.completedGames)", systemImage: season.gameUnitIcon)
                         .font(.ppCaption)
                         .foregroundStyle(Theme.textSecondary)
 
@@ -249,7 +249,29 @@ struct EmptySeasonsView: View {
     }
 }
 
+struct SeasonStatBadge: View {
+    let value: Int
+    let label: String
+    let icon: String
 
+    var body: some View {
+        VStack(spacing: 4) {
+            Image(systemName: icon)
+                .font(.caption)
+                .foregroundStyle(Theme.textSecondary)
+
+            Text("\(value)")
+                .font(.ppStatSmall)
+                .foregroundStyle(Theme.textPrimary)
+                .monospacedDigit()
+
+            Text(label)
+                .smallCapsLabel(color: Theme.textTertiary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
 
 struct SeasonVideoRow: View {
     let video: VideoClip
@@ -293,10 +315,10 @@ struct SeasonVideoRow: View {
 
 struct SeasonGameRow: View {
     let game: Game
-    
+
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: "baseball.diamond.bases")
+            Image(systemName: game.season?.gameUnitIcon ?? "baseball.diamond.bases")
                 .foregroundStyle(Theme.textSecondary)
                 .frame(width: 24)
 

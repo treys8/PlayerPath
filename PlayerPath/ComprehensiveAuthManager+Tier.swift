@@ -101,6 +101,16 @@ extension ComprehensiveAuthManager {
     }
 
     func syncSubscriptionTierToFirestore() {
+        // During Apple's grace/billing-retry window the subscription is expired-on-paper
+        // but still honored, and StoreKitManager intentionally keeps the tier locally.
+        // Syncing now would make the server derive `free` from the expired transaction
+        // and cross the Pro boundary — wrongly revoking coach access (and emailing
+        // coaches) for a transient billing hiccup. Skip until the lapse resolves (renew
+        // or true expiry, at which point a normal sync writes the correct tier).
+        if StoreKitManager.shared.isInGracePeriod || StoreKitManager.shared.isInBillingRetryPeriod {
+            authLog.info("Skipping tier sync during grace/billing-retry to avoid premature server downgrade")
+            return
+        }
         guard let userID = currentFirebaseUser?.uid else { return }
         Task {
             do {
@@ -126,6 +136,14 @@ extension ComprehensiveAuthManager {
     /// proceed (rather than calling a Cloud Function that would then read a stale tier
     /// and reject with a misleading "Pro required" error).
     func syncSubscriptionTierToFirestoreAndWait() async throws {
+        // See syncSubscriptionTierToFirestore: don't push a downgrade to the server
+        // while Apple is still honoring the subscription in grace/billing-retry. The
+        // server keeps the last-synced (paid) tier, so tier-dependent writes that await
+        // this (e.g. accepting a coach invite) still proceed correctly.
+        if StoreKitManager.shared.isInGracePeriod || StoreKitManager.shared.isInBillingRetryPeriod {
+            authLog.info("Skipping awaited tier sync during grace/billing-retry")
+            return
+        }
         guard let userID = currentFirebaseUser?.uid else { return }
         try await withRetry(maxAttempts: 3) {
             try await FirestoreManager.shared.syncSubscriptionTiersWithThrow(

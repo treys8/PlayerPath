@@ -14,6 +14,7 @@ struct SeasonFilterMenu: View {
     @Binding var selectedSeasonID: String? // nil = All Seasons
     let availableSeasons: [Season]
     let showNoSeasonOption: Bool
+    @Environment(\.ppAccent) private var ppAccent
 
     var body: some View {
         Menu {
@@ -60,7 +61,7 @@ struct SeasonFilterMenu: View {
             Image(systemName: selectedSeasonID != nil
                   ? "line.3.horizontal.decrease.circle.fill"
                   : "line.3.horizontal.decrease.circle")
-                .foregroundColor(.brandNavy)
+                .foregroundColor(ppAccent)
         }
         .accessibilityLabel("Filter by season")
         .accessibilityValue(selectedSeasonID == nil ? "All seasons" : selectedSeasonName)

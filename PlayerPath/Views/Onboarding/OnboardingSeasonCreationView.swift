@@ -271,8 +271,11 @@ struct OnboardingSeasonCreationView: View {
         // "has seasons + isNewUser" routing in UserMainFlow.
         let year = Calendar.current.component(.year, from: Date())
         let season = Season(name: "\(year) Season", startDate: Date(), sport: selectedSport)
-        season.activate()
+        // Link athlete before activate() so the chosen sport propagates to the pin.
         season.athlete = athlete
+        athlete.seasons = athlete.seasons ?? []
+        athlete.seasons?.append(season)
+        season.activate()
         season.needsSync = true
         modelContext.insert(season)
         let saved = ErrorHandlerService.shared.saveContext(modelContext, caller: "OnboardingSeasonCreation.skip")
@@ -304,8 +307,14 @@ struct OnboardingSeasonCreationView: View {
             startDate: startDate,
             sport: selectedSport
         )
+        // Link the athlete BEFORE activate() so activate() propagates the chosen
+        // sport onto athlete.sport (the pinned sport). Otherwise the pin lags the
+        // season and the launch heal (reconcileActiveSeasonToPinnedSport) archives
+        // this brand-new season on the next launch.
+        season.athlete = athlete
+        athlete.seasons = athlete.seasons ?? []
+        athlete.seasons?.append(season)
         season.activate()
-        season.athlete = athlete // SwiftData auto-updates athlete.seasons via inverse relationship
 
         // Mark for Firestore sync
         season.needsSync = true
@@ -343,6 +352,12 @@ struct OnboardingSeasonCreationView: View {
                 try await SyncCoordinator.shared.syncSeasons(for: user)
             } catch {
                 ErrorHandlerService.shared.handle(error, context: "OnboardingSeasonCreation.syncSeasons", showAlert: false)
+            }
+            // activate() may have updated athlete.sport (the pinned sport) — push it.
+            do {
+                try await SyncCoordinator.shared.syncAthletes(for: user)
+            } catch {
+                ErrorHandlerService.shared.handle(error, context: "OnboardingSeasonCreation.syncAthletes", showAlert: false)
             }
         }
 

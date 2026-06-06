@@ -111,9 +111,10 @@ class VideoCloudManager: ObservableObject {
             throw VideoCloudError.uploadFailed("Local file not found at \(clipFilePath)")
         }
 
-        // Enforce per-tier cloud storage limit using live StoreKit tier
+        // Enforce per-tier cloud storage limit using the comp-aware effective tier
+        // (so an admin-comped Pro athlete gets their full storage, not the free cap).
         if let user = athlete.user {
-            let tier = StoreKitManager.shared.currentTier
+            let tier = SubscriptionGate.effectiveAthleteTier
             let limitBytes = Int64(tier.storageLimitGB) * StorageConstants.bytesPerGB
             let fileSize: Int64
             do {

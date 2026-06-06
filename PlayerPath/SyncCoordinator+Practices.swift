@@ -199,9 +199,17 @@ extension SyncCoordinator {
             // Multi-device dedup: mirror downloadRemoteGames. Two devices on the same
             // account creating a practice on the same day with the same type should
             // converge to one local row instead of two after sync.
-            if localPractice == nil, let remoteDate = remoteData.date {
+            //
+            // Golf practice rounds / range sessions are EXEMPT (mirrors the golf
+            // exemption in downloadRemoteGames): a golfer can legitimately log two
+            // rounds — or two range sessions — at the same course on one day, and
+            // collapsing them would drop one row (orphaning its clips) and skew the
+            // GolfStatsSection averages. They still dedup reliably by firestoreId above.
+            let practiceType = remoteData.practiceType ?? "general"
+            let isGolfPractice = practiceType == PracticeType.practiceRound.rawValue
+                || practiceType == PracticeType.rangeSession.rawValue
+            if localPractice == nil, !isGolfPractice, let remoteDate = remoteData.date {
                 let calendar = Calendar.current
-                let practiceType = remoteData.practiceType ?? "general"
                 let matchesNaturalKey: (Practice) -> Bool = { practice in
                     practice.practiceType == practiceType
                         && (practice.date.map { calendar.isDate($0, inSameDayAs: remoteDate) } ?? false)

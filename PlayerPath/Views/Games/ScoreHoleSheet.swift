@@ -314,7 +314,7 @@ struct ScoreHoleSheet: View {
         // downgrade is demoted by the else-branch below on the next re-score of
         // its hole, so the feature stops producing highlights once the
         // entitlement lapses rather than silently continuing.
-        let canAutoHighlight = StoreKitManager.shared.currentTier.hasAutoHighlights
+        let canAutoHighlight = SubscriptionGate.effectiveAthleteTier.hasAutoHighlights
 
         // Identify the parent for the reel's FK and the existing-reel lookup.
         // Exactly one of (gameID, practiceID) is set for a given reel.

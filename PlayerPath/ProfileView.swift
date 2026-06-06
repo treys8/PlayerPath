@@ -218,7 +218,7 @@ struct ProfileView: View {
                 keywords: ["seasons", "manage", "year"],
                 link: AnyView(
                     NavigationLink {
-                        SeasonManagementView(athlete: selectedAthlete)
+                        SeasonsView(athlete: selectedAthlete)
                     } label: {
                         Label("Manage Seasons", systemImage: "calendar")
                     }
@@ -556,7 +556,7 @@ struct ProfileView: View {
 
             if let selectedAthlete = selectedAthlete {
                 NavigationLink {
-                    SeasonManagementView(athlete: selectedAthlete)
+                    SeasonsView(athlete: selectedAthlete)
                 } label: {
                     Label("Manage Seasons", systemImage: "calendar")
                 }

@@ -55,8 +55,11 @@ class SharedFolderManager {
         personGroupID: String? = nil,
         hasCoachingAccess: Bool
     ) async throws -> String {
-        // Verify tier server-side rather than trusting the caller's boolean alone
-        guard hasCoachingAccess, StoreKitManager.shared.currentTier >= .pro else {
+        // Verify Pro tier with the comp-aware effective tier (matching the passed-in
+        // hasCoachingAccess, which derives from authManager.currentTier) so an
+        // admin-comped Pro athlete isn't wrongly blocked. firestore.rules hasProTier()
+        // remains the authoritative server-side backstop.
+        guard hasCoachingAccess, SubscriptionGate.effectiveAthleteTier >= .pro else {
             throw SharedFolderError.coachingRequired
         }
 

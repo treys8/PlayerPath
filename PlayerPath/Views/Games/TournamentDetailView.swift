@@ -19,6 +19,9 @@ struct TournamentDetailView: View {
 
     @State private var showingAddRound = false
     @State private var showingDeleteConfirm = false
+    /// Set when createGame fails (e.g. .noActiveSeason / .saveFailed) so the
+    /// failure surfaces instead of being silently swallowed by addRound.
+    @State private var addRoundError: String?
 
     private var rounds: [Game] { tournament.sortedRounds }
 
@@ -81,6 +84,14 @@ struct TournamentDetailView: View {
             Button("Cancel", role: .cancel) { }
         } message: {
             Text("This removes the tournament. Its rounds are kept as standalone rounds.")
+        }
+        .alert("Couldn't Add Round", isPresented: .init(
+            get: { addRoundError != nil },
+            set: { if !$0 { addRoundError = nil } }
+        )) {
+            Button("OK", role: .cancel) { addRoundError = nil }
+        } message: {
+            Text(addRoundError ?? "")
         }
     }
 
@@ -166,10 +177,16 @@ struct TournamentDetailView: View {
         guard let athlete = tournament.athlete else { return }
         let service = GameService(modelContext: modelContext)
         Task {
-            _ = await service.createGame(
+            let result = await service.createGame(
                 for: athlete, opponent: opponent, date: date, isLive: isLive,
                 season: season, golfDetails: golf, location: location, tournament: tournament
             )
+            // Surface failures (e.g. .noActiveSeason / .saveFailed) instead of
+            // silently swallowing them. The view is MainActor-isolated, so
+            // setting @State here is safe.
+            if case .failure(let error) = result {
+                addRoundError = error.localizedDescription
+            }
         }
     }
 

@@ -770,7 +770,7 @@ class CoachVideoPlayerViewModel {
         // 3. Quota check (enforced against athlete owner's user quota)
         let fileSize = video.fileSize ?? 0
         if let user = athlete.user, fileSize > 0 {
-            let tier = StoreKitManager.shared.currentTier
+            let tier = SubscriptionGate.effectiveAthleteTier
             let limitBytes = Int64(tier.storageLimitGB) * StorageConstants.bytesPerGB
             if user.cloudStorageUsedBytes + fileSize > limitBytes {
                 saveToMyVideosError = "Storage full. Upgrade or free space to save this clip."

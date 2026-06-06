@@ -33,6 +33,13 @@ struct CoachPaywallView: View {
         }
     }
 
+    /// Comp-aware current coach tier: the higher of the live StoreKit entitlement and
+    /// the auth manager's tier (which carries Firestore-granted Academy comps). Used to
+    /// prevent re-buying the current plan or silently initiating a downgrade.
+    private var effectiveCoachTier: CoachSubscriptionTier {
+        max(storeManager.currentCoachTier, authManager.currentCoachTier)
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -115,6 +122,15 @@ struct CoachPaywallView: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
+
+            if effectiveCoachTier != .free {
+                Text("Current plan: \(effectiveCoachTier.displayName)")
+                    .font(.caption).fontWeight(.semibold)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 5)
+                    .background(effectiveCoachTier.color.opacity(0.15), in: Capsule())
+                    .foregroundStyle(effectiveCoachTier.color)
+            }
         }
     }
 
@@ -403,13 +419,17 @@ struct CoachPaywallView: View {
                     .cornerRadius(14)
                     .shadow(color: selectedTier.color.opacity(0.3), radius: 8, x: 0, y: 4)
                 }
-                .disabled(isPurchasing)
+                .disabled(isPurchasing || effectiveCoachTier >= selectedTier)
                 .buttonStyle(.plain)
             }
         }
     }
 
     private var ctaButtonTitle: String {
+        if selectedTier != .free && selectedTier != .academy {
+            if effectiveCoachTier == selectedTier { return "Current Plan" }
+            if effectiveCoachTier > selectedTier { return "Included in \(effectiveCoachTier.displayName)" }
+        }
         switch selectedTier {
         case .free:          return "Keep Free"
         case .instructor:    return "Get Instructor"
@@ -475,6 +495,14 @@ struct CoachPaywallView: View {
 
     private func purchaseSelected() async {
         guard selectedTier != .free, selectedTier != .academy else { return }
+
+        // Never purchase the current plan or a lower tier — StoreKit would treat a
+        // lower selection as a downgrade. The CTA is disabled in these states; this
+        // guards programmatic/edge calls.
+        guard effectiveCoachTier < selectedTier else {
+            isPurchasing = false
+            return
+        }
 
         isPurchasing = true
 

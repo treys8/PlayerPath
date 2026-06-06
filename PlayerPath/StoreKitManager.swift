@@ -9,6 +9,8 @@
 import Foundation
 import StoreKit
 import Combine
+import CryptoKit
+import FirebaseAuth
 import os
 
 private let storeLog = Logger(subsystem: "com.playerpath.app", category: "StoreKit")
@@ -117,13 +119,34 @@ class StoreKitManager: ObservableObject {
 
     // MARK: - Purchase Management
 
+    /// Deterministic UUID derived from the current Firebase uid, attached to purchases
+    /// as `appAccountToken`. This makes App Store Server Notifications self-describing
+    /// (the server can map a refund/expiry/revoke back to the account) and aids
+    /// replay/cross-account detection. Stable per-uid so re-purchases and restores
+    /// carry the same token. Returns nil if no user is signed in.
+    private static func appAccountToken() -> UUID? {
+        guard let uid = Auth.auth().currentUser?.uid else { return nil }
+        var bytes = Array(SHA256.hash(data: Data(uid.utf8)).prefix(16))
+        // Stamp RFC-4122 version (5) + variant bits so it is a well-formed UUID.
+        bytes[6] = (bytes[6] & 0x0F) | 0x50
+        bytes[8] = (bytes[8] & 0x3F) | 0x80
+        return UUID(uuid: (bytes[0], bytes[1], bytes[2], bytes[3],
+                           bytes[4], bytes[5], bytes[6], bytes[7],
+                           bytes[8], bytes[9], bytes[10], bytes[11],
+                           bytes[12], bytes[13], bytes[14], bytes[15]))
+    }
+
     /// Purchase a subscription product
     func purchase(_ product: Product) async -> PurchaseResult {
         isLoading = true
         error = nil
 
         do {
-            let result = try await product.purchase()
+            var options: Set<Product.PurchaseOption> = []
+            if let token = Self.appAccountToken() {
+                options.insert(.appAccountToken(token))
+            }
+            let result = try await product.purchase(options: options)
 
             switch result {
             case .success(let verification):

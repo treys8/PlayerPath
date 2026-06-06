@@ -36,6 +36,9 @@ struct CreateSeasonView: View {
         !makeActive && athlete.activeSeason != nil
     }
 
+    /// Sport-resolved accent — seasons are locked to the profile's own sport.
+    private var accent: Color { Theme.accent(forGolf: selectedSport == .golf) }
+
     // Season name suggestions
     private var suggestedSeasons: [String] {
         let year = Calendar.current.component(.year, from: startDate)
@@ -75,8 +78,8 @@ struct CreateSeasonView: View {
                                                 .font(.bodyMedium)
                                                 .padding(.horizontal, 12)
                                                 .padding(.vertical, 6)
-                                                .background(Color.brandNavy.opacity(0.1))
-                                                .foregroundColor(.brandNavy)
+                                                .background(accent.opacity(0.1))
+                                                .foregroundColor(accent)
                                                 .clipShape(Capsule())
                                         }
                                     }

@@ -202,7 +202,18 @@ extension SyncCoordinator {
             // firestoreId-only match above misses the local twin and the other device's
             // upload gets inserted as a brand-new game. Fall back to natural key
             // (athlete + opponent + same day) — mirrors GameService creation-time dedup.
+            //
+            // Golf is EXEMPT: `opponent` is the course name and same-course/same-day
+            // rounds are legitimate (36-hole tournament days, replays — see the matching
+            // exemption in GameService.createGame). Collapsing them here would silently
+            // drop the second round on a second device / after reinstall, defeating that
+            // fix. Golf still dedups reliably by firestoreId above. Detect golf from the
+            // season OR the golf-only fields on the remote doc (season may be nil/unsynced).
+            let remoteIsGolf = parentSeason?.sport == .golf
+                || remoteGame.holes != nil
+                || remoteGame.tournamentId != nil
             if localGame == nil,
+               !remoteIsGolf,
                let athlete = parentAthlete,
                let remoteDate = remoteGame.date,
                !remoteGame.opponent.trimmingCharacters(in: .whitespaces).isEmpty {

@@ -29,7 +29,7 @@ final class CSVExportService {
     /// - Returns: CSV string ready for file export
     /// - Throws: CSVExportError.subscriptionRequired if below Plus tier
     func exportAthleteStatistics(for athlete: Athlete) throws -> String {
-        guard StoreKitManager.shared.currentTier >= .plus else {
+        guard SubscriptionGate.effectiveAthleteTier >= .plus else {
             throw CSVExportError.subscriptionRequired
         }
         if athlete.sport == .golf {
@@ -109,7 +109,7 @@ final class CSVExportService {
     ///   - season: Optional season filter (nil = all games)
     /// - Returns: CSV string ready for file export
     func exportGameLog(for athlete: Athlete, season: Season? = nil) throws -> String {
-        guard StoreKitManager.shared.currentTier >= .plus else {
+        guard SubscriptionGate.effectiveAthleteTier >= .plus else {
             throw CSVExportError.subscriptionRequired
         }
         let isGolf = season.map { $0.sport == .golf } ?? (athlete.sport == .golf)
@@ -175,7 +175,7 @@ final class CSVExportService {
     ///   - game: Optional game filter
     /// - Returns: CSV string ready for file export
     func exportPlayByPlay(for athlete: Athlete, season: Season? = nil, game: Game? = nil) throws -> String {
-        guard StoreKitManager.shared.currentTier >= .plus else {
+        guard SubscriptionGate.effectiveAthleteTier >= .plus else {
             throw CSVExportError.subscriptionRequired
         }
         var csv = "Play-by-Play Export\n"
@@ -233,7 +233,7 @@ final class CSVExportService {
     /// - Parameter season: The season to export
     /// - Returns: CSV string ready for file export
     func exportSeasonSummary(for season: Season) throws -> String {
-        guard StoreKitManager.shared.currentTier >= .plus else {
+        guard SubscriptionGate.effectiveAthleteTier >= .plus else {
             throw CSVExportError.subscriptionRequired
         }
         if season.sport == .golf {
