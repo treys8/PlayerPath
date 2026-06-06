@@ -842,6 +842,14 @@ class CoachVideoPlayerViewModel {
         clip.duration = video.duration
         clip.createdAt = video.createdAt ?? Date()
         clip.sourceCoachVideoID = coachVideoID
+        // Durable coach-feedback snapshot (SchemaV28, local-only). Uses the VM's
+        // already-resolved coachNote* state (set in init, incl. the legacy-notes
+        // fallback) + the coach's quick-cue tags so the saved clip shows the
+        // feedback immediately and survives the source coach doc going away.
+        clip.coachNoteSnapshot = coachNoteText
+        clip.coachNoteAuthorSnapshot = coachNoteAuthorName
+        clip.coachNoteUpdatedAtSnapshot = coachNoteUpdatedAt
+        clip.coachCueTagsSnapshot = video.tags
         clip.needsSync = true
         modelContext.insert(clip)
 

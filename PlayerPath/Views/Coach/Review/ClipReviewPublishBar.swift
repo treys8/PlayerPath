@@ -2,9 +2,9 @@
 //  ClipReviewPublishBar.swift
 //  PlayerPath
 //
-//  Pinned bottom action bar for ClipReviewSheet: "Share Now" (publish
-//  private→shared), "Save for Later" (keep private, persist note), and
-//  an overflow menu for "Discard".
+//  Pinned bottom action bar for a coach's own unpublished draft in
+//  CoachVideoPlayerView: "Share Now" (publish private→shared), "Save for Later"
+//  (keep private), and an overflow menu for "Discard".
 //
 
 import SwiftUI

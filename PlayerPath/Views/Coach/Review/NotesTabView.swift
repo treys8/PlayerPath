@@ -16,6 +16,10 @@ struct NotesTabView: View {
     let onDeleteNote: (VideoAnnotation) -> Void
     let onSeekToTimestamp: (Double) -> Void
     var onShowDrawing: ((VideoAnnotation) -> Void)?
+    /// Inline (portrait phone): states render at natural height with no internal
+    /// scroll, since the whole page is one outer ScrollView. Sidebar (false):
+    /// states fill / self-scroll inside the fixed-height sidebar region.
+    var inline: Bool = false
 
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
 
@@ -23,7 +27,7 @@ struct NotesTabView: View {
         VStack(spacing: 0) {
             if isLoading {
                 ProgressView("Loading drawings...")
-                    .frame(maxHeight: .infinity)
+                    .tabStateFrame(inline: inline)
             } else if let error = errorMessage, notes.isEmpty {
                 VStack(spacing: 16) {
                     Image(systemName: "exclamationmark.triangle")
@@ -39,7 +43,7 @@ struct NotesTabView: View {
                         .multilineTextAlignment(.center)
                         .padding(.horizontal)
                 }
-                .frame(maxHeight: .infinity)
+                .tabStateFrame(inline: inline)
             } else if notes.isEmpty {
                 VStack(spacing: 16) {
                     Image(systemName: "pencil.tip")
@@ -55,31 +59,37 @@ struct NotesTabView: View {
                         .multilineTextAlignment(.center)
                         .padding(.horizontal)
                 }
-                .frame(maxHeight: .infinity)
+                .tabStateFrame(inline: inline)
+            } else if inline {
+                noteList
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 12) {
-                        ForEach(notes) { note in
-                            NoteCardView(
-                                note: note,
-                                canDelete: note.userID == authManager.userID,
-                                onDelete: {
-                                    onDeleteNote(note)
-                                },
-                                onSeek: {
-                                    if note.isDrawing, let onShowDrawing {
-                                        onShowDrawing(note)
-                                    } else {
-                                        onSeekToTimestamp(note.timestamp)
-                                    }
-                                    Haptics.light()
-                                }
-                            )
-                        }
-                    }
-                    .padding()
-                }
+                ScrollView { noteList }
             }
         }
+    }
+
+    /// The drawings list. Rendered bare inline (outer page scrolls) or inside
+    /// this tab's own ScrollView in the sidebar.
+    private var noteList: some View {
+        LazyVStack(spacing: 12) {
+            ForEach(notes) { note in
+                NoteCardView(
+                    note: note,
+                    canDelete: note.userID == authManager.userID,
+                    onDelete: {
+                        onDeleteNote(note)
+                    },
+                    onSeek: {
+                        if note.isDrawing, let onShowDrawing {
+                            onShowDrawing(note)
+                        } else {
+                            onSeekToTimestamp(note.timestamp)
+                        }
+                        Haptics.light()
+                    }
+                )
+            }
+        }
+        .padding()
     }
 }

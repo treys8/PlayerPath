@@ -217,6 +217,7 @@ struct DrillCardView: View {
                     card.categories = categories
                     card.overallRating = overallRating
                     card.summary = summary.isEmpty ? nil : summary
+                    card.updatedAt = Date()
                     onSave(card)
                 } else {
                     let card = try await FirestoreManager.shared.createDrillCard(

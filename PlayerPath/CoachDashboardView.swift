@@ -32,6 +32,13 @@ struct CoachDashboardView: View {
     @State private var cameraContext: CoachSessionContext?
     @State private var isEndingSession = false
     @State private var isCompletingSession = false
+    /// Non-nil presents the "this session has unshared drafts" confirmation
+    /// before completing — so completing a session never silently strands
+    /// coach feedback in My Drafts where the athlete can't see it.
+    @State private var sessionPendingComplete: CoachSession?
+    /// Surfaced when completing a session fails, or when "Publish & Complete"
+    /// couldn't share every draft — so the coach never gets a false "done".
+    @State private var sessionCompleteError: String?
     @State private var startingScheduledSessionID: String?
     @State private var showingCancelConfirmation = false
     @State private var sessionToCancel: CoachSession?
@@ -172,6 +179,31 @@ struct CoachDashboardView: View {
             Button("Keep", role: .cancel) {}
         } message: {
             Text("This scheduled session will be removed.")
+        }
+        .confirmationDialog(
+            "Unshared clips",
+            isPresented: Binding(
+                get: { sessionPendingComplete != nil },
+                set: { if !$0 { sessionPendingComplete = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: sessionPendingComplete
+        ) { session in
+            let count = unpublishedDrafts(for: session).count
+            Button("Publish \(count) & Complete") { publishAllThenComplete(session) }
+            Button("Complete Without Sharing", role: .destructive) { performComplete(session) }
+            Button("Cancel", role: .cancel) {}
+        } message: { session in
+            let count = unpublishedDrafts(for: session).count
+            Text("This session still has \(count) clip\(count == 1 ? "" : "s") in My Drafts that the athlete can't see yet. Publish them now, or complete the session and share later.")
+        }
+        .alert("Couldn't Complete", isPresented: Binding(
+            get: { sessionCompleteError != nil },
+            set: { if !$0 { sessionCompleteError = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(sessionCompleteError ?? "")
         }
         .sheet(isPresented: $showingInviteAthlete, onDismiss: {
             Task { await refreshSentPendingCount() }
@@ -911,14 +943,85 @@ struct CoachDashboardView: View {
         }
     }
 
+    /// Entry point for the dashboard "Complete" button. If the session still has
+    /// unpublished drafts, routes through a confirmation that offers to publish
+    /// them first; otherwise completes immediately.
     private func completeActiveSession(_ session: CoachSession) {
-        guard !isCompletingSession, let sessionID = session.id else { return }
+        guard !isCompletingSession else { return }
+        if unpublishedDrafts(for: session).isEmpty {
+            performComplete(session)
+        } else {
+            sessionPendingComplete = session
+        }
+    }
+
+    /// Clips still private (unpublished) in this session's folders — the athlete
+    /// can't see them yet. Read from the live My-Drafts queue (ReviewQueueViewModel)
+    /// so completing a session can warn before it strands feedback in drafts.
+    ///
+    /// Best-effort, not a guarantee: the queue excludes clips still uploading
+    /// (uploadStatus != "completed") and is capped at the listener's newest-100
+    /// window, so a just-recorded clip or a 101st+ draft can slip past the warning
+    /// and remain in My Drafts. Those stay publishable there — acceptable, but
+    /// don't treat a clean check as proof nothing was stranded.
+    private func unpublishedDrafts(for session: CoachSession) -> [CoachVideoItem] {
+        let sessionFolderIDs = Set(session.folderIDs.values)
+        return reviewQueue.groupedClips
+            .filter { sessionFolderIDs.contains($0.folderID) }
+            .flatMap { $0.clips }
+    }
+
+    private func performComplete(_ session: CoachSession) {
+        guard let sessionID = session.id else { return }
+        sessionPendingComplete = nil
         isCompletingSession = true
         Task {
             do {
                 try await sessionManager.completeSession(sessionID: sessionID)
                 Haptics.success()
             } catch {
+                sessionCompleteError = "Couldn't mark the session complete: \(error.localizedDescription)"
+                ErrorHandlerService.shared.handle(error, context: "CoachDashboard.completeSession", showAlert: false)
+            }
+            isCompletingSession = false
+        }
+    }
+
+    /// Publishes every still-private draft in the session's folders, then marks
+    /// the session complete — the one-tap "deliver everything and finish". If any
+    /// clip fails to publish, the session is left active (so the coach can retry
+    /// or choose "Complete Without Sharing") and an alert names the shortfall —
+    /// never a false "done" while clips sit unshared.
+    private func publishAllThenComplete(_ session: CoachSession) {
+        guard let sessionID = session.id else { return }
+        let drafts = unpublishedDrafts(for: session)
+        sessionPendingComplete = nil
+        isCompletingSession = true
+        Task {
+            var failedCount = 0
+            for clip in drafts {
+                do {
+                    try await FirestoreManager.shared.publishPrivateVideo(
+                        videoID: clip.id,
+                        sharedFolderID: clip.sharedFolderID
+                    )
+                } catch {
+                    failedCount += 1
+                    ErrorHandlerService.shared.handle(error, context: "CoachDashboard.publishAllOnComplete", showAlert: false)
+                }
+            }
+            guard failedCount == 0 else {
+                // Some clips didn't publish — they're still private drafts. Don't
+                // complete the session, and don't signal success.
+                isCompletingSession = false
+                sessionCompleteError = "Couldn't share \(failedCount) of \(drafts.count) clip\(drafts.count == 1 ? "" : "s"). They're still in My Drafts — check your connection and try again."
+                return
+            }
+            do {
+                try await sessionManager.completeSession(sessionID: sessionID)
+                Haptics.success()
+            } catch {
+                sessionCompleteError = "Clips were shared, but the session couldn't be marked complete: \(error.localizedDescription)"
                 ErrorHandlerService.shared.handle(error, context: "CoachDashboard.completeSession", showAlert: false)
             }
             isCompletingSession = false

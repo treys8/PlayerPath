@@ -87,6 +87,18 @@ extension FirestoreManager {
             .updateData(data)
     }
 
+    /// Deletes a drill card. Rules (firestore.rules: videos/{id}/drillCards)
+    /// permit delete only for the coach who created it. No count field is
+    /// denormalized on the parent video, so this is a plain doc delete.
+    func deleteDrillCard(videoID: String, cardID: String) async throws {
+        try await db.collection(FC.videos)
+            .document(videoID)
+            .collection(FC.drillCards)
+            .document(cardID)
+            .delete()
+        drillCardLog.info("Deleted drill card \(cardID) for video \(videoID)")
+    }
+
     func fetchDrillCards(forVideo videoID: String) async throws -> [DrillCard] {
         let snapshot = try await db.collection(FC.videos)
             .document(videoID)

@@ -92,13 +92,23 @@ struct CoachFolderDetailView: View {
                 onLeave: { Task { await leaveFolder() } }
             ))
             .fullScreenCover(item: $reviewingClip) { clip in
-                ClipReviewSheet(
-                    video: clip,
-                    folder: folder,
-                    onShared: { Task { await viewModel.loadVideos() } },
-                    onDiscarded: { Task { await viewModel.loadVideos() } },
-                    onSavedDraft: { Task { await viewModel.loadVideos() } }
-                )
+                NavigationStack {
+                    CoachVideoPlayerView(
+                        folder: folder,
+                        video: clip,
+                        onDraftShared: { reviewingClip = nil; Task { await viewModel.loadVideos() } },
+                        onDraftDiscarded: { reviewingClip = nil; Task { await viewModel.loadVideos() } },
+                        onDraftSavedForLater: { reviewingClip = nil; Task { await viewModel.loadVideos() } }
+                    )
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Done") {
+                                reviewingClip = nil
+                                Task { await viewModel.loadVideos() }
+                            }
+                        }
+                    }
+                }
             }
             .fullScreenCover(isPresented: $showingQuickRecord, onDismiss: {
                 Task { await viewModel.loadVideos() }

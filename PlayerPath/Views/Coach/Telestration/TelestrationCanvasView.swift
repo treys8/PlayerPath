@@ -23,8 +23,12 @@ struct TelestrationCanvasView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> PKCanvasView {
         let canvas = PKCanvasView()
-        canvas.delegate = context.coordinator
+        // Assign the initial drawing BEFORE wiring the delegate. Setting
+        // `canvas.drawing` fires `canvasViewDrawingDidChange` synchronously; if
+        // the delegate were already attached it would write back through the
+        // `@Binding` mid-`makeUIView` ("Modifying state during view update").
         canvas.drawing = drawing
+        canvas.delegate = context.coordinator
         canvas.tool = tool
         canvas.drawingPolicy = .anyInput
         canvas.isOpaque = false
@@ -40,7 +44,12 @@ struct TelestrationCanvasView: UIViewRepresentable {
 
     func updateUIView(_ canvas: PKCanvasView, context: Context) {
         if context.coordinator.lastAppliedVersion != drawingVersion {
+            // Programmatic reset (undo/redo/clear/load-saved). Flag it so the
+            // delegate callback this assignment triggers doesn't write back
+            // through the binding during the update cycle.
+            context.coordinator.isApplyingProgrammaticDrawing = true
             canvas.drawing = drawing
+            context.coordinator.isApplyingProgrammaticDrawing = false
             context.coordinator.lastAppliedVersion = drawingVersion
         }
         canvas.tool = tool
@@ -54,12 +63,19 @@ struct TelestrationCanvasView: UIViewRepresentable {
     class Coordinator: NSObject, PKCanvasViewDelegate {
         @Binding var drawing: PKDrawing
         var lastAppliedVersion: Int = -1
+        /// True only while `updateUIView` is assigning `canvas.drawing`
+        /// programmatically. Suppresses the binding write-back the assignment's
+        /// delegate callback would otherwise make during the SwiftUI update cycle.
+        var isApplyingProgrammaticDrawing = false
 
         init(drawing: Binding<PKDrawing>) {
             _drawing = drawing
         }
 
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
+            // Ignore the callback our own programmatic `canvas.drawing =` set
+            // triggers — writing the binding there modifies state mid-update.
+            guard !isApplyingProgrammaticDrawing else { return }
             // Pencil input — propagate to the binding without touching the
             // version counter, so updateUIView won't push it back and clobber
             // the in-flight stroke.

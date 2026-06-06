@@ -9,6 +9,12 @@ import SwiftUI
 
 struct DrillCardSummaryView: View {
     let card: DrillCard
+    /// Coach-only edit/delete affordances. When either is provided, an overflow
+    /// menu appears in the header. Nil for the athlete (read-only) side.
+    var onEdit: (() -> Void)? = nil
+    var onDelete: (() -> Void)? = nil
+
+    private var hasActions: Bool { onEdit != nil || onDelete != nil }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -27,6 +33,31 @@ struct DrillCardSummaryView: View {
                                 .foregroundColor(star <= overall ? ratingColor(overall) : .gray.opacity(0.3))
                         }
                     }
+                }
+                if hasActions {
+                    Menu {
+                        if let onEdit {
+                            Button {
+                                onEdit()
+                            } label: {
+                                Label("Edit", systemImage: "pencil")
+                            }
+                        }
+                        if let onDelete {
+                            Button(role: .destructive) {
+                                onDelete()
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .frame(width: 32, height: 32)
+                            .contentShape(Rectangle())
+                    }
+                    .accessibilityLabel("Drill card options")
                 }
             }
 

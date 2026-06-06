@@ -14,14 +14,33 @@ import PencilKit
 struct CoachVideoPlayerView: View {
     let folder: SharedFolder
     let video: CoachVideoItem
-    
+
+    /// Draft-review callbacks. Non-nil only when this view is presented as the
+    /// coach's own unpublished draft (the folder "My Drafts" cover). They let
+    /// the parent dismiss + reload after the coach publishes / discards / keeps
+    /// the draft. Nil for every read-only or already-shared presentation, where
+    /// no publish bar appears.
+    var onDraftShared: (() -> Void)?
+    var onDraftDiscarded: (() -> Void)?
+    var onDraftSavedForLater: (() -> Void)?
+
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @State private var viewModel: CoachVideoPlayerViewModel
     @State private var showingCoachNoteEditor = false
     @State private var selectedTab: VideoTab = .drawings
     @State private var showingSpeedPicker = false
     @State private var showingDrillCardEditor = false
+    /// Non-nil presents the drill-card editor seeded with an existing card to
+    /// edit (distinct from `showingDrillCardEditor`, which creates a new one).
+    @State private var editingDrillCard: DrillCard?
+    /// Drill card awaiting delete confirmation.
+    @State private var drillCardPendingDelete: DrillCard?
     @State private var markReviewedError: String?
+    // Draft publish/discard state (only used when `isOwnPrivateDraft`).
+    @State private var isPublishingDraft = false
+    @State private var isDiscardingDraft = false
+    @State private var showingDraftDiscardConfirm = false
+    @State private var draftActionError: String?
     @State private var showingTelestration = false
     @State private var isVerifyingDrawPermission = false
     @State private var drillCards: [DrillCard] = []
@@ -41,6 +60,7 @@ struct CoachVideoPlayerView: View {
     @State private var refreshedAthleteViewedAt: Date?
     private var templateService: CoachTemplateService { .shared }
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
     @Environment(\.verticalSizeClass) private var vSizeClass
     @Environment(\.horizontalSizeClass) private var hSizeClass
     @Environment(\.scenePhase) private var scenePhase
@@ -55,9 +75,18 @@ struct CoachVideoPlayerView: View {
         return String(format: "%.4gx", rate)
     }
     
-    init(folder: SharedFolder, video: CoachVideoItem) {
+    init(
+        folder: SharedFolder,
+        video: CoachVideoItem,
+        onDraftShared: (() -> Void)? = nil,
+        onDraftDiscarded: (() -> Void)? = nil,
+        onDraftSavedForLater: (() -> Void)? = nil
+    ) {
         self.folder = folder
         self.video = video
+        self.onDraftShared = onDraftShared
+        self.onDraftDiscarded = onDraftDiscarded
+        self.onDraftSavedForLater = onDraftSavedForLater
         _viewModel = State(initialValue: CoachVideoPlayerViewModel(video: video, folder: folder))
     }
     
@@ -75,7 +104,144 @@ struct CoachVideoPlayerView: View {
         }
     }
     
+    /// Trailing nav-bar controls. Extracted from `body` to keep the main view
+    /// expression within the Swift type-checker's complexity budget.
+    @ViewBuilder
+    private var trailingToolbarButtons: some View {
+        HStack(spacing: 12) {
+            // Telestration draw button (coaches only). Re-verifies comment
+            // permission before opening — folder shares can be revoked
+            // mid-session, and the server will reject the write anyway; this
+            // gives the coach a clean error instead of an opaque Firestore failure.
+            if canEditCoachNote {
+                Button {
+                    openTelestration()
+                } label: {
+                    if isVerifyingDrawPermission {
+                        ProgressView().scaleEffect(0.8)
+                    } else {
+                        Image(systemName: "pencil.tip")
+                            .foregroundColor(ppAccent)
+                    }
+                }
+                .disabled(!viewModel.isPlayerReady || isVerifyingDrawPermission)
+                .accessibilityLabel("Draw on video frame")
+            }
+
+            // Save to My Videos button — folder owner (athlete) only. Brings the
+            // clip into the athlete's in-app Videos tab with a link back to coach
+            // annotations.
+            if isFolderOwner {
+                Button {
+                    Task { await viewModel.saveToMyVideos(modelContext: modelContext) }
+                } label: {
+                    if viewModel.isSavingToMyVideos {
+                        ProgressView().scaleEffect(0.8)
+                    } else if viewModel.alreadySavedToMyVideos {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                    } else {
+                        Image(systemName: "folder.fill.badge.plus")
+                            .foregroundColor(ppAccent)
+                    }
+                }
+                .disabled(viewModel.isSavingToMyVideos || !viewModel.isPlayerReady || viewModel.alreadySavedToMyVideos)
+                .accessibilityLabel(viewModel.alreadySavedToMyVideos ? "Already saved to your videos" : "Save to your videos")
+            }
+
+            // Save to device button
+            Button {
+                Task { await viewModel.saveToPhotos() }
+            } label: {
+                if viewModel.isSaving {
+                    ProgressView().scaleEffect(0.8)
+                } else {
+                    Image(systemName: "square.and.arrow.down")
+                        .foregroundColor(ppAccent)
+                }
+            }
+            .disabled(viewModel.isSaving || !viewModel.isPlayerReady)
+            .accessibilityLabel("Save video to device")
+
+            // Playback speed button (hidden on iPad — uses inline sidebar control)
+            if !isIPad {
+                Button {
+                    showingSpeedPicker = true
+                } label: {
+                    Text(playbackRateLabel)
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .monospacedDigit()
+                        .foregroundColor(ppAccent)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(ppAccent.opacity(0.12))
+                        .clipShape(Capsule())
+                }
+                .accessibilityLabel("Playback speed: \(viewModel.playbackRate)x")
+            }
+        }
+    }
+
     var body: some View {
+        playerBody
+            .sheet(isPresented: $showingCoachNoteEditor) {
+                CoachNoteEditorSheet(
+                    initialText: viewModel.coachNoteText ?? ""
+                ) { newText in
+                    guard let userID = authManager.userID else { return }
+                    let userName = authManager.userDisplayName ?? authManager.userEmail ?? "Coach"
+                    try await viewModel.updateCoachNote(text: newText, authorID: userID, authorName: userName)
+                }
+            }
+            .sheet(isPresented: $showingDrillCardEditor) {
+                drillCardEditorSheet
+            }
+            .sheet(item: $editingDrillCard) { card in
+                editDrillCardSheet(existing: card)
+            }
+            .confirmationDialog(
+                "Delete this drill card?",
+                isPresented: Binding(
+                    get: { drillCardPendingDelete != nil },
+                    set: { if !$0 { drillCardPendingDelete = nil } }
+                ),
+                titleVisibility: .visible,
+                presenting: drillCardPendingDelete
+            ) { card in
+                Button("Delete", role: .destructive) { deleteDrillCard(card) }
+                Button("Cancel", role: .cancel) {}
+            }
+            .alert("Discard this clip?", isPresented: $showingDraftDiscardConfirm) {
+                Button("Discard", role: .destructive) { discardDraft() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This clip and any notes, cues, or drawings on it will be permanently deleted. The athlete never received it.")
+            }
+            .alert("Something Went Wrong", isPresented: Binding(
+                get: { draftActionError != nil },
+                set: { if !$0 { draftActionError = nil } }
+            )) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(draftActionError ?? "")
+            }
+            .task {
+                await runInitialLoad()
+            }
+            .onChange(of: scenePhase) { oldPhase, newPhase in
+                handleScenePhaseChange(old: oldPhase, new: newPhase)
+            }
+            .onDisappear {
+                // Detach AVPlayer observers at the OUTER view level instead of the
+                // inner VideoPlayer's .onDisappear so toggling the telestration
+                // overlay doesn't accidentally tear them down mid-session.
+                viewModel.stopTimeObserver()
+                viewModel.stopFilmstripTimeObserver()
+            }
+    }
+
+    private var playerBody: some View {
         Group {
             if isWideLayout {
                 wideLayout
@@ -87,80 +253,7 @@ struct CoachVideoPlayerView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                HStack(spacing: 12) {
-                    // Telestration draw button (coaches only). Re-verifies
-                    // comment permission before opening — folder shares can
-                    // be revoked mid-session, and the server will reject the
-                    // write anyway; this gives the coach a clean error
-                    // instead of an opaque Firestore failure.
-                    if canEditCoachNote {
-                        Button {
-                            openTelestration()
-                        } label: {
-                            if isVerifyingDrawPermission {
-                                ProgressView().scaleEffect(0.8)
-                            } else {
-                                Image(systemName: "pencil.tip")
-                                    .foregroundColor(ppAccent)
-                            }
-                        }
-                        .disabled(!viewModel.isPlayerReady || isVerifyingDrawPermission)
-                        .accessibilityLabel("Draw on video frame")
-                    }
-
-                    // Save to My Videos button — folder owner (athlete) only.
-                    // Brings the clip into the athlete's in-app Videos tab
-                    // with a link back to coach annotations.
-                    if isFolderOwner {
-                        Button {
-                            Task { await viewModel.saveToMyVideos(modelContext: modelContext) }
-                        } label: {
-                            if viewModel.isSavingToMyVideos {
-                                ProgressView().scaleEffect(0.8)
-                            } else if viewModel.alreadySavedToMyVideos {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundColor(.green)
-                            } else {
-                                Image(systemName: "folder.fill.badge.plus")
-                                    .foregroundColor(ppAccent)
-                            }
-                        }
-                        .disabled(viewModel.isSavingToMyVideos || !viewModel.isPlayerReady || viewModel.alreadySavedToMyVideos)
-                        .accessibilityLabel(viewModel.alreadySavedToMyVideos ? "Already saved to your videos" : "Save to your videos")
-                    }
-
-                    // Save to device button
-                    Button {
-                        Task { await viewModel.saveToPhotos() }
-                    } label: {
-                        if viewModel.isSaving {
-                            ProgressView().scaleEffect(0.8)
-                        } else {
-                            Image(systemName: "square.and.arrow.down")
-                                .foregroundColor(ppAccent)
-                        }
-                    }
-                    .disabled(viewModel.isSaving || !viewModel.isPlayerReady)
-                    .accessibilityLabel("Save video to device")
-
-                    // Playback speed button (hidden on iPad — uses inline sidebar control)
-                    if !isIPad {
-                        Button {
-                            showingSpeedPicker = true
-                        } label: {
-                            Text(playbackRateLabel)
-                                .font(.subheadline)
-                                .fontWeight(.semibold)
-                                .monospacedDigit()
-                                .foregroundColor(ppAccent)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(ppAccent.opacity(0.12))
-                                .clipShape(Capsule())
-                        }
-                        .accessibilityLabel("Playback speed: \(viewModel.playbackRate)x")
-                    }
-                }
+                trailingToolbarButtons
             }
         }
         .toast(isPresenting: $viewModel.didSaveSuccessfully, message: "Video Saved")
@@ -198,89 +291,70 @@ struct CoachVideoPlayerView: View {
             }
             Button("Cancel", role: .cancel) {}
         }
-        .sheet(isPresented: $showingCoachNoteEditor) {
-            CoachNoteEditorSheet(
-                initialText: viewModel.coachNoteText ?? ""
-            ) { newText in
-                guard let userID = authManager.userID else { return }
-                let userName = authManager.userDisplayName ?? authManager.userEmail ?? "Coach"
-                try await viewModel.updateCoachNote(text: newText, authorID: userID, authorName: userName)
-            }
+    }
+
+    /// All initial async loads for the player. Extracted from the `.task`
+    /// modifier so `body` stays within the Swift type-checker's complexity budget.
+    private func runInitialLoad() async {
+        // Surface the "already saved to My Videos" badge immediately so
+        // the athlete doesn't see a "save" prompt for a clip they already
+        // brought in. Local SwiftData query — cheap.
+        if isFolderOwner {
+            viewModel.refreshAlreadySavedToMyVideos(modelContext: modelContext)
         }
-        .sheet(isPresented: $showingDrillCardEditor) {
-            drillCardEditorSheet
+
+        // Load video first (always needed)
+        await viewModel.loadVideo()
+
+        // Seed the inline cue picker up front (coach-only) so the chips
+        // populate immediately instead of staying blank through the heavier
+        // annotation / drill-card loads below. Cue templates load off the
+        // critical path into the shared service; selectedCueTags is local.
+        if canEditCoachNote, let coachID = authManager.userID {
+            selectedCueTags = video.tags
+            Task { await templateService.loadQuickCues(coachID: coachID) }
         }
-        .task {
-            // Surface the "already saved to My Videos" badge immediately so
-            // the athlete doesn't see a "save" prompt for a clip they already
-            // brought in. Local SwiftData query — cheap.
-            if isFolderOwner {
-                viewModel.refreshAlreadySavedToMyVideos(modelContext: modelContext)
-            }
 
-            // Load video first (always needed)
-            await viewModel.loadVideo()
+        // Generate filmstrip and load video natural size after player is ready
+        await viewModel.loadVideoNaturalSize()
+        viewModel.generateFilmstrip()
 
-            // Seed the inline cue picker up front (coach-only) so the chips
-            // populate immediately instead of staying blank through the heavier
-            // annotation / drill-card loads below. Cue templates load off the
-            // critical path into the shared service; selectedCueTags is local.
-            if canEditCoachNote, let coachID = authManager.userID {
-                selectedCueTags = video.tags
-                Task { await templateService.loadQuickCues(coachID: coachID) }
-            }
-
-            // Generate filmstrip and load video natural size after player is ready
-            await viewModel.loadVideoNaturalSize()
-            viewModel.generateFilmstrip()
-
-            // Load annotations, cues, and drill cards sequentially
-            // (async let can crash the runtime if the view is dismissed mid-flight)
-            await viewModel.loadAnnotations()
-            do {
-                drillCardsLoadFailed = false
-                drillCards = try await FirestoreManager.shared.fetchDrillCards(forVideo: video.id)
-            } catch {
-                drillCardsLoadFailed = true
-                ErrorHandlerService.shared.handle(error, context: "CoachVideoPlayer.loadDrillCards", showAlert: false)
-            }
-            if let coachID = authManager.userID {
-                await templateService.loadDrillTemplates(coachID: coachID)
-            }
-
-            // Mark this video's notifications as read (athlete viewing coach feedback)
-            if let userID = authManager.userID {
-                await ActivityNotificationService.shared.markVideoRead(videoID: video.id, forUserID: userID)
-            }
-
-            // A folder coach opening an unreviewed clip counts as reviewing it —
-            // keeps the dashboard "Needs Review" count in sync with the folder
-            // badge that markVideoRead just cleared, so the two never disagree.
-            // The explicit "Mark Reviewed" button stays for marking from a list.
-            if canEditCoachNote, let coachID = authManager.userID, !viewModel.isReviewed(by: coachID) {
-                try? await viewModel.markReviewed(coachID: coachID, silent: true)
-            }
-
-            // Pull the athlete's view receipt fresh — the clip snapshot can be
-            // stale if the athlete watched after the coach opened the folder.
-            refreshViewReceipt()
-
-            // Auto-show the earliest coach drawing once everything is loaded.
-            // Aspect ratio (videoNaturalSize) is set by loadVideoNaturalSize
-            // above; annotations populated by loadAnnotations. No-op when the
-            // clip has no drawings.
-            viewModel.autoShowFirstDrawingIfReady()
+        // Load annotations, cues, and drill cards sequentially
+        // (async let can crash the runtime if the view is dismissed mid-flight)
+        await viewModel.loadAnnotations()
+        do {
+            drillCardsLoadFailed = false
+            drillCards = try await FirestoreManager.shared.fetchDrillCards(forVideo: video.id)
+        } catch {
+            drillCardsLoadFailed = true
+            ErrorHandlerService.shared.handle(error, context: "CoachVideoPlayer.loadDrillCards", showAlert: false)
         }
-        .onChange(of: scenePhase) { oldPhase, newPhase in
-            handleScenePhaseChange(old: oldPhase, new: newPhase)
+        if let coachID = authManager.userID {
+            await templateService.loadDrillTemplates(coachID: coachID)
         }
-        .onDisappear {
-            // Detach AVPlayer observers at the OUTER view level instead of the
-            // inner VideoPlayer's .onDisappear so toggling the telestration
-            // overlay doesn't accidentally tear them down mid-session.
-            viewModel.stopTimeObserver()
-            viewModel.stopFilmstripTimeObserver()
+
+        // Mark this video's notifications as read (athlete viewing coach feedback)
+        if let userID = authManager.userID {
+            await ActivityNotificationService.shared.markVideoRead(videoID: video.id, forUserID: userID)
         }
+
+        // A folder coach opening an unreviewed clip counts as reviewing it —
+        // keeps the dashboard "Needs Review" count in sync with the folder
+        // badge that markVideoRead just cleared, so the two never disagree.
+        // The explicit "Mark Reviewed" button stays for marking from a list.
+        if canEditCoachNote, let coachID = authManager.userID, !viewModel.isReviewed(by: coachID) {
+            try? await viewModel.markReviewed(coachID: coachID, silent: true)
+        }
+
+        // Pull the athlete's view receipt fresh — the clip snapshot can be
+        // stale if the athlete watched after the coach opened the folder.
+        refreshViewReceipt()
+
+        // Auto-show the earliest coach drawing once everything is loaded.
+        // Aspect ratio (videoNaturalSize) is set by loadVideoNaturalSize
+        // above; annotations populated by loadAnnotations. No-op when the
+        // clip has no drawings.
+        viewModel.autoShowFirstDrawingIfReady()
     }
 
     @ViewBuilder
@@ -377,59 +451,88 @@ struct CoachVideoPlayerView: View {
         }
     }
 
+    /// Portrait phone: the video pins to the top and everything below it scrolls
+    /// as one unit (the clip-detail pattern). Previously a fixed, non-scrolling
+    /// VStack — its bottom (the annotation panel) fell under the floating tab bar
+    /// with no way to reach it. The tab content renders inline (natural height,
+    /// no nested scroll) so the page is the single scroll region.
     private var narrowLayout: some View {
         VStack(spacing: 0) {
             playerContent
                 .frame(height: playerHeight)
-            athleteNoteCard
-            coachNoteSection
-            annotationPanel
+            ScrollView {
+                VStack(spacing: 0) {
+                    athleteNoteCard
+                    coachNoteSection
+                    annotationPanel(inline: true)
+                }
+                .padding(.bottom, .spacingLarge)
+            }
+            if isOwnPrivateDraft { draftPublishBar }
         }
         .background(Theme.surface)
     }
 
     private var wideLayout: some View {
-        HStack(spacing: 0) {
-            // Video area
-            VStack(spacing: 0) {
-                playerContent
-                filmstripSection
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                // Video area
+                VStack(spacing: 0) {
+                    playerContent
+                    filmstripSection
+                }
+                Divider()
+                // Sidebar
+                CoachVideoSidebar(
+                    showSpeedControl: isIPad,
+                    playbackRate: viewModel.playbackRate,
+                    onRateChanged: { viewModel.setPlaybackRate($0) },
+                    athleteNote: { athleteNoteCard },
+                    coachNote: { coachNoteSection },
+                    annotationPanel: { annotationPanel(inline: false) }
+                )
+                .frame(width: isIPad ? 360 : 320)
+                .background(Theme.surface)
             }
-            Divider()
-            // Sidebar
-            CoachVideoSidebar(
-                showSpeedControl: isIPad,
-                playbackRate: viewModel.playbackRate,
-                onRateChanged: { viewModel.setPlaybackRate($0) },
-                athleteNote: { athleteNoteCard },
-                coachNote: { coachNoteSection },
-                annotationPanel: { annotationPanel }
-            )
-            .frame(width: isIPad ? 360 : 320)
-            .background(Theme.surface)
+            if isOwnPrivateDraft { draftPublishBar }
         }
     }
 
-    /// Coach note + (coach-only) the cue picker / Send / view-receipt bar.
-    /// Non-editing viewers (the folder-owner athlete) instead see any applied
-    /// cues rendered read-only, so coach-authored cues are visible on the
-    /// receiving side rather than disappearing with the coach-only picker.
+    /// Coaches get one consolidated `CoachFeedbackCard` (note + cue picker +
+    /// view-receipt + compact "Done reviewing"). Non-editing viewers (the
+    /// folder-owner athlete) instead see the read-only coach note plus any
+    /// applied cues rendered read-only, so coach-authored cues are visible on
+    /// the receiving side rather than disappearing with the coach-only picker.
+    /// "Done reviewing" handler, or nil on an unpublished draft (where the real
+    /// send is "Share Now" on the publish bar, so the button would mislead).
+    /// Typed explicitly — a `cond ? nil : methodRef` ternary inline in the
+    /// CoachFeedbackCard call defeats the Swift type-checker.
+    private var doneReviewingAction: (() -> Void)? {
+        guard !isOwnPrivateDraft else { return nil }
+        return { confirmReviewComplete() }
+    }
+
     @ViewBuilder
     private var coachNoteSection: some View {
-        coachNoteCard
         if canEditCoachNote {
-            CoachReviewActionsBar(
-                athleteName: athleteFirstName,
+            CoachFeedbackCard(
+                authorName: viewModel.coachNoteAuthorName,
+                noteText: viewModel.coachNoteText ?? "",
+                updatedAt: viewModel.coachNoteUpdatedAt,
                 quickCues: templateService.quickCues,
                 appliedCues: selectedCueTags,
                 viewedAt: athleteViewedAt,
                 isSending: isConfirmingReview,
+                onEditNote: { showingCoachNoteEditor = true },
                 onToggleCue: toggleCue,
                 onAddCue: addCue,
-                onSend: confirmReviewComplete
+                onDone: doneReviewingAction
             )
-        } else if !video.tags.isEmpty {
-            readOnlyCueStrip
+        } else {
+            coachNoteCard
+            if !video.tags.isEmpty {
+                readOnlyCueStrip
+            }
         }
     }
 
@@ -578,7 +681,11 @@ struct CoachVideoPlayerView: View {
         }
     }
 
-    private var annotationPanel: some View {
+    /// `inline: true` (portrait phone) renders tab content at natural height
+    /// with no internal scroll, since the whole page is one outer ScrollView.
+    /// `inline: false` (iPad/landscape sidebar) keeps each tab self-scrolling
+    /// inside the fixed-height sidebar region.
+    private func annotationPanel(inline: Bool) -> some View {
         VStack(spacing: 0) {
             Picker("View", selection: $selectedTab) {
                 ForEach(VideoTab.allCases, id: \.self) { tab in
@@ -604,7 +711,8 @@ struct CoachVideoPlayerView: View {
                         },
                         onShowDrawing: { annotation in
                             viewModel.showDrawingOverlay(for: annotation)
-                        }
+                        },
+                        inline: inline
                     )
                 case .drillCard:
                     if drillCardsLoadFailed && drillCards.isEmpty {
@@ -612,12 +720,15 @@ struct CoachVideoPlayerView: View {
                     } else {
                         DrillCardTabView(
                             drillCards: drillCards,
-                            canComment: canComment,
-                            onAdd: { showingDrillCardEditor = true }
+                            canManageCards: canEditCoachNote,
+                            onAdd: { showingDrillCardEditor = true },
+                            onEdit: canEditCoachNote ? { card in editingDrillCard = card } : nil,
+                            onDelete: canEditCoachNote ? { card in drillCardPendingDelete = card } : nil,
+                            inline: inline
                         )
                     }
                 case .info:
-                    VideoInfoTabView(video: video)
+                    VideoInfoTabView(video: video, inline: inline)
                 }
             }
         }
@@ -678,18 +789,23 @@ struct CoachVideoPlayerView: View {
         return folder.getPermissions(for: userID)?.canComment ?? false
     }
 
-    private var canComment: Bool {
-        guard let userID = authManager.userID else { return false }
-        if userID == folder.ownerAthleteID { return true }
-        return folder.getPermissions(for: userID)?.canComment ?? false
-    }
-
     /// True when the current user owns this folder (i.e. the athlete whose
     /// coaches are sharing clips with them). Controls visibility of the
     /// "Save to My Videos" toolbar button.
     private var isFolderOwner: Bool {
         guard let userID = authManager.userID else { return false }
         return userID == folder.ownerAthleteID
+    }
+
+    /// True when this is the current coach's own still-private draft clip —
+    /// recorded/uploaded by them and not yet published to the athlete. Drives
+    /// the draft publish bar (Share Now / Save for Later / Discard) and
+    /// suppresses the misleading "Done reviewing" button (the real send is
+    /// Share Now). The athlete never sees a private clip, so this is coach-only
+    /// by construction. Only ever true when presented from the "My Drafts" cover.
+    private var isOwnPrivateDraft: Bool {
+        guard let userID = authManager.userID else { return false }
+        return video.visibility == "private" && video.uploadedBy == userID
     }
     
     /// Re-verifies the current coach still has comment permission on this
@@ -721,13 +837,6 @@ struct CoachVideoPlayerView: View {
     }
 
     // MARK: - Coach review actions
-
-    /// First name of the folder-owning athlete, used in the review-actions copy.
-    private var athleteFirstName: String {
-        guard let name = folder.ownerAthleteName,
-              let first = name.split(separator: " ").first else { return "athlete" }
-        return String(first)
-    }
 
     /// When the athlete last opened this clip (their view receipt), if ever.
     /// Prefers the live-refreshed value over the immutable load snapshot.
@@ -809,6 +918,115 @@ struct CoachVideoPlayerView: View {
         }
     }
 
+    // MARK: - Draft publish actions (own private drafts only)
+
+    /// Pinned bottom bar shown for the coach's own unpublished draft. "Share
+    /// Now" publishes (private → shared), firing the single onVideoPublished
+    /// push; note/cues/drawings were already persisted as the coach authored
+    /// them, so this is purely the visibility flip. Replaces the old standalone
+    /// ClipReviewSheet so drafts and shared clips share one review surface.
+    private var draftPublishBar: some View {
+        ClipReviewPublishBar(
+            isPublishing: isPublishingDraft,
+            isSavingDraft: false,
+            isDiscarding: isDiscardingDraft,
+            onShareNow: shareDraftNow,
+            onSaveForLater: saveDraftForLater,
+            onDiscard: { showingDraftDiscardConfirm = true }
+        )
+        .background(Theme.surface)
+    }
+
+    private func shareDraftNow() {
+        guard let folderID = folder.id else { return }
+        isPublishingDraft = true
+        Task {
+            do {
+                // Note + cues already persisted (setCoachNote / updateVideoTags as
+                // authored). Publish only flips visibility and fires the cohesive
+                // athlete push — pass nil so we never re-write them here.
+                try await FirestoreManager.shared.publishPrivateVideo(
+                    videoID: video.id,
+                    sharedFolderID: folderID
+                )
+                Haptics.success()
+                isPublishingDraft = false
+                // The parent (My-Drafts cover) dismisses + reloads via the
+                // callback. Fall back to a direct dismiss so a callback-less
+                // presentation can't strand a published clip behind a spinner.
+                if let onDraftShared { onDraftShared() } else { dismiss() }
+            } catch {
+                draftActionError = "Couldn't share this clip: \(error.localizedDescription)"
+                ErrorHandlerService.shared.handle(error, context: "CoachVideoPlayer.shareDraftNow", showAlert: false)
+                isPublishingDraft = false
+            }
+        }
+    }
+
+    /// Keeps the clip private. Note/cues/drawings already autosave, so this just
+    /// closes the draft and lets the parent reload.
+    private func saveDraftForLater() {
+        Haptics.light()
+        if let onDraftSavedForLater { onDraftSavedForLater() } else { dismiss() }
+    }
+
+    private func discardDraft() {
+        guard let folderID = folder.id else { return }
+        isDiscardingDraft = true
+        Task {
+            do {
+                try await FirestoreManager.shared.deleteCoachPrivateVideo(
+                    videoID: video.id,
+                    sharedFolderID: folderID,
+                    fileName: video.fileName
+                )
+                Haptics.success()
+                isDiscardingDraft = false
+                if let onDraftDiscarded { onDraftDiscarded() } else { dismiss() }
+            } catch {
+                draftActionError = "Couldn't discard this clip: \(error.localizedDescription)"
+                ErrorHandlerService.shared.handle(error, context: "CoachVideoPlayer.discardDraft", showAlert: false)
+                isDiscardingDraft = false
+            }
+        }
+    }
+
+    // MARK: - Drill card edit / delete
+
+    /// Drill-card editor seeded with an existing card (distinct from the "New
+    /// Drill Card" path, which uses `drillCardEditorSheet`). On save, replaces
+    /// the edited card in the local list.
+    @ViewBuilder
+    private func editDrillCardSheet(existing: DrillCard) -> some View {
+        if let coachID = authManager.userID {
+            DrillCardView(
+                videoID: video.id,
+                coachID: coachID,
+                coachName: authManager.userDisplayName ?? "Coach",
+                existingCard: existing,
+                onSave: { updated in
+                    if let idx = drillCards.firstIndex(where: { $0.id == updated.id }) {
+                        drillCards[idx] = updated
+                    }
+                }
+            )
+        }
+    }
+
+    /// Deletes a coach-created drill card and removes it from the local list.
+    private func deleteDrillCard(_ card: DrillCard) {
+        guard let cardID = card.id else { return }
+        Task {
+            do {
+                try await FirestoreManager.shared.deleteDrillCard(videoID: video.id, cardID: cardID)
+                drillCards.removeAll { $0.id == cardID }
+                Haptics.success()
+            } catch {
+                ErrorHandlerService.shared.handle(error, context: "CoachVideoPlayer.deleteDrillCard", showAlert: false)
+            }
+        }
+    }
+
     /// Writes the athlete's view receipt the first time they play a clip in
     /// their own folder. Coaches reviewing their own uploads do not write —
     /// the field tracks athlete-side viewership only.
@@ -834,11 +1052,21 @@ struct CoachVideoPlayerView: View {
 
 struct VideoInfoTabView: View {
     let video: CoachVideoItem
-    
+    /// Inline (portrait phone) drops the internal ScrollView — the page's outer
+    /// ScrollView handles it. The sidebar (inline = false) keeps self-scrolling.
+    var inline: Bool = false
+
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                InfoRow(label: "Uploaded By", value: video.uploadedByName)
+        if inline {
+            infoContent
+        } else {
+            ScrollView { infoContent }
+        }
+    }
+
+    private var infoContent: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            InfoRow(label: "Uploaded By", value: video.uploadedByName)
                 
                 if let date = video.createdAt {
                     InfoRow(label: "Upload Date", value: date.formatted(date: .long, time: .shortened))
@@ -884,8 +1112,7 @@ struct VideoInfoTabView: View {
             }
             .padding()
         }
-    }
-    
+
     private func formatDuration(_ seconds: Double) -> String {
         let minutes = Int(seconds) / 60
         let remainingSeconds = Int(seconds) % 60

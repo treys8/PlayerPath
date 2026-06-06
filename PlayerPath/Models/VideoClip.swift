@@ -75,6 +75,29 @@ final class VideoClip {
     /// pencil badge on the athlete's own video grid.
     var drawingCount: Int = 0
 
+    // MARK: - Coach Feedback Snapshot (SchemaV28, local-only — NOT synced)
+
+    /// Local snapshot of the coach's plain-text feedback note, copied at
+    /// save-to-My-Videos time from the source coach video doc. Durable: shows
+    /// even when the source doc is unavailable (coach deleted the clip/folder,
+    /// revoked access, or the athlete is offline). Refreshed in
+    /// `VideoPlayerView.loadCoachAnnotationsIfNeeded` when the live fetch returns
+    /// non-empty. Never written to Firestore — intentionally absent from the
+    /// sync field-lists so it stays local-only.
+    var coachNoteSnapshot: String? = nil
+
+    /// Snapshot of the coach-note author's display name (paired with
+    /// `coachNoteSnapshot`).
+    var coachNoteAuthorSnapshot: String? = nil
+
+    /// Snapshot of when the coach last updated the note (drives the
+    /// "Reviewed N ago" line offline).
+    var coachNoteUpdatedAtSnapshot: Date? = nil
+
+    /// Snapshot of the coach's quick-cue tags. nil = never snapshotted;
+    /// [] = snapshotted with no cues. Local-only.
+    var coachCueTagsSnapshot: [String]? = nil
+
     init(fileName: String, filePath: String) {
         self.id = UUID()
         self.fileName = fileName

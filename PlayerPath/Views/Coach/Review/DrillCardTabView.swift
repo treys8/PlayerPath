@@ -10,12 +10,23 @@ import SwiftUI
 
 struct DrillCardTabView: View {
     let drillCards: [DrillCard]
-    let canComment: Bool
+    /// True only for a folder coach with comment permission (not the folder-owner
+    /// athlete). Gates the "New Drill Card" button — drill cards are coach
+    /// feedback, so the athlete sees them read-only.
+    let canManageCards: Bool
     let onAdd: () -> Void
+    /// Coach-only per-card edit/delete. Wired only when `canManageCards`; the
+    /// athlete (read-only) side leaves these nil so no overflow menu shows.
+    var onEdit: ((DrillCard) -> Void)? = nil
+    var onDelete: ((DrillCard) -> Void)? = nil
+    /// Inline (portrait phone): natural-height empty state, no internal scroll —
+    /// the page's outer ScrollView handles it. Sidebar (false): self-scrolls
+    /// inside the fixed-height sidebar region.
+    var inline: Bool = false
 
     var body: some View {
         VStack(spacing: 0) {
-            if canComment {
+            if canManageCards {
                 Button(action: onAdd) {
                     Label("New Drill Card", systemImage: "plus.circle.fill")
                         .font(.headline)
@@ -41,17 +52,25 @@ struct DrillCardTabView: View {
                         .multilineTextAlignment(.center)
                         .padding(.horizontal)
                 }
-                .frame(maxHeight: .infinity)
+                .tabStateFrame(inline: inline)
+            } else if inline {
+                cardList
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 12) {
-                        ForEach(drillCards) { card in
-                            DrillCardSummaryView(card: card)
-                        }
-                    }
-                    .padding()
-                }
+                ScrollView { cardList }
             }
         }
+    }
+
+    private var cardList: some View {
+        LazyVStack(spacing: 12) {
+            ForEach(drillCards) { card in
+                DrillCardSummaryView(
+                    card: card,
+                    onEdit: onEdit.map { edit in { edit(card) } },
+                    onDelete: onDelete.map { del in { del(card) } }
+                )
+            }
+        }
+        .padding()
     }
 }

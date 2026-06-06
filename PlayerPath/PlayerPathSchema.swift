@@ -497,12 +497,33 @@ enum SchemaV27: VersionedSchema {
     }
 }
 
+// MARK: - Schema V28 (2026-06-05 — Durable coach-feedback snapshot on saved clips)
+//
+//  Changes from V27:
+//    • VideoClip.coachNoteSnapshot (String? = nil) — local cache of the coach's
+//      plain note, copied at save-to-My-Videos time so the athlete player shows
+//      it immediately and offline.
+//    • VideoClip.coachNoteAuthorSnapshot (String? = nil).
+//    • VideoClip.coachNoteUpdatedAtSnapshot (Date? = nil).
+//    • VideoClip.coachCueTagsSnapshot ([String]? = nil) — local cache of the
+//      coach's quick-cue tags.
+//
+//  All additions are optional with nil defaults → lightweight migration is
+//  sufficient. Local-only: NOT added to the Firestore sync field-lists.
+
+enum SchemaV28: VersionedSchema {
+    static var versionIdentifier = Schema.Version(28, 0, 0)
+    static var models: [any PersistentModel.Type] {
+        SchemaV1.models + [HoleScore.self, HighlightReel.self, GolfTournament.self]
+    }
+}
+
 // MARK: - Migration Plan
 
 enum PlayerPathMigrationPlan: SchemaMigrationPlan {
     /// All schema versions in chronological order (oldest first).
     static var schemas: [any VersionedSchema.Type] {
-        [SchemaV1.self, SchemaV2.self, SchemaV3.self, SchemaV4.self, SchemaV5.self, SchemaV6.self, SchemaV7.self, SchemaV8.self, SchemaV9.self, SchemaV10.self, SchemaV11.self, SchemaV12.self, SchemaV13.self, SchemaV14.self, SchemaV15.self, SchemaV16.self, SchemaV17.self, SchemaV18.self, SchemaV19.self, SchemaV20.self, SchemaV21.self, SchemaV22.self, SchemaV23.self, SchemaV24.self, SchemaV25.self, SchemaV26.self, SchemaV27.self]
+        [SchemaV1.self, SchemaV2.self, SchemaV3.self, SchemaV4.self, SchemaV5.self, SchemaV6.self, SchemaV7.self, SchemaV8.self, SchemaV9.self, SchemaV10.self, SchemaV11.self, SchemaV12.self, SchemaV13.self, SchemaV14.self, SchemaV15.self, SchemaV16.self, SchemaV17.self, SchemaV18.self, SchemaV19.self, SchemaV20.self, SchemaV21.self, SchemaV22.self, SchemaV23.self, SchemaV24.self, SchemaV25.self, SchemaV26.self, SchemaV27.self, SchemaV28.self]
     }
 
     /// Migration stages between consecutive versions.
@@ -533,7 +554,8 @@ enum PlayerPathMigrationPlan: SchemaMigrationPlan {
             .lightweight(fromVersion: SchemaV23.self, toVersion: SchemaV24.self),
             .lightweight(fromVersion: SchemaV24.self, toVersion: SchemaV25.self),
             .lightweight(fromVersion: SchemaV25.self, toVersion: SchemaV26.self),
-            .lightweight(fromVersion: SchemaV26.self, toVersion: SchemaV27.self)
+            .lightweight(fromVersion: SchemaV26.self, toVersion: SchemaV27.self),
+            .lightweight(fromVersion: SchemaV27.self, toVersion: SchemaV28.self)
         ]
     }
 }

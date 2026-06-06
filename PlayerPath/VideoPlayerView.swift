@@ -445,16 +445,74 @@ struct VideoPlayerView: View {
     private func loadCoachAnnotationsIfNeeded() {
         guard let sourceID = clip.sourceCoachVideoID, !sourceID.isEmpty else { return }
 
+        // Seed the displayed note/author/cues from the durable local snapshot
+        // immediately, so they show on open — even offline or after the source
+        // coach doc is deleted/revoked. When the live fetch below succeeds it is
+        // the source of truth and replaces these (the snapshot is only a
+        // fallback for when the source is unreachable).
+        if let snap = clip.coachNoteSnapshot { coachNoteText = snap }
+        if let author = clip.coachNoteAuthorSnapshot { coachNoteAuthorName = author }
+        if let updated = clip.coachNoteUpdatedAtSnapshot { coachNoteUpdatedAt = updated }
+        if let cues = clip.coachCueTagsSnapshot { coachCueTags = cues }
+
         Task {
             if let fetched = try? await FirestoreManager.shared.fetchAnnotations(forVideo: sourceID) {
                 await MainActor.run { coachAnnotations = fetched.sorted { $0.timestamp < $1.timestamp } }
             }
+            // Refresh from the live source doc ONLY when it returns usable data,
+            // then persist the fresh values back into the snapshot. A failed or
+            // empty live fetch leaves the seeded snapshot showing (previously an
+            // unconditional overwrite blanked the note).
             if let video = try? await FirestoreManager.shared.fetchVideo(videoID: sourceID) {
                 await MainActor.run {
-                    coachNoteText = video.coachNote ?? ""
-                    coachNoteAuthorName = video.coachNoteAuthorName
-                    coachNoteUpdatedAt = video.coachNoteUpdatedAt
-                    coachCueTags = video.tags ?? []
+                    // The source doc is reachable → it's the source of truth.
+                    // Mirror it into the display and refresh the snapshot so
+                    // coach edits AND deletions propagate and any stale snapshot
+                    // self-heals. (A failed fetch never reaches here, so the
+                    // seeded snapshot keeps showing when the source is gone.)
+                    let liveNote = video.coachNote ?? ""
+                    let liveAuthor = video.coachNoteAuthorName
+                    let liveUpdated = video.coachNoteUpdatedAt
+                    let liveCues = video.tags ?? []
+
+                    // Display updates first — view @State only, safe even if a
+                    // concurrent delete invalidated `clip` during the await.
+                    coachNoteText = liveNote
+                    coachNoteAuthorName = liveAuthor
+                    coachNoteUpdatedAt = liveUpdated
+                    coachCueTags = liveCues
+
+                    // Persist into the snapshot. Guard the clip: a sync-down
+                    // delete during the fetch await can invalidate it, and
+                    // accessing a deleted SwiftData model traps (EXC_BREAKPOINT)
+                    // — see feedback on model access across awaits.
+                    guard !clip.isDeleted, clip.modelContext != nil else { return }
+                    let noteSnap: String? = liveNote.isEmpty ? nil : liveNote
+                    let cuesSnap: [String]? = liveCues
+                    var didChange = false
+                    if clip.coachNoteSnapshot != noteSnap {
+                        clip.coachNoteSnapshot = noteSnap
+                        didChange = true
+                    }
+                    if clip.coachNoteAuthorSnapshot != liveAuthor {
+                        clip.coachNoteAuthorSnapshot = liveAuthor
+                        didChange = true
+                    }
+                    if clip.coachNoteUpdatedAtSnapshot != liveUpdated {
+                        clip.coachNoteUpdatedAtSnapshot = liveUpdated
+                        didChange = true
+                    }
+                    if clip.coachCueTagsSnapshot != cuesSnap {
+                        clip.coachCueTagsSnapshot = cuesSnap
+                        didChange = true
+                    }
+
+                    if didChange {
+                        ErrorHandlerService.shared.saveContext(
+                            modelContext,
+                            caller: "VideoPlayerView.loadCoachAnnotationsIfNeeded"
+                        )
+                    }
                 }
             }
             if let cards = try? await FirestoreManager.shared.fetchDrillCards(forVideo: sourceID) {

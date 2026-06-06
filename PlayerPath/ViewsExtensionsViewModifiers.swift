@@ -19,6 +19,19 @@ extension View {
             self
         }
     }
+
+    /// Sizing for an empty/loading/error state inside the coach video player's
+    /// annotation tabs. Inline (portrait phone, one outer ScrollView) gives the
+    /// state a padded natural height so it doesn't collapse; otherwise it fills
+    /// its fixed-height region in the iPad/landscape sidebar.
+    @ViewBuilder
+    func tabStateFrame(inline: Bool) -> some View {
+        if inline {
+            self.frame(maxWidth: .infinity).padding(.vertical, 40)
+        } else {
+            self.frame(maxHeight: .infinity)
+        }
+    }
 }
 
 // MARK: - Navigation Bar Modifiers
