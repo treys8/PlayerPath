@@ -411,6 +411,9 @@ struct CoachVideoPlayerView: View {
     }
 
     /// Coach note + (coach-only) the cue picker / Send / view-receipt bar.
+    /// Non-editing viewers (the folder-owner athlete) instead see any applied
+    /// cues rendered read-only, so coach-authored cues are visible on the
+    /// receiving side rather than disappearing with the coach-only picker.
     @ViewBuilder
     private var coachNoteSection: some View {
         coachNoteCard
@@ -425,7 +428,32 @@ struct CoachVideoPlayerView: View {
                 onAddCue: addCue,
                 onSend: confirmReviewComplete
             )
+        } else if !video.tags.isEmpty {
+            readOnlyCueStrip
         }
+    }
+
+    /// Read-only cue chips shown to the athlete so coach-applied cues are
+    /// visible on the receiving side. Mirrors the cue styling in
+    /// `AthleteClipReviewDetail`.
+    private var readOnlyCueStrip: some View {
+        VStack(alignment: .leading, spacing: .spacingSmall) {
+            Text("Cues").smallCapsLabel()
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: .spacingSmall) {
+                    ForEach(video.tags, id: \.self) { tag in
+                        Text(tag)
+                            .font(.ppCaptionBold)
+                            .foregroundStyle(Theme.cueText)
+                            .padding(.horizontal, .spacingMedium)
+                            .padding(.vertical, 6)
+                            .background(Capsule().fill(Theme.cueBg))
+                    }
+                }
+            }
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 6)
     }
 
     @ViewBuilder

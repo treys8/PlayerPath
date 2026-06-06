@@ -109,11 +109,16 @@ service cloud.firestore {
              .hasOnly(['sharedWithCoachIDs', 'sharedWithCoachNames', 'permissions', 'updatedAt']);
     }
 
-    // Checks if a coach is ONLY incrementing or decrementing videoCount on a folder
-    // they already have access to. Used to allow batched video create/delete operations.
+    // Checks if a folder member is ONLY incrementing or decrementing videoCount on
+    // a folder they already have access to. Used to allow batched video
+    // create/delete operations. Permits BOTH folder coaches (coach-recorded session
+    // clips) AND the folder-owner athlete (athlete sharing a clip into their own
+    // coach folder via markVideoCompleted's atomic videoCount batch) — the owner
+    // already fully controls the folder, so this grants no new capability.
     // Delta is bounded to ±10 to prevent abuse (single batch won't exceed this).
-    function isCoachUpdatingVideoCount() {
-      return request.auth.uid in resource.data.sharedWithCoachIDs
+    function isUpdatingVideoCount() {
+      return (request.auth.uid in resource.data.sharedWithCoachIDs
+              || request.auth.uid == resource.data.ownerAthleteID)
           && request.resource.data.ownerAthleteID == resource.data.ownerAthleteID
           && request.resource.data.name == resource.data.name
           && request.resource.data.sharedWithCoachIDs == resource.data.sharedWithCoachIDs
@@ -354,7 +359,7 @@ service cloud.firestore {
                                && request.resource.data.sharedWithCoachIDs
                                     .removeAll(resource.data.sharedWithCoachIDs).size() == 0)))
                       || isCoachLeavingFolder()
-                      || isCoachUpdatingVideoCount()
+                      || isUpdatingVideoCount()
                     );
       allow delete: if isAuthenticated()
                     && resource.data.ownerAthleteID == request.auth.uid;
@@ -445,6 +450,19 @@ service cloud.firestore {
                         || (request.resource.data.drawingCount is int
                             && request.resource.data.drawingCount >= 0
                             && request.resource.data.drawingCount <= resource.data.get('drawingCount', 0) + 10));
+
+      // setVideoTags / quick cues: a folder coach can apply cue tags (and the
+      // associated drillType categorization) to any clip in a folder they belong
+      // to — including athlete-uploaded clips they don't own (updateVideoTags in
+      // FirestoreManager+VideoMetadata.swift). The uploader branch above already
+      // covers coach-recorded clips; this branch covers the athlete-uploaded
+      // case. Benign metadata, no authorship field to spoof.
+      allow update: if isAuthenticated()
+                    && hasCoachTier()
+                    && 'sharedFolderID' in resource.data
+                    && canAccessFolder(resource.data.sharedFolderID)
+                    && request.resource.data.diff(resource.data).affectedKeys()
+                         .hasOnly(['tags', 'drillType', 'updatedAt']);
 
       // Folder owner athletes can record a view receipt on any clip in their
       // folder (markVideoViewedByAthlete). Narrow allowlist: only the
