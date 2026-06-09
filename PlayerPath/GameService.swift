@@ -152,7 +152,7 @@ class GameService {
         }
     }
 
-    func createGame(for athlete: Athlete, opponent: String, date: Date, isLive: Bool, season: Season? = nil, allowWithoutSeason: Bool = false, golfDetails: GolfRoundDetails? = nil, location: String? = nil, tournament: GolfTournament? = nil) async -> Result<Game, GameCreationError> {
+    func createGame(for athlete: Athlete, opponent: String, date: Date, isLive: Bool, season: Season? = nil, allowWithoutSeason: Bool = false, allowDuplicate: Bool = false, golfDetails: GolfRoundDetails? = nil, location: String? = nil, tournament: GolfTournament? = nil) async -> Result<Game, GameCreationError> {
         // Resolve target season: caller-supplied override wins, otherwise active.
         let resolvedSeason = season ?? athlete.activeSeason
         let hasSeason = resolvedSeason != nil
@@ -172,8 +172,12 @@ class GameService {
         // round from an accidental double-tap. Golf gets no auto-dedupe.
         // A round created via allowWithoutSeason may have a nil season, so also
         // treat the presence of golfDetails as a golf signal.
+        //
+        // For ball sports this is a soft guard, not a hard rule: a same-opponent,
+        // same-day game is a legitimate doubleheader, so callers surface a
+        // confirmation and re-call with `allowDuplicate: true` to proceed.
         let isGolf = (resolvedSeason?.sport == .golf) || (golfDetails != nil)
-        if !isGolf {
+        if !isGolf && !allowDuplicate {
             let calendar = Calendar.current
             let trimmedOpponent = opponent.trimmingCharacters(in: .whitespaces)
             let isDuplicate = (athlete.games ?? []).contains { existingGame in

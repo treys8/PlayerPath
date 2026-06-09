@@ -74,6 +74,48 @@ struct PracticeDetailView: View {
         (practice.videoClips ?? []).sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
     }
 
+    private var isRangeSession: Bool {
+        practice.practiceType == PracticeType.rangeSession.rawValue
+    }
+
+    // MARK: Golf practice-round clip grouping (by hole)
+
+    /// Hole numbers (ascending) that have at least one clip — drives the golf
+    /// practice-round "by hole" navigation. Keys off clips, not scores, so a
+    /// hole filmed but not scored still gets a row.
+    private var clipHoleNumbers: [Int] {
+        Set((practice.videoClips ?? []).compactMap { $0.holeNumber }).sorted()
+    }
+
+    private var unassignedHoleClipCount: Int {
+        (practice.videoClips ?? []).filter { $0.holeNumber == nil }.count
+    }
+
+    private func clipCount(onHole hole: Int) -> Int {
+        (practice.videoClips ?? []).filter { $0.holeNumber == hole }.count
+    }
+
+    private func holeScore(_ hole: Int) -> HoleScore? {
+        sortedHoleScores.first { $0.holeNumber == hole }
+    }
+
+    // MARK: Golf range-session clip grouping (by club)
+
+    /// Clubs in display order that have at least one clip — drives the range
+    /// session "by club" navigation.
+    private var clubsWithClips: [Club] {
+        let present = Set((practice.videoClips ?? []).compactMap { $0.club })
+        return Club.allCases.filter { present.contains($0) }
+    }
+
+    private var untaggedClubClipCount: Int {
+        (practice.videoClips ?? []).filter { $0.club == nil }.count
+    }
+
+    private func clipCount(forClub club: Club) -> Int {
+        (practice.videoClips ?? []).filter { $0.club == club }.count
+    }
+
     var notes: [PracticeNote] {
         (practice.notes ?? []).sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
     }
@@ -160,6 +202,24 @@ struct PracticeDetailView: View {
                         Label("Record your first video", systemImage: "video.badge.plus")
                     }
                     .labelStyle(ActionRowLabelStyle())
+                } else if isPracticeRound {
+                    // Golf practice round — group clips by hole (mirrors
+                    // GameDetailView). Each row pushes that hole's clips + score.
+                    ForEach(clipHoleNumbers, id: \.self) { hole in
+                        holeClipNavRow(holeNumber: hole, count: clipCount(onHole: hole))
+                    }
+                    if unassignedHoleClipCount > 0 {
+                        holeClipNavRow(holeNumber: nil, count: unassignedHoleClipCount)
+                    }
+                } else if isRangeSession {
+                    // Golf range session — group clips by club. A "film every
+                    // swing" session is unbrowsable as a flat list.
+                    ForEach(clubsWithClips, id: \.self) { club in
+                        clubClipNavRow(club: club, count: clipCount(forClub: club))
+                    }
+                    if untaggedClubClipCount > 0 {
+                        clubClipNavRow(club: nil, count: untaggedClubClipCount)
+                    }
                 } else {
                     ForEach(videoClips) { clip in
                         PracticeVideoClipRow(clip: clip, hasCoachingAccess: authManager.hasCoachingAccess, onPlay: { selectedVideo = clip })
@@ -294,6 +354,52 @@ struct PracticeDetailView: View {
             }
         }
         .labelStyle(ActionRowLabelStyle())
+    }
+
+    /// One row in the golf practice-round "by hole" clip list. Pushes
+    /// HoleDetailView for the hole (or the Unassigned bucket when nil).
+    @ViewBuilder
+    private func holeClipNavRow(holeNumber: Int?, count: Int) -> some View {
+        NavigationLink {
+            HoleDetailView(round: .practice(practice), holeNumber: holeNumber)
+        } label: {
+            HStack(spacing: 8) {
+                if let holeNumber {
+                    Text("Hole \(holeNumber)")
+                        .font(.headingMedium)
+                    if let score = holeScore(holeNumber) {
+                        Text(score.diffLabel)
+                            .font(.labelSmall)
+                            .foregroundColor(.parRelative(score.diff))
+                    }
+                } else {
+                    Text("Unassigned")
+                        .font(.headingMedium)
+                }
+                Spacer()
+                Text("\(count) clip\(count == 1 ? "" : "s")")
+                    .font(.bodySmall)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    /// One row in the golf range-session "by club" clip list. Pushes
+    /// ClubDetailView for the club (or the Untagged bucket when nil).
+    @ViewBuilder
+    private func clubClipNavRow(club: Club?, count: Int) -> some View {
+        NavigationLink {
+            ClubDetailView(practice: practice, club: club)
+        } label: {
+            HStack(spacing: 8) {
+                Text(club?.displayName ?? "Untagged")
+                    .font(.headingMedium)
+                Spacer()
+                Text("\(count) clip\(count == 1 ? "" : "s")")
+                    .font(.bodySmall)
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 
     /// The `•••` toolbar menu — sole home for the editorial/destructive actions

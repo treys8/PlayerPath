@@ -6,7 +6,7 @@ final class VideoClipsViewModel {
     // MARK: - Filter State
     var searchText = ""
     var selectedSeasonFilter: String?
-    var selectedFilter: VideoLibraryFilter = .all
+    var filter = VideoClipFilter()
 
     // MARK: - Loading & Pagination
     var isLoading = true
@@ -17,6 +17,7 @@ final class VideoClipsViewModel {
     private(set) var filteredVideos: [VideoClip] = []
     private(set) var filteredVideoIndex: [UUID: Int] = [:]
     private(set) var availableSeasons: [Season] = []
+    private(set) var availableOpponents: [String] = []
 
     // MARK: - Private
     private var allVideos: [VideoClip] = []
@@ -30,6 +31,7 @@ final class VideoClipsViewModel {
     func update(videos: [VideoClip]) {
         allVideos = videos
         updateAvailableSeasons()
+        updateAvailableOpponents()
         refilter()
     }
 
@@ -48,16 +50,10 @@ final class VideoClipsViewModel {
             }
         }
 
-        // Role/tag filter
-        if selectedFilter != .all {
-            videos = videos.filter { video in
-                switch selectedFilter {
-                case .all:      return true
-                case .untagged: return !video.isTagged
-                case .batter:   return video.playResult?.type.isBattingResult ?? false
-                case .pitcher:  return video.playResult?.type.isPitchingResult ?? false
-                }
-            }
+        // Combinable attribute filters (highlights / coach feedback / untagged /
+        // play result / club / opponent) — all dimensions AND together.
+        if filter.isActive {
+            videos = videos.filter { filter.matches($0) }
         }
 
         // Search filter
@@ -132,5 +128,16 @@ final class VideoClipsViewModel {
         let seasons = allVideos.compactMap { $0.season }
         let uniqueSeasons = Array(Set(seasons))
         availableSeasons = uniqueSeasons.sorted { ($0.startDate ?? .distantPast) > ($1.startDate ?? .distantPast) }
+    }
+
+    /// Distinct opponents across the current clip set, for the Opponent filter
+    /// menu. Prefers the live game relationship, falls back to the denormalized
+    /// `gameOpponent` (matches `VideoClipFilter.opponentName`). Blank names dropped.
+    private func updateAvailableOpponents() {
+        let names = allVideos.compactMap { clip -> String? in
+            let raw = (clip.game?.opponent ?? clip.gameOpponent)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return (raw?.isEmpty == false) ? raw : nil
+        }
+        availableOpponents = Array(Set(names)).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
 }

@@ -89,9 +89,23 @@ struct GamesView: View {
     private enum AlertType: Identifiable {
         case error
         case noSeason
+        case duplicateConfirm
         var id: Self { self }
     }
     @State private var activeAlert: AlertType?
+
+    // Captured game-creation parameters held while the duplicate (doubleheader)
+    // confirmation alert is shown, so "Add Game" can re-create with allowDuplicate.
+    private struct PendingGameCreation {
+        let opponent: String
+        let date: Date
+        let isLive: Bool
+        let season: Season?
+        let golf: GolfRoundDetails?
+        let location: String?
+        let tournament: GolfTournament?
+    }
+    @State private var pendingDuplicate: PendingGameCreation?
     
     // Cached filtered game arrays (updated via updateFilteredGames)
     @State private var cachedLiveGames: [Game] = []
@@ -605,6 +619,20 @@ struct GamesView: View {
                         },
                         secondaryButton: .cancel()
                     )
+                case .duplicateConfirm:
+                    Alert(
+                        title: Text("\(unitNoun.capitalized) Already Exists"),
+                        message: Text(duplicateConfirmMessage),
+                        primaryButton: .default(Text("Add \(unitNoun.capitalized)")) {
+                            if let pending = pendingDuplicate {
+                                confirmDuplicateGame(pending)
+                            }
+                            pendingDuplicate = nil
+                        },
+                        secondaryButton: .cancel {
+                            pendingDuplicate = nil
+                        }
+                    )
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .presentAddGame)) { _ in
@@ -660,11 +688,51 @@ struct GamesView: View {
             golfDetails: golf,
             location: location,
             tournament: tournament,
+            onDuplicate: {
+                // Same opponent on the same day — likely a doubleheader. Confirm
+                // before creating a second game rather than hard-blocking it.
+                pendingDuplicate = PendingGameCreation(
+                    opponent: opponent,
+                    date: date,
+                    isLive: isLive,
+                    season: season,
+                    golf: golf,
+                    location: location,
+                    tournament: tournament
+                )
+                activeAlert = .duplicateConfirm
+            },
             onError: { errorMessage in
                 showError(errorMessage)
             }
         )
         refreshGames()
+    }
+
+    /// Re-run creation for a confirmed doubleheader, bypassing the same-day
+    /// duplicate guard. Only reached after the user taps "Add" on the
+    /// duplicate-confirmation alert.
+    private func confirmDuplicateGame(_ pending: PendingGameCreation) {
+        viewModelHolder.viewModel?.create(
+            opponent: pending.opponent,
+            date: pending.date,
+            isLive: pending.isLive,
+            season: pending.season,
+            golfDetails: pending.golf,
+            location: pending.location,
+            tournament: pending.tournament,
+            allowDuplicate: true,
+            onError: { errorMessage in
+                showError(errorMessage)
+            }
+        )
+        refreshGames()
+    }
+
+    private var duplicateConfirmMessage: String {
+        guard let pending = pendingDuplicate else { return "" }
+        let dateStr = DateFormatter.mediumDate.string(from: pending.date)
+        return "You already have a \(unitNoun) against \(pending.opponent) on \(dateStr). Add another \(unitNoun) (e.g. a doubleheader)?"
     }
     
     private func refreshGames() {

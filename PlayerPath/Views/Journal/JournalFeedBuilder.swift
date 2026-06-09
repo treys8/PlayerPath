@@ -51,6 +51,7 @@ enum JournalFilter: String, CaseIterable, Identifiable {
             return false
         case .photos:
             if case .photo = entry { return true }
+            if case .photoGroup = entry { return true }
             return false
         case .highlights:
             return entry.containsHighlight
@@ -75,11 +76,26 @@ enum JournalFeedBuilder {
         entries.append(contentsOf: games.map(JournalEntry.game))
         entries.append(contentsOf: practices.map(JournalEntry.practice))
         entries.append(contentsOf: orphanClips.map(JournalEntry.clip))
-        entries.append(contentsOf: orphanPhotos.map(JournalEntry.photo))
+        entries.append(contentsOf: photoEntries(from: orphanPhotos))
 
         return entries
             .filter { filter.matches($0) }
             .sorted { $0.date > $1.date }
+    }
+
+    /// Collapse standalone photos into per-calendar-day entries: a lone photo stays
+    /// a single `.photo` (taps straight to its detail), while 2+ photos from the
+    /// same day become one `.photoGroup` row (taps open a day-scoped grid) so a
+    /// photo-heavy day doesn't flood the feed with one card per shot.
+    static func photoEntries(from orphanPhotos: [Photo]) -> [JournalEntry] {
+        let calendar = Calendar.current
+        let byDay = Dictionary(grouping: orphanPhotos) { photo in
+            calendar.startOfDay(for: photo.createdAt ?? .distantPast)
+        }
+        return byDay.values.map { dayPhotos in
+            let sorted = dayPhotos.sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
+            return sorted.count == 1 ? .photo(sorted[0]) : .photoGroup(sorted)
+        }
     }
 
     /// Clips with no game/practice parent — the only clips that earn their own

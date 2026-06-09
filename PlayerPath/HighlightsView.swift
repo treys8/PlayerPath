@@ -282,7 +282,11 @@ struct HighlightsView: View {
         ScrollView {
             if currentTier >= .plus,
                let athlete = athlete,
+               athlete.sport != .golf,
                viewModel.todaysHighlightClips.count >= 2 {
+                // Golf relies on its per-hole reels + per-round/per-season reels
+                // instead of the baseball "Today's Reel" hero, so the two reel
+                // models don't double-surface on the same screen.
                 TodaysReelHeroCard(
                     athleteId: athlete.id,
                     clips: viewModel.todaysHighlightClips,

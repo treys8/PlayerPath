@@ -66,9 +66,13 @@ struct JournalEntryRow: View {
     private var typeTag: String {
         switch entry {
         case .game:     return entry.isGolf ? "Golf" : "Game"
-        case .practice: return entry.isGolf ? "Practice Round" : "Practice"
-        case .clip:     return entry.containsHighlight ? "Highlight" : "Clip"
-        case .photo:    return "Photo"
+        // The headline already carries the specific golf type ("Range Session" /
+        // "Practice Round"), so the category chip stays generic — and correct for
+        // range sessions, which the old golf branch mislabeled "Practice Round".
+        case .practice: return "Practice"
+        case .clip:       return entry.containsHighlight ? "Highlight" : "Clip"
+        case .photo:      return "Photo"
+        case .photoGroup: return "Photos"
         }
     }
 
@@ -87,6 +91,8 @@ struct JournalEntryRow: View {
         case .clip:
             return nil
         case .photo:
+            return nil
+        case .photoGroup:
             return nil
         }
     }
@@ -131,6 +137,15 @@ struct JournalEntryRow: View {
             PPMediaTile(tileColor: Theme.tile(forKey: entry.id)) {
                 JournalPhotoThumbnail(photo: photo)
             }
+        } else if case .photoGroup = entry, let photo = entry.representativePhoto {
+            // A multi-photo day collapses to one card: the most recent photo as
+            // the cover, with a stack glyph marking it as a set (the headline
+            // carries the exact count). Tapping opens the day-scoped grid sheet
+            // (see JournalView). JournalPhotoThumbnail owns its own loading glyph.
+            PPMediaTile(tileColor: Theme.tile(forKey: entry.id)) {
+                JournalPhotoThumbnail(photo: photo)
+            }
+            .overlay(alignment: .bottomTrailing) { photoStackBadge }
         } else if let clip = entry.representativeClip {
             // Only a single orphan clip card promises inline playback — its ▶
             // and duration are honest because there's exactly one clip to play.
@@ -171,6 +186,18 @@ struct JournalEntryRow: View {
         if case .clip = entry { return true } else { return false }
     }
 
+    /// Small "this is a set" affordance pinned to the cover of a photo-group card,
+    /// so a multi-photo day reads differently from a single photo at a glance. The
+    /// exact count lives in the headline, so the badge stays glyph-only.
+    private var photoStackBadge: some View {
+        Image(systemName: "photo.stack")
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(.white)
+            .padding(6)
+            .background(Circle().fill(.black.opacity(0.55)))
+            .padding(.spacingSmall)
+    }
+
     private func outcomeChip(for clip: VideoClip) -> PPOutcomeChip? {
         if entry.isGolf {
             return PPOutcomeChip(label: "GOLF", style: .green)
@@ -184,6 +211,15 @@ struct JournalEntryRow: View {
     // MARK: - Counts
 
     private var countsText: String? {
+        // Only event cards (game/practice) summarize their contained media here. A
+        // standalone clip/photo IS its single media item — the tile already shows
+        // it (▶/duration for a clip, the image for a photo) — and a photo group
+        // states its count in the headline, so a "1 clip"/"6 photos" footer would
+        // only repeat what's already on screen.
+        switch entry {
+        case .game, .practice: break
+        case .clip, .photo, .photoGroup: return nil
+        }
         var parts: [String] = []
         if entry.clipCount > 0 { parts.append("\(entry.clipCount) clip\(entry.clipCount == 1 ? "" : "s")") }
         if entry.photoCount > 0 { parts.append("\(entry.photoCount) photo\(entry.photoCount == 1 ? "" : "s")") }

@@ -41,6 +41,10 @@ struct JournalView: View {
     /// push) so it matches how clips open everywhere else in the app.
     @State private var selectedClip: VideoClip?
 
+    /// Photo-group row tapped in the feed — drives the day-scoped photo grid sheet.
+    /// Nil = closed. Keyed by day so re-tapping the same group is idempotent.
+    @State private var selectedPhotoDay: JournalPhotoDay?
+
     /// Live game whose "Record" pill was tapped — drives a full-screen camera
     /// cover that captures straight into the game (no tab change). Nil = closed.
     @State private var recordingGame: Game?
@@ -216,14 +220,21 @@ struct JournalView: View {
                         ForEach(visibleEntries) { entry in
                             // O(1) lookup of this row's milestone — no per-row scan.
                             let milestone = entry.gameID.flatMap { milestonesByGame[$0] }
-                            if case .clip(let clip) = entry {
+                            switch entry {
+                            case .clip(let clip):
                                 // Clips open in the immersive full-screen player as
                                 // a cover — matching every other entry point in the
                                 // app — so the player's own ✕ is the single dismiss
                                 // control, with no stacked nav back chevron.
                                 Button { selectedClip = clip } label: { feedRow(entry, milestone: milestone) }
                                     .buttonStyle(.plain)
-                            } else {
+                            case .photoGroup(let photos):
+                                // A day's set of photos opens a day-scoped grid
+                                // sheet (no multi-photo push surface exists), so a
+                                // single photo-heavy day stays one feed card.
+                                Button { openPhotoDay(photos) } label: { feedRow(entry, milestone: milestone) }
+                                    .buttonStyle(.plain)
+                            default:
                                 NavigationLink { destination(for: entry) } label: { feedRow(entry, milestone: milestone) }
                                     .buttonStyle(.plain)
                             }
@@ -236,13 +247,7 @@ struct JournalView: View {
                             Haptics.medium()
                             showingAddSheet = true
                         },
-                        onLogEvent: {
-                            Haptics.light()
-                            NotificationCenter.default.post(
-                                name: .switchTab,
-                                object: MainTab.games.rawValue
-                            )
-                        }
+                        onLogEvent: { startLogEventFlow() }
                     )
                 }
             }
@@ -266,6 +271,9 @@ struct JournalView: View {
         .bulkPhotoImportAttach(athlete: athlete, trigger: $photoImportTrigger)
         .fullScreenCover(item: $selectedClip) { clip in
             VideoPlayerView(clip: clip)
+        }
+        .sheet(item: $selectedPhotoDay) { selection in
+            JournalPhotoDaySheet(athlete: athlete, day: selection.day)
         }
         .fullScreenCover(item: $recordingGame) { game in
             DirectCameraRecorderView(athlete: athlete, game: game)
@@ -303,6 +311,34 @@ struct JournalView: View {
             // Already syncing or signed out — expected, ignore.
         } catch {
             ErrorHandlerService.shared.handle(error, context: "JournalView.refreshable", showAlert: false)
+        }
+    }
+
+    // MARK: - Photo group
+
+    /// Open the day-scoped photo grid for a tapped photo-group row. Keyed by the
+    /// group's calendar day (every photo in the group shares it), so the sheet can
+    /// re-query that day's photos and stay live as they're deleted.
+    private func openPhotoDay(_ photos: [Photo]) {
+        Haptics.light()
+        // `.distantPast` fallback (not `.now`) must match the grouping key in
+        // JournalFeedBuilder.photoEntries / JournalEntry.id, so a photo with no
+        // createdAt resolves to the same day the sheet then filters on.
+        let day = photos.first?.createdAt ?? .distantPast
+        selectedPhotoDay = JournalPhotoDay(id: Calendar.current.startOfDay(for: day))
+    }
+
+    // MARK: - Log-event flow
+
+    /// Switch to the Games tab and open its add flow — mirrors
+    /// DashboardView.createNewGame: switch first, then (once the tab's nav stack
+    /// has mounted) ask GamesView to present its add sheet. A bare tab switch alone
+    /// would strand the user on the Games list with no add affordance triggered.
+    private func startLogEventFlow() {
+        Task { @MainActor in
+            NotificationCenter.default.post(name: .switchTab, object: MainTab.games.rawValue)
+            try? await Task.sleep(for: .milliseconds(150))
+            NotificationCenter.default.post(name: .presentAddGame, object: nil)
         }
     }
 
@@ -420,6 +456,9 @@ struct JournalView: View {
         // Clips are presented as a full-screen cover (see `selectedClip`), not a
         // push, so they never route through here.
         case .clip:            EmptyView()
+        // Photo groups open the day-scoped grid as a sheet (see `selectedPhotoDay`),
+        // not a push, so they never route through here either.
+        case .photoGroup:      EmptyView()
         case .photo(let p):
             PhotoDetailView(photo: p) {
                 PhotoPersistenceService().deletePhoto(p, context: modelContext)
@@ -471,8 +510,7 @@ struct JournalView: View {
                 .buttonStyle(.plain)
 
                 Button {
-                    Haptics.light()
-                    NotificationCenter.default.post(name: .switchTab, object: MainTab.games.rawValue)
+                    startLogEventFlow()
                 } label: {
                     HStack(spacing: 8) {
                         Image(systemName: "plus.circle").font(.body)

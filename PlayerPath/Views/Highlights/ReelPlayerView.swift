@@ -31,8 +31,13 @@ struct ReelPlayerView: View {
     /// silent black screen when every item fails to load (e.g. expired URLs).
     @State private var statusObservations: [NSKeyValueObservation] = []
 
+    /// Export flow — golf reels are virtual at playback, so Save/Share stitches
+    /// the referenced clips into one MP4 on demand via GenerateReelView.
+    @State private var showingExport = false
+    @State private var exportClips: [VideoClip] = []
+
     var body: some View {
-        ZStack(alignment: .topLeading) {
+        ZStack(alignment: .top) {
             Color.black.ignoresSafeArea()
 
             if let player {
@@ -42,21 +47,91 @@ struct ReelPlayerView: View {
                 unavailableView
             }
 
-            Button {
-                player?.pause()
-                dismiss()
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.title)
-                    .foregroundStyle(.white, .black.opacity(0.5))
-                    .padding()
+            HStack {
+                Button {
+                    player?.pause()
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title)
+                        .foregroundStyle(.white, .black.opacity(0.5))
+                }
+                Spacer()
+                // Only offer export once something is playable. Stitching itself
+                // needs local files; GenerateReelView surfaces a friendly message
+                // if the clips haven't downloaded to this device yet.
+                if player != nil {
+                    Button {
+                        Haptics.light()
+                        presentExport()
+                    } label: {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.title3)
+                            .foregroundStyle(.white)
+                    }
+                    .accessibilityLabel("Save or share this reel")
+                }
             }
+            .padding()
         }
         .onAppear {
             AudioSessionManager.configureForPlayback()
             resolveAndPlay()
         }
         .onDisappear { teardownPlayer() }
+        .fullScreenCover(isPresented: $showingExport) {
+            GenerateReelView(
+                clips: exportClips,
+                scopeKey: "reel_\(reel.id.uuidString)",
+                title: reelExportTitle
+            )
+        }
+    }
+
+    private var reelExportTitle: String {
+        reel.courseOrOpponent.isEmpty
+            ? reel.displayName
+            : "\(reel.displayName) · \(reel.courseOrOpponent)"
+    }
+
+    /// Resolve the reel's clips in chronological order, pause playback, and present
+    /// the on-demand stitch/export surface.
+    private func presentExport() {
+        let ordered = fetchOrderedClips()
+        guard !ordered.isEmpty else { return }
+        exportClips = ordered
+        player?.pause()
+        showingExport = true
+    }
+
+    /// Fetch the reel's clips and restore `clipIDs` order. Shared by playback and
+    /// export. Tolerates duplicate ids (multi-device row duplication); returns []
+    /// on fetch failure (caller falls back to the unavailable state).
+    private func fetchOrderedClips() -> [VideoClip] {
+        let clipIDStrings = reel.clipIDs
+        let clipUUIDs: [UUID] = clipIDStrings.compactMap { UUID(uuidString: $0) }
+        guard !clipUUIDs.isEmpty else { return [] }
+        let fetched: [VideoClip]
+        do {
+            let descriptor = FetchDescriptor<VideoClip>(
+                predicate: #Predicate<VideoClip> { clip in
+                    clipUUIDs.contains(clip.id)
+                }
+            )
+            fetched = try modelContext.fetch(descriptor)
+        } catch {
+            ErrorHandlerService.shared.handle(
+                error,
+                context: "ReelPlayerView.fetchOrderedClips",
+                showAlert: false
+            )
+            return []
+        }
+        let clipsByID: [String: VideoClip] = Dictionary(
+            fetched.map { ($0.id.uuidString, $0) },
+            uniquingKeysWith: { existing, _ in existing }
+        )
+        return clipIDStrings.compactMap { clipsByID[$0] }
     }
 
     /// Pauses, drains the queue, and clears all observers. Safe to call
@@ -110,51 +185,14 @@ struct ReelPlayerView: View {
         // Tear down any prior player/observers first (covers the Retry path).
         teardownPlayer()
 
-        let clipIDStrings = reel.clipIDs
-        guard !clipIDStrings.isEmpty else {
+        // Restore the reel's chronological order. Shared with the export path;
+        // tolerates duplicate ids and returns [] on fetch failure.
+        let orderedClips = fetchOrderedClips()
+        guard !orderedClips.isEmpty else {
             player = nil
             didResolve = true
             return
         }
-
-        // Match on the stored UUID keypath, not `clip.id.uuidString`: the latter
-        // cannot be lowered to SQL and traps with a fatal assertion *inside* the
-        // fetch (bypassing the do/catch below). Resolve to UUIDs up front.
-        let clipUUIDs: [UUID] = clipIDStrings.compactMap { UUID(uuidString: $0) }
-        guard !clipUUIDs.isEmpty else {
-            player = nil
-            didResolve = true
-            return
-        }
-
-        // Single fetch over all clips referenced by this reel.
-        let fetchedClips: [VideoClip]
-        do {
-            let descriptor = FetchDescriptor<VideoClip>(
-                predicate: #Predicate<VideoClip> { clip in
-                    clipUUIDs.contains(clip.id)
-                }
-            )
-            fetchedClips = try modelContext.fetch(descriptor)
-        } catch {
-            ErrorHandlerService.shared.handle(
-                error,
-                context: "ReelPlayerView.resolveAndPlay",
-                showAlert: false
-            )
-            player = nil
-            didResolve = true
-            return
-        }
-
-        // Restore the reel's chronological order — predicate fetch ordering
-        // is unspecified, so we re-index against clipIDs. Tolerate duplicate ids
-        // (multi-device row duplication) rather than trapping; either row plays.
-        let clipsByID: [String: VideoClip] = Dictionary(
-            fetchedClips.map { ($0.id.uuidString, $0) },
-            uniquingKeysWith: { existing, _ in existing }
-        )
-        let orderedClips: [VideoClip] = clipIDStrings.compactMap { clipsByID[$0] }
 
         // Resolve to playable URLs.
         let urls: [URL] = orderedClips.compactMap { clip in

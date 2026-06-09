@@ -67,7 +67,7 @@ class PlayerPathAppDelegate: NSObject, UIApplicationDelegate {
         Task.detached(priority: .utility) {
             StorageManager.cleanupStaleExports()
             StorageManager.cleanupOrphanedImports()
-            TodaysReelCache.cleanupOlderThan(days: 7)
+            StitchedReelCache.cleanupOlderThan(days: 7)
         }
 
         // Reschedule coach review reminder if enabled

@@ -262,7 +262,16 @@ final class ClipPersistenceService {
         // take seconds, during which a score tap landing between MainActor
         // yields would shift LiveHoleTracker's next-unscored hole by one and
         // attribute this clip to the *next* hole instead of the recording hole.
-        let capturedHoleNumber = LiveHoleTracker.shared.currentHole(for: game)
+        //
+        // For an orphan golf capture (no live round) the current-hole stepper
+        // (GolfCaptureContext) supplies the hole — nil means "Range", which
+        // leaves holeNumber unset and routes the clip to a range session below;
+        // a set hole stamps the clip and routes it to today's practice round.
+        let manualGolfHole: Int? = (game == nil && practice == nil && athlete.sportType == .golf)
+            ? GolfCaptureContext.shared.currentHole
+            : nil
+        let capturedHoleNumber = manualGolfHole
+            ?? LiveHoleTracker.shared.currentHole(for: game)
             ?? LiveHoleTracker.shared.currentHole(for: practice)
 
         // Validate source URL
@@ -400,14 +409,34 @@ final class ClipPersistenceService {
             }
         }
 
-        // Associate relationships (set one side; rely on Swift Data inverses)
-        videoClip.athlete = athlete
-        if let game = game { videoClip.game = game }
-        if let practice = practice { videoClip.practice = practice }
-
         // Ensure athlete has an active season (creates default if missing),
         // then link the video to it so clips are never orphaned without a season.
         let activeSeason = athlete.activeSeason ?? SeasonManager.ensureActiveSeason(for: athlete, in: context)
+
+        // Orphan golf clips (no game, no practice) would each surface as their
+        // own journal entry — a 100-swing range session = 100 cards. Group them
+        // into today's range-session Practice so the feed shows one card (the
+        // journal collapses a practice's clips into a single entry). Only the
+        // standalone golf record path lands here; baseball orphans keep updating
+        // athlete stats above and stay practice-less.
+        var resolvedPractice = practice
+        if game == nil, practice == nil, athlete.sportType == .golf {
+            // Stepper engaged (a hole is set) = on a course → group into today's
+            // practice ROUND and keep the stamped hole. Otherwise it's range
+            // work → today's range SESSION (grouped by club, no holes).
+            let sessionType: PracticeType = (manualGolfHole != nil) ? .practiceRound : .rangeSession
+            resolvedPractice = GolfCaptureSession.todaysSession(
+                type: sessionType,
+                for: athlete,
+                season: activeSeason,
+                in: context
+            )
+        }
+
+        // Associate relationships (set one side; rely on Swift Data inverses)
+        videoClip.athlete = athlete
+        if let game = game { videoClip.game = game }
+        if let resolvedPractice { videoClip.practice = resolvedPractice }
         if let season = activeSeason {
             videoClip.season = season
         }
@@ -416,7 +445,7 @@ final class ClipPersistenceService {
         // cross-device sync even if game/season relationships cannot be re-linked.
         videoClip.gameOpponent = game?.opponent
         videoClip.gameDate = game?.date
-        videoClip.practiceDate = practice?.date
+        videoClip.practiceDate = resolvedPractice?.date
         videoClip.seasonName = activeSeason?.displayName
 
         // Insert and save — clean up copied file if save fails to prevent orphans

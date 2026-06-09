@@ -25,6 +25,10 @@ struct GameDetailView: View {
     /// Use a wrapper instead of a bare Int so `.sheet(item:)` redraws when
     /// the user opens different holes back-to-back.
     @State private var scoreHoleTarget: ScoreHoleTarget? = nil
+    /// Reel export (Plus+): generate a shareable highlight reel from this game's
+    /// starred clips. Free taps route to the paywall instead.
+    @State private var showingReel = false
+    @State private var showingReelPaywall = false
 
     private var isGolf: Bool { game.season?.sport == .golf }
     // A single golf game is a "Round" — "Tournament" now means the multi-round
@@ -41,6 +45,31 @@ struct GameDetailView: View {
         (game.videoClips ?? []).sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
     }
 
+    /// Starred clips for this game in chronological (playback) order.
+    private var reelClips: [VideoClip] {
+        (game.videoClips ?? [])
+            .filter { $0.isHighlight }
+            .sorted { ($0.createdAt ?? .distantPast) < ($1.createdAt ?? .distantPast) }
+    }
+
+    /// A reel needs at least two clips — one clip is just a clip.
+    private var reelEligible: Bool { reelClips.count >= 2 }
+
+    private var reelTitle: String {
+        guard let date = game.date else { return game.opponent }
+        return "\(game.opponent) · \(DateFormatter.mediumDate.string(from: date))"
+    }
+
+    /// Plus-gated: open the generator, or route free users to the paywall.
+    private func generateReelTapped() {
+        Haptics.light()
+        if SubscriptionGate.effectiveAthleteTier.hasAutoHighlights {
+            showingReel = true
+        } else {
+            showingReelPaywall = true
+        }
+    }
+
     var gamePhotos: [Photo] {
         (game.photos ?? []).sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
     }
@@ -48,6 +77,27 @@ struct GameDetailView: View {
     /// Per-hole rows for this game, ascending by hole. Empty when none entered.
     private var holeScores: [HoleScore] {
         (game.holeScores ?? []).sorted { $0.holeNumber < $1.holeNumber }
+    }
+
+    /// Hole numbers (ascending) that have at least one clip — drives the golf
+    /// "by hole" clip navigation. A scored hole with no clips needs no review
+    /// row, so this keys off clips, not scores.
+    private var clipHoleNumbers: [Int] {
+        Set(videoClips.compactMap { $0.holeNumber }).sorted()
+    }
+
+    /// Clips with no hole stamped (recorded before scoring, or imported). They
+    /// get an "Unassigned" bucket so they stay reachable for review/retagging.
+    private var unassignedClipCount: Int {
+        videoClips.filter { $0.holeNumber == nil }.count
+    }
+
+    private func clipCount(onHole hole: Int) -> Int {
+        videoClips.filter { $0.holeNumber == hole }.count
+    }
+
+    private func holeScore(_ hole: Int) -> HoleScore? {
+        holeScores.first { $0.holeNumber == hole }
     }
 
     /// First unscored hole in 1…holes, or nil once every hole is scored. Drives
@@ -235,8 +285,26 @@ struct GameDetailView: View {
                         .labelStyle(ActionRowLabelStyle())
                     }
                 } else {
-                    ForEach(videoClips) { clip in
-                        VideoClipRow(clip: clip, hasCoachingAccess: authManager.hasCoachingAccess)
+                    if reelEligible {
+                        Button(action: { generateReelTapped() }) {
+                            Label("Generate Highlight Reel", systemImage: "film.stack")
+                        }
+                        .labelStyle(ActionRowLabelStyle())
+                    }
+                    if isGolf {
+                        // Golf rounds group clips by hole — a "film every swing"
+                        // round can carry 50+ clips, unbrowsable as a flat list.
+                        // Each row pushes that hole's clips + score + reel.
+                        ForEach(clipHoleNumbers, id: \.self) { hole in
+                            holeClipNavRow(holeNumber: hole, count: clipCount(onHole: hole))
+                        }
+                        if unassignedClipCount > 0 {
+                            holeClipNavRow(holeNumber: nil, count: unassignedClipCount)
+                        }
+                    } else {
+                        ForEach(videoClips) { clip in
+                            VideoClipRow(clip: clip, hasCoachingAccess: authManager.hasCoachingAccess)
+                        }
                     }
                 }
             }
@@ -382,6 +450,18 @@ struct GameDetailView: View {
                 onCancel: { showingPhotoCamera = false }
             )
         }
+        .fullScreenCover(isPresented: $showingReel) {
+            GenerateReelView(
+                clips: reelClips,
+                scopeKey: "game_\(game.id.uuidString)",
+                title: reelTitle
+            )
+        }
+        .sheet(isPresented: $showingReelPaywall) {
+            if let user = authManager.localUser {
+                ImprovedPaywallView(user: user, requiredTier: .plus)
+            }
+        }
         .onAppear {
             if gameService == nil { gameService = GameService(modelContext: modelContext) }
         }
@@ -425,6 +505,12 @@ struct GameDetailView: View {
                 }
 
                 addPhotoMenu
+
+                if reelEligible {
+                    Button(action: { generateReelTapped() }) {
+                        Label("Generate Highlight Reel", systemImage: "film.stack")
+                    }
+                }
 
                 Divider()
 
@@ -522,6 +608,35 @@ struct GameDetailView: View {
             }
         } label: {
             Label("Add Photos", systemImage: "camera")
+        }
+    }
+
+    /// One row in the golf "by hole" clip list. Pushes HoleDetailView for the
+    /// hole (or the Unassigned bucket when `holeNumber` is nil), showing the
+    /// hole's score chip and clip count inline.
+    @ViewBuilder
+    private func holeClipNavRow(holeNumber: Int?, count: Int) -> some View {
+        NavigationLink {
+            HoleDetailView(round: .game(game), holeNumber: holeNumber)
+        } label: {
+            HStack(spacing: 8) {
+                if let holeNumber {
+                    Text("Hole \(holeNumber)")
+                        .font(.headingMedium)
+                    if let score = holeScore(holeNumber) {
+                        Text(score.diffLabel)
+                            .font(.labelSmall)
+                            .foregroundColor(.parRelative(score.diff))
+                    }
+                } else {
+                    Text("Unassigned")
+                        .font(.headingMedium)
+                }
+                Spacer()
+                Text("\(count) clip\(count == 1 ? "" : "s")")
+                    .font(.bodySmall)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 

@@ -50,7 +50,7 @@ struct VideoClipsView: View {
     // Check if filters are active
     private var hasActiveFilters: Bool {
         viewModel.selectedSeasonFilter != nil ||
-        viewModel.selectedFilter != .all ||
+        viewModel.filter.isActive ||
         !viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
@@ -87,8 +87,8 @@ struct VideoClipsView: View {
             }
         }
 
-        if viewModel.selectedFilter != .all {
-            parts.append("filter: \(viewModel.selectedFilter.rawValue)")
+        if viewModel.filter.isActive {
+            parts.append(viewModel.filter.summary)
         }
 
         if !viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -112,7 +112,7 @@ struct VideoClipsView: View {
         Haptics.light()
         withAnimation {
             viewModel.selectedSeasonFilter = nil
-            viewModel.selectedFilter = .all
+            viewModel.filter = VideoClipFilter()
             viewModel.searchText = ""
         }
         viewModel.update(videos: videosForActiveSport)
@@ -325,7 +325,7 @@ struct VideoClipsView: View {
         .onChange(of: viewModel.selectedSeasonFilter) { _, _ in
             viewModel.refilter()
         }
-        .onChange(of: viewModel.selectedFilter) { _, _ in
+        .onChange(of: viewModel.filter) { _, _ in
             viewModel.refilter()
         }
         .onChange(of: videoClipsChangeKey) { _, _ in
@@ -339,11 +339,14 @@ struct VideoClipsView: View {
                 isSelectionMode = false
                 selectedVideos.removeAll()
             }
-            // Reset Batter/Pitcher filter when switching to golf — those pills
-            // are hidden and would otherwise leave the user staring at zero
-            // clips with no visible way to clear the filter.
-            if newSport == .golf, viewModel.selectedFilter == .batter || viewModel.selectedFilter == .pitcher {
-                viewModel.selectedFilter = .all
+            // The Result menu (baseball/softball) and Club menu (golf) are
+            // mutually exclusive in the bar. Clear whichever dimension just
+            // became hidden so the user can't be stuck filtering by an
+            // invisible, unclearable control after a sport toggle.
+            if newSport == .golf {
+                viewModel.filter.result = .any
+            } else {
+                viewModel.filter.club = .any
             }
             viewModel.update(videos: videosForActiveSport)
         }
@@ -542,55 +545,6 @@ struct VideoClipsView: View {
         .onboardingTip(recordTip, arrowEdge: .top, also: !(athlete.games ?? []).isEmpty)
     }
 
-    /// Filter pills shown above the video list. `.batter` / `.pitcher` are
-    /// baseball/softball-only — they're hidden for golf so the pill row
-    /// doesn't dangle useless filters that would always return zero.
-    private var visibleFilters: [VideoLibraryFilter] {
-        if activeSport == .golf {
-            return [.all, .untagged]
-        }
-        return VideoLibraryFilter.allCases
-    }
-
-    private var uploadStatusFilterPicker: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: .spacingSmall) {
-                ForEach(visibleFilters, id: \.self) { filter in
-                    let isSelected = viewModel.selectedFilter == filter
-                    Button {
-                        withAnimation {
-                            viewModel.selectedFilter = filter
-                        }
-                        Haptics.light()
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: filter.icon)
-                                .font(.caption)
-                            Text(filter.rawValue)
-                                .font(.ppCallout)
-                        }
-                        .foregroundStyle(isSelected ? Theme.surface : Theme.textSecondary)
-                        .padding(.horizontal, .spacingLarge)
-                        .padding(.vertical, .spacingSmall)
-                        .background(
-                            Capsule().fill(isSelected ? Theme.textPrimary : Color.clear)
-                        )
-                        .overlay(
-                            Capsule().strokeBorder(
-                                isSelected ? Color.clear : Theme.pillBorder,
-                                lineWidth: 1
-                            )
-                        )
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 12)
-        }
-        .background(Theme.surface)
-    }
-
     private var videoListView: some View {
         ScrollView {
             LazyVStack(spacing: 0) {
@@ -598,18 +552,22 @@ struct VideoClipsView: View {
 
                 // Tagging nudge scrolls with the grid so it's out of the way
                 // once the user starts reviewing clips.
-                if untaggedCount >= 3 && viewModel.selectedFilter != .untagged {
+                if untaggedCount >= 3 && !viewModel.filter.untaggedOnly {
                     UntaggedClipsBanner(count: untaggedCount) {
                         withAnimation {
-                            viewModel.selectedFilter = .untagged
+                            viewModel.filter.untaggedOnly = true
                         }
                     }
                     .padding(.top, 8)
                 }
 
-                // Upload status filter picker
+                // Combinable quick-filter chip bar
                 if hasAnyVideos {
-                    uploadStatusFilterPicker
+                    VideoFilterBar(
+                        filter: $viewModel.filter,
+                        sport: activeSport,
+                        opponents: viewModel.availableOpponents
+                    )
                 }
 
                 LazyVGrid(
@@ -679,14 +637,18 @@ struct VideoClipsView: View {
 
     /// Composite key for `.onChange` that reacts to property mutations the
     /// filter depends on, not just add/remove. A count-only key misses edits
-    /// like toggling isHighlight or tagging a playResult. Uses `Hasher` to
-    /// avoid allocating a multi-KB string on every SwiftUI body re-eval.
+    /// like toggling isHighlight, tagging a playResult/club, or coach feedback
+    /// arriving via sync. Uses `Hasher` to avoid allocating a multi-KB string
+    /// on every SwiftUI body re-eval.
     private var videoClipsChangeKey: Int {
         var hasher = Hasher()
         for clip in (athlete.videoClips ?? []) {
             hasher.combine(clip.id)
             hasher.combine(clip.isHighlight)
             hasher.combine(clip.playResult?.type.rawValue)
+            hasher.combine(clip.club)
+            hasher.combine(clip.annotationCount)
+            hasher.combine(clip.drawingCount)
         }
         return hasher.finalize()
     }

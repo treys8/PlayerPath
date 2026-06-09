@@ -128,6 +128,7 @@ extension SyncCoordinator {
                     pitchSpeed: clip.pitchSpeed,
                     pitchType: clip.pitchType,
                     club: clip.club?.rawValue,
+                    holeNumber: clip.holeNumber,
                     gameId: clip.game.map { $0.firestoreId ?? $0.id.uuidString },
                     gameOpponent: clip.gameOpponent ?? clip.game?.opponent,
                     gameDate: clip.gameDate ?? clip.game?.date,
@@ -608,6 +609,11 @@ extension SyncCoordinator {
 
         let remoteClub = data["club"] as? String
         if remoteClub != clip.club?.rawValue { return false }
+
+        // Without this, a hole-only retag (batch editor) reads as "matches" and
+        // the read-before-write skips the upload — stranding the change locally.
+        let remoteHoleNumber = data["holeNumber"] as? Int
+        if remoteHoleNumber != clip.holeNumber { return false }
 
         let remoteGameId = data["gameId"] as? String
         let localGameId = clip.game.map { $0.firestoreId ?? $0.id.uuidString }

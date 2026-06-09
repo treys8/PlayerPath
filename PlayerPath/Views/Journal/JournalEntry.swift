@@ -18,6 +18,7 @@ enum JournalEntry: Identifiable {
     case practice(Practice)
     case clip(VideoClip)        // standalone clip (no game/practice parent)
     case photo(Photo)           // standalone photo (no game/practice parent)
+    case photoGroup([Photo])    // 2+ standalone photos from the same calendar day
 
     var id: String {
         switch self {
@@ -25,6 +26,12 @@ enum JournalEntry: Identifiable {
         case .practice(let p): return "practice-\(p.id.uuidString)"
         case .clip(let c):     return "clip-\(c.id.uuidString)"
         case .photo(let p):    return "photo-\(p.id.uuidString)"
+        case .photoGroup(let photos):
+            // Day-keyed (not membership-keyed) so adding/removing a photo to the
+            // same day keeps the row's SwiftUI identity stable. Every photo in the
+            // group shares a calendar day, so any member yields the same key.
+            let day = photos.first?.createdAt ?? .distantPast
+            return "photogroup-\(Int(Calendar.current.startOfDay(for: day).timeIntervalSince1970))"
         }
     }
 
@@ -36,6 +43,9 @@ enum JournalEntry: Identifiable {
         case .practice(let p): return p.date ?? p.createdAt ?? .distantPast
         case .clip(let c):     return c.createdAt ?? .distantPast
         case .photo(let p):    return p.createdAt ?? .distantPast
+        case .photoGroup(let photos):
+            // Newest photo of the day anchors the group's feed position.
+            return photos.map { $0.createdAt ?? .distantPast }.max() ?? .distantPast
         }
     }
 
@@ -45,6 +55,9 @@ enum JournalEntry: Identifiable {
         case .practice(let p): return p.season?.sport
         case .clip(let c):     return c.season?.sport
         case .photo(let p):    return p.season?.sport
+        // Orphan photos rarely carry a season; the first that does sets the
+        // group's sport (nil passes the feed's seasonless sport gate through).
+        case .photoGroup(let photos): return photos.compactMap { $0.season?.sport }.first
         }
     }
 
@@ -66,6 +79,7 @@ enum JournalEntry: Identifiable {
         case .practice(let p): return p.videoClips ?? []
         case .clip(let c):     return [c]
         case .photo:           return []
+        case .photoGroup:      return []
         }
     }
 
@@ -73,10 +87,11 @@ enum JournalEntry: Identifiable {
 
     private var photos: [Photo] {
         switch self {
-        case .game(let g):     return g.photos ?? []
-        case .practice(let p): return p.photos ?? []
-        case .clip:            return []
-        case .photo(let p):    return [p]
+        case .game(let g):           return g.photos ?? []
+        case .practice(let p):       return p.photos ?? []
+        case .clip:                  return []
+        case .photo(let p):          return [p]
+        case .photoGroup(let group): return group
         }
     }
 
@@ -133,6 +148,10 @@ enum JournalEntry: Identifiable {
                 return caption
             }
             return "Photo"
+        case .photoGroup(let photos):
+            // The count IS the headline for a day's set — the row suppresses the
+            // redundant "N photos" counts footer so it isn't stated twice.
+            return "\(photos.count) photos"
         }
     }
 }

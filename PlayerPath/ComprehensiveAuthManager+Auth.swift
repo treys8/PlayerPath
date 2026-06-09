@@ -82,6 +82,18 @@ extension ComprehensiveAuthManager {
                         return
                     }
 
+                    // Established accounts verified under older builds can carry a cached
+                    // token whose email_verified claim is still false (user.reload() never
+                    // refreshed it). getIDTokenResult() reads the cached token locally; only
+                    // refresh over the network when the claim diverges from the user record,
+                    // so email_verified-gated reads (invitations) work this session instead
+                    // of waiting for the token to expire (~1h). Normal launches pay nothing.
+                    if let user, user.isEmailVerified,
+                       let result = try? await user.getIDTokenResult(),
+                       (result.claims["email_verified"] as? Bool) != true {
+                        _ = try? await user.getIDToken(forcingRefresh: true)
+                    }
+
                     self?.isSignedIn = true
 
                     // Apple Sign In can provide mixed-case emails (e.g. Trey@Gmail.com).
@@ -420,6 +432,16 @@ extension ComprehensiveAuthManager {
             currentFirebaseUser = refreshedUser
 
             if refreshedUser.isEmailVerified {
+                // user.reload() above refreshes the user record but NOT the cached ID
+                // token's claims. Firestore rules read request.auth.token.email_verified,
+                // so force a token refresh here or email_verified-gated reads (the coach
+                // invitations listener) are denied until the token expires (~1h).
+                do {
+                    _ = try await refreshedUser.getIDToken(forcingRefresh: true)
+                } catch {
+                    authLog.warning("Token force-refresh after verification failed: \(error.localizedDescription)")
+                }
+
                 // Load profile BEFORE flipping needsEmailVerification/isSignedIn
                 // so the listener (if it fires) sees a consistent state and any
                 // subsequent UI render has the correct role.

@@ -881,10 +881,18 @@ service cloud.firestore {
     // server-side job can finish the cleanup. Read/delete is needed for the
     // GDPR account-deletion path which clears the user's own entries.
     match /pendingDeletions/{deletionID} {
+      // storagePath must be within the caller's own Storage namespace. The server
+      // cleanup (dailyStorageCleanup) deletes this path with the Admin SDK, bypassing
+      // Storage rules, so an unconstrained storagePath would let any user enqueue the
+      // deletion of another user's files. Firebase UIDs are alphanumeric, so the uid is
+      // safe to interpolate into the regex. matches() is a full-string match.
       allow create: if isAuthenticated()
                     && request.resource.data.ownerUID == request.auth.uid
                     && request.resource.data.keys().hasOnly(
-                         ['ownerUID', 'fileName', 'storagePath', 'type', 'createdAt']);
+                         ['ownerUID', 'fileName', 'storagePath', 'type', 'createdAt'])
+                    && request.resource.data.storagePath is string
+                    && request.resource.data.storagePath.matches(
+                         'athlete_(videos|photos)/' + request.auth.uid + '/.*');
       allow read, delete: if isAuthenticated()
                           && resource.data.ownerUID == request.auth.uid;
       allow update: if false;

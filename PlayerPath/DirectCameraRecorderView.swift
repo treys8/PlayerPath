@@ -40,6 +40,14 @@ struct DirectCameraRecorderView: View {
         game?.season?.sport ?? practice?.season?.sport ?? athlete?.sportType ?? .baseball
     }
 
+    /// Show the casual current-hole stepper only when recording golf with NO
+    /// live round (no game/practice) and not in coach mode — the orphan-golf
+    /// path that GolfCaptureContext/saveClip group into a session. A live
+    /// round/practice derives its hole from scoring instead (LiveHoleTracker).
+    private var showsHoleStepper: Bool {
+        !isCoachMode && game == nil && practice == nil && athlete?.sportType == .golf
+    }
+
     /// Phases of the Quick Record flow, rendered inline within a single fullScreenCover
     private enum RecordingPhase: Equatable {
         case camera
@@ -199,6 +207,18 @@ struct DirectCameraRecorderView: View {
                             .padding(.bottom, 16)
                     } else {
                         liveGameBadge(for: game)
+                            .padding(.top, 72)
+                        Spacer()
+                    }
+                }
+            } else if showsHoleStepper {
+                VStack {
+                    if isLandscape {
+                        Spacer()
+                        CurrentHoleStepper()
+                            .padding(.bottom, 16)
+                    } else {
+                        CurrentHoleStepper()
                             .padding(.top, 72)
                         Spacer()
                     }

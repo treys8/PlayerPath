@@ -1818,6 +1818,19 @@ export const sendCoachAccessRevokedEmail = functions.firestore
       }
     }
 
+    // Deliberate athlete removal (no `reason`): the recompute above still counts a
+    // Flow-B athlete via their persistent accepted coach→athlete invitation, so the
+    // coach's slot wouldn't free. Once the coach shares no remaining folder with this
+    // person, delete that lingering invitation and recompute. Lapse keeps the invite
+    // (restore re-links it); downgrade already deleted invites in batchRevokeCoachAccess.
+    if (!revocation.reason) {
+      try {
+        await cleanupStaleInvitationsAfterRevocation(admin.firestore(), revocation);
+      } catch (e) {
+        console.warn(`Failed stale-invitation cleanup for revocation ${revocationId}:`, e);
+      }
+    }
+
     // Coach-initiated downgrade: the coach knowingly shed this athlete in the
     // in-app selection flow, so a per-folder "your access was revoked" email to
     // them is redundant noise — and the generic copy wrongly blames the athlete.
@@ -2114,6 +2127,17 @@ export const acceptAthleteToCoachInvitation = functions.https.onCall(async (data
     throw new functions.https.HttpsError('unauthenticated', 'Must be authenticated');
   }
 
+  // Recipient identity is matched by email below — require a verified email so an
+  // attacker can't squat an unclaimed address to claim someone else's invitation.
+  // Mirrors the Firestore rules' email-matched branches (which require email_verified).
+  // Apple Sign In tokens always carry email_verified == true.
+  if (context.auth.token.email_verified !== true) {
+    throw new functions.https.HttpsError(
+      'permission-denied',
+      'Please verify your email address before accepting invitations.'
+    );
+  }
+
   const { invitationID } = data;
   if (!invitationID || typeof invitationID !== 'string') {
     throw new functions.https.HttpsError('invalid-argument', 'invitationID is required');
@@ -2366,6 +2390,17 @@ export const acceptAthleteToCoachInvitation = functions.https.onCall(async (data
 export const acceptCoachToAthleteInvitation = functions.https.onCall(async (data, context) => {
   if (!context.auth) {
     throw new functions.https.HttpsError('unauthenticated', 'Must be authenticated');
+  }
+
+  // Recipient identity is matched by email below — require a verified email so an
+  // attacker can't squat an unclaimed address to claim someone else's invitation.
+  // Mirrors the Firestore rules' email-matched branches (which require email_verified).
+  // Apple Sign In tokens always carry email_verified == true.
+  if (context.auth.token.email_verified !== true) {
+    throw new functions.https.HttpsError(
+      'permission-denied',
+      'Please verify your email address before accepting invitations.'
+    );
   }
 
   const { invitationID, athleteName: clientAthleteName, athleteUUID: clientAthleteUUID, personGroupID: clientPersonGroupID } = data;
@@ -3939,6 +3974,122 @@ async function computeCoachConnectionKeys(
 }
 
 /**
+ * Server mirror of Swift `SubscriptionGate.personMatches`: a UUID-bearing row
+ * matches ONLY on the UUID axis (personGroupID/athleteUUID) and never falls
+ * through to the shared account axis — that would catch a sibling profile hosted
+ * under the same parent account. A legacy UUID-less row matches on the account
+ * axis. `revokeSet` is the identifying-key set of the person whose access was just
+ * revoked.
+ */
+function personMatchesKeys(
+  personGroupID: unknown,
+  athleteUUID: unknown,
+  accountID: unknown,
+  revokeSet: Set<string>
+): boolean {
+  const pg = typeof personGroupID === 'string' && personGroupID.length > 0 ? personGroupID : undefined;
+  const uuid = typeof athleteUUID === 'string' && athleteUUID.length > 0 ? athleteUUID : undefined;
+  const acc = typeof accountID === 'string' && accountID.length > 0 ? accountID : undefined;
+  if (pg && revokeSet.has(pg)) return true;
+  if (uuid) return revokeSet.has(uuid); // UUID row = this profile only
+  if (acc) return revokeSet.has(acc);
+  return false;
+}
+
+/**
+ * On a DELIBERATE coach removal by an athlete (a coach_access_revocations doc with
+ * no `reason` — not 'lapse', not 'downgrade'), the everyday client path
+ * (removeCoachFromFolder) strips the coach from the folder but never deletes the
+ * persistent accepted invitation. For a Flow-B connection (the coach invited the
+ * athlete), computeCoachConnectionKeys keeps counting that athlete via the lingering
+ * accepted coach_to_athlete invitation, so the coach's slot never frees. Mirror what
+ * batchRevokeCoachAccess (the coach-downgrade path) already does: once the coach
+ * shares NO remaining folder with this person, delete the accepted invitation(s) and
+ * recompute the authoritative count.
+ *
+ * Gated on "no remaining folder" so a per-folder removal (coach kept on the other
+ * folder) and the two-revocation-docs-per-removal sequence (Games + Lessons) both
+ * behave correctly — the invitation is deleted only when the connection truly ends.
+ */
+async function cleanupStaleInvitationsAfterRevocation(
+  db: admin.firestore.Firestore,
+  revocation: admin.firestore.DocumentData
+): Promise<void> {
+  const coachID = revocation.coachID;
+  const folderID = revocation.folderID;
+  if (typeof coachID !== 'string' || !coachID) return;
+  if (typeof folderID !== 'string' || !folderID) return;
+
+  // Resolve the revoked person's identifying keys from the (still-present) folder
+  // doc — removeCoachFromFolder only strips the coach, leaving the folder's keys
+  // intact. A UUID-bearing person must NOT include the account axis (siblings).
+  const folderSnap = await db.collection('sharedFolders').doc(folderID).get();
+  if (!folderSnap.exists) {
+    // Folder gone (folder-deletion race): we can't safely resolve the UUID, and
+    // matching invitations by account UID alone could delete a sibling profile's
+    // invite. Skip — no regression vs. prior behavior.
+    console.warn(`cleanupStaleInvitations: folder ${folderID} missing; skipping invite cleanup`);
+    return;
+  }
+  const folder = folderSnap.data()!;
+  const revokeSet = new Set<string>();
+  if (typeof folder.personGroupID === 'string' && folder.personGroupID.length > 0) revokeSet.add(folder.personGroupID);
+  if (typeof folder.athleteUUID === 'string' && folder.athleteUUID.length > 0) revokeSet.add(folder.athleteUUID);
+  if (revokeSet.size === 0 && typeof folder.ownerAthleteID === 'string' && folder.ownerAthleteID.length > 0) {
+    revokeSet.add(folder.ownerAthleteID); // legacy UUID-less row → account axis
+  }
+  if (revokeSet.size === 0) return;
+
+  // Does the coach still share ANY folder with this person? The just-revoked folder
+  // already had the coach arrayRemove'd, so it won't appear in this query.
+  const remainingSnap = await db.collection('sharedFolders')
+    .where('sharedWithCoachIDs', 'array-contains', coachID)
+    .get();
+  const stillConnected = remainingSnap.docs.some(d =>
+    personMatchesKeys(d.data().personGroupID, d.data().athleteUUID, d.data().ownerAthleteID, revokeSet)
+  );
+  if (stillConnected) return; // per-folder removal, or the other half not yet stripped
+
+  // Connection ended: delete the persistent accepted invitation(s) for this pair.
+  let deletedAny = false;
+
+  const c2aSnap = await db.collection('invitations')
+    .where('type', '==', 'coach_to_athlete')
+    .where('coachID', '==', coachID)
+    .where('status', '==', 'accepted')
+    .get();
+  for (const doc of c2aSnap.docs) {
+    if (personMatchesKeys(doc.data().personGroupID, doc.data().athleteUUID, doc.data().athleteUserID, revokeSet)) {
+      try { await doc.ref.delete(); deletedAny = true; }
+      catch (e) { console.warn(`cleanupStaleInvitations: failed to delete coach_to_athlete ${doc.id}:`, e); }
+    }
+  }
+
+  const a2cSnap = await db.collection('invitations')
+    .where('type', '==', 'athlete_to_coach')
+    .where('acceptedByCoachID', '==', coachID)
+    .where('status', '==', 'accepted')
+    .get();
+  for (const doc of a2cSnap.docs) {
+    if (personMatchesKeys(doc.data().personGroupID, doc.data().athleteUUID, doc.data().athleteID, revokeSet)) {
+      try { await doc.ref.delete(); deletedAny = true; }
+      catch (e) { console.warn(`cleanupStaleInvitations: failed to delete athlete_to_coach ${doc.id}:`, e); }
+    }
+  }
+
+  // Recompute now that the lingering invitation(s) are gone so coachAthleteCount
+  // reflects the truly-ended connection and the coach's slot frees.
+  if (deletedAny) {
+    try {
+      const trueCount = await computeCoachConnectionCount(db, coachID);
+      await db.collection('users').doc(coachID).update({ coachAthleteCount: trueCount });
+    } catch (e) {
+      console.warn(`cleanupStaleInvitations: failed to recompute coachAthleteCount for ${coachID}:`, e);
+    }
+  }
+}
+
+/**
  * Authoritative resolution of an athlete's `personGroupID` — the dual-sport
  * coach-billing key. A person who plays two sports is two `Athlete` rows sharing
  * one `personGroupID` and must count as ONE coach slot. We re-read the athlete
@@ -4324,16 +4475,34 @@ export const dailyStorageCleanup = functions.pubsub
       for (const doc of pendingSnap.docs) {
         const data = doc.data();
         const storagePath = data.storagePath;
+        const ownerUID = data.ownerUID;
 
-        if (storagePath) {
-          try {
-            await bucket.file(storagePath).delete();
-            pendingCount++;
-          } catch (err: any) {
-            if (err?.code !== 404) {
-              console.error(`Failed to delete pending file ${storagePath}:`, err);
-              continue; // Keep the record for next run
-            }
+        // storagePath is client-supplied. Only ever delete inside the owner's own
+        // namespace — the legitimate client writes athlete_videos/<uid>/.. or
+        // athlete_photos/<uid>/.. (VideoCloudManager / VideoCloudManager+Photos).
+        // Anything else is a malformed or abusive record (a cross-user deletion
+        // attempt): drop it without acting on it. Deleting with the Admin SDK
+        // bypasses Storage rules, so this is the only authorization boundary here.
+        const validPath =
+          typeof storagePath === 'string' &&
+          typeof ownerUID === 'string' &&
+          !storagePath.includes('..') &&
+          (storagePath.startsWith(`athlete_videos/${ownerUID}/`) ||
+           storagePath.startsWith(`athlete_photos/${ownerUID}/`));
+
+        if (!validPath) {
+          console.warn(`Skipping pendingDeletion ${doc.id}: storagePath '${storagePath}' outside owner '${ownerUID}' namespace`);
+          await doc.ref.delete();
+          continue;
+        }
+
+        try {
+          await bucket.file(storagePath).delete();
+          pendingCount++;
+        } catch (err: any) {
+          if (err?.code !== 404) {
+            console.error(`Failed to delete pending file ${storagePath}:`, err);
+            continue; // Keep the record for next run
           }
         }
 

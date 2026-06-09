@@ -26,6 +26,10 @@ struct AddGameView: View {
     @State private var isSeasonError = false
     @State private var shouldPresentSeasonsOnDismiss = false
     @State private var isSaving = false
+    // Doubleheader confirmation: a same-opponent, same-day game is allowed, but
+    // we confirm first to catch accidental duplicates.
+    @State private var showingDuplicateConfirm = false
+    @State private var pendingDuplicateAllowWithoutSeason = false
 
     init(athlete: Athlete? = nil) {
         self.athlete = athlete
@@ -124,6 +128,14 @@ struct AddGameView: View {
                 Text(errorMessage)
             }
         }
+        .alert("Game Already Exists", isPresented: $showingDuplicateConfirm) {
+            Button("Add Game") {
+                performCreate(allowWithoutSeason: pendingDuplicateAllowWithoutSeason, allowDuplicate: true)
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text(duplicateConfirmMessage)
+        }
         .onDisappear {
             if shouldPresentSeasonsOnDismiss {
                 NotificationCenter.default.post(name: Notification.Name.presentSeasons, object: athlete)
@@ -163,14 +175,38 @@ struct AddGameView: View {
             }
         }
 
-        let trimmedOpponent = opponent.trimmingCharacters(in: .whitespacesAndNewlines)
-
         log.debug("saveGame() called for athlete: \(athlete.name, privacy: .private)")
         log.debug("Active season: \(athlete.activeSeason?.name ?? "none"), seasons count: \(athlete.seasons?.count ?? 0)")
 
+        performCreate(allowWithoutSeason: false, allowDuplicate: false)
+    }
+
+    private func saveGameWithoutSeason() {
+        guard athlete != nil else {
+            errorMessage = "No athlete selected"
+            showingError = true
+            return
+        }
+
+        guard isValidOpponent else {
+            errorMessage = "Please enter a valid opponent name (2-50 characters)"
+            showingError = true
+            return
+        }
+
+        performCreate(allowWithoutSeason: true, allowDuplicate: false)
+    }
+
+    /// Shared creation path for both the season-bound and year-only save flows.
+    /// On a same-opponent/same-day collision it surfaces a confirmation rather
+    /// than failing outright, then re-runs with `allowDuplicate` once confirmed
+    /// (legitimate doubleheaders). Golf never reaches this — it's dedupe-exempt.
+    private func performCreate(allowWithoutSeason: Bool, allowDuplicate: Bool) {
+        guard let athlete = athlete else { return }
+        let trimmedOpponent = opponent.trimmingCharacters(in: .whitespacesAndNewlines)
+
         // Use GameService for consistent game creation
         let gameService = GameService(modelContext: modelContext)
-        // Removed tournament parameter from call
 
         // Guard against a double-tap spawning two concurrent createGame calls.
         guard !isSaving else { return }
@@ -182,7 +218,9 @@ struct AddGameView: View {
                 opponent: trimmedOpponent,
                 date: date,
                 isLive: startAsLive,
-                season: selectedSeason
+                season: selectedSeason,
+                allowWithoutSeason: allowWithoutSeason,
+                allowDuplicate: allowDuplicate
             )
 
             await MainActor.run {
@@ -190,6 +228,11 @@ struct AddGameView: View {
                 case .success:
                     log.info("Game created successfully")
                     dismiss()
+                case .failure(.duplicateGame):
+                    // Same opponent, same day — confirm before creating a second.
+                    isSaving = false
+                    pendingDuplicateAllowWithoutSeason = allowWithoutSeason
+                    showingDuplicateConfirm = true
                 case .failure(let error):
                     log.warning("Game creation failed: \(error.localizedDescription), isSeasonError: \(error == .noActiveSeason)")
                     // Show error alert
@@ -202,49 +245,9 @@ struct AddGameView: View {
         }
     }
 
-    private func saveGameWithoutSeason() {
-        guard let athlete = athlete else {
-            errorMessage = "No athlete selected"
-            showingError = true
-            return
-        }
-
-        guard isValidOpponent else {
-            errorMessage = "Please enter a valid opponent name (2-50 characters)"
-            showingError = true
-            return
-        }
-
-        let trimmedOpponent = opponent.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        // Use GameService with allowWithoutSeason flag
-        let gameService = GameService(modelContext: modelContext)
-
-        guard !isSaving else { return }
-        isSaving = true
-
-        Task {
-            let result = await gameService.createGame(
-                for: athlete,
-                opponent: trimmedOpponent,
-                date: date,
-                isLive: startAsLive,
-                season: selectedSeason,
-                allowWithoutSeason: true
-            )
-
-            await MainActor.run {
-                switch result {
-                case .success:
-                    dismiss()
-                case .failure(let error):
-                    // Show error alert
-                    isSaving = false
-                    errorMessage = error.localizedDescription
-                    isSeasonError = false
-                    showingError = true
-                }
-            }
-        }
+    private var duplicateConfirmMessage: String {
+        let opp = opponent.trimmingCharacters(in: .whitespacesAndNewlines)
+        let dateStr = DateFormatter.mediumDate.string(from: date)
+        return "You already have a game against \(opp) on \(dateStr). Add another game (e.g. a doubleheader)?"
     }
 }

@@ -304,7 +304,7 @@ extension VideoCloudManager {
     }
 
     /// Updates mutable video metadata fields in Firestore (isHighlight, note).
-    func updateVideoMetadata(clipId: String, isHighlight: Bool, note: String?, playResultType: PlayResultType?, pitchSpeed: Double?, pitchType: String? = nil, club: String? = nil, gameId: String?, gameOpponent: String?, gameDate: Date?, seasonId: String?, seasonName: String?, practiceId: String?, practiceDate: Date? = nil, athleteId: String? = nil, athleteName: String? = nil) async throws {
+    func updateVideoMetadata(clipId: String, isHighlight: Bool, note: String?, playResultType: PlayResultType?, pitchSpeed: Double?, pitchType: String? = nil, club: String? = nil, holeNumber: Int? = nil, gameId: String?, gameOpponent: String?, gameDate: Date?, seasonId: String?, seasonName: String?, practiceId: String?, practiceDate: Date? = nil, athleteId: String? = nil, athleteName: String? = nil) async throws {
         let db = Firestore.firestore()
         var data: [String: Any] = [
             "isHighlight": isHighlight,
@@ -329,6 +329,11 @@ extension VideoCloudManager {
         data["pitchSpeed"] = pitchSpeed ?? NSNull()
         data["pitchType"] = pitchType ?? NSNull()
         data["club"] = club ?? NSNull()
+        // holeNumber rides the update path too — without it, retagging a golf
+        // clip's hole (batch editor) would persist locally but never sync, and
+        // `videoMetadataMatches` below must compare it or the read-before-write
+        // would skip the upload entirely.
+        data["holeNumber"] = holeNumber ?? NSNull()
         data["gameId"] = gameId ?? NSNull()
         data["gameOpponent"] = gameOpponent ?? NSNull()
         data["gameDate"] = gameDate.map { Timestamp(date: $0) } ?? NSNull()

@@ -38,10 +38,7 @@ struct TodaysReelHeroCard: View {
             .shadow(color: .black.opacity(0.05), radius: 2, x: 0, y: 1)
             .onAppear {
                 if case .ready = state { return }
-                if let cached = TodaysReelCache.reuseIfFresh(
-                    at: TodaysReelCache.url(for: athleteId, date: Date()),
-                    sources: clips
-                ) {
+                if let cached = StitchedReelCache.cachedURLIfPresent(scopeKey: todayScopeKey, clips: clips) {
                     state = .ready(cached)
                     loadThumbnail(for: cached)
                 }
@@ -252,9 +249,11 @@ struct TodaysReelHeroCard: View {
 
     // MARK: - Actions
 
+    private var todayScopeKey: String { "today_\(athleteId.uuidString)" }
+
     private func generate() {
-        let cacheURL = TodaysReelCache.url(for: athleteId, date: Date())
-        if let existing = TodaysReelCache.reuseIfFresh(at: cacheURL, sources: clips) {
+        let cacheURL = StitchedReelCache.url(scopeKey: todayScopeKey, clips: clips)
+        if let existing = StitchedReelCache.cachedURLIfPresent(scopeKey: todayScopeKey, clips: clips) {
             state = .ready(existing)
             loadThumbnail(for: existing)
             return
@@ -310,67 +309,6 @@ struct TodaysReelHeroCard: View {
     }
 }
 
-// MARK: - Cache
-
-/// All members are `nonisolated` because this enum is in a file that imports
-/// SwiftUI (which can default to main-actor isolation). The cache touches only
-/// FileManager + DateFormatter + Logger, all of which are thread-safe.
-nonisolated enum TodaysReelCache {
-    private static let folderName = "daily_reels"
-
-    private static let dateFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd"
-        f.locale = Locale(identifier: "en_US_POSIX")
-        return f
-    }()
-
-    private static var folderURL: URL? {
-        guard let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else {
-            return nil
-        }
-        return caches.appendingPathComponent(folderName, isDirectory: true)
-    }
-
-    static func url(for athleteId: UUID, date: Date) -> URL {
-        let folder = folderURL ?? FileManager.default.temporaryDirectory
-        let stamp = dateFormatter.string(from: date)
-        return folder.appendingPathComponent("\(athleteId.uuidString)_\(stamp).mp4")
-    }
-
-    /// Returns the cached URL only if the file exists and its modification date
-    /// is at least as recent as the newest source clip's `createdAt`. Otherwise
-    /// nil — the caller should re-stitch.
-    @MainActor
-    static func reuseIfFresh(at url: URL, sources: [VideoClip]) -> URL? {
-        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
-        guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
-              let mtime = attrs[.modificationDate] as? Date else {
-            return nil
-        }
-        let newestSource = sources.compactMap(\.createdAt).max() ?? .distantPast
-        return mtime >= newestSource ? url : nil
-    }
-
-    /// Removes cached reels whose modification date is older than `days` days ago.
-    /// Safe to call from a detached background task.
-    static func cleanupOlderThan(days: Int) {
-        guard let folder = folderURL else { return }
-        guard let entries = try? FileManager.default.contentsOfDirectory(
-            at: folder,
-            includingPropertiesForKeys: [.contentModificationDateKey],
-            options: [.skipsHiddenFiles]
-        ) else { return }
-        let cutoff = Date().addingTimeInterval(-Double(days) * 86_400)
-        for entry in entries {
-            guard let values = try? entry.resourceValues(forKeys: [.contentModificationDateKey]),
-                  let mtime = values.contentModificationDate,
-                  mtime < cutoff else { continue }
-            try? FileManager.default.removeItem(at: entry)
-        }
-    }
-}
-
 // MARK: - Stitched Reel Player
 
 struct StitchedReelPlayerView: View {
@@ -379,21 +317,25 @@ struct StitchedReelPlayerView: View {
     @State private var player: AVPlayer?
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
+        ZStack(alignment: .top) {
             Color.black.ignoresSafeArea()
             if let player {
                 VideoPlayer(player: player)
                     .ignoresSafeArea()
             }
-            Button {
-                player?.pause()
-                dismiss()
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.title)
-                    .foregroundStyle(.white, .black.opacity(0.5))
-                    .padding()
+            HStack {
+                Button {
+                    player?.pause()
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title)
+                        .foregroundStyle(.white, .black.opacity(0.5))
+                }
+                Spacer()
+                ReelExportControls(url: url)
             }
+            .padding()
         }
         .onAppear {
             AudioSessionManager.configureForPlayback()

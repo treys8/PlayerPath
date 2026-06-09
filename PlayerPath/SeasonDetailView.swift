@@ -22,6 +22,7 @@ struct SeasonDetailView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Environment(\.ppAccent) private var ppAccent
+    @EnvironmentObject private var authManager: ComprehensiveAuthManager
 
     @State private var showingDeleteConfirmation = false
     @State private var showingReactivateConfirmation = false
@@ -37,6 +38,10 @@ struct SeasonDetailView: View {
     @State private var successMessage = ""
     @State private var videoUploadTrigger = false
     @State private var photoUploadTrigger = false
+    /// Season reel export (Plus+): stitch this season's starred clips into one
+    /// shareable reel. Free taps route to the paywall.
+    @State private var showingReel = false
+    @State private var showingReelPaywall = false
 
     // Cached filtered content arrays to avoid expensive recomputation on every render
     @State private var filteredGames: [Game] = []
@@ -296,6 +301,18 @@ struct SeasonDetailView: View {
         .onChange(of: season.practices) { _, _ in
             updateFilteredContent()
         }
+        .fullScreenCover(isPresented: $showingReel) {
+            GenerateReelView(
+                clips: reelClips,
+                scopeKey: "season_\(season.id.uuidString)",
+                title: season.displayName
+            )
+        }
+        .sheet(isPresented: $showingReelPaywall) {
+            if let user = authManager.localUser {
+                ImprovedPaywallView(user: user, requiredTier: .plus)
+            }
+        }
     }
 
     // Extracted to a separate @ViewBuilder to keep body small enough for Swift's type checker.
@@ -334,6 +351,13 @@ struct SeasonDetailView: View {
         if selectedFilter == .highlights || selectedFilter == .all {
             if !filteredHighlights.isEmpty {
                 Section(header: Text("Highlights (\(filteredHighlights.count))").smallCapsLabel()) {
+                    if reelEligible {
+                        Button(action: { generateReelTapped() }) {
+                            Label("Generate Season Reel", systemImage: "film.stack")
+                        }
+                        .font(.ppCallout)
+                        .foregroundStyle(ppAccent)
+                    }
                     ForEach(selectedFilter == .all ? Array(filteredHighlights.prefix(5)) : filteredHighlights) { video in
                         SeasonVideoRow(video: video)
                     }
@@ -380,6 +404,23 @@ struct SeasonDetailView: View {
                     }
                 }
             }
+        }
+    }
+
+    /// Starred clips for this season in chronological (playback) order.
+    /// `filteredHighlights` is newest-first, so reverse for the reel.
+    private var reelClips: [VideoClip] { Array(filteredHighlights.reversed()) }
+
+    /// A reel needs at least two clips.
+    private var reelEligible: Bool { filteredHighlights.count >= 2 }
+
+    /// Plus-gated: open the generator, or route free users to the paywall.
+    private func generateReelTapped() {
+        Haptics.light()
+        if SubscriptionGate.effectiveAthleteTier.hasAutoHighlights {
+            showingReel = true
+        } else {
+            showingReelPaywall = true
         }
     }
 
