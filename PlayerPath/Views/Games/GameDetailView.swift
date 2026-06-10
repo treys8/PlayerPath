@@ -20,6 +20,8 @@ struct GameDetailView: View {
     @State private var showingEditGame = false
     @State private var showingPhotoCamera = false
     @State private var showingScoreEntry = false
+    /// Presents the full-round scorecard grid (all holes on one screen).
+    @State private var showingScorecard = false
     @State private var gameService: GameService? = nil
     /// Hole picked for per-hole scoring; non-nil presents ScoreHoleSheet.
     /// Use a wrapper instead of a bare Int so `.sheet(item:)` redraws when
@@ -241,6 +243,13 @@ struct GameDetailView: View {
                         }
                     }
                     .padding(.vertical, 5)
+
+                    // Score the whole round on one screen (per-hole). The
+                    // quick-total path stays available via "Enter Score" above.
+                    Button(action: { showingScorecard = true }) {
+                        Label("Scorecard", systemImage: "tablecells")
+                    }
+                    .labelStyle(ActionRowLabelStyle())
                 }
 
                 // Per-hole grid — read-only summary that's also tappable to edit
@@ -430,6 +439,9 @@ struct GameDetailView: View {
         .sheet(item: $scoreHoleTarget) { target in
             ScoreHoleSheet(game: game, holeNumber: target.holeNumber)
         }
+        .sheet(isPresented: $showingScorecard) {
+            GolfScorecardView(round: .game(game))
+        }
         .fullScreenCover(isPresented: $showingVideoRecorder) {
             DirectCameraRecorderView(athlete: game.athlete, game: game)
         }
@@ -519,6 +531,9 @@ struct GameDetailView: View {
                         Label("Enter Statistics", systemImage: "chart.bar.doc.horizontal")
                     }
                 } else {
+                    Button(action: { showingScorecard = true }) {
+                        Label("Scorecard", systemImage: "tablecells")
+                    }
                     Button(action: { showingScoreEntry = true }) {
                         Label(game.effectiveTotalScore == nil ? "Enter Score" : "Edit Score", systemImage: "pencil.line")
                     }

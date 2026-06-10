@@ -47,14 +47,20 @@ struct ScoreHoleSheet: View {
     /// par. Once set, par changes only recolor the hero — they don't move score.
     @State private var scoreManuallySet: Bool = false
 
-    /// Existing row for this hole, if any. Cached so save() can update in
-    /// place rather than creating a duplicate row.
-    @State private var existingHole: HoleScore? = nil
-
     /// Re-entrancy guard. A rapid double-tap of Save would otherwise re-enter
     /// before dismiss propagates and insert a second HoleScore (and reel) for
     /// the same hole, corrupting totals.
     @State private var isSaving: Bool = false
+
+    /// Opt-in detailed tracking — reveals fairway / green / penalty inputs.
+    @AppStorage(GolfPrefs.trackDetailedStats) private var trackDetailed = false
+    @State private var fairwayHit: Bool? = nil
+    @State private var greenInRegulation: Bool? = nil
+    @State private var penalties: Int? = nil
+
+    private var penaltyBinding: Binding<Int> {
+        Binding(get: { penalties ?? 0 }, set: { penalties = $0 > 0 ? $0 : nil })
+    }
 
     // MARK: - Parent accessors
 
@@ -65,28 +71,12 @@ struct ScoreHoleSheet: View {
         }
     }
 
-    private var parentClips: [VideoClip] {
+    /// Bridges the sheet's private `Parent` to the shared `GolfRoundRef` the
+    /// writer and scorecard operate on, so all three share one save path.
+    private var roundRef: GolfRoundRef {
         switch parent {
-        case .game(let g):     return g.videoClips ?? []
-        case .practice(let p): return p.videoClips ?? []
-        }
-    }
-
-    private var parentAthlete: Athlete? {
-        switch parent {
-        case .game(let g):     return g.athlete
-        case .practice(let p): return p.athlete
-        }
-    }
-
-    /// Course / opponent label for reels. Games use the opponent field (which
-    /// for golf is the course name); practice rounds don't carry one yet so
-    /// the reel falls back to "Practice Round" — HighlightReelCard renders
-    /// that as the location line.
-    private var parentCourse: String {
-        switch parent {
-        case .game(let g):     return g.opponent
-        case .practice:        return "Practice Round"
+        case .game(let g):     return .game(g)
+        case .practice(let p): return .practice(p)
         }
     }
 
@@ -102,7 +92,7 @@ struct ScoreHoleSheet: View {
                             .font(.labelMedium)
                             .foregroundColor(.secondary)
                         Picker("Par", selection: $par) {
-                            ForEach(3...5, id: \.self) { Text("\($0)").tag($0) }
+                            ForEach(3...6, id: \.self) { Text("\($0)").tag($0) }
                         }
                         .pickerStyle(.segmented)
                         .onChange(of: par) { _, newPar in
@@ -143,6 +133,25 @@ struct ScoreHoleSheet: View {
                                 .foregroundColor(.secondary)
                         }
                     }
+
+                    // Detailed — fairway / green / penalties, opt-in (SchemaV29).
+                    if trackDetailed {
+                        VStack(alignment: .leading, spacing: .spacingSmall) {
+                            if par >= 4 {
+                                HitMissControl(label: "Fairway", systemImage: "arrow.up.forward", value: $fairwayHit)
+                            }
+                            HitMissControl(label: "Green in Reg.", systemImage: "flag.fill", value: $greenInRegulation)
+                            Stepper(value: penaltyBinding, in: 0...10) {
+                                HStack {
+                                    Text("Penalties").font(.bodyLarge)
+                                    Spacer()
+                                    Text("\(penalties ?? 0)")
+                                        .monospacedDigit()
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                        }
+                    }
                 }
                 .padding(.spacingLarge)
             }
@@ -170,7 +179,6 @@ struct ScoreHoleSheet: View {
 
         let holes = parentHoles
         if let existing = holes.first(where: { $0.holeNumber == holeNumber }) {
-            existingHole = existing
             par = existing.par
             score = existing.score
             // Already a real score — par tweaks shouldn't drag it along.
@@ -179,6 +187,9 @@ struct ScoreHoleSheet: View {
                 putts = p
                 includePutts = true
             }
+            fairwayHit = existing.fairwayHit
+            greenInRegulation = existing.greenInRegulation
+            penalties = existing.penalties
             return
         }
 
@@ -202,22 +213,7 @@ struct ScoreHoleSheet: View {
     /// off `Practice.course`. Returns nil when the athlete hasn't played here
     /// before (or never scored this hole), falling back to the in-round seed.
     private func priorRoundPar(forHole hole: Int) -> Int? {
-        guard let athlete = parentAthlete else { return nil }
-        switch parent {
-        case .game(let current):
-            guard !current.opponent.isEmpty else { return nil }
-            let prior = (athlete.games ?? [])
-                .filter { $0.id != current.id && $0.opponent == current.opponent
-                          && ($0.season?.sport ?? .baseball) == .golf }
-                .max(by: { ($0.date ?? .distantPast) < ($1.date ?? .distantPast) })
-            return prior?.holeScores?.first { $0.holeNumber == hole }?.par
-        case .practice(let current):
-            guard let course = current.course, !course.isEmpty else { return nil }
-            let prior = (athlete.practices ?? [])
-                .filter { $0.id != current.id && $0.course == course }
-                .max(by: { ($0.date ?? .distantPast) < ($1.date ?? .distantPast) })
-            return prior?.holeScores?.first { $0.holeNumber == hole }?.par
-        }
+        GolfScoreWriter.priorRoundPar(forHole: hole, in: roundRef)
     }
 
     private func save() {
@@ -229,54 +225,22 @@ struct ScoreHoleSheet: View {
         // original nil-when-unset semantics (don't coerce a missing value to 0).
         let savedPutts: Int? = includePutts ? putts.map { min($0, score) } : nil
 
-        if let existing = existingHole {
-            existing.par = par
-            existing.score = score
-            existing.putts = savedPutts
-            existing.updatedAt = Date()
-            existing.version += 1
-            existing.needsSync = true
-        } else {
-            let new = HoleScore(
-                holeNumber: holeNumber,
-                par: par,
-                score: score,
-                putts: savedPutts
-            )
-            switch parent {
-            case .game(let g):     new.game = g
-            case .practice(let p): new.practice = p
-            }
-            modelContext.insert(new)
-        }
+        let input = GolfScoreWriter.HoleInput(
+            holeNumber: holeNumber,
+            par: par,
+            score: score,
+            putts: savedPutts,
+            fairwayHit: par >= 4 ? fairwayHit : nil,
+            greenInRegulation: greenInRegulation,
+            penalties: penalties
+        )
 
-        // Mirror the per-hole running sum onto Game.totalScore on EVERY save,
-        // not only when all holes are entered. totalScore is the synced
-        // transport and the cross-device fallback read by effectiveTotalScore,
-        // so keeping it equal to the live hole sum means a second device shows a
-        // correct total even before the per-hole rows replicate — and a partial
-        // round is never invisible in GolfStatsSection / GameRow. Practices
-        // carry no totalScore scalar (they derive live), so only games mirror.
-        //
-        // Build the effective hole→score map explicitly (keyed by holeNumber)
-        // rather than reading `g.holeScores` alone: that collection isn't
-        // guaranteed to reflect the row inserted above before save(). Folding in
-        // (holeNumber, score) here is dedupe-safe and insert-timing-safe.
-        if case .game(let g) = parent {
-            var scoreByHole: [Int: Int] = [:]
-            for h in (g.holeScores ?? []) { scoreByHole[h.holeNumber] = h.score }
-            scoreByHole[holeNumber] = score
-            let sum = scoreByHole.values.reduce(0, +)
-            if g.totalScore != sum {
-                g.totalScore = sum
-                g.needsSync = true
-            }
-        }
-
-        // v6.1 PR2 (game) + PR3 (practice): auto-highlight reel for birdie-
-        // or-better holes with attributed clips. Idempotent on
-        // (parentID, holeNumber).
-        upsertReelIfNeeded(par: par, score: score)
+        // One shared write path (also used by GolfScorecardView): upsert the
+        // hole, mirror the running total onto Game.totalScore, and create/demote
+        // the birdie auto-highlight reel — all staged into the single save below.
+        GolfScoreWriter.upsertHole(input, in: roundRef, context: modelContext)
+        GolfScoreWriter.mirrorTotalScore(in: roundRef, justWrote: [input])
+        GolfScoreWriter.upsertReelIfNeeded(holeNumber: holeNumber, par: par, score: score, in: roundRef, context: modelContext)
 
         do {
             try modelContext.save()
@@ -290,131 +254,4 @@ struct ScoreHoleSheet: View {
         dismiss()
     }
 
-    /// Creates / updates / soft-deletes the HighlightReel for this hole based
-    /// on the score that's about to be saved. Single transaction with the
-    /// HoleScore upsert — both commit together when `modelContext.save()` runs.
-    ///
-    /// Birdie+ semantics:
-    ///   - score < par AND clips-on-hole.count >= 1 → upsert reel
-    ///     (existing soft-deleted reels are undeleted + clipIDs refreshed)
-    ///   - otherwise → soft-delete existing reel (or no-op if none exists)
-    ///
-    /// Reads `parentClips` for the clip list — those clips have `holeNumber`
-    /// stamped at save time by ClipPersistenceService via LiveHoleTracker
-    /// (works for both game tournaments and practice rounds).
-    private func upsertReelIfNeeded(par: Int, score: Int) {
-        guard let athlete = parentAthlete else { return }
-        let athleteID = athlete.id
-        let course = parentCourse
-        let isBirdieOrBetter = score > 0 && (score - par) <= -1
-
-        // Auto-highlights are a Plus+ feature — parity with baseball, where the
-        // auto-highlight rules panel in HighlightsView is gated to `>= .plus`.
-        // A free golfer scoring a birdie creates no reel. A reel that predates a
-        // downgrade is demoted by the else-branch below on the next re-score of
-        // its hole, so the feature stops producing highlights once the
-        // entitlement lapses rather than silently continuing.
-        let canAutoHighlight = SubscriptionGate.effectiveAthleteTier.hasAutoHighlights
-
-        // Identify the parent for the reel's FK and the existing-reel lookup.
-        // Exactly one of (gameID, practiceID) is set for a given reel.
-        let parentGameID: UUID?
-        let parentPracticeID: UUID?
-        switch parent {
-        case .game(let g):     parentGameID = g.id;   parentPracticeID = nil
-        case .practice(let p): parentGameID = nil;    parentPracticeID = p.id
-        }
-
-        let holeClips: [VideoClip] = parentClips.filter { $0.holeNumber == holeNumber }
-        let clipsOnHole: [VideoClip] = holeClips.sorted { lhs, rhs in
-            (lhs.createdAt ?? .distantPast) < (rhs.createdAt ?? .distantPast)
-        }
-
-        // Lookup existing reel for this (parent, hole) — alive or soft-deleted.
-        // SwiftData #Predicate can't equate optional UUIDs against literals
-        // cleanly across versions, so fetch flat and filter in memory.
-        let existing: HighlightReel?
-        do {
-            let all = try modelContext.fetch(FetchDescriptor<HighlightReel>())
-            existing = all.first { reel in
-                reel.holeNumber == holeNumber &&
-                    (parentGameID.map { reel.gameID == $0 } ?? false ||
-                     parentPracticeID.map { reel.practiceID == $0 } ?? false)
-            }
-        } catch {
-            ErrorHandlerService.shared.handle(
-                error,
-                context: "ScoreHoleSheet.upsertReelIfNeeded.fetch",
-                showAlert: false
-            )
-            return
-        }
-
-        if canAutoHighlight && isBirdieOrBetter && !clipsOnHole.isEmpty {
-            let clipIDStrings = clipsOnHole.map { $0.id.uuidString }
-            let displayName = reelDisplayName(score: score, par: par)
-
-            if let existing {
-                // A3.1: refresh the existing reel only when something actually
-                // changed — covers alive-edit (clip list grew) and undelete
-                // (was par, back to birdie). A re-save with an identical clip
-                // set/score/par must NOT bump version + needsSync, or every
-                // idempotent re-score emits a redundant Firestore write. The
-                // soft-deleted state is part of the diff so an undelete always
-                // goes through. Compatible with syncHighlightReels' reconcile,
-                // which assumes version only ever increases on a real edit.
-                let differs = existing.clipIDs != clipIDStrings
-                    || existing.score != score
-                    || existing.par != par
-                    || existing.displayName != displayName
-                    || existing.courseOrOpponent != course
-                    || existing.isDeletedRemotely
-                if differs {
-                    existing.clipIDs = clipIDStrings
-                    existing.score = score
-                    existing.par = par
-                    existing.displayName = displayName
-                    existing.courseOrOpponent = course
-                    existing.date = Date()
-                    existing.isDeletedRemotely = false
-                    existing.version += 1
-                    existing.needsSync = true
-                }
-            } else {
-                let reel = HighlightReel(
-                    clipIDs: clipIDStrings,
-                    athleteID: athleteID,
-                    gameID: parentGameID,
-                    practiceID: parentPracticeID,
-                    holeNumber: holeNumber,
-                    score: score,
-                    par: par,
-                    displayName: displayName,
-                    courseOrOpponent: course
-                )
-                modelContext.insert(reel)
-            }
-        } else {
-            // Demotion: soft-delete an alive reel. No-op if none existed or
-            // it was already soft-deleted.
-            if let existing, !existing.isDeletedRemotely {
-                existing.isDeletedRemotely = true
-                existing.version += 1
-                existing.needsSync = true
-            }
-        }
-    }
-
-    /// "Hole-in-One" / "Albatross" / "Eagle" / "Birdie" — same label set as
-    /// HoleScore.diffLabel but only the under-par buckets are reachable here
-    /// because the caller already checked `isBirdieOrBetter`.
-    private func reelDisplayName(score: Int, par: Int) -> String {
-        if score == 1 { return "Hole-in-One" }
-        let diff = score - par
-        switch diff {
-        case ...(-3): return "Albatross"
-        case -2:      return "Eagle"
-        default:      return "Birdie"
-        }
-    }
 }

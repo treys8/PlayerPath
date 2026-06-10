@@ -21,7 +21,18 @@ struct GolfChartsView: View {
         case score = "Score"
         case toPar = "To Par"
         case putts = "Putts"
+        case gir = "GIR"
+        case fir = "Fairways"
         var id: String { rawValue }
+
+        /// Lower is better for strokes-based metrics; higher is better for the
+        /// regulation percentages. Drives Best/Worst selection + axis.
+        var lowerIsBetter: Bool {
+            switch self {
+            case .score, .toPar, .putts: return true
+            case .gir, .fir: return false
+            }
+        }
     }
 
     enum Scope: String, CaseIterable, Identifiable {
@@ -68,6 +79,8 @@ struct GolfChartsView: View {
         case .score: return row.score.map(Double.init)
         case .toPar: return row.toPar.map(Double.init)
         case .putts: return row.putts.map(Double.init)
+        case .gir: return row.girPct
+        case .fir: return row.firPct
         }
     }
 
@@ -187,14 +200,14 @@ struct GolfChartsView: View {
             tile(label: "Rounds", value: "\(roundPoints.count)")
             // Lower is better for every metric (score, to-par, putts), so the
             // minimum is the best round and the maximum is the worst.
-            if let best = metricValues.min() {
+            if let best = (metric.lowerIsBetter ? metricValues.min() : metricValues.max()) {
                 tile(label: "Best", value: format(best), color: .green)
             }
             if !metricValues.isEmpty {
                 let avg = metricValues.reduce(0, +) / Double(metricValues.count)
                 tile(label: "Average", value: format(avg))
             }
-            if let worst = metricValues.max() {
+            if let worst = (metric.lowerIsBetter ? metricValues.max() : metricValues.min()) {
                 tile(label: "Worst", value: format(worst), color: .secondary)
             }
         }
@@ -239,6 +252,8 @@ struct GolfChartsView: View {
         case .score, .putts:
             // Whole numbers stay clean; averages get one decimal.
             return value == value.rounded() ? "\(Int(value))" : String(format: "%.1f", value)
+        case .gir, .fir:
+            return "\(Int(value.rounded()))%"
         case .toPar:
             if abs(value) < 0.05 { return "E" }
             let rounded = (value * 10).rounded() / 10

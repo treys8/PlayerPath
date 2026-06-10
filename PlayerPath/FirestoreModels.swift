@@ -682,6 +682,11 @@ struct FirestoreHoleScore: Codable, Identifiable {
     let par: Int
     let score: Int
     let putts: Int?
+    // Detailed tracking (SchemaV29) — optional; absent on rows scored before
+    // the user enabled detailed stats, decode to nil.
+    let fairwayHit: Bool?
+    let greenInRegulation: Bool?
+    let penalties: Int?
     let createdAt: Date?
     let updatedAt: Date?
     let version: Int?

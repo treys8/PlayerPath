@@ -45,7 +45,8 @@ enum VideoTrimExporter {
     static func export(
         sourceURL: URL,
         startTime: Double,
-        endTime: Double
+        endTime: Double,
+        progress: (@MainActor @Sendable (Float) -> Void)? = nil
     ) async throws -> URL {
         // Reject degenerate ranges up front — a zero/negative-length or non-finite
         // range produces an undefined CMTimeRange and a garbage/empty export.
@@ -147,10 +148,26 @@ enum VideoTrimExporter {
         // (e.g. user backs out of the trim sheet), tell the session to stop so
         // CPU/battery don't keep churning until the export finishes on its own.
         let box = AVExportSessionBox(session)
+
+        // Drive periodic progress updates on the MainActor while the export runs,
+        // mirroring VideoStitchingService. nil progress (existing callers) = no-op.
+        let progressTask: Task<Void, Never>? = progress.map { report in
+            Task { @MainActor in
+                while !Task.isCancelled {
+                    let p = box.session.progress
+                    report(p)
+                    if p >= 1.0 { return }
+                    try? await Task.sleep(for: .milliseconds(100))
+                }
+            }
+        }
+        defer { progressTask?.cancel() }
+
         return try await withTaskCancellationHandler {
             if #available(iOS 18.0, *) {
                 do {
                     try await session.export(to: outputURL, as: .mp4)
+                    if let progress { await MainActor.run { progress(1.0) } }
                     return outputURL
                 } catch {
                     try? FileManager.default.removeItem(at: outputURL)
@@ -163,6 +180,7 @@ enum VideoTrimExporter {
                 await session.export()
                 switch session.status {
                 case .completed:
+                    if let progress { await MainActor.run { progress(1.0) } }
                     return outputURL
                 case .cancelled:
                     try? FileManager.default.removeItem(at: outputURL)

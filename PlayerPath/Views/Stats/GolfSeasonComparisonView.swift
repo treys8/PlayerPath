@@ -47,6 +47,9 @@ struct GolfSeasonComparisonView: View {
 
     private var anyHasPutts: Bool { summaries.contains { $0.summary.avgPutts != nil } }
     private var anyHasBirdies: Bool { summaries.contains { $0.summary.birdiesPerRound != nil } }
+    private var anyHasGir: Bool { summaries.contains { $0.summary.girPct != nil } }
+    private var anyHasFir: Bool { summaries.contains { $0.summary.firPct != nil } }
+    private var anyHasScramble: Bool { summaries.contains { $0.summary.scramblingPct != nil } }
 
     // MARK: - Body
 
@@ -107,6 +110,22 @@ struct GolfSeasonComparisonView: View {
                         title: "Birdies per Round",
                         points: points { $0.birdiesPerRound },
                         format: { formatScore($0) }
+                    )
+                }
+
+                if anyHasGir {
+                    MetricTrendChart(
+                        title: "Greens in Regulation %",
+                        points: points { $0.girPct },
+                        format: { formatPct($0) }
+                    )
+                }
+
+                if anyHasFir {
+                    MetricTrendChart(
+                        title: "Fairways Hit %",
+                        points: points { $0.firPct },
+                        format: { formatPct($0) }
                     )
                 }
 
@@ -171,6 +190,18 @@ struct GolfSeasonComparisonView: View {
                                       getValue: cell { $0.avgPutts.map(formatScore) ?? "—" })
                     GolfComparisonRow(label: "Birdies/Round", seasons: seasons, width: 110,
                                       getValue: cell { $0.birdiesPerRound.map(formatScore) ?? "—" })
+                    if anyHasGir {
+                        GolfComparisonRow(label: "GIR %", seasons: seasons, width: 110,
+                                          getValue: cell { $0.girPct.map(formatPct) ?? "—" })
+                    }
+                    if anyHasFir {
+                        GolfComparisonRow(label: "Fairways %", seasons: seasons, width: 110,
+                                          getValue: cell { $0.firPct.map(formatPct) ?? "—" })
+                    }
+                    if anyHasScramble {
+                        GolfComparisonRow(label: "Scrambling %", seasons: seasons, width: 110,
+                                          getValue: cell { $0.scramblingPct.map(formatPct) ?? "—" })
+                    }
                 }
             }
         }
@@ -255,6 +286,10 @@ struct GolfSeasonComparisonView: View {
         let rounded = (value * 10).rounded() / 10
         let body = rounded == rounded.rounded() ? "\(Int(rounded))" : String(format: "%.1f", rounded)
         return rounded > 0 ? "+\(body)" : body
+    }
+
+    private func formatPct(_ value: Double) -> String {
+        "\(Int(value.rounded()))%"
     }
 }
 

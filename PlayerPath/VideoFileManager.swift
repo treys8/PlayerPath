@@ -182,7 +182,8 @@ class VideoFileManager {
     static func generateThumbnail(
         from videoURL: URL,
         at time: CMTime = CMTime(seconds: 1, preferredTimescale: 1),
-        size: CGSize? = nil
+        size: CGSize? = nil,
+        knownDuration: CMTime? = nil
     ) async -> Result<String, Error> {
         
         // Check for cancellation early
@@ -213,7 +214,7 @@ class VideoFileManager {
             }
             
             // Calculate safe thumbnail time
-            let thumbnailTime = try await calculateSafeThumbnailTime(for: asset, requestedTime: time)
+            let thumbnailTime = try await calculateSafeThumbnailTime(for: asset, requestedTime: time, knownDuration: knownDuration)
             logger.info("Using thumbnail time: \(String(format: "%.3f", CMTimeGetSeconds(thumbnailTime)), privacy: .public) seconds")
             
             // Check for cancellation again
@@ -299,8 +300,15 @@ class VideoFileManager {
         }
     }
     
-    private static func calculateSafeThumbnailTime(for asset: AVURLAsset, requestedTime: CMTime) async throws -> CMTime {
-        let duration = try await asset.load(.duration)
+    private static func calculateSafeThumbnailTime(for asset: AVURLAsset, requestedTime: CMTime, knownDuration: CMTime? = nil) async throws -> CMTime {
+        // Reuse a duration the caller already loaded (e.g. saveClip's batched load)
+        // instead of parsing this fresh asset's metadata a second time.
+        let duration: CMTime
+        if let knownDuration {
+            duration = knownDuration
+        } else {
+            duration = try await asset.load(.duration)
+        }
         let durationSeconds = CMTimeGetSeconds(duration)
         let requestedSeconds = CMTimeGetSeconds(requestedTime)
 

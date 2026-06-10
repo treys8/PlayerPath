@@ -63,7 +63,7 @@ final class StatisticsExportService {
         // Athlete Info
         csv += "Athlete Information\n"
         csv += "Name,\(escapeCSV(athlete.name))\n"
-        csv += "Created,\(athlete.createdAt?.formatted(date: .long, time: .omitted) ?? "N/A")\n"
+        csv += "Created,\(escapeCSV(athlete.createdAt?.formatted(date: .long, time: .omitted) ?? "N/A"))\n"
         csv += "\n"
 
         // Season Info (if active season)
@@ -71,7 +71,7 @@ final class StatisticsExportService {
             csv += "Active Season\n"
             csv += "Season Name,\(escapeCSV(season.displayName))\n"
             csv += "Sport,\(escapeCSV((season.sport ?? .baseball).displayName))\n"
-            csv += "Start Date,\(season.startDate?.formatted(date: .long, time: .omitted) ?? "N/A")\n"
+            csv += "Start Date,\(escapeCSV(season.startDate?.formatted(date: .long, time: .omitted) ?? "N/A"))\n"
             csv += "\n"
         }
 
@@ -113,9 +113,11 @@ final class StatisticsExportService {
             csv += "Date,Opponent,Result\n"
 
             for game in games.prefix(10).sorted(by: { ($0.date ?? Date.distantPast) > ($1.date ?? Date.distantPast) }) {
+                // Abbreviated dates contain a comma ("Jun 10, 2026") — escape so
+                // the column doesn't split.
                 let dateStr = game.date?.formatted(date: .abbreviated, time: .omitted) ?? "N/A"
                 let opponent = escapeCSV(game.opponent.isEmpty ? "Unknown" : game.opponent)
-                csv += "\(dateStr),\(opponent),Completed\n"
+                csv += "\(escapeCSV(dateStr)),\(opponent),Completed\n"
             }
         }
 
@@ -311,6 +313,192 @@ final class StatisticsExportService {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter.string(from: Date())
+    }
+
+    // MARK: - Golf Export
+    //
+    // Golf has no AthleteStatistics model — everything derives live from
+    // GolfExportData / HandicapEstimator (hence @MainActor for model + handicap
+    // access). Reuses the shared CSV/PDF helpers above.
+
+    @MainActor
+    static func exportGolfToCSV(athlete: Athlete, season: Season?) -> Result<URL, ExportError> {
+        guard SubscriptionGate.effectiveAthleteTier >= .plus else {
+            return .failure(.fileCreationFailed("Statistics export requires a Plus or Pro subscription."))
+        }
+        let csv = generateGolfCSV(athlete: athlete, season: season)
+        do {
+            let fileName = "\(athlete.name.replacingOccurrences(of: " ", with: "_"))_Golf_\(dateString()).csv"
+            let url = try saveToTemporaryFile(content: csv, fileName: fileName)
+            return .success(url)
+        } catch {
+            return .failure(.fileCreationFailed(error.localizedDescription))
+        }
+    }
+
+    @MainActor
+    static func exportGolfToPDF(athlete: Athlete, season: Season?) -> Result<URL, ExportError> {
+        guard SubscriptionGate.effectiveAthleteTier >= .plus else {
+            return .failure(.fileCreationFailed("Statistics export requires a Plus or Pro subscription."))
+        }
+        let data = generateGolfPDFData(athlete: athlete, season: season)
+        do {
+            let fileName = "\(athlete.name.replacingOccurrences(of: " ", with: "_"))_Golf_\(dateString()).pdf"
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
+            try data.write(to: url)
+            return .success(url)
+        } catch {
+            return .failure(.fileCreationFailed(error.localizedDescription))
+        }
+    }
+
+    // MARK: - Golf CSV
+
+    @MainActor
+    private static func generateGolfCSV(athlete: Athlete, season: Season?) -> String {
+        let summary = GolfExportData.summary(for: athlete, season: season)
+        let adv = GolfExportData.advancedStats(for: athlete, season: season)
+        let tournament = GolfExportData.tournamentRounds(for: athlete, season: season)
+        let practice = GolfExportData.practiceRounds(for: athlete, season: season)
+        let handicap = HandicapEstimator.estimatedIndex(for: athlete, season: season)
+
+        var csv = "PlayerPath Golf Statistics Export\n"
+        csv += "Generated: \(Date().formatted(date: .long, time: .shortened))\n\n"
+        csv += "Athlete,\(escapeCSV(athlete.name))\n"
+        if let season { csv += "Season,\(escapeCSV(season.displayName))\n" }
+        csv += "\n"
+
+        csv += "Summary\nMetric,Value\n"
+        csv += "Rounds,\(summary.totalRounds)\n"
+        if let b = summary.bestScore { csv += "Best Score,\(b)\n" }
+        if let w = summary.worstScore { csv += "Worst Score,\(w)\n" }
+        if let a = summary.tournamentAverage { csv += "Tournament Avg,\(String(format: "%.1f", a))\n" }
+        if let p = summary.practiceAverage { csv += "Practice Avg,\(String(format: "%.1f", p))\n" }
+        if let h = handicap { csv += "Est. Handicap,\(golfToParStr(h, asHandicap: true))\n" }
+        if let atp = adv.avgToPar { csv += "Avg To Par,\(golfToParStr(atp))\n" }
+        csv += "\n"
+
+        csv += "Detailed\nMetric,Value\n"
+        if let g = adv.girPct { csv += "GIR %,\(Int(g.rounded()))\n" }
+        if let f = adv.firPct { csv += "Fairways %,\(Int(f.rounded()))\n" }
+        if let pr = adv.puttsPerRound { csv += "Putts per Round,\(String(format: "%.1f", pr))\n" }
+        if let pg = adv.puttsPerGIR { csv += "Putts per GIR,\(String(format: "%.2f", pg))\n" }
+        if let sc = adv.scramblingPct { csv += "Scrambling %,\(Int(sc.rounded()))\n" }
+        if let pen = adv.penaltiesPerRound { csv += "Penalties per Round,\(String(format: "%.1f", pen))\n" }
+        if let p3 = adv.par3Avg { csv += "Par 3 Avg,\(String(format: "%.2f", p3))\n" }
+        if let p4 = adv.par4Avg { csv += "Par 4 Avg,\(String(format: "%.2f", p4))\n" }
+        if let p5 = adv.par5Avg { csv += "Par 5 Avg,\(String(format: "%.2f", p5))\n" }
+        csv += "\n"
+
+        csv += "Rounds\nDate,Course,Type,Holes,Par,Score,To Par,Putts,GIR %,Fairways %\n"
+        for r in tournament { csv += golfRoundCSVLine(r, type: "Tournament") }
+        for r in practice { csv += golfRoundCSVLine(r, type: "Practice") }
+
+        return csv
+    }
+
+    private static func golfRoundCSVLine(_ r: GolfRoundRow, type: String) -> String {
+        // Abbreviated dates contain a comma ("Jun 10, 2026") — escape so the
+        // column doesn't split.
+        let date = r.date?.formatted(date: .abbreviated, time: .omitted) ?? "N/A"
+        let par = r.par.map(String.init) ?? ""
+        let score = r.score.map(String.init) ?? ""
+        let putts = r.putts.map(String.init) ?? ""
+        let gir = r.girPct.map { "\(Int($0.rounded()))" } ?? ""
+        let fir = r.firPct.map { "\(Int($0.rounded()))" } ?? ""
+        return "\(escapeCSV(date)),\(escapeCSV(r.course)),\(type),\(r.holes),\(par),\(score),\(r.toParString),\(putts),\(gir),\(fir)\n"
+    }
+
+    // MARK: - Golf PDF
+
+    @MainActor
+    private static func generateGolfPDFData(athlete: Athlete, season: Season?) -> Data {
+        let summary = GolfExportData.summary(for: athlete, season: season)
+        let adv = GolfExportData.advancedStats(for: athlete, season: season)
+        let handicap = HandicapEstimator.estimatedIndex(for: athlete, season: season)
+        let tournament = GolfExportData.tournamentRounds(for: athlete, season: season)
+        let practice = GolfExportData.practiceRounds(for: athlete, season: season)
+        let recent = (tournament + practice)
+            .sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
+            .prefix(12)
+
+        let pageWidth: CGFloat = 612, pageHeight: CGFloat = 792, margin: CGFloat = 50
+        let renderer = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: pageWidth, height: pageHeight))
+
+        return renderer.pdfData { context in
+            context.beginPage()
+            var y: CGFloat = margin
+            let contentWidth = pageWidth - (2 * margin)
+
+            "PlayerPath Golf Report".draw(in: CGRect(x: margin, y: y, width: contentWidth, height: 30),
+                withAttributes: [.font: UIFont.boldSystemFont(ofSize: 24), .foregroundColor: UIColor.black])
+            y += 40
+            athlete.name.draw(in: CGRect(x: margin, y: y, width: contentWidth, height: 25),
+                withAttributes: [.font: UIFont.systemFont(ofSize: 20, weight: .semibold), .foregroundColor: UIColor.darkGray])
+            y += 35
+            "Generated: \(Date().formatted(date: .long, time: .shortened))".draw(in: CGRect(x: margin, y: y, width: contentWidth, height: 15),
+                withAttributes: [.font: UIFont.systemFont(ofSize: 10), .foregroundColor: UIColor.gray])
+            y += 25
+
+            let path = UIBezierPath()
+            path.move(to: CGPoint(x: margin, y: y))
+            path.addLine(to: CGPoint(x: pageWidth - margin, y: y))
+            UIColor.lightGray.setStroke(); path.lineWidth = 1; path.stroke()
+            y += 20
+
+            if let season = season ?? athlete.activeSeason {
+                y = drawSection(title: "Season", items: [
+                    ("Season", season.displayName),
+                    ("Sport", (season.sport ?? .baseball).displayName)
+                ], yPosition: y, margin: margin, contentWidth: contentWidth)
+            }
+
+            var summaryItems: [(String, String)] = [("Rounds", "\(summary.totalRounds)")]
+            if let b = summary.bestScore { summaryItems.append(("Best Score", "\(b)")) }
+            if let w = summary.worstScore { summaryItems.append(("Worst Score", "\(w)")) }
+            if let a = summary.tournamentAverage { summaryItems.append(("Tournament Avg", String(format: "%.1f", a))) }
+            if let p = summary.practiceAverage { summaryItems.append(("Practice Avg", String(format: "%.1f", p))) }
+            if let h = handicap { summaryItems.append(("Est. Handicap", golfToParStr(h, asHandicap: true))) }
+            if let atp = adv.avgToPar { summaryItems.append(("Avg To Par", golfToParStr(atp))) }
+            y = drawSection(title: "Summary", items: summaryItems, yPosition: y, margin: margin, contentWidth: contentWidth)
+
+            var detailItems: [(String, String)] = []
+            if let g = adv.girPct { detailItems.append(("GIR %", "\(Int(g.rounded()))%")) }
+            if let f = adv.firPct { detailItems.append(("Fairways %", "\(Int(f.rounded()))%")) }
+            if let pr = adv.puttsPerRound { detailItems.append(("Putts / Round", String(format: "%.1f", pr))) }
+            if let sc = adv.scramblingPct { detailItems.append(("Scrambling %", "\(Int(sc.rounded()))%")) }
+            if let pen = adv.penaltiesPerRound { detailItems.append(("Penalties / Round", String(format: "%.1f", pen))) }
+            if let p3 = adv.par3Avg { detailItems.append(("Par 3 Avg", String(format: "%.2f", p3))) }
+            if let p4 = adv.par4Avg { detailItems.append(("Par 4 Avg", String(format: "%.2f", p4))) }
+            if let p5 = adv.par5Avg { detailItems.append(("Par 5 Avg", String(format: "%.2f", p5))) }
+            if !detailItems.isEmpty {
+                y = drawSection(title: "Detailed", items: detailItems, yPosition: y, margin: margin, contentWidth: contentWidth)
+            }
+
+            if !recent.isEmpty {
+                let roundItems: [(String, String)] = recent.map { r in
+                    let date = r.date?.formatted(date: .abbreviated, time: .omitted) ?? ""
+                    let label = "\(r.course)\(date.isEmpty ? "" : " · \(date)")"
+                    let scoreStr = r.score.map(String.init) ?? "—"
+                    return (label, "\(scoreStr) (\(r.toParString))")
+                }
+                y = drawSection(title: "Recent Rounds", items: roundItems, yPosition: y, margin: margin, contentWidth: contentWidth)
+            }
+
+            "Generated with PlayerPath • playerpath.net".draw(in: CGRect(x: margin, y: pageHeight - margin, width: contentWidth, height: 15),
+                withAttributes: [.font: UIFont.systemFont(ofSize: 9), .foregroundColor: UIColor.lightGray])
+        }
+    }
+
+    /// "E" / "+3" / "-2" for to-par; or handicap form ("+2.1" plus-handicap / "11.4").
+    private static func golfToParStr(_ v: Double, asHandicap: Bool = false) -> String {
+        let r = (v * 10).rounded() / 10
+        if asHandicap {
+            return r < 0 ? "+\(String(format: "%.1f", -r))" : String(format: "%.1f", r)
+        }
+        if abs(r) < 0.05 { return "E" }
+        let body = r == r.rounded() ? "\(Int(r))" : String(format: "%.1f", r)
+        return r > 0 ? "+\(body)" : body
     }
 }
 

@@ -20,6 +20,14 @@ final class HoleScore {
     var score: Int = 0
     var putts: Int? = nil
 
+    /// Detailed tracking (SchemaV29) — all optional; nil = not tracked. Shown
+    /// only when the user enables "track detailed stats", so a casual scorer's
+    /// rows stay score+putts. `fairwayHit` is nil on par 3s (no fairway); GIR
+    /// and penalties apply to every hole.
+    var fairwayHit: Bool? = nil
+    var greenInRegulation: Bool? = nil
+    var penalties: Int? = nil
+
     // XOR — exactly one of `game` and `practice` is non-nil. The reverse
     // relationships are declared on Game / Practice with @Relationship(inverse:).
     var game: Game?
@@ -37,6 +45,10 @@ final class HoleScore {
 
     /// Score relative to par (negative = under par).
     var diff: Int { score - par }
+
+    /// Par 3s have no fairway, so fairway-in-regulation is only meaningful on
+    /// par 4+. Stats denominators and the FIR control both gate on this.
+    var fairwayApplicable: Bool { par >= 4 }
 
     /// True for any score that triggers a v6.1 auto-highlight reel (PR2).
     var isBirdieOrBetter: Bool { diff <= -1 && score > 0 }
@@ -60,12 +72,16 @@ final class HoleScore {
         }
     }
 
-    init(holeNumber: Int, par: Int = 4, score: Int = 0, putts: Int? = nil) {
+    init(holeNumber: Int, par: Int = 4, score: Int = 0, putts: Int? = nil,
+         fairwayHit: Bool? = nil, greenInRegulation: Bool? = nil, penalties: Int? = nil) {
         self.id = UUID()
         self.holeNumber = holeNumber
         self.par = par
         self.score = score
         self.putts = putts
+        self.fairwayHit = fairwayHit
+        self.greenInRegulation = greenInRegulation
+        self.penalties = penalties
         self.createdAt = Date()
         self.updatedAt = Date()
         self.needsSync = true
@@ -84,6 +100,15 @@ final class HoleScore {
         ]
         if let putts = putts {
             data["putts"] = putts
+        }
+        if let fairwayHit = fairwayHit {
+            data["fairwayHit"] = fairwayHit
+        }
+        if let greenInRegulation = greenInRegulation {
+            data["greenInRegulation"] = greenInRegulation
+        }
+        if let penalties = penalties {
+            data["penalties"] = penalties
         }
         return data
     }

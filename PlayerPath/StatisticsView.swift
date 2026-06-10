@@ -226,6 +226,22 @@ struct StatisticsView: View {
                                     Label("Export as PDF", systemImage: "doc.richtext")
                                 }
                             }
+
+                            // Golf export — derives from GolfExportData (no
+                            // AthleteStatistics), so it has its own gate + handlers.
+                            if isGolf, currentTier >= .plus, hasGolfRounds(ath) {
+                                Button {
+                                    exportGolfCSV(athlete: ath)
+                                } label: {
+                                    Label("Export as CSV", systemImage: "doc.text")
+                                }
+
+                                Button {
+                                    exportGolfPDF(athlete: ath)
+                                } label: {
+                                    Label("Export as PDF", systemImage: "doc.richtext")
+                                }
+                            }
                         } label: {
                             Image(systemName: "ellipsis.circle")
                         }
@@ -287,6 +303,51 @@ struct StatisticsView: View {
             } message: {
                 Text(exportError ?? "Failed to export statistics")
             }
+    }
+
+    /// True when the athlete has any scored golf round (tournament or practice),
+    /// gating the golf export menu items.
+    private func hasGolfRounds(_ ath: Athlete) -> Bool {
+        (ath.games ?? []).contains { $0.season?.sport == .golf && $0.isGolfRoundScored }
+            || (ath.practices ?? []).contains {
+                $0.practiceType == PracticeType.practiceRound.rawValue && !($0.holeScores ?? []).isEmpty
+            }
+    }
+
+    private func exportGolfCSV(athlete: Athlete) {
+        guard currentTier >= .plus else { return }
+        let season = selectedSeasonFilter.flatMap { id in availableSeasons.first { $0.id.uuidString == id } }
+        Task {
+            let result = StatisticsExportService.exportGolfToCSV(athlete: athlete, season: season)
+            switch result {
+            case .success(let url):
+                exportedFileURL = url
+                showingShareSheet = true
+                Haptics.success()
+            case .failure(let error):
+                exportError = error.localizedDescription
+                showingExportError = true
+                Haptics.warning()
+            }
+        }
+    }
+
+    private func exportGolfPDF(athlete: Athlete) {
+        guard currentTier >= .plus else { return }
+        let season = selectedSeasonFilter.flatMap { id in availableSeasons.first { $0.id.uuidString == id } }
+        Task {
+            let result = StatisticsExportService.exportGolfToPDF(athlete: athlete, season: season)
+            switch result {
+            case .success(let url):
+                exportedFileURL = url
+                showingShareSheet = true
+                Haptics.success()
+            case .failure(let error):
+                exportError = error.localizedDescription
+                showingExportError = true
+                Haptics.warning()
+            }
+        }
     }
 
     private func exportCSV(athlete: Athlete) {

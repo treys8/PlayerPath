@@ -1,0 +1,373 @@
+//
+//  GolfScorecardView.swift
+//  PlayerPath
+//
+//  Full-round scorecard entry — the fast path for scoring a whole golf round on
+//  one screen (vs. ScoreHoleSheet's one-hole-at-a-time flow). All holes show in
+//  an OUT/IN grid up top; tapping a hole selects it and a number strip at the
+//  bottom sets its score, auto-advancing to the next unscored hole. Putts are
+//  optional behind a toggle. Save writes every changed hole in ONE transaction
+//  through GolfScoreWriter — identical totals + birdie-reel behavior as the
+//  single-hole sheet.
+//
+//  Detailed per-hole tracking (FIR / GIR / penalties) is layered on in PR B,
+//  gated behind the global "track detailed stats" toggle; this PR is score +
+//  par + optional putts only.
+//
+
+import SwiftUI
+import SwiftData
+
+struct GolfScorecardView: View {
+    let round: GolfRoundRef
+
+    @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
+
+    /// One row's in-flight values. `score == nil` means the hole isn't entered
+    /// yet (shown as "·" and skipped on save). Detailed fields stay nil unless
+    /// the user tracks them.
+    private struct HoleEntry {
+        var par: Int
+        var score: Int?
+        var putts: Int?
+        var fairwayHit: Bool? = nil
+        var greenInRegulation: Bool? = nil
+        var penalties: Int? = nil
+    }
+
+    /// Opt-in detailed tracking — reveals fairway / green / penalty inputs.
+    @AppStorage(GolfPrefs.trackDetailedStats) private var trackDetailed = false
+
+    @State private var entries: [Int: HoleEntry] = [:]
+    /// Holes the user actually touched — only these are written on save, so a
+    /// re-open + Save doesn't re-dirty (and re-sync) every untouched hole.
+    @State private var dirtyHoles: Set<Int> = []
+    @State private var selectedHole: Int = 1
+    /// Visibility-only: reveals the per-hole putts strip. Does NOT gate saving —
+    /// each hole's putts are written from its own entry, so toggling this off
+    /// never erases putts (seeded on when the round already has any).
+    @State private var showPutts: Bool = false
+    @State private var didLoad = false
+    @State private var isSaving = false
+
+    private var holeCount: Int { round.holeCount }
+    private var outRange: ClosedRange<Int> { 1...min(9, holeCount) }
+    private var inRange: ClosedRange<Int>? { holeCount > 9 ? 10...holeCount : nil }
+
+    // MARK: - Totals
+
+    private func nineTotal(_ range: ClosedRange<Int>) -> Int {
+        range.compactMap { entries[$0]?.score }.reduce(0, +)
+    }
+    private var roundTotal: Int { (1...holeCount).compactMap { entries[$0]?.score }.reduce(0, +) }
+    private var scoredParSum: Int {
+        (1...holeCount).compactMap { n in entries[n]?.score != nil ? entries[n]?.par : nil }.reduce(0, +)
+    }
+    /// To-par over the holes scored so far (so a partial round reads sensibly).
+    private var toPar: Int { roundTotal - scoredParSum }
+    private var anyScored: Bool { (1...holeCount).contains { entries[$0]?.score != nil } }
+
+    private var toParString: String {
+        if toPar == 0 { return "E" }
+        return toPar > 0 ? "+\(toPar)" : "\(toPar)"
+    }
+
+    // MARK: - Body
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: .spacingLarge) {
+                    summaryHeader
+                    nineSection("OUT", range: outRange)
+                    if let inRange { nineSection("IN", range: inRange) }
+                }
+                .padding(.spacingLarge)
+            }
+            .ppDetailBackground()
+            .navigationTitle("Scorecard")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") { save() }
+                        .disabled(!anyScored || isSaving)
+                        .fontWeight(.semibold)
+                }
+            }
+            .safeAreaInset(edge: .bottom) { editorPanel }
+            .onAppear(perform: loadIfNeeded)
+        }
+    }
+
+    // MARK: - Summary
+
+    private var summaryHeader: some View {
+        HStack {
+            Text("Total")
+                .font(.headingMedium)
+            Spacer()
+            if anyScored {
+                Text("\(roundTotal)")
+                    .font(.ppStatLarge)
+                    .monospacedDigit()
+                Text("(\(toParString))")
+                    .font(.bodyMedium)
+                    .monospacedDigit()
+                    .foregroundColor(.parRelative(toPar))
+            } else {
+                Text("Tap a hole to start")
+                    .font(.bodySmall)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding(.spacingMedium)
+        .frame(maxWidth: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: .cornerLarge, style: .continuous)
+                .fill(Theme.card)
+        )
+    }
+
+    // MARK: - Nine grid
+
+    private func nineSection(_ title: String, range: ClosedRange<Int>) -> some View {
+        VStack(alignment: .leading, spacing: .spacingSmall) {
+            HStack {
+                Text(title)
+                    .font(.labelMedium)
+                    .foregroundColor(.secondary)
+                Spacer()
+                if range.contains(where: { entries[$0]?.score != nil }) {
+                    Text("\(nineTotal(range))")
+                        .font(.labelMedium)
+                        .monospacedDigit()
+                        .foregroundColor(.secondary)
+                }
+            }
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 46), spacing: .spacingSmall)], spacing: .spacingSmall) {
+                ForEach(Array(range), id: \.self) { holeCell($0) }
+            }
+        }
+    }
+
+    private func holeCell(_ n: Int) -> some View {
+        let entry = entries[n]
+        let isSelected = n == selectedHole
+        let scoreColor: Color = entry?.score == nil ? .secondary : .parRelative((entry!.score! ) - entry!.par)
+        return Button {
+            Haptics.light()
+            selectedHole = n
+        } label: {
+            VStack(spacing: 1) {
+                Text("\(n)")
+                    .font(.labelSmall)
+                    .foregroundColor(.secondary)
+                Text(entry?.score.map(String.init) ?? "·")
+                    .font(.headingMedium)
+                    .monospacedDigit()
+                    .foregroundColor(scoreColor)
+                Text("P\(entry?.par ?? 4)")
+                    .font(.labelSmall)
+                    .foregroundColor(.secondary)
+            }
+            .frame(minWidth: 42, minHeight: 50)
+            .padding(.vertical, 4)
+            .frame(maxWidth: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: .cornerMedium)
+                    .fill(isSelected ? Color.brandNavy.opacity(0.12) : Color(.secondarySystemBackground))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: .cornerMedium)
+                    .stroke(isSelected ? Color.brandNavy : Color.clear, lineWidth: 2)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Bottom editor panel (selected hole)
+
+    private var editorPanel: some View {
+        let entry = entries[selectedHole] ?? HoleEntry(par: 4, score: nil, putts: nil)
+        return VStack(spacing: .spacingSmall) {
+            HStack {
+                Text("Hole \(selectedHole)")
+                    .font(.headingMedium)
+                Spacer()
+                Picker("Par", selection: parBinding) {
+                    ForEach(3...6, id: \.self) { Text("\($0)").tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .frame(maxWidth: 200)
+            }
+
+            NumberChipGrid(range: 1...12, selected: entry.score ?? 0, par: entry.par) { value in
+                setScore(value)
+            }
+
+            Toggle("Track Putts", isOn: $showPutts.animation())
+                .font(.bodyMedium)
+            if showPutts {
+                NumberChipGrid(range: 0...min(10, entry.score ?? 10),
+                               selected: entry.putts ?? -1,
+                               par: nil) { value in
+                    setPutts(value)
+                }
+            }
+
+            Toggle("Detailed Stats", isOn: $trackDetailed.animation())
+                .font(.bodyMedium)
+            if trackDetailed {
+                if entry.par >= 4 {
+                    HitMissControl(label: "Fairway", systemImage: "arrow.up.forward", value: firBinding)
+                }
+                HitMissControl(label: "Green in Reg.", systemImage: "flag.fill", value: girBinding)
+                Stepper(value: penaltyBinding, in: 0...10) {
+                    HStack {
+                        Text("Penalties").font(.bodyMedium)
+                        Spacer()
+                        Text("\(entry.penalties ?? 0)")
+                            .monospacedDigit()
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+        }
+        .padding(.spacingMedium)
+        .background(.bar)
+    }
+
+    // MARK: - Detailed-field bindings
+
+    /// Mutates the selected hole's entry and marks it dirty.
+    private func update(_ mutate: (inout HoleEntry) -> Void) {
+        var e = entries[selectedHole] ?? HoleEntry(par: 4, score: nil, putts: nil)
+        mutate(&e)
+        entries[selectedHole] = e
+        dirtyHoles.insert(selectedHole)
+    }
+
+    private var firBinding: Binding<Bool?> {
+        Binding(get: { entries[selectedHole]?.fairwayHit },
+                set: { v in update { $0.fairwayHit = v } })
+    }
+    private var girBinding: Binding<Bool?> {
+        Binding(get: { entries[selectedHole]?.greenInRegulation },
+                set: { v in update { $0.greenInRegulation = v } })
+    }
+    private var penaltyBinding: Binding<Int> {
+        Binding(get: { entries[selectedHole]?.penalties ?? 0 },
+                set: { v in update { $0.penalties = v > 0 ? v : nil } })
+    }
+
+    // MARK: - Bindings / mutations
+
+    private var parBinding: Binding<Int> {
+        Binding(
+            get: { entries[selectedHole]?.par ?? 4 },
+            set: { newPar in
+                var e = entries[selectedHole] ?? HoleEntry(par: newPar, score: nil, putts: nil)
+                e.par = newPar
+                entries[selectedHole] = e
+                dirtyHoles.insert(selectedHole)
+            }
+        )
+    }
+
+    private func setScore(_ value: Int) {
+        var e = entries[selectedHole] ?? HoleEntry(par: 4, score: nil, putts: nil)
+        e.score = value
+        if let p = e.putts { e.putts = min(p, value) }   // putts can't exceed strokes
+        entries[selectedHole] = e
+        dirtyHoles.insert(selectedHole)
+        advance()
+    }
+
+    /// Sets putts for the selected hole; re-tapping the current value clears it
+    /// back to untracked (nil) so a mis-tap or "didn't count putts here" is
+    /// recoverable per hole.
+    private func setPutts(_ value: Int) {
+        var e = entries[selectedHole] ?? HoleEntry(par: 4, score: nil, putts: nil)
+        e.putts = (e.putts == value) ? nil : value
+        entries[selectedHole] = e
+        dirtyHoles.insert(selectedHole)
+    }
+
+    /// Jump to the next still-unscored hole after a score is entered, so a
+    /// front-to-back round is pure tapping. Stays put once everything's scored.
+    private func advance() {
+        if let next = (1...holeCount).first(where: { entries[$0]?.score == nil }) {
+            selectedHole = next
+        }
+    }
+
+    // MARK: - Load / save
+
+    private func loadIfNeeded() {
+        guard !didLoad else { return }
+        didLoad = true
+
+        var seeded: [Int: HoleEntry] = [:]
+        for hole in round.holeScores {
+            seeded[hole.holeNumber] = HoleEntry(
+                par: hole.par, score: hole.score, putts: hole.putts,
+                fairwayHit: hole.fairwayHit, greenInRegulation: hole.greenInRegulation,
+                penalties: hole.penalties
+            )
+            if hole.putts != nil { showPutts = true }
+        }
+        for n in 1...holeCount where seeded[n] == nil {
+            let prior = GolfScoreWriter.priorRoundPar(forHole: n, in: round)
+            let inRoundPar = (1..<n).compactMap { seeded[$0]?.par }.last
+            seeded[n] = HoleEntry(par: prior ?? inRoundPar ?? 4, score: nil, putts: nil)
+        }
+        entries = seeded
+        selectedHole = (1...holeCount).first { seeded[$0]?.score == nil } ?? 1
+    }
+
+    private func save() {
+        guard !isSaving else { return }
+        isSaving = true
+
+        // Only write holes the user touched that carry a real score. Build the
+        // inputs first so the total mirror folds them in atomically.
+        var written: [GolfScoreWriter.HoleInput] = []
+        for n in dirtyHoles.sorted() {
+            guard let entry = entries[n], let score = entry.score, score >= 1 else { continue }
+            // Per-hole putts: write whatever the hole carries (nil if untracked).
+            // The Track Putts toggle is visibility-only — it never nulls putts on
+            // save, so a putts-bearing hole survives toggling the strip off.
+            let putts = entry.putts.map { min($0, score) }
+            written.append(GolfScoreWriter.HoleInput(
+                holeNumber: n, par: entry.par, score: score, putts: putts,
+                fairwayHit: entry.par >= 4 ? entry.fairwayHit : nil,
+                greenInRegulation: entry.greenInRegulation,
+                penalties: entry.penalties
+            ))
+        }
+
+        for input in written {
+            GolfScoreWriter.upsertHole(input, in: round, context: modelContext)
+        }
+        GolfScoreWriter.mirrorTotalScore(in: round, justWrote: written)
+        for input in written {
+            GolfScoreWriter.upsertReelIfNeeded(holeNumber: input.holeNumber, par: input.par,
+                                               score: input.score, in: round, context: modelContext)
+        }
+
+        do {
+            try modelContext.save()
+        } catch {
+            isSaving = false
+            ErrorHandlerService.shared.handle(error, context: "GolfScorecardView.save", showAlert: true)
+            return
+        }
+
+        Haptics.success()
+        dismiss()
+    }
+}

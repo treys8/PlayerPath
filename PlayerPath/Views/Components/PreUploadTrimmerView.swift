@@ -69,6 +69,7 @@ struct PreUploadTrimmerView: View {
     @State private var endTime: Double = 0
     @State private var duration: Double = 0
     @State private var isExporting = false
+    @State private var exportProgress: Float = 0
     @State private var exportError: String?
     @State private var currentTime: Double = 0
     @State private var isPlaying = true
@@ -286,8 +287,9 @@ struct PreUploadTrimmerView: View {
                         if isExporting {
                             ProgressView()
                                 .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                            Text("Trimming...")
+                            Text(exportProgress > 0 ? "Trimming \(Int(exportProgress * 100))%" : "Trimming…")
                                 .font(.headingMedium)
+                                .monospacedDigit()
                         } else {
                             Image(systemName: "scissors")
                                 .font(.body.weight(.semibold))
@@ -487,12 +489,14 @@ struct PreUploadTrimmerView: View {
 
     private func exportTrimmedVideo() async {
         isExporting = true
+        exportProgress = 0
         exportError = nil
         do {
             let outputURL = try await VideoTrimExporter.export(
                 sourceURL: videoURL,
                 startTime: startTime,
-                endTime: endTime
+                endTime: endTime,
+                progress: { exportProgress = $0 }
             )
             await MainActor.run {
                 isExporting = false

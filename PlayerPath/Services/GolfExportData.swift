@@ -22,6 +22,10 @@ struct GolfRoundRow {
     let par: Int?
     let score: Int?
     let putts: Int?
+    /// Per-round greens- and fairways-in-regulation %, nil when the round
+    /// carries no detailed tracking (SchemaV29). 0–100.
+    let girPct: Double?
+    let firPct: Double?
 
     /// Signed strokes relative to par; nil when either side is unknown.
     var toPar: Int? {
@@ -58,6 +62,32 @@ struct GolfSeasonSummary {
     let avgToPar: Double?
     let avgPutts: Double?
     let birdiesPerRound: Double?
+    // Detailed (SchemaV29) — nil when the season carries no tracked data.
+    let girPct: Double?
+    let firPct: Double?
+    let scramblingPct: Double?
+}
+
+/// Game-improvement roll-up over all scored rounds (tournament + practice) in a
+/// pool. Every value is nil when its inputs are absent so the UI hides the tile
+/// rather than showing a misleading zero. Percentages are 0–100.
+struct GolfAdvancedStats {
+    let avgToPar: Double?
+    let girPct: Double?
+    let firPct: Double?
+    let puttsPerRound: Double?
+    let puttsPerGIR: Double?
+    let scramblingPct: Double?
+    let penaltiesPerRound: Double?
+    let par3Avg: Double?
+    let par4Avg: Double?
+    let par5Avg: Double?
+
+    /// True when at least one detailed (FIR / GIR / penalty) datapoint exists,
+    /// so callers can hide the whole detailed grid for score-only golfers.
+    var hasDetailed: Bool {
+        girPct != nil || firPct != nil || penaltiesPerRound != nil
+    }
 }
 
 /// One scoring-distribution bucket for the per-hole chart. `order` drives both
@@ -89,7 +119,9 @@ enum GolfExportData {
                     holes: game.holes ?? (game.holeScores ?? []).count,
                     par: game.effectivePar,
                     score: game.effectiveTotalScore,
-                    putts: puttsTotal(game.holeScores)
+                    putts: puttsTotal(game.holeScores),
+                    girPct: girRate(game.holeScores ?? []),
+                    firPct: firRate(game.holeScores ?? [])
                 )
             }
     }
@@ -113,7 +145,9 @@ enum GolfExportData {
                     holes: practice.holes ?? holes.count,
                     par: parTotal(practice.holeScores),
                     score: holes.reduce(0) { $0 + $1.score },
-                    putts: puttsTotal(practice.holeScores)
+                    putts: puttsTotal(practice.holeScores),
+                    girPct: girRate(holes),
+                    firPct: firRate(holes)
                 )
             }
     }
@@ -174,6 +208,7 @@ enum GolfExportData {
             xs.isEmpty ? nil : Double(xs.reduce(0, +)) / Double(xs.count)
         }
 
+        let seasonHoles = games.flatMap { $0.holeScores ?? [] }
         return GolfSeasonSummary(
             rounds: games.count,
             bestScore: scores.min(),
@@ -181,8 +216,72 @@ enum GolfExportData {
             avgToPar: avg(toPars),
             avgPutts: avg(puttRounds),
             birdiesPerRound: birdieCounts.isEmpty ? nil
-                : Double(birdieCounts.reduce(0, +)) / Double(birdieCounts.count)
+                : Double(birdieCounts.reduce(0, +)) / Double(birdieCounts.count),
+            girPct: girRate(seasonHoles),
+            firPct: firRate(seasonHoles),
+            scramblingPct: scramblingRate(seasonHoles)
         )
+    }
+
+    /// Game-improvement roll-up over every scored round (tournament + practice)
+    /// in the pool. Mirrors the membership tests in `tournamentRounds` /
+    /// `practiceRounds`, but works at the hole level for the rate metrics.
+    static func advancedStats(for athlete: Athlete, season: Season?) -> GolfAdvancedStats {
+        // Per-round hole sets (each inner array is one round's holes).
+        let gameRounds = scoredTournamentGames(for: athlete, season: season).map { $0.holeScores ?? [] }
+        let rounds: [[HoleScore]] = gameRounds + practiceRoundHoleSets(for: athlete, season: season)
+        let flattened: [HoleScore] = rounds.flatMap { $0 }
+        let allHoles = flattened.filter { $0.score > 0 }
+
+        // Per-round to-par (split out so the type-checker stays fast).
+        var toPars: [Int] = []
+        for holes in rounds where !holes.isEmpty {
+            let s = holes.reduce(0) { $0 + $1.score }
+            let p = holes.reduce(0) { $0 + $1.par }
+            toPars.append(s - p)
+        }
+
+        // Putts per round (only rounds that recorded putts).
+        var puttRounds: [Int] = []
+        for holes in rounds {
+            let recorded = holes.compactMap { $0.putts }
+            if !recorded.isEmpty { puttRounds.append(recorded.reduce(0, +)) }
+        }
+
+        // Penalties per detailed round (a round with any tracked detail).
+        let detailedRounds = rounds.filter { holes in
+            holes.contains { $0.fairwayHit != nil || $0.greenInRegulation != nil || $0.penalties != nil }
+        }
+        let penaltyTotals = detailedRounds.map { holes in holes.compactMap { $0.penalties }.reduce(0, +) }
+
+        // Putts on GIR holes.
+        let girHoles = allHoles.filter { $0.greenInRegulation == true }
+        let girPutts = girHoles.compactMap { $0.putts }
+
+        func avg(_ xs: [Int]) -> Double? {
+            xs.isEmpty ? nil : Double(xs.reduce(0, +)) / Double(xs.count)
+        }
+
+        return GolfAdvancedStats(
+            avgToPar: avg(toPars),
+            girPct: girRate(allHoles),
+            firPct: firRate(allHoles),
+            puttsPerRound: avg(puttRounds),
+            puttsPerGIR: girPutts.isEmpty ? nil : Double(girPutts.reduce(0, +)) / Double(girPutts.count),
+            scramblingPct: scramblingRate(allHoles),
+            penaltiesPerRound: detailedRounds.isEmpty ? nil : avg(penaltyTotals),
+            par3Avg: parScoringAvg(allHoles, par: 3),
+            par4Avg: parScoringAvg(allHoles, par: 4),
+            par5Avg: parScoringAvg(allHoles, par: 5)
+        )
+    }
+
+    /// Practice-round hole sets with ≥1 scored hole (mirrors `practiceRounds`).
+    private static func practiceRoundHoleSets(for athlete: Athlete, season: Season?) -> [[HoleScore]] {
+        let pool: [Practice] = season?.practices ?? athlete.practices ?? []
+        return pool
+            .filter { $0.practiceType == PracticeType.practiceRound.rawValue && !($0.holeScores ?? []).isEmpty }
+            .map { $0.holeScores ?? [] }
     }
 
     /// Buckets every scored hole into Eagle+/Birdie/Par/Bogey/Double+ for the
@@ -207,6 +306,38 @@ enum GolfExportData {
     private static func parTotal(_ holeScores: [HoleScore]?) -> Int? {
         let holes = holeScores ?? []
         return holes.isEmpty ? nil : holes.reduce(0) { $0 + $1.par }
+    }
+
+    /// Greens-in-regulation % over holes that tracked GIR (0–100); nil if none.
+    static func girRate(_ holes: [HoleScore]) -> Double? {
+        let tracked = holes.filter { $0.greenInRegulation != nil }
+        guard !tracked.isEmpty else { return nil }
+        let hit = tracked.filter { $0.greenInRegulation == true }.count
+        return Double(hit) / Double(tracked.count) * 100
+    }
+
+    /// Fairways-in-regulation % over holes that tracked fairway (par 4+); nil if none.
+    static func firRate(_ holes: [HoleScore]) -> Double? {
+        let tracked = holes.filter { $0.fairwayHit != nil }
+        guard !tracked.isEmpty else { return nil }
+        let hit = tracked.filter { $0.fairwayHit == true }.count
+        return Double(hit) / Double(tracked.count) * 100
+    }
+
+    /// Scrambling %: of holes where GIR was missed, the share saved to par or
+    /// better. nil when no missed-GIR holes were tracked.
+    static func scramblingRate(_ holes: [HoleScore]) -> Double? {
+        let missed = holes.filter { $0.greenInRegulation == false && $0.score > 0 }
+        guard !missed.isEmpty else { return nil }
+        let saved = missed.filter { $0.diff <= 0 }.count
+        return Double(saved) / Double(missed.count) * 100
+    }
+
+    /// Average score on holes of a given par; nil when none were played.
+    private static func parScoringAvg(_ holes: [HoleScore], par: Int) -> Double? {
+        let hs = holes.filter { $0.par == par && $0.score > 0 }
+        guard !hs.isEmpty else { return nil }
+        return Double(hs.reduce(0) { $0 + $1.score }) / Double(hs.count)
     }
 
     private static func puttsTotal(_ holeScores: [HoleScore]?) -> Int? {

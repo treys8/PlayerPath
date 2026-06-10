@@ -28,8 +28,14 @@ extension FirestoreManager {
     }
 
     func updateGameHoleScore(userId: String, gameFirestoreId: String, holeNumber: Int, data: [String: Any]) async throws {
-        let allowedFields: Set<String> = ["id", "holeNumber", "par", "score", "putts", "version"]
+        let allowedFields: Set<String> = ["id", "holeNumber", "par", "score", "putts", "fairwayHit", "greenInRegulation", "penalties", "version"]
         var updateData = data.filter { allowedFields.contains($0.key) }
+        // Optional fields absent from `data` were cleared locally (toFirestoreData
+        // omits nils) — explicitly delete them remotely so removing putts / FIR /
+        // GIR / penalties propagates instead of leaving a stale value behind.
+        for field in ["putts", "fairwayHit", "greenInRegulation", "penalties"] where updateData[field] == nil {
+            updateData[field] = FieldValue.delete()
+        }
         updateData["updatedAt"] = FieldValue.serverTimestamp()
         try await db
             .collection(FC.users).document(userId)
@@ -84,8 +90,14 @@ extension FirestoreManager {
     }
 
     func updatePracticeHoleScore(userId: String, practiceFirestoreId: String, holeNumber: Int, data: [String: Any]) async throws {
-        let allowedFields: Set<String> = ["id", "holeNumber", "par", "score", "putts", "version"]
+        let allowedFields: Set<String> = ["id", "holeNumber", "par", "score", "putts", "fairwayHit", "greenInRegulation", "penalties", "version"]
         var updateData = data.filter { allowedFields.contains($0.key) }
+        // Optional fields absent from `data` were cleared locally (toFirestoreData
+        // omits nils) — explicitly delete them remotely so removing putts / FIR /
+        // GIR / penalties propagates instead of leaving a stale value behind.
+        for field in ["putts", "fairwayHit", "greenInRegulation", "penalties"] where updateData[field] == nil {
+            updateData[field] = FieldValue.delete()
+        }
         updateData["updatedAt"] = FieldValue.serverTimestamp()
         try await db
             .collection(FC.users).document(userId)

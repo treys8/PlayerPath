@@ -81,6 +81,42 @@ struct GolfStatsSection: View {
         return Double(practiceScores.reduce(0, +)) / Double(practiceScores.count)
     }
 
+    /// Average to-par over tournament rounds ONLY, so it reflects the same round
+    /// set as the adjacent "Round Avg" tile. (The detailed grid's pooled metrics
+    /// still come from `advanced`, which intentionally includes practice rounds.)
+    private var tournamentAvgToPar: Double? {
+        let diffs: [Int] = tournamentRounds.compactMap { game in
+            guard let s = game.effectiveTotalScore, let p = game.effectivePar else { return nil }
+            return s - p
+        }
+        guard !diffs.isEmpty else { return nil }
+        return Double(diffs.reduce(0, +)) / Double(diffs.count)
+    }
+
+    /// Detailed game-improvement metrics. nil when no athlete; `hasDetailed`
+    /// gates the detailed grid so a score-only golfer sees the simple view.
+    private var advanced: GolfAdvancedStats? {
+        guard let athlete else { return nil }
+        return GolfExportData.advancedStats(for: athlete, season: season)
+    }
+
+    private func toParString(_ v: Double) -> String {
+        if abs(v) < 0.05 { return "E" }
+        let r = (v * 10).rounded() / 10
+        let body = r == r.rounded() ? "\(Int(r))" : String(format: "%.1f", r)
+        return r > 0 ? "+\(body)" : body
+    }
+    private func pctString(_ v: Double) -> String { "\(Int(v.rounded()))%" }
+    private func oneDecimal(_ v: Double) -> String { String(format: "%.1f", v) }
+
+    /// Handicap-style display: a plus-handicap (under-par estimate) shows as
+    /// "+2.3"; everyone else shows the over-par estimate, e.g. "11.4".
+    private func handicapString(_ v: Double) -> String {
+        let r = (v * 10).rounded() / 10
+        if r < 0 { return "+\(String(format: "%.1f", -r))" }
+        return String(format: "%.1f", r)
+    }
+
     // MARK: - Body
 
     var body: some View {
@@ -90,7 +126,12 @@ struct GolfStatsSection: View {
             if totalRounds == 0 {
                 emptyState
             } else {
+                handicapHeader
                 summaryGrid
+                if let advanced, advanced.hasDetailed {
+                    detailedGrid(advanced)
+                }
+                parSplitRow
                 recentRoundsChart
             }
         }
@@ -115,6 +156,34 @@ struct GolfStatsSection: View {
         .statCardBackground()
     }
 
+    /// Prominent estimated-handicap card above the summary grid. Hidden until
+    /// the athlete has enough scored 18-hole rounds (HandicapEstimator minimum).
+    @ViewBuilder
+    private var handicapHeader: some View {
+        if let athlete, let idx = HandicapEstimator.estimatedIndex(for: athlete, season: season) {
+            HStack(spacing: 12) {
+                Image(systemName: "figure.golf")
+                    .font(.title2)
+                    .foregroundColor(.green)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Est. Handicap")
+                        .font(.labelMedium)
+                        .foregroundColor(.secondary)
+                    Text(handicapString(idx))
+                        .font(.ppStatLarge)
+                        .monospacedDigit()
+                }
+                Spacer()
+            }
+            .padding(.spacingMedium)
+            .frame(maxWidth: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: .cornerLarge, style: .continuous)
+                    .fill(Theme.card)
+            )
+        }
+    }
+
     private var summaryGrid: some View {
         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
             statTile(label: "Rounds", value: "\(totalRounds)")
@@ -123,6 +192,10 @@ struct GolfStatsSection: View {
             }
             if let avg = tournamentAverage {
                 statTile(label: "Round Avg", value: String(format: "%.1f", avg))
+            }
+            if let atp = tournamentAvgToPar {
+                statTile(label: "Avg To Par", value: toParString(atp),
+                         color: .parRelative(atp < 0 ? -1 : (atp > 0 ? 1 : 0)))
             }
             // Practice avg hides when zero practice rounds exist so a
             // tournament-only golfer doesn't see a stranded "—".
@@ -141,6 +214,57 @@ struct GolfStatsSection: View {
                 .font(.ppStatLarge)
                 .monospacedDigit()
                 .foregroundColor(color)
+            Text(label)
+                .font(.labelSmall)
+                .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 12)
+        .statCardBackground()
+    }
+
+    // MARK: - Detailed (FIR / GIR / scrambling / putts / penalties)
+
+    private func detailedGrid(_ s: GolfAdvancedStats) -> some View {
+        var chips: [CompactStatData] = []
+        if let g = s.girPct { chips.append(.init(label: "GIR", value: pctString(g), color: .green)) }
+        if let f = s.firPct { chips.append(.init(label: "Fairways", value: pctString(f), color: .brandNavy)) }
+        if let p = s.puttsPerRound { chips.append(.init(label: "Putts / Rnd", value: oneDecimal(p), color: .brandNavy)) }
+        if let sc = s.scramblingPct { chips.append(.init(label: "Scrambling", value: pctString(sc), color: .mint)) }
+        if let pen = s.penaltiesPerRound { chips.append(.init(label: "Penalties / Rnd", value: oneDecimal(pen), color: Theme.warning)) }
+        return VStack(alignment: .leading, spacing: 8) {
+            Text("Detailed")
+                .font(.headingMedium)
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                ForEach(Array(chips.enumerated()), id: \.offset) { _, chip in
+                    CompactStatChip(data: chip)
+                }
+            }
+        }
+    }
+
+    // MARK: - Scoring by par
+
+    @ViewBuilder
+    private var parSplitRow: some View {
+        if let s = advanced, s.par3Avg != nil || s.par4Avg != nil || s.par5Avg != nil {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Scoring by Par")
+                    .font(.headingMedium)
+                HStack(spacing: 12) {
+                    parTile("Par 3", s.par3Avg)
+                    parTile("Par 4", s.par4Avg)
+                    parTile("Par 5", s.par5Avg)
+                }
+            }
+        }
+    }
+
+    private func parTile(_ label: String, _ avg: Double?) -> some View {
+        VStack(spacing: 4) {
+            Text(avg.map { String(format: "%.2f", $0) } ?? "—")
+                .font(.ppStatLarge)
+                .monospacedDigit()
             Text(label)
                 .font(.labelSmall)
                 .foregroundColor(.secondary)

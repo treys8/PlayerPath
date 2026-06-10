@@ -449,7 +449,14 @@ struct DirectCameraRecorderView: View {
         // Prevent double-saves
         guard saveTask == nil else { return }
 
-        // Save in background — success feedback and dismiss happen AFTER save confirms
+        // Optimistic success feedback: the user's decision is committed the instant
+        // they tap Save, and the recorded file already exists on disk — buzz now so
+        // saving feels instant instead of gating the reward behind the full persistence
+        // pipeline. The rare failure branch below fires Haptics.error() + the
+        // "Save Failed" alert to correct course.
+        Haptics.success()
+
+        // Save in background — dismiss happens AFTER save confirms
         saveTask = Task { @MainActor in
             defer { saveTask = nil }
 
@@ -477,8 +484,7 @@ struct DirectCameraRecorderView: View {
                     )
                 }
 
-                // Save succeeded — now dismiss
-                Haptics.success()
+                // Save succeeded — now dismiss (success haptic already fired optimistically on tap)
                 VideoFileManager.cleanup(url: videoURL)
                 if let trimmed = trimmedVideoURL {
                     VideoFileManager.cleanup(url: trimmed)

@@ -16,6 +16,14 @@ struct SettingsView: View {
 
     @Environment(\.ppAccent) private var ppAccent
 
+    @AppStorage(GolfPrefs.trackDetailedStats) private var trackDetailedGolfStats = false
+
+    /// Only surface the golf detailed-stats toggle to users who actually have a
+    /// golf athlete — it's clutter for baseball-only accounts.
+    private var hasGolfAthlete: Bool {
+        user.athletes?.contains { $0.sport == .golf } ?? false
+    }
+
     var body: some View {
         Form {
             Section("Account") {
@@ -53,6 +61,17 @@ struct SettingsView: View {
                     UserPreferencesView()
                 } label: {
                     Label("App Preferences", systemImage: "slider.horizontal.3")
+                }
+            }
+
+            if hasGolfAthlete {
+                Section("Golf") {
+                    Toggle(isOn: $trackDetailedGolfStats) {
+                        Label("Track Detailed Stats", systemImage: "flag.fill")
+                    }
+                    Text("Adds fairway, green-in-regulation, and penalty inputs when scoring a round.")
+                        .font(.bodySmall)
+                        .foregroundColor(.secondary)
                 }
             }
 

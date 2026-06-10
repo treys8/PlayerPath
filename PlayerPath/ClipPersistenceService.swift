@@ -175,23 +175,27 @@ final class ClipPersistenceService {
     /// - Parameters:
     ///   - asset: The AVAsset to verify
     ///   - url: The URL of the video file
-    private func verifyVideoPlayability(asset: AVAsset, url: URL) async throws {
+    /// Validates a freshly-copied clip for corruption. Takes the asset properties
+    /// `saveClip` already batch-loaded (tracks, duration, isPlayable) so it does not
+    /// re-issue the same AVAsset loads — only the per-track naturalSize/transform,
+    /// which are loaded together in one call.
+    private func verifyVideoPlayability(url: URL, tracks: [AVAssetTrack], duration: CMTime, isPlayable: Bool) async throws {
         // Check 1: Verify file size is reasonable (not suspiciously small)
         let attributes = try fileManager.attributesOfItem(atPath: url.path)
         guard let fileSize = attributes[.size] as? Int64, fileSize > 10000 else { // At least 10KB
             throw NSError(domain: "ClipPersistence", code: -1, userInfo: [NSLocalizedDescriptionKey: "Video file size is suspiciously small (\(attributes[.size] ?? 0) bytes)"])
         }
 
-        // Check 2: Verify the asset has video tracks
-        let allTracks = try await asset.load(.tracks)
-        let videoTracks = allTracks.filter { $0.mediaType == .video }
+        // Check 2: Verify the asset has video tracks (reuses the already-loaded tracks)
+        let videoTracks = tracks.filter { $0.mediaType == .video }
         guard !videoTracks.isEmpty else {
             throw NSError(domain: "ClipPersistence", code: -2, userInfo: [NSLocalizedDescriptionKey: "No video tracks found in file"])
         }
 
-        // Check 3: Verify first video track has valid dimensions
+        // Check 3: Verify first video track has valid dimensions. naturalSize and
+        // preferredTransform are batched into one load (concurrent, not serial).
         if let firstVideoTrack = videoTracks.first {
-            let naturalSize = try await firstVideoTrack.load(.naturalSize)
+            let (naturalSize, transform) = try await firstVideoTrack.load(.naturalSize, .preferredTransform)
             guard naturalSize.width > 0 && naturalSize.height > 0 else {
                 throw NSError(domain: "ClipPersistence", code: -3, userInfo: [NSLocalizedDescriptionKey: "Video track has invalid dimensions"])
             }
@@ -199,18 +203,15 @@ final class ClipPersistenceService {
             // Diagnostic: log preferredTransform so silent orientation loss is
             // detectable in field logs. Does NOT throw — unusual transforms
             // shouldn't reject an otherwise-valid clip.
-            let transform = try await firstVideoTrack.load(.preferredTransform)
             clipLog.info("verifyVideoPlayability: url=\(url.lastPathComponent) natural=\(Int(naturalSize.width))x\(Int(naturalSize.height)) transform=[a:\(transform.a) b:\(transform.b) c:\(transform.c) d:\(transform.d) tx:\(transform.tx) ty:\(transform.ty)] identity=\(transform.isIdentity)")
         }
 
-        // Check 4: Verify asset is playable
-        let isPlayable = try await asset.load(.isPlayable)
+        // Check 4: Verify asset is playable (reuses the already-loaded value)
         guard isPlayable else {
             throw NSError(domain: "ClipPersistence", code: -4, userInfo: [NSLocalizedDescriptionKey: "Video is marked as not playable"])
         }
 
-        // Check 5: Verify duration matches expected format
-        let duration = try await asset.load(.duration)
+        // Check 5: Verify duration matches expected format (reuses the already-loaded value)
         let durationSeconds = CMTimeGetSeconds(duration)
         guard durationSeconds > 0 && durationSeconds.isFinite && durationSeconds < 14400 else { // Max 4 hours
             throw NSError(domain: "ClipPersistence", code: -5, userInfo: [NSLocalizedDescriptionKey: "Video duration is invalid (\(durationSeconds) seconds)"])
@@ -224,8 +225,8 @@ final class ClipPersistenceService {
     /// thumbs while `VideoFileManager` produced letterboxed 480×270; the two
     /// diverged visually (black bars on imported portrait clips) and on disk
     /// (multi-MB thumbnails for recorded 4K video).
-    func generateThumbnail(for videoURL: URL, at time: CMTime = CMTime(seconds: 1.0, preferredTimescale: 600)) async throws -> String {
-        let result = await VideoFileManager.generateThumbnail(from: videoURL, at: time)
+    func generateThumbnail(for videoURL: URL, at time: CMTime = CMTime(seconds: 1.0, preferredTimescale: 600), knownDuration: CMTime? = nil) async throws -> String {
+        let result = await VideoFileManager.generateThumbnail(from: videoURL, at: time, knownDuration: knownDuration)
         switch result {
         case .success(let path):
             return path
@@ -307,12 +308,15 @@ final class ClipPersistenceService {
 
         let asset: AVAsset = AVURLAsset(url: destinationURL)
 
-        // Validate asset has tracks and valid duration using async property loading
+        // Validate asset has tracks and valid duration using async property loading.
+        // Batch the three asset-level properties into ONE load() so AVFoundation
+        // resolves them concurrently (not three serial round-trips) and so
+        // verifyVideoPlayability below can reuse them instead of re-loading.
         let tracks: [AVAssetTrack]
         let duration: CMTime
+        let isPlayable: Bool
         do {
-            tracks = try await asset.load(.tracks)
-            duration = try await asset.load(.duration)
+            (tracks, duration, isPlayable) = try await asset.load(.tracks, .duration, .isPlayable)
         } catch {
             if sourceNeedsDeletion { try? fileManager.removeItem(at: destinationURL) }
             throw ClipPersistenceError.failedToCreateAsset(destinationURL, underlying: error)
@@ -329,7 +333,7 @@ final class ClipPersistenceService {
 
         // Verify video is actually playable (corruption detection)
         do {
-            try await verifyVideoPlayability(asset: asset, url: destinationURL)
+            try await verifyVideoPlayability(url: destinationURL, tracks: tracks, duration: duration, isPlayable: isPlayable)
         } catch {
             // Only remove the file we just copied in. If destinationURL was an
             // existing file already inside Documents/Clips (sourceNeedsDeletion == false),
@@ -341,7 +345,7 @@ final class ClipPersistenceService {
         // Generate thumbnail for the video
         let thumbnailPath: String?
         do {
-            thumbnailPath = try await generateThumbnail(for: destinationURL)
+            thumbnailPath = try await generateThumbnail(for: destinationURL, knownDuration: duration)
         } catch {
             thumbnailPath = nil
             // Continue without thumbnail - not critical

@@ -50,6 +50,15 @@ struct TournamentDetailView: View {
                 .labelStyle(ActionRowLabelStyle())
             }
 
+            // Round-by-round holes matrix — only when at least one round has
+            // per-hole scores (quick-entry total-only tournaments skip it).
+            if rounds.contains(where: { !($0.holeScores ?? []).isEmpty }) {
+                Section(header: Text("Scorecard").smallCapsLabel()) {
+                    TournamentScorecardGrid(rounds: rounds)
+                        .listRowInsets(EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8))
+                }
+            }
+
             if let notes = tournament.notes, !notes.isEmpty {
                 Section(header: Text("Notes").smallCapsLabel()) {
                     Text(notes).font(.bodySmall)

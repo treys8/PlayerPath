@@ -96,6 +96,7 @@ enum MilestoneEngine {
         _ ordered: [Game],
         noun: String,
         idTag: String,
+        idPrefix: String = "bb",
         count: (Game) -> Int
     ) -> [Milestone] {
         var milestones: [Milestone] = []
@@ -110,7 +111,7 @@ enum MilestoneEngine {
                 milestones.append(Milestone(
                     // Game-qualified so the same threshold reached in two
                     // different seasons (career view flattens both) stays unique.
-                    id: "bb-\(idTag)-count-\(threshold)-\(game.id.uuidString)",
+                    id: "\(idPrefix)-\(idTag)-count-\(threshold)-\(game.id.uuidString)",
                     kind: .milestone,
                     title: "\(ordinal(threshold)) \(noun) of the season",
                     detail: detail(for: game),
@@ -188,6 +189,50 @@ enum MilestoneEngine {
                 date: date(low),
                 gameID: low.id
             ))
+        }
+
+        // Season-high birdies-or-better in a single round.
+        let birdieCount: (Game) -> Int = { ($0.holeScores ?? []).filter { $0.isBirdieOrBetter }.count }
+        if let best = scored.max(by: { birdieCount($0) < birdieCount($1) }) {
+            let n = birdieCount(best)
+            if n >= 2 {
+                milestones.append(Milestone(
+                    id: "golf-high-birdies-\(best.id.uuidString)",
+                    kind: .personalBest,
+                    title: "Season-high \(n) birdies in a round",
+                    detail: detail(for: best),
+                    date: date(best),
+                    gameID: best.id
+                ))
+            }
+        }
+
+        // Cumulative birdie-or-better count milestones (5th, 10th, … this season).
+        milestones += countMilestones(scored, noun: "birdie", idTag: "birdie", idPrefix: "golf", count: birdieCount)
+
+        // Best round relative to par, when par or better — a genuine highlight
+        // regardless of course par (complements the low-strokes round above).
+        if scored.count >= 2 {
+            let toParOf: (Game) -> Int? = { g in
+                guard let s = g.effectiveTotalScore, let p = g.effectivePar else { return nil }
+                return s - p
+            }
+            let rated = scored.filter { toParOf($0) != nil }
+            // Skip when the best-to-par round IS the low-strokes round (common on
+            // a single-course season) — one achievement shouldn't show twice.
+            let lowID = scored.min(by: { ($0.effectiveTotalScore ?? .max) < ($1.effectiveTotalScore ?? .max) })?.id
+            if let best = rated.min(by: { (toParOf($0) ?? .max) < (toParOf($1) ?? .max) }),
+               let diff = toParOf(best), diff <= 0, best.id != lowID {
+                let label = diff == 0 ? "Even par" : "\(diff)"
+                milestones.append(Milestone(
+                    id: "golf-best-topar-\(best.id.uuidString)",
+                    kind: .personalBest,
+                    title: "Best round vs par: \(label)",
+                    detail: detail(for: best),
+                    date: date(best),
+                    gameID: best.id
+                ))
+            }
         }
 
         return milestones

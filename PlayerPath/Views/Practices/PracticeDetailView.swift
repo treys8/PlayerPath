@@ -26,6 +26,8 @@ struct PracticeDetailView: View {
     /// Non-nil presents ScoreHoleSheet for the chosen hole (golf practice
     /// rounds only). Cleared on dismissal.
     @State private var scoreHoleTarget: ScoreHoleTarget?
+    /// Presents the full-round scorecard grid (practice rounds only).
+    @State private var showingScorecard = false
 
     // Bulk import from Photos — state owned by BulkImportAttach modifier.
     @State private var importTrigger = false
@@ -291,6 +293,9 @@ struct PracticeDetailView: View {
         .sheet(item: $scoreHoleTarget) { target in
             ScoreHoleSheet(practice: practice, holeNumber: target.holeNumber)
         }
+        .sheet(isPresented: $showingScorecard) {
+            GolfScorecardView(round: .practice(practice))
+        }
         .bulkImportAttach(athlete: practice.athlete, practice: practice, trigger: $importTrigger)
         .bulkPhotoImportAttach(athlete: practice.athlete, practice: practice, trigger: $photoImportTrigger)
         .fullScreenCover(item: $selectedVideo) { video in
@@ -334,6 +339,12 @@ struct PracticeDetailView: View {
                     scoreHoleTarget = ScoreHoleTarget(holeNumber: nextHoleNumber)
                 } label: {
                     Label("Score Hole \(nextHoleNumber)", systemImage: "flag.fill")
+                }
+                Button {
+                    Haptics.light()
+                    showingScorecard = true
+                } label: {
+                    Label("Scorecard", systemImage: "tablecells")
                 }
             }
 

@@ -166,6 +166,9 @@ extension SyncCoordinator {
                     local.par = remote.par
                     local.score = remote.score
                     local.putts = remote.putts
+                    local.fairwayHit = remote.fairwayHit
+                    local.greenInRegulation = remote.greenInRegulation
+                    local.penalties = remote.penalties
                     local.version = remoteVersion
                     local.updatedAt = remote.updatedAt
                     local.lastSyncDate = Date()
@@ -175,7 +178,10 @@ extension SyncCoordinator {
                     holeNumber: remote.holeNumber,
                     par: remote.par,
                     score: remote.score,
-                    putts: remote.putts
+                    putts: remote.putts,
+                    fairwayHit: remote.fairwayHit,
+                    greenInRegulation: remote.greenInRegulation,
+                    penalties: remote.penalties
                 )
                 local.createdAt = remote.createdAt
                 local.updatedAt = remote.updatedAt
