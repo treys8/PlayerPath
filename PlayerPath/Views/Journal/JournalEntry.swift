@@ -154,4 +154,17 @@ enum JournalEntry: Identifiable {
             return "\(photos.count) photos"
         }
     }
+
+    /// Whether the headline carries real information worth a title line. A
+    /// standalone photo with no caption has nothing to say — its image is the
+    /// hero and the "Photo" type tag already names it — so the row drops the
+    /// redundant literal "Photo". Every other entry (incl. a captioned photo and
+    /// a group's "N photos") keeps its headline.
+    var showsHeadline: Bool {
+        if case .photo(let p) = self {
+            let caption = p.caption?.trimmingCharacters(in: .whitespaces)
+            return !(caption?.isEmpty ?? true)
+        }
+        return true
+    }
 }

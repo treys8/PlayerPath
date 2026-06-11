@@ -17,22 +17,27 @@ struct JournalEntryRow: View {
     /// it once from a `[UUID: Milestone]` index, so the row never scans an array.
     var milestone: Milestone? = nil
 
-    @Environment(\.ppAccent) private var ppAccent
-
     var body: some View {
         VStack(alignment: .leading, spacing: .spacingMedium) {
             dateRail
 
-            if let marker = milestone?.markerLabel {
-                PPMilestoneMarker(label: marker)
+            // The milestone marker rides in the date rail (top-right) instead of
+            // its own row above the title — one less stacked text line, so a
+            // milestone card keeps the same rhythm as a plain card, and the
+            // achievement earns the prominent corner. Headline stands alone here.
+            // A caption-less standalone photo has no real title — its image is
+            // the hero and the "Photo" type tag already names it — so it drops
+            // the placeholder headline (see JournalEntry.showsHeadline).
+            if entry.showsHeadline {
+                Text(HeadlineBuilder.headline(for: entry, milestone: milestone))
+                    .font(.ppTitle3)                   // Fraunces serif
+                    .foregroundStyle(Theme.textPrimary)
+                    .multilineTextAlignment(.leading)
             }
 
-            Text(HeadlineBuilder.headline(for: entry, milestone: milestone))
-                .font(.ppTitle3)                       // Fraunces serif
-                .foregroundStyle(Theme.textPrimary)
-                .multilineTextAlignment(.leading)
-
-            if let subline = statSubline {
+            // Only a practice's course/location sits above the media (context,
+            // not a stat). A game's batting/golf stat rides in the footer.
+            if let subline = practiceSubline {
                 Text(subline)
                     .font(.ppSubheadline)
                     .foregroundStyle(Theme.textSecondary)
@@ -40,9 +45,7 @@ struct JournalEntryRow: View {
 
             media
 
-            if let counts = countsText {
-                Text(counts).smallCapsLabel()
-            }
+            footer
         }
         .padding(.spacingLarge)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -53,13 +56,24 @@ struct JournalEntryRow: View {
 
     private var dateRail: some View {
         HStack(spacing: 6) {
+            // Quiet chrome, not accent: the date bullet is decoration, and the
+            // design rule reserves accent for significance (the HOT STREAK
+            // kicker, highlight chips, stars). A soft tertiary tone keeps the
+            // whole rail — bullet, date, type tag — one calm register.
             Circle()
-                .fill(ppAccent)
+                .fill(Theme.textTertiary)
                 .frame(width: 6, height: 6)
             Text(entry.date.formatted(.dateTime.month(.abbreviated).day().year()))
                 .smallCapsLabel()
             Spacer(minLength: .spacingSmall)
-            Text(typeTag).smallCapsLabel(color: Theme.textTertiary)
+            // A milestone takes the corner — its accent star is the card's "this
+            // mattered" signal. Otherwise the muted category tag sits here. A
+            // milestone is always a game, so the dropped "GAME" tag loses nothing.
+            if let marker = milestone?.markerLabel {
+                PPMilestoneMarker(label: marker)
+            } else {
+                Text(typeTag).smallCapsLabel(color: Theme.textTertiary)
+            }
         }
     }
 
@@ -76,25 +90,22 @@ struct JournalEntryRow: View {
         }
     }
 
-    // MARK: - Stat subline
+    // MARK: - Stat / subline
 
-    private var statSubline: String? {
-        switch entry {
-        case .game(let g):
-            let base = entry.isGolf ? golfSubline(g) : baseballSubline(g)
-            return appendingOpponent(to: base, game: g)
-        case .practice(let p):
-            if let course = p.course, !course.trimmingCharacters(in: .whitespaces).isEmpty {
-                return course
-            }
-            return nil
-        case .clip:
-            return nil
-        case .photo:
-            return nil
-        case .photoGroup:
-            return nil
-        }
+    /// Game batting/golf line for the footer (left), incl. the milestone
+    /// opponent append ("1-for-2 · vs Mag"). Game-only.
+    private var footerStat: String? {
+        guard case .game(let g) = entry else { return nil }
+        let base = entry.isGolf ? golfSubline(g) : baseballSubline(g)
+        return appendingOpponent(to: base, game: g)
+    }
+
+    /// Practice course/location, shown ABOVE the media as context (not a stat).
+    private var practiceSubline: String? {
+        guard case .practice(let p) = entry,
+              let course = p.course?.trimmingCharacters(in: .whitespaces),
+              !course.isEmpty else { return nil }
+        return course
     }
 
     /// When a milestone drives the headline ("Season-high 3 hits in a game"),
@@ -152,10 +163,16 @@ struct JournalEntryRow: View {
             // Event cards (.game/.practice) are multi-item previews that open
             // the detail page, so they show neither (a ▶ on "3 CLIPS" can't say
             // which clip it would play).
+            let chip = outcomeChip(for: clip)
             PPMediaTile(
                 tileColor: Theme.tile(forKey: entry.id),
-                outcome: outcomeChip(for: clip),
-                isStarred: clip.isHighlight,
+                outcome: chip,
+                // The star is the SOLE highlight signal. Drop it when an accent
+                // outcome pill already encodes the same significance, and on
+                // milestone cards (the date-rail kicker already crowns those). A
+                // clip with no tagged result (no pill), or golf's green pill,
+                // still earns the star.
+                isStarred: clip.isHighlight && milestone == nil && !(chip?.isAccent ?? false),
                 duration: isSingleClipEntry ? durationText(clip.duration) : nil,
                 showsPlayButton: isSingleClipEntry
             ) {
@@ -206,6 +223,31 @@ struct JournalEntryRow: View {
             return PPOutcomeChip(result: type, overMedia: true, highlighted: clip.isHighlight)
         }
         return nil
+    }
+
+    // MARK: - Footer
+
+    /// Game footer: stat on the left (natural case, muted), media counts on the
+    /// right (small-caps overline). Either side may be absent — a game with
+    /// stats but no media shows just the stat; an event with media but no stats
+    /// (or a practice) shows just the counts; neither → no footer row.
+    @ViewBuilder
+    private var footer: some View {
+        let stat = footerStat
+        let counts = countsText
+        if stat != nil || counts != nil {
+            HStack(alignment: .firstTextBaseline, spacing: .spacingSmall) {
+                if let stat {
+                    Text(stat)
+                        .font(.ppFootnote)
+                        .foregroundStyle(Theme.textSecondary)
+                    Spacer(minLength: .spacingSmall)
+                }
+                if let counts {
+                    Text(counts).smallCapsLabel()
+                }
+            }
+        }
     }
 
     // MARK: - Counts

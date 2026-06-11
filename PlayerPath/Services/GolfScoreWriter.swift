@@ -105,10 +105,11 @@ enum GolfScoreWriter {
         let course = ref.titleBase
         let isBirdieOrBetter = score > 0 && (score - par) <= -1
 
-        // Auto-highlights are a Plus+ feature — parity with baseball. A free
-        // golfer's birdie creates no reel; a reel that predates a downgrade is
-        // demoted on the next re-score of its hole.
-        let canAutoHighlight = SubscriptionGate.effectiveAthleteTier.hasAutoHighlights
+        // Auto-highlight curation is free (parity with baseball, whose play-result
+        // tagging is ungated): every birdie-or-better hole with a clip creates a
+        // reel regardless of tier. Access to play/export the reel stays Plus-gated
+        // at the Highlights folder + reel CTAs, not here at curation time. A reel
+        // is demoted only when its hole stops being birdie-or-better.
 
         let parentGameID: UUID?
         let parentPracticeID: UUID?
@@ -142,7 +143,7 @@ enum GolfScoreWriter {
             return
         }
 
-        if canAutoHighlight && isBirdieOrBetter && !clipsOnHole.isEmpty {
+        if isBirdieOrBetter && !clipsOnHole.isEmpty {
             let clipIDStrings = clipsOnHole.map { $0.id.uuidString }
             let displayName = reelDisplayName(score: score, par: par)
 

@@ -33,6 +33,13 @@ final class PracticeService {
         let userForSync = practice.athlete?.user
         do {
             try modelContext.save()
+            // Mirror GameService.end()'s `.gameEnded` post: announce the ended
+            // event after the save commits so the highlight-reel banner can read
+            // a settled relationship graph. End-only so a future save() caller
+            // doesn't fire it.
+            if action == "end" {
+                NotificationCenter.default.post(name: .practiceEnded, object: practice)
+            }
             Task {
                 guard let user = userForSync else { return }
                 do {

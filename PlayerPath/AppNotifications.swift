@@ -7,6 +7,10 @@ extension Notification.Name {
     static let gameCreated = Notification.Name("GameCreated")
     static let gameBecameLive = Notification.Name("GameBecameLive")
     static let gameEnded = Notification.Name("GameEnded")
+    /// Posted by PracticeService.end() with `object: Practice` after the save
+    /// succeeds. Only golf practices go live, so this is golf-only in practice.
+    /// Mirrors `.gameEnded`; drives the post-event highlight-reel banner.
+    static let practiceEnded = Notification.Name("PracticeEnded")
     static let switchTab = Notification.Name("switchTab")
     static let presentVideoRecorder = Notification.Name("presentVideoRecorder")
     static let showAthleteSelection = Notification.Name("showAthleteSelection")

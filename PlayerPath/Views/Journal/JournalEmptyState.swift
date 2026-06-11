@@ -86,24 +86,26 @@ struct JournalEmptyState: View {
     }
 
     /// A static replica of JournalEntryRow — keep the two visually in sync if the
-    /// real row's anatomy changes (date rail → marker → headline → subline →
-    /// media → counts).
+    /// real row's anatomy changes (date rail [milestone marker in the corner] →
+    /// headline → media → stat-and-counts footer).
     private var sampleCard: some View {
         VStack(alignment: .leading, spacing: .spacingMedium) {
             sampleDateRail
-            PPMilestoneMarker(label: markerLabel)
             Text(sampleHeadline)
                 .font(.ppTitle3)
                 .foregroundStyle(Theme.textPrimary)
-            Text(sampleSubline)
-                .font(.ppSubheadline)
-                .foregroundStyle(Theme.textSecondary)
             PPMediaTile(
                 tileColor: Theme.tileNavy,
                 outcome: sampleOutcomeChip,
                 showsPlayButton: true
             )
-            Text(sampleFooter).smallCapsLabel()
+            HStack(alignment: .firstTextBaseline, spacing: .spacingSmall) {
+                Text(sampleSubline)
+                    .font(.ppFootnote)
+                    .foregroundStyle(Theme.textSecondary)
+                Spacer(minLength: .spacingSmall)
+                Text(sampleFooter).smallCapsLabel()
+            }
         }
         .padding(.spacingLarge)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -112,10 +114,10 @@ struct JournalEmptyState: View {
 
     private var sampleDateRail: some View {
         HStack(spacing: 6) {
-            Circle().fill(ppAccent).frame(width: 6, height: 6)
+            Circle().fill(Theme.textTertiary).frame(width: 6, height: 6)
             Text(sampleDateLabel).smallCapsLabel()
             Spacer(minLength: .spacingSmall)
-            Text(eventNoun).smallCapsLabel(color: Theme.textTertiary)
+            PPMilestoneMarker(label: markerLabel)
         }
     }
 

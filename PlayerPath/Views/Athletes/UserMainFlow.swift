@@ -24,6 +24,14 @@ struct UserMainFlow: View {
     @State private var hasRestoredSelection = false
     private let userID: UUID
 
+    // Post-event highlight-reel banner: presents the stitched reel (Plus) or the
+    // paywall (free) when the banner is tapped. State is set in handleReelBannerTap.
+    @State private var showingReel = false
+    @State private var showingReelPaywall = false
+    @State private var reelClips: [VideoClip] = []
+    @State private var reelScope = ""
+    @State private var reelTitle = ""
+
     // NotificationCenter observer management using StateObject
     @StateObject private var notificationManager = NotificationObserverManager()
 
@@ -171,6 +179,14 @@ struct UserMainFlow: View {
         )) { opportunity in
             WinBackSheet(opportunity: opportunity) { }
         }
+        // Post-event highlight reel — presented from above the tab bar so it
+        // works regardless of which tab is active when the banner is tapped.
+        .fullScreenCover(isPresented: $showingReel) {
+            GenerateReelView(clips: reelClips, scopeKey: reelScope, title: reelTitle)
+        }
+        .sheet(isPresented: $showingReelPaywall) {
+            ImprovedPaywallView(user: user, requiredTier: .plus)
+        }
         .overlay(alignment: .top) {
             VStack(spacing: 8) {
                 if showCreationToast {
@@ -195,6 +211,16 @@ struct UserMainFlow: View {
                     .padding(.top, showCreationToast ? 0 : 12)
                     .transition(.move(edge: .top).combined(with: .opacity))
                     .animation(.spring(response: 0.4, dampingFraction: 0.8), value: activityNotifService.incomingBanner?.id)
+                }
+                if let summary = HighlightReelBannerService.shared.pending {
+                    HighlightReelBanner(
+                        summary: summary,
+                        onTap: { handleReelBannerTap(summary) },
+                        onDismiss: { HighlightReelBannerService.shared.dismiss() }
+                    )
+                    .padding(.top, (showCreationToast || activityNotifService.incomingBanner != nil) ? 0 : 12)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .animation(.spring(response: 0.4, dampingFraction: 0.8), value: HighlightReelBannerService.shared.pending?.id)
                 }
             }
         }
@@ -302,5 +328,149 @@ struct UserMainFlow: View {
                 showingAthleteSelection = true
             }
         }
+
+        // Post-event highlight banner. Build the summary synchronously here (the
+        // event already saved, so the relationship graph is settled) and never
+        // hold the @Model past this call — see buildSummary. MainTabView's own
+        // .gameEnded observer (weekly-summary refresh) is unrelated; two additive
+        // observers on the same name are fine.
+        notificationManager.observe(name: Notification.Name.gameEnded) { note in
+            MainActor.assumeIsolated {
+                guard let game = note.object as? Game else { return }
+                if let summary = buildSummary(game: game) {
+                    HighlightReelBannerService.shared.present(summary)
+                }
+            }
+        }
+        notificationManager.observe(name: Notification.Name.practiceEnded) { note in
+            MainActor.assumeIsolated {
+                guard let practice = note.object as? Practice else { return }
+                if let summary = buildSummary(practice: practice) {
+                    HighlightReelBannerService.shared.present(summary)
+                }
+            }
+        }
+    }
+
+    // MARK: - Post-Event Highlight Banner
+
+    /// Routes a banner tap by tier: Plus → present the stitched reel; free →
+    /// paywall (the conversion nudge at the emotional peak). Resolves the
+    /// snapshot's clip IDs to live clips at tap time (never held in the summary).
+    private func handleReelBannerTap(_ summary: HighlightReelBannerService.Summary) {
+        Haptics.light()
+        if SubscriptionGate.effectiveAthleteTier.hasAutoHighlights {
+            let byID = Dictionary(
+                (resolvedAthlete?.videoClips ?? []).map { ($0.id, $0) },
+                uniquingKeysWith: { existing, _ in existing }
+            )
+            reelClips = summary.clipIDs.compactMap { byID[$0] }.filter { !$0.isDeleted }
+            reelScope = summary.scopeKey
+            reelTitle = summary.title
+            showingReel = true
+        } else {
+            showingReelPaywall = true
+        }
+        HighlightReelBannerService.shared.dismiss()
+    }
+
+    /// Builds a banner summary for a just-ended game (or golf round). Fully
+    /// synchronous: reads everything off the model in one pass and guards
+    /// `isDeleted` so a delete racing the async notification delivery can't trap
+    /// (feedback_swiftdata_model_access_across_await). Returns nil below the
+    /// 2-highlight reel-eligibility threshold.
+    private func buildSummary(game: Game) -> HighlightReelBannerService.Summary? {
+        guard !game.isDeleted else { return nil }
+        let eventID = game.id
+        let isGolf = game.season?.sport == .golf
+        let title: String = {
+            guard let date = game.date else { return game.opponent.isEmpty ? "Game" : game.opponent }
+            let d = DateFormatter.mediumDate.string(from: date)
+            return game.opponent.isEmpty ? d : "\(game.opponent) · \(d)"
+        }()
+
+        if isGolf {
+            guard let clipIDs = golfReelClipIDs(gameID: eventID, practiceID: nil,
+                                                in: game.modelContext, allClips: game.videoClips ?? []),
+                  clipIDs.count >= 2 else { return nil }
+            return .init(id: eventID, eventKind: .round, scopeKey: "round_\(eventID.uuidString)",
+                         title: title, clipIDs: clipIDs, count: clipIDs.count)
+        } else {
+            let clipIDs = highlightClipIDs(from: game.videoClips ?? [])
+            guard clipIDs.count >= 2 else { return nil }
+            return .init(id: eventID, eventKind: .game, scopeKey: "game_\(eventID.uuidString)",
+                         title: title, clipIDs: clipIDs, count: clipIDs.count)
+        }
+    }
+
+    /// Practice variant. Only golf practices go live (so `.practiceEnded` only
+    /// fires for them), but the baseball branch is kept for safety.
+    private func buildSummary(practice: Practice) -> HighlightReelBannerService.Summary? {
+        guard !practice.isDeleted else { return nil }
+        let eventID = practice.id
+        let isGolf = practice.season?.sport == .golf
+        let title: String = {
+            let base = practice.course ?? (practice.practiceType == "range_session" ? "Range Session" : "Practice")
+            guard let date = practice.date else { return base }
+            return "\(base) · \(DateFormatter.mediumDate.string(from: date))"
+        }()
+
+        if isGolf {
+            guard let clipIDs = golfReelClipIDs(gameID: nil, practiceID: eventID,
+                                                in: practice.modelContext, allClips: practice.videoClips ?? []),
+                  clipIDs.count >= 2 else { return nil }
+            return .init(id: eventID, eventKind: .practice, scopeKey: "round_practice_\(eventID.uuidString)",
+                         title: title, clipIDs: clipIDs, count: clipIDs.count)
+        } else {
+            let clipIDs = highlightClipIDs(from: practice.videoClips ?? [])
+            guard clipIDs.count >= 2 else { return nil }
+            return .init(id: eventID, eventKind: .practice, scopeKey: "practice_\(eventID.uuidString)",
+                         title: title, clipIDs: clipIDs, count: clipIDs.count)
+        }
+    }
+
+    /// Baseball/softball highlight set: the persisted `isHighlight` clips, ordered
+    /// chronologically. Auto-curation already runs FREE at clip-save time
+    /// (ClipPersistenceService: `isHighlight ||= shouldAutoHighlight(...)`, no tier
+    /// gate), so the persisted flag already reaches free users — no recompute is
+    /// needed. We deliberately do NOT re-derive "would-be" highlights here: that
+    /// would re-promote clips the athlete manually un-starred (no flag distinguishes
+    /// an auto-set true from a deliberate removal) and would write to the store
+    /// inside a notification observer. Counting the flag keeps the banner, the reel,
+    /// and the Highlights folder showing exactly the same set.
+    private func highlightClipIDs(from clips: [VideoClip]) -> [UUID] {
+        clips
+            .filter { !$0.isDeleted && !$0.isDeletedRemotely && $0.isHighlight }
+            .sorted { ($0.createdAt ?? .distantPast) < ($1.createdAt ?? .distantPast) }
+            .map { $0.id }
+    }
+
+    /// Golf curation lives in per-hole `HighlightReel` objects (birdie-or-better),
+    /// not the `isHighlight` flag. Unions the round's reels' clips into one
+    /// chronological set. `HighlightReel.clipIDs` are uuidStrings. Returns nil if
+    /// the context is unavailable.
+    private func golfReelClipIDs(gameID: UUID?, practiceID: UUID?,
+                                 in context: ModelContext?, allClips: [VideoClip]) -> [UUID]? {
+        guard let context else { return nil }
+        let reels: [HighlightReel]
+        do {
+            // #Predicate can't equate optional UUIDs cleanly — fetch flat, filter
+            // in memory (feedback_swiftdata_predicate_no_transforms).
+            let all = try context.fetch(FetchDescriptor<HighlightReel>())
+            reels = all.filter { reel in
+                guard !reel.isDeletedRemotely else { return false }
+                if let gameID { return reel.gameID == gameID }
+                if let practiceID { return reel.practiceID == practiceID }
+                return false
+            }
+        } catch {
+            return nil
+        }
+        let wanted = Set(reels.flatMap { $0.clipIDs })
+        guard !wanted.isEmpty else { return [] }
+        return allClips
+            .filter { !$0.isDeleted && !$0.isDeletedRemotely && wanted.contains($0.id.uuidString) }
+            .sorted { ($0.createdAt ?? .distantPast) < ($1.createdAt ?? .distantPast) }
+            .map { $0.id }
     }
 }

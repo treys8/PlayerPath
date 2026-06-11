@@ -33,6 +33,11 @@ struct PPOutcomeChip: View {
         self.style = style
     }
 
+    /// True when this chip uses the accent fill — the card's "this mattered"
+    /// signal (a home run, or a starred clip). The media-tile star reads this to
+    /// avoid double-signaling significance on the same tile.
+    var isAccent: Bool { style == .accent }
+
     var body: some View {
         Text(label)
             .font(.ppCaptionBold)            // Inter semibold 12

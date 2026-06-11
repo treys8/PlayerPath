@@ -85,9 +85,9 @@ struct PPMediaTile<Content: View>: View {
         if isStarred {
             Image(systemName: "star.fill")
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(ppAccent)
+                .foregroundStyle(.white)
                 .padding(6)
-                .background(Circle().fill(.black.opacity(0.35)))
+                .background(Circle().fill(ppAccent))
                 .padding(.spacingSmall)
         }
     }
