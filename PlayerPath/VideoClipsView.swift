@@ -581,7 +581,6 @@ struct VideoClipsView: View {
                             video: video,
                             isSelectionMode: isSelectionMode,
                             isSelected: selectedVideos.contains(video.id),
-                            hasCoachingAccess: authManager.hasCoachingAccess,
                             onPlay: {
                                 if isSelectionMode {
                                     toggleSelection(for: video)

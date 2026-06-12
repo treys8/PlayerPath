@@ -82,7 +82,7 @@ struct ClubDetailView: View {
                         .labelStyle(ActionRowLabelStyle())
                     }
                     ForEach(clips) { clip in
-                        VideoClipRow(clip: clip, hasCoachingAccess: authManager.hasCoachingAccess)
+                        VideoClipRow(clip: clip)
                     }
                 }
             }

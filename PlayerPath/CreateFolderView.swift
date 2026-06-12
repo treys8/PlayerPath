@@ -170,8 +170,7 @@ struct CreateFolderView: View {
                 forAthlete: userID,
                 athleteName: athleteName,
                 athleteUUID: athleteUUID,
-                personGroupID: personGroupID,
-                hasCoachingAccess: authManager.hasCoachingAccess
+                personGroupID: personGroupID
             )
 
             // Invite coach

@@ -113,7 +113,6 @@ struct CoachRow: View {
 struct EmptyCoachesView: View {
     let onAddCoach: () -> Void
     let onInviteCoach: () -> Void
-    let hasCoachingAccess: Bool
 
     @Environment(\.ppAccent) private var ppAccent
 
@@ -152,18 +151,13 @@ struct EmptyCoachesView: View {
             Spacer()
 
             VStack(spacing: 12) {
-                // Primary: Invite Coach (Premium)
+                // Primary: Invite Coach
                 Button(action: onInviteCoach) {
                     HStack(spacing: 10) {
                         Image(systemName: "paperplane.fill")
                             .font(.title3)
                         Text("Invite Coach to Share")
                             .font(.headingMedium)
-                        if !hasCoachingAccess {
-                            Image(systemName: "crown.fill")
-                                .font(.caption)
-                                .foregroundColor(.white.opacity(0.9))
-                        }
                     }
                     .frame(maxWidth: .infinity)
                     .frame(height: 54)

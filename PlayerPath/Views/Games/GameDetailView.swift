@@ -312,7 +312,7 @@ struct GameDetailView: View {
                         }
                     } else {
                         ForEach(videoClips) { clip in
-                            VideoClipRow(clip: clip, hasCoachingAccess: authManager.hasCoachingAccess)
+                            VideoClipRow(clip: clip)
                         }
                     }
                 }

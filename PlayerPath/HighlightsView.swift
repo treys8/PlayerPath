@@ -12,7 +12,6 @@ import Foundation
 struct HighlightsView: View {
     let athlete: Athlete?
     let currentTier: SubscriptionTier
-    let hasCoachingAccess: Bool
     @Environment(\.modelContext) private var modelContext
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.scenePhase) private var scenePhase
@@ -310,7 +309,6 @@ struct HighlightsView: View {
                             video: clip,
                             isSelectionMode: editMode == .active,
                             isSelected: selection.contains(clip.id),
-                            hasCoachingAccess: hasCoachingAccess,
                             showHighlight: false,
                             onPlay: {
                                 if editMode == .inactive {
@@ -668,5 +666,5 @@ private struct IdentifiableURL: Identifiable {
 }
 
 #Preview {
-    HighlightsView(athlete: nil, currentTier: .free, hasCoachingAccess: false)
+    HighlightsView(athlete: nil, currentTier: .free)
 }

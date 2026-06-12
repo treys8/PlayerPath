@@ -20,7 +20,6 @@ enum InvitationErrorCode: Int {
     case alreadyProcessed = -3
     case selfInvitation = -4
     case expired = -5
-    case proRequired = -6
 }
 
 /// Expiration constant for invitations (30 days)
@@ -248,7 +247,11 @@ extension FirestoreManager {
                 throw NSError(domain: "FirestoreManager", code: errorCode.rawValue,
                               userInfo: [NSLocalizedDescriptionKey: message])
             } else if status == "PERMISSION_DENIED" {
-                throw NSError(domain: "FirestoreManager", code: InvitationErrorCode.proRequired.rawValue,
+                // Pricing Model V2: the server no longer rejects on athlete tier, so
+                // permission-denied means a genuine authorization problem (e.g. the
+                // invitation isn't addressed to this account). Surface the server's
+                // message rather than mislabeling it as a subscription issue.
+                throw NSError(domain: "FirestoreManager", code: InvitationErrorCode.invalidInvitation.rawValue,
                               userInfo: [NSLocalizedDescriptionKey: message])
             } else if status == "RESOURCE_EXHAUSTED" {
                 throw SharedFolderError.coachAthleteLimitReached
@@ -522,10 +525,11 @@ extension FirestoreManager {
                                   userInfo: [NSLocalizedDescriptionKey: message])
                 }
             } else if status == "PERMISSION_DENIED" {
-                // CF rejects a non-Pro athlete with permission-denied. Map it to the
-                // Pro-required code so the athlete sees the actionable upgrade message
-                // instead of a generic failure. (Mirrors the athlete→coach path above.)
-                throw NSError(domain: "FirestoreManager", code: InvitationErrorCode.proRequired.rawValue,
+                // Pricing Model V2: the server no longer rejects on athlete tier, so
+                // permission-denied means a genuine authorization problem. Surface the
+                // server's message rather than mislabeling it as a subscription issue.
+                // (Mirrors the athlete→coach path above.)
+                throw NSError(domain: "FirestoreManager", code: InvitationErrorCode.invalidInvitation.rawValue,
                               userInfo: [NSLocalizedDescriptionKey: message])
             }
             throw NSError(domain: "FirestoreManager", code: httpResponse.statusCode,

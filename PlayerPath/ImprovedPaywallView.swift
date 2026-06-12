@@ -12,7 +12,7 @@ import SwiftData
 struct ImprovedPaywallView: View {
     let user: User
     /// When set, the paywall is opened to unlock a feature that needs at least this
-    /// tier (e.g. connecting with a coach needs `.pro`). Seeds the selection to that
+    /// tier (e.g. auto-highlights need `.plus`). Seeds the selection to that
     /// tier, prevents selecting/buying a lower one, and shows a context banner.
     let requiredTier: SubscriptionTier?
     /// Invoked after a successful purchase that satisfies `requiredTier`, just before
@@ -166,7 +166,7 @@ struct ImprovedPaywallView: View {
     /// Context message shown when the paywall is opened to unlock a specific feature.
     private func requiredTierMessage(_ tier: SubscriptionTier) -> String {
         switch tier {
-        case .pro:  return "Connecting with a coach requires Pro"
+        case .pro:  return "This feature requires Pro"
         case .plus: return "This feature requires Plus or higher"
         case .free: return ""
         }
@@ -290,10 +290,12 @@ struct ImprovedPaywallView: View {
                 checkIcon(included: true)
             }
 
+            // Coach sharing is free at every tier (the coach's seat covers the
+            // connection) — shown so athletes know it's included, not missing.
             tableRow(feature: "Coach Sharing") {
-                checkIcon(included: false)
+                checkIcon(included: true)
             } plus: {
-                checkIcon(included: false)
+                checkIcon(included: true)
             } pro: {
                 checkIcon(included: true)
             }

@@ -46,7 +46,6 @@ struct AthleteFoldersListView: View {
     @State private var errorMessage = ""
     @State private var isDeletingFolders = false
     @State private var lastFetchDate: Date?
-    @State private var showingPaywall = false
     @State private var pendingDeletions: [SharedFolder] = []
     @State private var showingDeleteConfirmation = false
     @State private var sortMode: FolderSortMode = .recentActivity
@@ -179,34 +178,8 @@ struct AthleteFoldersListView: View {
     
     // MARK: - Folders List
     
-    private var hasActiveCoachSharing: Bool {
-        folderManager.athleteFolders.contains { !$0.sharedWithCoachIDs.isEmpty }
-    }
-
     private var foldersList: some View {
         List {
-            if authManager.currentTier < .pro && hasActiveCoachSharing {
-                Section {
-                    Button {
-                        showingPaywall = true
-                    } label: {
-                        HStack(spacing: 12) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundColor(Theme.warning)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Coach Access Paused")
-                                    .font(.headingSmall)
-                                    .foregroundColor(Theme.textPrimary)
-                                Text("Your coaches can no longer view these folders. Upgrade to Pro to restore access.")
-                                    .font(.bodySmall)
-                                    .foregroundColor(Theme.textSecondary)
-                            }
-                        }
-                    }
-                    .listRowBackground(Theme.card)
-                }
-            }
-
             Section {
                 if displayedFolders.isEmpty && unreadOnly {
                     Text("No folders with unread content.")
@@ -234,11 +207,6 @@ struct AthleteFoldersListView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.surface)
         .tint(ppAccent)
-        .sheet(isPresented: $showingPaywall) {
-            if let user = authManager.localUser {
-                ImprovedPaywallView(user: user)
-            }
-        }
     }
     
     // MARK: - Actions
@@ -521,62 +489,55 @@ struct AthleteFolderDetailContent: View {
             // Header with folder info
             folderHeader
 
-            // Content: gated behind Pro tier for non-Pro athletes
-            if authManager.hasCoachingAccess {
-                AthleteVideoListView(
-                    folder: folder,
-                    videos: viewModel.videos,
-                    unreadVideoIDs: activityNotifService.unreadVideoIDs,
-                    feedbackVideoIDs: activityNotifService.unreadFeedbackVideoIDs,
-                    targetVideoID: targetVideoID
-                ) {
-                    await viewModel.loadVideos()
-                }
-            } else {
-                proUpgradeOverlay
+            AthleteVideoListView(
+                folder: folder,
+                videos: viewModel.videos,
+                unreadVideoIDs: activityNotifService.unreadVideoIDs,
+                feedbackVideoIDs: activityNotifService.unreadFeedbackVideoIDs,
+                targetVideoID: targetVideoID
+            ) {
+                await viewModel.loadVideos()
             }
         }
         .navigationTitle(folder.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            if authManager.hasCoachingAccess {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Menu {
-                        Button {
-                            activeSheet = .uploadVideo
-                        } label: {
-                            Label("Share a Video", systemImage: AppIcon.upload)
-                        }
-
-                        Button {
-                            activeSheet = .inviteCoach
-                        } label: {
-                            Label("Invite Coach", systemImage: "person.badge.plus")
-                        }
-
-                        Button {
-                            activeSheet = .manageCoaches
-                        } label: {
-                            Label("Manage Coaches", systemImage: "person.2.fill")
-                        }
-
-                        Button {
-                            activeSheet = .renameFolder
-                        } label: {
-                            Label("Rename Folder", systemImage: "pencil")
-                        }
-
-                        if folderUnreadCount > 0 {
-                            Divider()
-                            Button {
-                                markAllFolderNotificationsRead()
-                            } label: {
-                                Label("Mark All as Read", systemImage: "checkmark.circle")
-                            }
-                        }
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Menu {
+                    Button {
+                        activeSheet = .uploadVideo
                     } label: {
-                        Image(systemName: "ellipsis.circle")
+                        Label("Share a Video", systemImage: AppIcon.upload)
                     }
+
+                    Button {
+                        activeSheet = .inviteCoach
+                    } label: {
+                        Label("Invite Coach", systemImage: "person.badge.plus")
+                    }
+
+                    Button {
+                        activeSheet = .manageCoaches
+                    } label: {
+                        Label("Manage Coaches", systemImage: "person.2.fill")
+                    }
+
+                    Button {
+                        activeSheet = .renameFolder
+                    } label: {
+                        Label("Rename Folder", systemImage: "pencil")
+                    }
+
+                    if folderUnreadCount > 0 {
+                        Divider()
+                        Button {
+                            markAllFolderNotificationsRead()
+                        } label: {
+                            Label("Mark All as Read", systemImage: "checkmark.circle")
+                        }
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
                 }
             }
         }
@@ -599,43 +560,6 @@ struct AthleteFolderDetailContent: View {
         }
         .refreshable {
             await viewModel.loadVideos()
-        }
-    }
-
-    private var proUpgradeOverlay: some View {
-        VStack(spacing: 20) {
-            Spacer()
-
-            Image(systemName: "lock.fill")
-                .font(.system(size: 40))
-                .foregroundColor(.secondary)
-
-            let videoCount = folder.videoCount ?? 0
-            if videoCount > 0 {
-                Text("\(videoCount) video\(videoCount == 1 ? "" : "s") from your coach")
-                    .font(.headingLarge)
-            }
-
-            Text("Upgrade to Pro to view shared videos and collaborate with your coach.")
-                .font(.bodyMedium)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
-
-            Button {
-                NotificationCenter.default.post(name: .showSubscriptionPaywall, object: nil)
-            } label: {
-                Text("Upgrade to Pro")
-                    .font(.headingMedium)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 50)
-                    .background(Color.brandNavy)
-                    .foregroundColor(.white)
-                    .cornerRadius(12)
-            }
-            .padding(.horizontal, 40)
-
-            Spacer()
         }
     }
 

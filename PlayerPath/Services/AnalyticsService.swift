@@ -63,6 +63,18 @@ final class AnalyticsService {
         Analytics.setUserProperty(value, forName: key)
     }
 
+    // MARK: - Coach Connection Events
+
+    /// Logged when an athlete accepts a coach's invitation. Also stamps the
+    /// `acquisition_source` user property so paywall/subscription conversions can
+    /// be segmented coach-invited vs organic (the key instructor-channel metric).
+    func trackCoachInvitationAccepted(coachID: String?) {
+        logEvent(.coachInvitationAccepted, parameters: [
+            "coach_id": coachID ?? "unknown"
+        ])
+        Analytics.setUserProperty("coach_invited", forName: "acquisition_source")
+    }
+
     // MARK: - Authentication Events
 
     func trackSignUp(method: String) {
@@ -448,6 +460,9 @@ enum AnalyticsEvent: String {
     case syncStarted = "sync_started"
     case syncCompleted = "sync_completed"
     case syncFailed = "sync_failed"
+
+    // Coach connections
+    case coachInvitationAccepted = "coach_invitation_accepted"
 
     // Premium
     case paywallShown = "paywall_shown"

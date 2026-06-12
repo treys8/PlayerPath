@@ -19,7 +19,8 @@ service cloud.firestore {
     }
 
     // Checks if the requesting user has a Pro (or higher) athlete subscription tier.
-    // Used to gate shared folder and invitation creation.
+    // Pricing Model V2: coach sharing is no longer Pro-gated, so this currently has
+    // no callers — kept for future athlete-tier-gated rules.
     // Uses list check so future tiers above Pro are automatically included.
     function hasProTier() {
       let user = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
@@ -329,13 +330,13 @@ service cloud.firestore {
                     && (resource.data.ownerAthleteID == request.auth.uid
                         || request.auth.uid in resource.data.sharedWithCoachIDs);
 
-      // Only athletes with Pro tier can create shared folders.
+      // Any athlete can create shared folders (Pricing Model V2: coach sharing
+      // is paid for by the coach's seat, not the athlete's tier).
       // Folders MUST be created empty — coach addition happens exclusively via
       // Cloud Functions (Admin SDK) which enforce the coach athlete-limit
       // transaction. Forbidding pre-seeded sharedWithCoachIDs/permissions at
       // create closes the only client path that could bypass that gate.
       allow create: if isAuthenticated()
-                    && hasProTier()
                     && request.resource.data.ownerAthleteID == request.auth.uid
                     && request.resource.data.sharedWithCoachIDs.size() == 0
                     && (!('permissions' in request.resource.data)
@@ -370,8 +371,8 @@ service cloud.firestore {
     // ========================================================================
 
     match /videos/{videoID} {
-      // Read: personal video owner OR shared folder member with valid tier
-      // Folder owner must have Pro tier; coaches must have any coach tier.
+      // Read: personal video owner OR shared folder member.
+      // Folder owners read at any tier (Pricing Model V2); coaches must have a coach tier.
       allow read: if isAuthenticated() && (
         resource.data.uploadedBy == request.auth.uid ||
         ('sharedFolderID' in resource.data && canAccessFolder(resource.data.sharedFolderID)
@@ -387,7 +388,7 @@ service cloud.firestore {
          !('sharedFolderID' in request.resource.data)) ||
         (hasPermission(request.resource.data.sharedFolderID, "upload") &&
          request.resource.data.uploadedBy == request.auth.uid &&
-         (isFolderOwner(request.resource.data.sharedFolderID) ? hasProTier() : hasCoachTier()))
+         (isFolderOwner(request.resource.data.sharedFolderID) || hasCoachTier()))
       ) && (!('visibility' in request.resource.data) || request.resource.data.visibility in ['shared', 'private']);
 
       // Only the uploader can update their own video.
@@ -785,7 +786,8 @@ service cloud.firestore {
         (resource.data.athleteEmail == getUserEmail() && request.auth.token.email_verified == true)
       );
 
-      // Athlete-to-coach invitation: athlete creates, must have Pro tier
+      // Athlete-to-coach invitation: athlete creates (any tier — Pricing Model V2:
+      // the connection is paid for by the coach's seat at acceptance time)
       // Coach-to-athlete invitation: coach creates, must have a coach tier
       // Email fields are validated to prevent impersonation
       allow create: if isAuthenticated()
@@ -805,8 +807,7 @@ service cloud.firestore {
                       // folderID/folderName are optional — folders are created server-side on acceptance
                       (request.resource.data.type == "athlete_to_coach"
                        && request.resource.data.athleteID == request.auth.uid
-                       && request.resource.data.keys().hasAll(['athleteID', 'coachEmail'])
-                       && hasProTier())
+                       && request.resource.data.keys().hasAll(['athleteID', 'coachEmail']))
                       ||
                       // Coach-to-athlete: coach is the sender, validate sender identity
                       // coachEmail is compared against the stored profile email (both lowercased)

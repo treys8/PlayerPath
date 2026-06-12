@@ -32,7 +32,6 @@ struct ProfileView: View {
     @State private var showDeleteError = false
     @State private var deleteErrorMessage = ""
     @State private var showingPaywall = false
-    @State private var showCoachesPremiumAlert = false
     @State private var sortedAthletes: [Athlete] = []
     @State private var searchText = ""
     @State private var showingQuickSearch = false
@@ -93,14 +92,6 @@ struct ProfileView: View {
             Button("OK", role: .cancel) { }
         } message: {
             Text(deleteErrorMessage.isEmpty ? ProfileStrings.pleaseRetry : deleteErrorMessage)
-        }
-        .alert(ProfileStrings.premiumRequired, isPresented: $showCoachesPremiumAlert) {
-            Button(ProfileStrings.upgradeToPremium) {
-                showingPaywall = true
-            }
-            Button(ProfileStrings.cancel, role: .cancel) { }
-        } message: {
-            Text(ProfileStrings.premiumCoachMessage)
         }
         .overlay {
             if isSigningOut {
@@ -320,8 +311,7 @@ struct ProfileView: View {
 
         // Resolve a real Athlete once — never synthesise a throwaway record, as the
         // NavigationLink destination is evaluated eagerly and would churn SwiftData.
-        let resolvedAthlete = selectedAthlete ?? user.athletes?.first
-        if authManager.hasCoachingAccess, let folderAthlete = resolvedAthlete {
+        if let folderAthlete = selectedAthlete ?? user.athletes?.first {
             items.append(SearchResult(
                 title: "Shared Folders",
                 icon: "folder.badge.person.crop",
@@ -332,30 +322,6 @@ struct ProfileView: View {
                     } label: {
                         Label("Shared Folders", systemImage: "folder.badge.person.crop")
                     }
-                )
-            ))
-        } else if !authManager.hasCoachingAccess {
-            items.append(SearchResult(
-                title: "Shared Folders",
-                icon: "folder.badge.person.crop",
-                keywords: ["shared", "folders", "coach", "sharing"],
-                link: AnyView(
-                    Button {
-                        showingPaywall = true
-                    } label: {
-                        HStack {
-                            Label("Shared Folders", systemImage: "folder.badge.person.crop")
-                            Spacer()
-                            HStack(spacing: 4) {
-                                Image(systemName: "crown.fill")
-                                    .font(.caption)
-                                Text("Pro")
-                                    .font(.caption)
-                            }
-                            .foregroundColor(ppAccent)
-                        }
-                    }
-                    .foregroundColor(.primary)
                 )
             ))
         }
@@ -623,31 +589,13 @@ struct ProfileView: View {
 
     private var settingsSection: some View {
         Section("Settings") {
-            // Coach Sharing Feature (requires Pro tier)
-            if authManager.hasCoachingAccess, let folderAthlete = selectedAthlete ?? user.athletes?.first {
+            // Coach Sharing — free for athletes (the coach's seat covers the connection)
+            if let folderAthlete = selectedAthlete ?? user.athletes?.first {
                 NavigationLink {
                     AthleteFoldersListView(userID: authManager.userID, athlete: folderAthlete)
                 } label: {
                     Label("Shared Folders", systemImage: "folder.badge.person.crop")
                 }
-            } else if !authManager.hasCoachingAccess {
-                Button {
-                    Haptics.warning()
-                    showingPaywall = true
-                } label: {
-                    HStack {
-                        Label("Shared Folders", systemImage: "folder.badge.person.crop")
-                        Spacer()
-                        HStack(spacing: 4) {
-                            Image(systemName: "crown.fill")
-                                .font(.caption)
-                            Text("Pro")
-                                .font(.caption)
-                        }
-                        .foregroundColor(ppAccent)
-                    }
-                }
-                .foregroundColor(.primary)
             }
 
             NavigationLink {

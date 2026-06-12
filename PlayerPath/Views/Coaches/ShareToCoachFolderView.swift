@@ -31,15 +31,12 @@ struct ShareToCoachFolderView: View {
     @State private var isUploading = false
     @State private var uploadProgress: Double = 0
     @State private var errorMessage: String?
-    @State private var shouldOpenPaywallOnDismiss = false
     @FocusState private var notesFocused: Bool
 
     var body: some View {
         NavigationStack {
             Group {
-                if !authManager.hasCoachingAccess {
-                    unauthorizedState
-                } else if folderManager.isLoading && scopedFolders.isEmpty {
+                if folderManager.isLoading && scopedFolders.isEmpty {
                     ProgressView("Loading folders…")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if scopedFolders.isEmpty {
@@ -83,76 +80,9 @@ struct ShareToCoachFolderView: View {
         .task {
             await loadFolders()
         }
-        .onDisappear {
-            if shouldOpenPaywallOnDismiss {
-                NotificationCenter.default.post(name: .showSubscriptionPaywall, object: nil)
-            }
-        }
     }
 
     // MARK: - Sub-views
-
-    private var unauthorizedState: some View {
-        VStack(spacing: 24) {
-            Spacer()
-
-            Image(systemName: "person.2.badge.gearshape")
-                .font(.system(size: 56))
-                .foregroundColor(.brandNavy)
-
-            Text("Share Videos with Your Coach")
-                .font(.title2)
-                .fontWeight(.bold)
-
-            Text("Get personalized feedback on your game and practice clips.")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
-
-            VStack(alignment: .leading, spacing: 12) {
-                featureRow(icon: "message.badge.circle", text: "Timestamped coach feedback on every clip")
-                featureRow(icon: "list.clipboard", text: "Drill cards for structured skill reviews")
-                featureRow(icon: "folder.badge.person.crop", text: "Organized shared folders per coach")
-            }
-            .padding(.horizontal, 32)
-
-            Spacer()
-
-            Button {
-                shouldOpenPaywallOnDismiss = true
-                dismiss()
-            } label: {
-                Text("View Plans")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 50)
-                    .background(Color.brandNavy)
-                    .foregroundColor(.white)
-                    .cornerRadius(12)
-            }
-            .padding(.horizontal, 24)
-
-            Button("Restore Purchases") {
-                Task { await StoreKitManager.shared.restorePurchases() }
-            }
-            .font(.caption)
-            .foregroundColor(.secondary)
-            .padding(.bottom, 16)
-        }
-    }
-
-    private func featureRow(icon: String, text: String) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: icon)
-                .font(.body)
-                .foregroundColor(.brandNavy)
-                .frame(width: 24)
-            Text(text)
-                .font(.subheadline)
-                .foregroundColor(.primary)
-        }
-    }
 
     private var emptyState: some View {
         VStack(spacing: 20) {

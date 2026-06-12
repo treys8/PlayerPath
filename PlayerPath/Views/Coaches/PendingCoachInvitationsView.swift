@@ -4,13 +4,13 @@
 //
 //  Shared pieces for showing and acting on incoming coach→athlete invitations.
 //  Used by the athlete Coaches page (inline "Invitations" section). The accept
-//  flow is delicate — Pro paywall + resume-on-purchase, multi-athlete picker,
-//  and a Firestore tier sync before the accept Cloud Function — so it lives here
-//  once instead of being duplicated per surface.
+//  flow lives here once instead of being duplicated per surface (multi-athlete
+//  picker + error handling). Pricing Model V2: accepting is free for athletes —
+//  the connection is paid for by the coach's seat, so there is no paywall here.
 //
 //  Composition (all hosted inside a `List`):
 //    • `CoachInvitationRows`     — a bare `ForEach` of `CoachInvitationCard`s.
-//    • `.coachInvitationSheets`  — paywall / picker / error, applied to the List
+//    • `.coachInvitationSheets`  — picker / error, applied to the List
 //                                   so the modal state sits ABOVE the flattened
 //                                   rows (a modified `ForEach` stops flattening
 //                                   into per-row cards inside a List).
@@ -34,15 +34,7 @@ private let log = Logger(subsystem: "com.playerpath.app", category: "CoachInvita
 final class CoachInvitationActions {
     var processingInvitationID: String?
     var errorMessage: String?
-    var showingPaywall = false
     var pendingInvitationForPicker: CoachToAthleteInvitation?
-    /// The invitation the athlete tapped Accept on while below Pro. Held so a
-    /// successful upgrade in the paywall can resume the accept automatically.
-    var pendingInvitationForPaywall: CoachToAthleteInvitation?
-    /// Set by the paywall's purchase callback. The resume runs in the paywall's
-    /// `onDismiss` (after the sheet is fully gone) so we never present the athlete
-    /// picker while the paywall is still dismissing — which would race two sheets.
-    var didPurchaseProForPendingInvite = false
 
     /// Invoked when the pending list empties after a resolve. The sheet passes
     /// `dismiss`; the Coaches-page section leaves it nil (the section self-clears).
@@ -54,12 +46,6 @@ final class CoachInvitationActions {
                 authManager: ComprehensiveAuthManager,
                 modelContext: ModelContext,
                 athletes: [Athlete]) async {
-        guard authManager.hasCoachingAccess else {
-            // Queue this invitation so a successful Pro purchase resumes the accept.
-            pendingInvitationForPaywall = invitation
-            showingPaywall = true
-            return
-        }
         guard processingInvitationID == nil else {
             log.warning("ACCEPT blocked: already processing \(self.processingInvitationID ?? "nil")")
             return
@@ -94,19 +80,6 @@ final class CoachInvitationActions {
         log.debug("ACCEPT starting for invitation \(invitation.id ?? "nil")")
         processingInvitationID = invitation.id
 
-        // Confirm Firestore has our current subscription tier *before* the accept
-        // Cloud Function reads it — otherwise a just-upgraded athlete (or a failed
-        // sync) would be rejected with a misleading "Pro required" error.
-        do {
-            try await authManager.syncSubscriptionTierToFirestoreAndWait()
-        } catch {
-            log.warning("Tier sync before accept failed: \(error.localizedDescription)")
-            errorMessage = "Couldn't verify your subscription. Check your connection and try again."
-            Haptics.error()
-            processingInvitationID = nil
-            return
-        }
-
         do {
             let result = try await AthleteInvitationManager.shared.acceptInvitation(
                 invitation,
@@ -126,29 +99,6 @@ final class CoachInvitationActions {
         // processingInvitationID is still set — so the modifier's count `.onChange`
         // skips. Re-check now that the flag is clear to fire onAllResolved.
         if invitationManager.pendingInvitations.isEmpty { onAllResolved?() }
-    }
-
-    /// Runs when the paywall opened by the Accept gate is dismissed. If a Pro
-    /// purchase completed, resumes the queued accept so the upgrade isn't a dead
-    /// end; otherwise drops the queued invitation. Routes straight to
-    /// `performAccept` (not back through the gate) so the local tier publisher
-    /// doesn't need to have propagated — the server re-validates from the receipt.
-    func resumeAfterPaywall(authManager: ComprehensiveAuthManager,
-                            modelContext: ModelContext,
-                            athletes: [Athlete]) {
-        guard let queued = pendingInvitationForPaywall else { return }
-        pendingInvitationForPaywall = nil
-        guard didPurchaseProForPendingInvite else { return }
-        didPurchaseProForPendingInvite = false
-        if athletes.count >= 2 {
-            // Multi-athlete account: still ask which athlete this invite is for.
-            pendingInvitationForPicker = queued
-        } else {
-            Task {
-                await performAccept(queued, targetAthlete: athletes.first,
-                                    authManager: authManager, modelContext: modelContext)
-            }
-        }
     }
 
     func decline(_ invitation: CoachToAthleteInvitation,
@@ -227,18 +177,6 @@ private struct CoachInvitationSheets: ViewModifier {
             } message: {
                 Text(actions.errorMessage ?? "")
             }
-            .sheet(isPresented: $actions.showingPaywall, onDismiss: {
-                actions.resumeAfterPaywall(authManager: authManager,
-                                           modelContext: modelContext, athletes: athletes)
-            }) {
-                if let user = authManager.localUser {
-                    ImprovedPaywallView(user: user, requiredTier: .pro) {
-                        // Pro purchase completed — flag it; the resume runs in
-                        // onDismiss above, after this sheet is fully gone.
-                        actions.didPurchaseProForPendingInvite = true
-                    }
-                }
-            }
             .sheet(item: $actions.pendingInvitationForPicker) { invitation in
                 AcceptInvitationAthletePickerSheet(
                     invitation: invitation,
@@ -262,7 +200,7 @@ private struct CoachInvitationSheets: ViewModifier {
 }
 
 extension View {
-    /// Attaches the paywall, multi-athlete picker, and error surfaces that back the
+    /// Attaches the multi-athlete picker and error surfaces that back the
     /// Accept/Decline actions in `CoachInvitationRows`. Apply to the `List` (or
     /// other stable container) hosting the rows so the modal state lives above the
     /// flattened rows — never inside the `ForEach`.
@@ -325,6 +263,11 @@ struct CoachInvitationCard: View {
                     .background(Theme.surface)
                     .cornerRadius(.cornerMedium)
             }
+
+            // The coach's plan covers the connection — free for the athlete.
+            Label("\(invitation.coachName)'s plan covers this — free for you.", systemImage: "checkmark.seal")
+                .font(.labelSmall)
+                .foregroundColor(Theme.textSecondary)
 
             // Action buttons
             HStack(spacing: 12) {

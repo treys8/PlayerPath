@@ -29,9 +29,6 @@ struct MainTabView: View {
     @ObservedObject private var onboardingManager = OnboardingManager.shared
     @State private var hasRunInitialSetup = false
 
-    // Athlete downgrade detection (shared folders + Pro lapse)
-    private var athleteDowngradeManager: AthleteDowngradeManager { .shared }
-
     // Global paywall triggered by notification from any tab
     @State private var showingPaywall = false
 
@@ -139,8 +136,6 @@ struct MainTabView: View {
                     showingWelcomeTutorial = true
                 }
 
-                // Evaluate athlete downgrade state
-                athleteDowngradeManager.evaluate(tier: authManager.currentTier)
             }
             .onChange(of: selectedAthlete.id) { _, _ in
                 // Reset path state so the user lands at the root of each stack
@@ -150,9 +145,6 @@ struct MainTabView: View {
                 homePath = NavigationPath()
                 morePath = NavigationPath()
                 refreshAllTabAthleteIDs()
-            }
-            .onChange(of: authManager.currentTier) { _, newTier in
-                athleteDowngradeManager.evaluate(tier: newTier)
             }
             .onChange(of: scenePhase) { _, phase in
                 // Weekly summary body is baked in at schedule time — refresh on
@@ -501,29 +493,26 @@ struct MainTabView: View {
                 case .practice:
                     PracticesView(athlete: selectedAthlete).id(selectedAthlete.id)
                 case .highlights:
-                    HighlightsView(athlete: selectedAthlete, currentTier: authManager.currentTier, hasCoachingAccess: authManager.hasCoachingAccess).id(selectedAthlete.id).plusRequired()
+                    HighlightsView(athlete: selectedAthlete, currentTier: authManager.currentTier).id(selectedAthlete.id).plusRequired()
                 case .seasons:
                     SeasonsView(athlete: selectedAthlete).id(selectedAthlete.id)
                 case .photos:
                     PhotosView(athlete: selectedAthlete).id(selectedAthlete.id)
                 case .coaches:
-                    // Viewing is un-gated so a free athlete can see (and convert on)
-                    // an incoming coach invitation. Send/share actions stay Pro-gated
-                    // inside CoachesView; Accept routes to the paywall.
                     CoachesView(athlete: selectedAthlete).id(selectedAthlete.id)
                 case .sharedFolders:
-                    AthleteFoldersListView(userID: authManager.userID, athlete: selectedAthlete).id(selectedAthlete.id).proRequired()
+                    AthleteFoldersListView(userID: authManager.userID, athlete: selectedAthlete).id(selectedAthlete.id)
                 case .sharedFolder(let folderID):
                     if let folder = SharedFolderManager.shared.athleteFolders.first(where: { $0.id == folderID }) {
-                        AthleteFolderDetailView(folder: folder).proRequired()
+                        AthleteFolderDetailView(folder: folder)
                     } else {
-                        AthleteFoldersListView(userID: authManager.userID, athlete: selectedAthlete).id(selectedAthlete.id).proRequired()
+                        AthleteFoldersListView(userID: authManager.userID, athlete: selectedAthlete).id(selectedAthlete.id)
                     }
                 case .sharedFolderVideo(let folderID, let videoID):
                     if let folder = SharedFolderManager.shared.athleteFolders.first(where: { $0.id == folderID }) {
-                        AthleteFolderDetailView(folder: folder, targetVideoID: videoID).proRequired()
+                        AthleteFolderDetailView(folder: folder, targetVideoID: videoID)
                     } else {
-                        AthleteFoldersListView(userID: authManager.userID, athlete: selectedAthlete).id(selectedAthlete.id).proRequired()
+                        AthleteFoldersListView(userID: authManager.userID, athlete: selectedAthlete).id(selectedAthlete.id)
                     }
                 case .storageSettings:
                     StorageSettingsView()

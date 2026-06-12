@@ -104,9 +104,9 @@ extension ComprehensiveAuthManager {
         // During Apple's grace/billing-retry window the subscription is expired-on-paper
         // but still honored, and StoreKitManager intentionally keeps the tier locally.
         // Syncing now would make the server derive `free` from the expired transaction
-        // and cross the Pro boundary — wrongly revoking coach access (and emailing
-        // coaches) for a transient billing hiccup. Skip until the lapse resolves (renew
-        // or true expiry, at which point a normal sync writes the correct tier).
+        // for a transient billing hiccup (wrongly shrinking server-side limits like
+        // athlete count). Skip until the lapse resolves (renew or true expiry, at
+        // which point a normal sync writes the correct tier).
         if StoreKitManager.shared.isInGracePeriod || StoreKitManager.shared.isInBillingRetryPeriod {
             authLog.info("Skipping tier sync during grace/billing-retry to avoid premature server downgrade")
             return

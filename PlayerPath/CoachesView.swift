@@ -18,7 +18,6 @@ struct CoachesView: View {
 
     @State private var showingAddCoach = false
     @State private var showingInviteCoach = false
-    @State private var showingPaywall = false
     @State private var coachToDelete: Coach?
     @State private var showingDeleteConfirmation = false
     @State private var coachToReport: Coach?
@@ -61,15 +60,9 @@ struct CoachesView: View {
                         showingAddCoach = true
                     },
                     onInviteCoach: {
-                        if authManager.hasCoachingAccess {
-                            Haptics.medium()
-                            showingInviteCoach = true
-                        } else {
-                            Haptics.warning()
-                            showingPaywall = true
-                        }
-                    },
-                    hasCoachingAccess: authManager.hasCoachingAccess
+                        Haptics.medium()
+                        showingInviteCoach = true
+                    }
                 )
             } else {
                 List {
@@ -85,37 +78,35 @@ struct CoachesView: View {
                         }
                     }
 
-                    // Invite Coach Banner (Pro)
-                    if authManager.hasCoachingAccess {
-                        Section {
-                            Button {
-                                Haptics.medium()
-                                showingInviteCoach = true
-                            } label: {
-                                HStack {
-                                    Image(systemName: "person.badge.plus")
-                                        .font(.title2)
-                                        .foregroundColor(ppAccent)
+                    // Invite Coach Banner
+                    Section {
+                        Button {
+                            Haptics.medium()
+                            showingInviteCoach = true
+                        } label: {
+                            HStack {
+                                Image(systemName: "person.badge.plus")
+                                    .font(.title2)
+                                    .foregroundColor(ppAccent)
 
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text("Invite a Coach")
-                                            .font(.headingMedium)
-                                            .foregroundColor(Theme.textPrimary)
-                                        Text("Share videos and get feedback")
-                                            .font(.caption)
-                                            .foregroundColor(Theme.textSecondary)
-                                    }
-
-                                    Spacer()
-
-                                    Image(systemName: "chevron.right")
-                                        .foregroundColor(Theme.textTertiary)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Invite a Coach")
+                                        .font(.headingMedium)
+                                        .foregroundColor(Theme.textPrimary)
+                                    Text("Share videos and get feedback")
+                                        .font(.caption)
+                                        .foregroundColor(Theme.textSecondary)
                                 }
-                                .padding(.vertical, 4)
+
+                                Spacer()
+
+                                Image(systemName: "chevron.right")
+                                    .foregroundColor(Theme.textTertiary)
                             }
+                            .padding(.vertical, 4)
                         }
-                        .listRowBackground(Theme.card)
                     }
+                    .listRowBackground(Theme.card)
 
                     if !coaches.isEmpty {
                         Section("Your Coaches") {
@@ -183,13 +174,8 @@ struct CoachesView: View {
                     }
 
                     Button {
-                        if authManager.hasCoachingAccess {
-                            Haptics.medium()
-                            showingInviteCoach = true
-                        } else {
-                            Haptics.warning()
-                            showingPaywall = true
-                        }
+                        Haptics.medium()
+                        showingInviteCoach = true
                     } label: {
                         Label("Invite Coach to Share", systemImage: "paperplane")
                     }
@@ -203,11 +189,6 @@ struct CoachesView: View {
         }
         .sheet(isPresented: $showingInviteCoach) {
             InviteCoachSheet(athlete: athlete)
-        }
-        .sheet(isPresented: $showingPaywall) {
-            if let user = authManager.localUser {
-                ImprovedPaywallView(user: user)
-            }
         }
         .alert("Delete Coach", isPresented: $showingDeleteConfirmation, presenting: coachToDelete) { coach in
             Button("Cancel", role: .cancel) {
@@ -257,11 +238,6 @@ struct CoachesView: View {
     private func reinviteCoach(_ coach: Coach) {
         guard !coach.email.isEmpty else {
             Haptics.error()
-            return
-        }
-        guard authManager.hasCoachingAccess else {
-            showingPaywall = true
-            Haptics.warning()
             return
         }
         guard !isReinviting else { return }

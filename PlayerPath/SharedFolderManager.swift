@@ -40,29 +40,20 @@ class SharedFolderManager {
     
     // MARK: - Athlete Functions
     
-    /// Creates a new shared folder for an athlete (Coaching Add-On feature)
+    /// Creates a new shared folder for an athlete. Free at every athlete tier —
+    /// Pricing Model V2: coach connections are paid for by the coach's seat.
     /// - Parameters:
     ///   - name: Display name for the folder
     ///   - athleteID: Current user's athlete ID
     ///   - athleteName: Display name of the athlete (shown to coaches)
-    ///   - hasCoachingAccess: Whether user has coaching add-on + at least Plus tier
     /// - Returns: Created folder ID
     func createFolder(
         name: String,
         forAthlete athleteID: String,
         athleteName: String? = nil,
         athleteUUID: String,
-        personGroupID: String? = nil,
-        hasCoachingAccess: Bool
+        personGroupID: String? = nil
     ) async throws -> String {
-        // Verify Pro tier with the comp-aware effective tier (matching the passed-in
-        // hasCoachingAccess, which derives from authManager.currentTier) so an
-        // admin-comped Pro athlete isn't wrongly blocked. firestore.rules hasProTier()
-        // remains the authoritative server-side backstop.
-        guard hasCoachingAccess, SubscriptionGate.effectiveAthleteTier >= .pro else {
-            throw SharedFolderError.coachingRequired
-        }
-
         guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw SharedFolderError.invalidName
         }
@@ -768,7 +759,6 @@ enum FolderAction {
 }
 
 enum SharedFolderError: LocalizedError {
-    case coachingRequired
     case invalidName
     case invalidEmail
     case duplicateInvitation
@@ -780,8 +770,6 @@ enum SharedFolderError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .coachingRequired:
-            return "Pro subscription required to create shared folders and invite coaches."
         case .invalidName:
             return "Please enter a valid folder name"
         case .invalidEmail:

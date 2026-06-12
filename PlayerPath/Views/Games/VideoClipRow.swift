@@ -10,7 +10,6 @@ import SwiftData
 
 struct VideoClipRow: View {
     let clip: VideoClip
-    let hasCoachingAccess: Bool
     @Environment(\.ppAccent) private var ppAccent
     @State private var showingVideoPlayer = false
     @State private var showingShareToFolder = false
@@ -96,7 +95,7 @@ struct VideoClipRow: View {
             Button {
                 showingShareToFolder = true
             } label: {
-                Label("Share to Coach Folder", systemImage: hasCoachingAccess ? "folder.badge.person.crop" : "lock.fill")
+                Label("Share to Coach Folder", systemImage: "folder.badge.person.crop")
             }
 
             Button {

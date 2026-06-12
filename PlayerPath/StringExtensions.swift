@@ -80,7 +80,6 @@ enum ProfileStrings {
     // Messages
     static let signOutConfirmation = "Are you sure you want to sign out? You can always sign back in later."
     static let deleteAthleteConfirmation = "This will delete the athlete and related data. This action cannot be undone."
-    static let premiumCoachMessage = "Share folders with your coaches to get personalized feedback. Upgrade to Premium to unlock coach collaboration features."
     
     // Errors
     static let deleteFailed = "Failed to delete athlete: %@"

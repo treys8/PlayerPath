@@ -152,7 +152,7 @@ struct VideoPlayerView: View {
         Button {
             showingShareToFolder = true
         } label: {
-            Label("Share to Coach Folder", systemImage: authManager.hasCoachingAccess ? "folder.badge.person.crop" : "lock.fill")
+            Label("Share to Coach Folder", systemImage: "folder.badge.person.crop")
         }
 
         Divider()

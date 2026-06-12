@@ -15,11 +15,6 @@ extension View {
     func plusRequired() -> some View {
         modifier(TierGateModifier(requiredTier: .plus))
     }
-
-    /// Requires Pro tier
-    func proRequired() -> some View {
-        modifier(TierGateModifier(requiredTier: .pro))
-    }
 }
 
 // MARK: - Tier Gate Modifier

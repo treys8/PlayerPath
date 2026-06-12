@@ -183,6 +183,10 @@ class AthleteInvitationManager {
 
         invitationLog.info("Accepted invitation \(invitationID) from coach \(invitation.coachName)")
 
+        // Attribution: this family is coach-acquired — the conversion segment the
+        // instructor-channel strategy is measured by.
+        AnalyticsService.shared.trackCoachInvitationAccepted(coachID: invitation.coachID)
+
         return AcceptanceResult(
             coachName: invitation.coachName,
             gamesFolderID: gamesFolderID,
@@ -224,8 +228,6 @@ class AthleteInvitationManager {
             return "This invitation has expired. Ask your coach to send a new one."
         case InvitationErrorCode.alreadyProcessed.rawValue:
             return "This invitation has already been processed."
-        case InvitationErrorCode.proRequired.rawValue:
-            return "A Pro subscription is required to accept coach invitations. Upgrade to Pro to connect with your coach."
         default:
             return "Failed to \(action) invitation: \(error.localizedDescription)"
         }

@@ -82,6 +82,18 @@ struct InviteAthleteSheet: View {
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                             .multilineTextAlignment(.center)
+
+                        // Seat status: the invite consumes one of the coach's seats
+                        // and is free for the athlete — the core of the seat model.
+                        // Academy is unlimited (Int.max), so skip the counts there.
+                        if !isAtLimit {
+                            Text(authManager.coachAthleteLimit == Int.max
+                                 ? "Free for them — athletes never need a subscription to work with you."
+                                 : "Uses 1 of your \(authManager.coachAthleteLimit) seats (\(connectedCount + pendingCount) in use) — free for them.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                        }
                     }
                     .padding(.top)
 

@@ -35,7 +35,7 @@ extension Notification.Name {
     static let openInvitations = Notification.Name("openInvitations")
     /// Coach: switch to a specific coach tab. Post with `object: CoachTab.rawValue` (Int).
     static let switchCoachTab = Notification.Name("switchCoachTab")
-    /// Show the subscription paywall (e.g., after accepting a coach invitation without Pro).
+    /// Show the subscription paywall (e.g., from a storage or highlights upsell).
     static let showSubscriptionPaywall = Notification.Name("showSubscriptionPaywall")
     static let videoRecorded = Notification.Name("VideoRecorded")
     static let presentAddPractice = Notification.Name("presentAddPractice")

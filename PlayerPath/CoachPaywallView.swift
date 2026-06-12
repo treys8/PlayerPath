@@ -118,7 +118,7 @@ struct CoachPaywallView: View {
             Text("Upgrade Your Coaching Plan")
                 .font(.title2).fontWeight(.bold)
 
-            Text("Coach more athletes with PlayerPath's pro coaching tools.")
+            Text("More athlete seats, same simple model — your athletes never pay.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

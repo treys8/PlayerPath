@@ -2,8 +2,8 @@
 //  CoachOnboardingFlow.swift
 //  PlayerPath
 //
-//  Coach-specific onboarding — three-page paged flow explaining the
-//  invitation-based workflow that is unique to coaches.
+//  Coach-specific onboarding — four-page paged flow explaining the
+//  invitation-based workflow and the seat model that are unique to coaches.
 //
 
 import SwiftUI
@@ -21,9 +21,9 @@ struct CoachOnboardingFlow: View {
     @State private var showingError = false
     @State private var didComplete = false
     @State private var furthestStepReached = 0
-    private let totalPages = 3
+    private let totalPages = 4
 
-    private static let coachStepNames = ["welcome", "how_it_works", "ready"]
+    private static let coachStepNames = ["welcome", "how_it_works", "seats_explained", "ready"]
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -42,10 +42,15 @@ struct CoachOnboardingFlow: View {
                 )
                 .tag(1)
 
+                CoachSeatsPage(
+                    onNext: { Haptics.light(); withAnimation { currentPage = 3 } }
+                )
+                .tag(2)
+
                 CoachReadyPage(
                     onComplete: completeCoachOnboarding
                 )
-                .tag(2)
+                .tag(3)
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
             .ignoresSafeArea()
@@ -434,7 +439,164 @@ private struct CoachHowItWorksPage: View {
     }
 }
 
-// MARK: - Page 3: Ready
+// MARK: - Page 3: How Seats Work
+
+private struct CoachSeatsPage: View {
+    let onNext: () -> Void
+
+    @Environment(\.ppAccent) private var ppAccent
+    @State private var appeared = false
+
+    private var steps: [(icon: String, title: String, detail: String)] {
+        [
+            ("rectangle.stack.person.crop.fill", "Your Plan Includes Athlete Seats",
+             "Free coaches get 2 seats. Instructor plans add more — 10 or 30 — as your roster grows."),
+            ("person.badge.plus", "Each Seat Holds One Athlete",
+             "An invitation you send holds a seat too, until it's accepted or declined."),
+            ("checkmark.seal.fill", "Your Athletes Pay Nothing",
+             "Your clips, drawings, and drill cards reach every athlete free — their families never need a subscription to work with you."),
+        ]
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            ScrollView(showsIndicators: false) {
+                pageContent
+                    .frame(minHeight: proxy.size.height)
+            }
+        }
+    }
+
+    @ViewBuilder private var pageContent: some View {
+        VStack(spacing: 0) {
+                Spacer().frame(height: 60)
+
+                // Header
+                VStack(spacing: 8) {
+                    Text("How Seats Work")
+                        .font(.displayMedium)
+                        .foregroundColor(Theme.textPrimary)
+
+                    Text("You pay. Your athletes don't.")
+                        .font(.bodyMedium)
+                        .foregroundColor(Theme.textSecondary)
+                }
+                .offset(y: appeared ? 0 : 16)
+                .opacity(appeared ? 1 : 0)
+                .animation(.spring(response: 0.5, dampingFraction: 0.8).delay(0.05), value: appeared)
+
+                Spacer().frame(height: 36)
+
+                // Steps
+                VStack(spacing: 0) {
+                    ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
+                        HStack(alignment: .top, spacing: 16) {
+                            VStack(spacing: 0) {
+                                ZStack {
+                                    Circle()
+                                        .fill(ppAccent.opacity(0.18))
+                                        .frame(width: 44, height: 44)
+                                    Image(systemName: step.icon)
+                                        .font(.system(size: 18, weight: .semibold))
+                                        .foregroundColor(ppAccent)
+                                }
+                                if index < steps.count - 1 {
+                                    Rectangle()
+                                        .fill(Theme.divider)
+                                        .frame(width: 1.5, height: 28)
+                                }
+                            }
+
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(step.title)
+                                    .font(.headingSmall)
+                                    .foregroundColor(Theme.textPrimary)
+                                Text(step.detail)
+                                    .font(.bodySmall)
+                                    .foregroundColor(Theme.textSecondary)
+                                    .lineSpacing(2)
+                                if index < steps.count - 1 {
+                                    Spacer().frame(height: 20)
+                                }
+                            }
+
+                            Spacer()
+                        }
+                        .padding(.horizontal, 28)
+                        .offset(y: appeared ? 0 : 20)
+                        .opacity(appeared ? 1 : 0)
+                        .animation(
+                            .spring(response: 0.5, dampingFraction: 0.8)
+                            .delay(0.15 + Double(index) * 0.08),
+                            value: appeared
+                        )
+                    }
+                }
+
+                Spacer()
+
+                // Info callout
+                HStack(spacing: 12) {
+                    Image(systemName: "lightbulb.fill")
+                        .foregroundColor(ppAccent)
+                        .font(.subheadline)
+                    Text("Start free with 2 athletes. When you're ready for more, upgrade anytime from your Profile.")
+                        .font(.bodySmall)
+                        .foregroundColor(Theme.textSecondary)
+                        .lineSpacing(2)
+                }
+                .padding(14)
+                .background(ppAccent.opacity(0.08))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(ppAccent.opacity(0.2), lineWidth: 1)
+                )
+                .padding(.horizontal, 24)
+                .offset(y: appeared ? 0 : 16)
+                .opacity(appeared ? 1 : 0)
+                .animation(.spring(response: 0.5, dampingFraction: 0.8).delay(0.45), value: appeared)
+
+                Spacer().frame(height: 20)
+
+                // CTA
+                Button(action: onNext) {
+                    HStack(spacing: 10) {
+                        Text("Continue")
+                            .font(.headingMedium)
+                            .fontWeight(.bold)
+                        Image(systemName: "arrow.right")
+                            .font(.headingMedium)
+                            .fontWeight(.bold)
+                    }
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 56)
+                    .background(
+                        LinearGradient(
+                            colors: [ppAccent, ppAccent.opacity(0.85)],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .shadow(color: ppAccent.opacity(0.4), radius: 16, x: 0, y: 8)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Continue")
+                .accessibilityHint("See next steps for your Dashboard")
+                .accessibilitySortPriority(1)
+                .padding(.horizontal, 24)
+                .padding(.bottom, 80)
+                .offset(y: appeared ? 0 : 16)
+                .opacity(appeared ? 1 : 0)
+                .animation(.spring(response: 0.5, dampingFraction: 0.8).delay(0.5), value: appeared)
+        }
+        .onAppear { appeared = true }
+    }
+}
+
+// MARK: - Page 4: Ready
 
 private struct CoachReadyPage: View {
     let onComplete: () -> Void
@@ -445,7 +607,7 @@ private struct CoachReadyPage: View {
     private let checklist: [(icon: String, text: String)] = [
         ("tray.and.arrow.down.fill", "Check your Dashboard for athlete invitations"),
         ("video.badge.checkmark",    "Watch and annotate shared video clips"),
-        ("bubble.left.and.text.bubble.right.fill", "Leave timestamped notes athletes can act on"),
+        ("bubble.left.and.text.bubble.right.fill", "Leave coaching notes athletes can act on"),
         ("bell.badge.fill",          "Get notified when athletes upload new footage"),
     ]
 

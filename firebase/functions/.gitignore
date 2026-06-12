@@ -3,6 +3,9 @@ lib/
 *.js
 *.js.map
 
+# Hand-written admin/migration scripts are source, not build output
+!scripts/*.js
+
 # TypeScript cache
 *.tsbuildinfo
 

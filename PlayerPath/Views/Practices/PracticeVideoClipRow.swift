@@ -10,7 +10,6 @@ import SwiftData
 
 struct PracticeVideoClipRow: View {
     let clip: VideoClip
-    let hasCoachingAccess: Bool
     var onPlay: (() -> Void)? = nil
     @State private var showingShareToFolder = false
     @State private var showingNoteEditor = false
@@ -87,7 +86,7 @@ struct PracticeVideoClipRow: View {
             Button {
                 showingShareToFolder = true
             } label: {
-                Label("Share to Coach Folder", systemImage: hasCoachingAccess ? "folder.badge.person.crop" : "lock.fill")
+                Label("Share to Coach Folder", systemImage: "folder.badge.person.crop")
             }
             Divider()
             Button {

@@ -13,7 +13,6 @@ struct VideoClipCard: View {
     let video: VideoClip
     var isSelectionMode: Bool = false
     var isSelected: Bool = false
-    var hasCoachingAccess: Bool = false
     /// Whether to draw the bookmark highlight marker on the thumbnail. Defaults
     /// to `true` for general lists (Videos tab) where it distinguishes
     /// highlighted clips; `HighlightsView` passes `false` since every clip there
@@ -327,7 +326,7 @@ struct VideoClipCard: View {
         Button {
             showingShareToFolder = true
         } label: {
-            Label("Share to Coach Folder", systemImage: hasCoachingAccess ? "folder.badge.person.crop" : "lock.fill")
+            Label("Share to Coach Folder", systemImage: "folder.badge.person.crop")
         }
 
         Divider()

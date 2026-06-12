@@ -224,7 +224,7 @@ struct PracticeDetailView: View {
                     }
                 } else {
                     ForEach(videoClips) { clip in
-                        PracticeVideoClipRow(clip: clip, hasCoachingAccess: authManager.hasCoachingAccess, onPlay: { selectedVideo = clip })
+                        PracticeVideoClipRow(clip: clip, onPlay: { selectedVideo = clip })
                             .swipeActions {
                                 Button(role: .destructive) { deleteVideo(clip) } label: {
                                     Label("Delete", systemImage: "trash")
