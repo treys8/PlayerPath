@@ -33,7 +33,10 @@ struct StatisticsHelpers {
     ///   - modelContext: The SwiftData model context used to insert/save.
     /// - Returns: The attached AthleteStatistics object.
     static func ensureStatistics(for athlete: Athlete, in modelContext: ModelContext) -> AthleteStatistics {
-        if let stats = athlete.statistics { return stats }
+        // A stats row deleted out from under the relationship (e.g. sync dedupe)
+        // still decodes from the relationship fault; mutating its counters traps
+        // inside SwiftData's .modify accessor. Treat it as missing instead.
+        if let stats = athlete.statistics, !stats.isDeleted, stats.modelContext != nil { return stats }
         let stats = AthleteStatistics()
         // Insert before wiring the relationship. Athlete.statistics owns the @Relationship,
         // so the inverse (stats.athlete) auto-populates — setting both sides tripped a

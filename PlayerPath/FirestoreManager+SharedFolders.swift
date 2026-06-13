@@ -169,8 +169,14 @@ extension FirestoreManager {
     }
 
     /// Removes a coach from a shared folder.
-    /// Pass `folderName`, `coachEmail`, and `athleteID` when already available at the call
-    /// site to skip 2 redundant Firestore reads (folder doc + coach user doc).
+    /// Pass `folderName`, `coachEmail`, and `athleteID` when already available at the
+    /// call site to skip the folder-doc read.
+    ///
+    /// IMPORTANT: `users/` docs are owner-read-only, so this function must never
+    /// fetch the *other* party's profile (athlete removing a coach can't read the
+    /// coach's email; a coach leaving a folder can't read the athlete's name).
+    /// Missing fields are written empty and resolved server-side by the
+    /// `sendCoachAccessRevokedEmail` CF via Admin SDK.
     func removeCoachFromFolder(
         folderID: String,
         coachID: String,
@@ -182,30 +188,15 @@ extension FirestoreManager {
         let folderRef = db.collection(FC.sharedFolders).document(folderID)
 
         do {
-            // Fire any required fetches in parallel — the prior implementation
-            // ran them sequentially, adding ~2-3 round trips on cellular.
-            // Folder fetch runs only when (folderName, athleteID) aren't both
-            // supplied; coach-email fetch runs only when coachEmail is absent;
-            // athlete-name fetch always runs (no call site supplies it).
-            //
-            // Resolve athleteID first because the athlete-name fetch depends on it.
             let resolvedFolderName: String
             let resolvedAthleteID: String
-
-            async let coachEmailTask: String = {
-                if let ce = coachEmail { return ce }
-                let snap = try await db.collection(FC.users).document(coachID).getDocument()
-                guard let ce = snap.data()?["email"] as? String else {
-                    throw NSError(domain: "FirestoreManager", code: -1,
-                                  userInfo: [NSLocalizedDescriptionKey: "Failed to fetch coach email"])
-                }
-                return ce
-            }()
+            var athleteName = ""
 
             if let fn = folderName, let aid = athleteID {
                 resolvedFolderName = fn
                 resolvedAthleteID = aid
             } else {
+                // Folder doc is readable by both parties (owner + shared coaches).
                 let folderSnapshot = try await folderRef.getDocument()
                 guard let folderData = folderSnapshot.data(),
                       let fn = folderData["name"] as? String,
@@ -215,15 +206,10 @@ extension FirestoreManager {
                 }
                 resolvedFolderName = fn
                 resolvedAthleteID = aid
+                athleteName = folderData["ownerAthleteName"] as? String ?? ""
             }
 
-            async let athleteNameTask: String = {
-                let snap = try await db.collection(FC.users).document(resolvedAthleteID).getDocument()
-                return snap.data()?["displayName"] as? String ?? "An athlete"
-            }()
-
-            let resolvedCoachEmail = try await coachEmailTask
-            let athleteName = try await athleteNameTask
+            let resolvedCoachEmail = coachEmail ?? ""
 
             // Batch: remove coach from folder + create revocation doc atomically
             let batch = db.batch()

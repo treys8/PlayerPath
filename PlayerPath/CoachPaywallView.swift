@@ -292,11 +292,9 @@ struct CoachPaywallView: View {
                 Text(feature)
                     .font(.caption)
                     .foregroundStyle(.primary)
-                    .frame(width: 90, alignment: .leading)
                     .padding(.leading, 12)
+                    .frame(width: 90, alignment: .leading)
                     .padding(.vertical, 11)
-
-                Spacer(minLength: 0)
 
                 coachCellFrame { free() }
                     .background(selectedTier == .free ? CoachSubscriptionTier.free.color.opacity(0.06) : Color.clear)

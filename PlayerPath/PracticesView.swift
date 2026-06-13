@@ -52,6 +52,9 @@ struct PracticesView: View {
     /// tabs). Consumed in `.onAppear` so the picker surfaces reliably even on a
     /// cold mount, replacing the old timing-based notification hand-off.
     @State private var pendingGolfPickerRequest = false
+    /// Quick-create aborted because the default season couldn't be saved —
+    /// surfaced instead of silently filing a seasonless practice.
+    @State private var showingSeasonSetupError = false
 
     /// True when this athlete has seasons in more than one sport. Drives
     /// sport-aware empty-state copy ("No Golf Practices Yet") so single-sport
@@ -309,6 +312,11 @@ struct PracticesView: View {
         .navigationDestination(item: $navigateToPractice) { practice in
             PracticeDetailView(practice: practice)
         }
+        .alert("Couldn't Create Practice", isPresented: $showingSeasonSetupError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text("Setting up a season failed. Please try again, or create a season from the Seasons screen.")
+        }
         .sheet(isPresented: $showingAddPractice) {
             if let athlete {
                 AddPracticeView(athlete: athlete, initialType: preselectedType) { created in
@@ -365,9 +373,19 @@ struct PracticesView: View {
     private func quickCreatePractice(type: PracticeType) {
         guard let athlete = athlete else { return }
 
+        // Resolve the season before inserting anything so a failed
+        // default-season save can't strand a seasonless practice (it would
+        // half-vanish from season-filtered views).
+        guard let season = SeasonManager.ensureActiveSeason(for: athlete, in: modelContext) else {
+            Haptics.error()
+            showingSeasonSetupError = true
+            return
+        }
+
         let practice = Practice(date: Date())
         practice.practiceType = type.rawValue
         practice.athlete = athlete
+        practice.season = season
         practice.needsSync = true
 
         if athlete.practices == nil {
@@ -375,8 +393,6 @@ struct PracticesView: View {
         }
         athlete.practices?.append(practice)
         modelContext.insert(practice)
-
-        SeasonManager.linkPracticeToActiveSeason(practice, for: athlete, in: modelContext)
 
         let saved = ErrorHandlerService.shared.saveContext(modelContext, caller: "PracticesView.quickCreatePractice")
         if saved {

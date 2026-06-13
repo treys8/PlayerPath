@@ -239,7 +239,7 @@
               "locale" : "en_US"
             }
           ],
-          "productID" : "com.playerpath.coach.proinstructor.annual",
+          "productID" : "com.playerpath.coach.annual.proinstructor",
           "recurringSubscriptionPeriod" : "P1Y",
           "referenceName" : "Pro Instructor Annual",
           "subscriptionGroupID" : "21546146",

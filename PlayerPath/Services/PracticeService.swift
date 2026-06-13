@@ -25,6 +25,7 @@ final class PracticeService {
         practice.isLive = false
         practice.liveStartDate = nil
         practice.needsSync = true
+        GameAlertService.shared.cancelEndPracticeReminder(for: practice)
 
         await save(practice, action: "end")
     }
@@ -76,6 +77,7 @@ final class PracticeService {
             practice.isLive = false
             practice.liveStartDate = nil
             practice.needsSync = true
+            GameAlertService.shared.cancelEndPracticeReminder(for: practice)
         }
     }
 }

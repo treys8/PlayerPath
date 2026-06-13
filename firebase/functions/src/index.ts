@@ -1782,6 +1782,22 @@ export const sendCoachAccessRevokedEmail = functions.firestore
     const revocation = snap.data();
     const revocationId = context.params.revocationId;
 
+    // Clients can't read other users' profiles (users/ is owner-read-only), so
+    // revocation docs may arrive without coachEmail (athlete-initiated removal)
+    // or athleteName (coach-initiated leave). Resolve the gaps via Admin SDK.
+    try {
+      if (!revocation.coachEmail && revocation.coachID) {
+        const coachDoc = await admin.firestore().collection('users').doc(revocation.coachID).get();
+        revocation.coachEmail = coachDoc.data()?.email || '';
+      }
+      if (!revocation.athleteName && revocation.athleteID) {
+        const athleteDoc = await admin.firestore().collection('users').doc(revocation.athleteID).get();
+        revocation.athleteName = athleteDoc.data()?.displayName || 'An athlete';
+      }
+    } catch (e) {
+      console.warn(`Failed to resolve revocation parties for ${revocationId}:`, e);
+    }
+
     // Recompute the coach's athlete counter authoritatively from current state.
     // A single disconnect creates one revocation doc per folder (Games + Lessons),
     // so a blind increment(-1) would over-decrement; recomputing from ground truth
@@ -1830,30 +1846,32 @@ export const sendCoachAccessRevokedEmail = functions.firestore
     }
 
     try {
-      // Validate revocation data
+      // Validate revocation data. A missing email/name only skips the EMAIL —
+      // the in-app notification + FCM below need just folderID/coachID and must
+      // still fire (the client can't always supply these fields; see resolution
+      // block above for why).
       if (!revocation.coachEmail || !revocation.athleteName || !revocation.folderName) {
         console.error('Missing required revocation fields', revocationId);
-        return;
+        await snap.ref.update({ emailSent: false, emailError: 'Missing required revocation fields' });
+      } else {
+        const msg = {
+          to: revocation.coachEmail,
+          from: 'PlayerPath <noreply@playerpath.net>',
+          subject: `Access to "${revocation.folderName}" has been revoked`,
+          text: generateRevokedAccessPlainTextEmail(revocation),
+          html: generateRevokedAccessHtmlEmail(revocation),
+        };
+
+        await getResend().emails.send(msg);
+
+        console.log(`✅ Access revoked email sent for revocation ${revocationId}`);
+
+        // Update revocation with email sent timestamp
+        await snap.ref.update({
+          emailSentAt: admin.firestore.FieldValue.serverTimestamp(),
+          emailSent: true
+        });
       }
-
-      const msg = {
-        to: revocation.coachEmail,
-        from: 'PlayerPath <noreply@playerpath.net>',
-        subject: `Access to "${revocation.folderName}" has been revoked`,
-        text: generateRevokedAccessPlainTextEmail(revocation),
-        html: generateRevokedAccessHtmlEmail(revocation),
-      };
-
-      await getResend().emails.send(msg);
-
-      console.log(`✅ Access revoked email sent for revocation ${revocationId}`);
-
-      // Update revocation with email sent timestamp
-      await snap.ref.update({
-        emailSentAt: admin.firestore.FieldValue.serverTimestamp(),
-        emailSent: true
-      });
-
     } catch (error) {
       console.error('Error sending access revoked email:', error);
 
@@ -3013,7 +3031,7 @@ const COACH_PRODUCT_TIERS: Record<string, string> = {
   'com.playerpath.coach.instructor.monthly':    'coach_instructor',
   'com.playerpath.coach.instructor.annual':     'coach_instructor',
   'com.playerpath.coach.proinstructor.monthly':  'coach_pro_instructor',
-  'com.playerpath.coach.proinstructor.annual':   'coach_pro_instructor',
+  'com.playerpath.coach.annual.proinstructor':   'coach_pro_instructor',
 };
 
 // Tier rank for comparison (higher = better)

@@ -22,14 +22,40 @@ enum CoachRemovalService {
         sharedFolderIDs: [String],
         userID: String?,
         athleteFirestoreID: String?,
-        coachFirestoreID: String?
+        coachFirestoreID: String?,
+        coachEmail: String? = nil
     ) async {
-        if let coachID = firebaseCoachID, !sharedFolderIDs.isEmpty {
-            for folderID in sharedFolderIDs {
+        if let coachID = firebaseCoachID {
+            // Coach.sharedFolderIDs is device-local (never synced), so the cached
+            // list can be empty or stale (missing folders shared after it was
+            // written). Union it with the authoritative Firestore-derived list
+            // rather than silently skipping a revoke.
+            var folderIDs = Set(sharedFolderIDs)
+            if let userID {
+                do {
+                    let folders = try await withRetry {
+                        try await FirestoreManager.shared.fetchSharedFolders(forAthlete: userID)
+                    }
+                    folderIDs.formUnion(
+                        folders
+                            .filter { $0.sharedWithCoachIDs.contains(coachID) || $0.permissions[coachID] != nil }
+                            .compactMap { $0.id }
+                    )
+                } catch {
+                    ErrorHandlerService.shared.handle(
+                        error,
+                        context: "CoachRemovalService.fetchFoldersForRevoke",
+                        showAlert: false
+                    )
+                }
+            }
+
+            for folderID in folderIDs {
                 await retryAsync {
                     try await FirestoreManager.shared.removeCoachFromFolder(
                         folderID: folderID,
-                        coachID: coachID
+                        coachID: coachID,
+                        coachEmail: coachEmail
                     )
                 }
             }

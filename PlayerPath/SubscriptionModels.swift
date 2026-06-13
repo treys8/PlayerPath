@@ -162,7 +162,7 @@ enum CoachSubscriptionProduct: String, CaseIterable {
     case instructorMonthly    = "com.playerpath.coach.instructor.monthly"
     case instructorAnnual     = "com.playerpath.coach.instructor.annual"
     case proInstructorMonthly = "com.playerpath.coach.proinstructor.monthly"
-    case proInstructorAnnual  = "com.playerpath.coach.proinstructor.annual"
+    case proInstructorAnnual  = "com.playerpath.coach.annual.proinstructor"
 
     var displayName: String {
         switch self {

@@ -280,6 +280,7 @@ struct CoachesView: View {
         let coachFirestoreId = coach.firestoreId
         let userId = athlete.user?.firebaseAuthUid ?? athlete.user?.id.uuidString
         let athleteFirestoreId = athlete.firestoreId
+        let coachEmail = coach.email
 
         withAnimation {
             modelContext.delete(coach)
@@ -299,7 +300,8 @@ struct CoachesView: View {
                 sharedFolderIDs: sharedFolderIDs,
                 userID: userId,
                 athleteFirestoreID: athleteFirestoreId,
-                coachFirestoreID: coachFirestoreId
+                coachFirestoreID: coachFirestoreId,
+                coachEmail: coachEmail.isEmpty ? nil : coachEmail
             )
         }
     }

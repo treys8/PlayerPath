@@ -254,6 +254,11 @@ extension SyncCoordinator {
                     if let isLive = remoteData.isLive {
                         local.isLive = isLive
                         local.liveStartDate = remoteData.liveStartDate
+                        // Round ended on another device — drop this device's
+                        // pending stale-session reminder too.
+                        if !isLive {
+                            GameAlertService.shared.cancelEndPracticeReminder(forID: local.id)
+                        }
                     }
                     local.course = remoteData.course
                     // Re-home (legacy-split migration): re-bind the parent athlete when a

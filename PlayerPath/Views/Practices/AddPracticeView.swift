@@ -173,6 +173,22 @@ struct AddPracticeView: View {
     }
 
     private func performCreate() {
+        // Resolve the season up front so a failed default-season save can't
+        // strand the practice seasonless (it would half-vanish from
+        // season-filtered views).
+        let season: Season
+        if let selectedSeason {
+            season = selectedSeason
+        } else {
+            guard let ensured = SeasonManager.ensureActiveSeason(for: athlete, in: modelContext) else {
+                validationMessage = "Couldn't set up a season for this practice. Please try again, or create a season from the Seasons screen."
+                showingValidationError = true
+                Haptics.error()
+                return
+            }
+            season = ensured
+        }
+
         let practice = Practice(date: date)
         practice.practiceType = practiceType.rawValue
         // Persist hole count only for golf practice rounds; range sessions
@@ -196,18 +212,27 @@ struct AddPracticeView: View {
         athlete.practices?.append(practice)
         modelContext.insert(practice)
 
-        // Assigning season upstream — linkPracticeToActiveSeason is a no-op when
-        // practice.season is already set (SeasonManager.swift:77), so it's safe
-        // to call as a fallback for users who leave the picker on "none".
-        practice.season = selectedSeason
-        if practice.season == nil {
-            SeasonManager.linkPracticeToActiveSeason(practice, for: athlete, in: modelContext)
-        }
+        practice.season = season
 
         let saved = ErrorHandlerService.shared.saveContext(modelContext, caller: "AddPracticeView.save")
         guard saved else {
             Haptics.error()
             return
+        }
+
+        // Stale-session nudge, mirroring GameService.start: fires after
+        // staleDuration if the live practice is never ended. Snapshot model
+        // values before the Task — the permission prompt can suspend
+        // arbitrarily long while a concurrent delete invalidates `practice`.
+        if practice.isLive {
+            let practiceID = practice.id
+            let isRound = practiceType == .practiceRound
+            let courseName = practice.course
+            Task {
+                await GameAlertService.shared.requestPermissionIfNeeded()
+                await GameAlertService.shared.scheduleEndPracticeReminder(
+                    practiceID: practiceID, isRound: isRound, course: courseName)
+            }
         }
 
         AnalyticsService.shared.trackPracticeCreated(

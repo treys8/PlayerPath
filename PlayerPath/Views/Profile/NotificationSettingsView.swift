@@ -117,7 +117,7 @@ struct NotificationSettingsView: View {
                             if !enabled {
                                 UNUserNotificationCenter.current().getPendingNotificationRequests { requests in
                                     let staleIds = requests
-                                        .filter { $0.identifier.hasPrefix("stale-game-") }
+                                        .filter { $0.identifier.hasPrefix("stale-game-") || $0.identifier.hasPrefix("stale-practice-") }
                                         .map { $0.identifier }
                                     Task { @MainActor in
                                         PushNotificationService.shared.cancelNotifications(withIdentifiers: staleIds)

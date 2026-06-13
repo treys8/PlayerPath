@@ -401,6 +401,9 @@ final class Practice {
 
     /// Properly delete practice with all associated files and data
     @MainActor func delete(in context: ModelContext) {
+        // Drop any pending stale-session reminder (no-op when none scheduled).
+        GameAlertService.shared.cancelEndPracticeReminder(forID: self.id)
+
         // Delete video clips using their delete method for proper cleanup.
         // cleanupReels: false — this method hard-deletes the practice's reels
         // below, so per-clip reel stripping would be wasted work.
