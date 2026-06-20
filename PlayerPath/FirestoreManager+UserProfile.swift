@@ -41,7 +41,9 @@ extension FirestoreManager {
                 createdAt: (data["createdAt"] as? Timestamp)?.dateValue(),
                 updatedAt: (data["updatedAt"] as? Timestamp)?.dateValue(),
                 cloudStorageUsedBytes: (data["cloudStorageUsedBytes"] as? Int64)
-                    ?? (data["cloudStorageUsedBytes"] as? NSNumber)?.int64Value
+                    ?? (data["cloudStorageUsedBytes"] as? NSNumber)?.int64Value,
+                downgradeUnresolved: data["downgradeUnresolved"] as? Bool,
+                coachDowngradeGraceStartedAt: (data["coachDowngradeGraceStartedAt"] as? Timestamp)?.dateValue()
             )
             return profile
         }
@@ -65,8 +67,13 @@ extension FirestoreManager {
         // satisfies the Firestore security rule requiring subscriptionTier == "free" on create.
         // coachAthleteLimit/coachAthleteCount/athleteTierSource are CF-managed (Admin SDK) and
         // must never be written by the client — dropped here to match the Firestore rules.
+        // downgradeUnresolved/coachDowngradeGraceStartedAt are likewise CF-managed
+        // (auditCoachDowngrades) — the client only reads them.
         let defaultTierValues: Set<String> = ["free", "coach_free"]
-        let cfManagedKeys: Set<String> = ["coachAthleteLimit", "coachAthleteCount", "athleteTierSource"]
+        let cfManagedKeys: Set<String> = [
+            "coachAthleteLimit", "coachAthleteCount", "athleteTierSource",
+            "downgradeUnresolved", "coachDowngradeGraceStartedAt"
+        ]
         let safeProfileData = profileData.filter { key, value in
             if cfManagedKeys.contains(key) {
                 return false

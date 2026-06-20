@@ -14,6 +14,7 @@ enum TelestrationToolMode: String, CaseIterable, Identifiable {
     case line
     case circle
     case rectangle
+    case eraser
 
     var id: String { rawValue }
 
@@ -24,6 +25,7 @@ enum TelestrationToolMode: String, CaseIterable, Identifiable {
         case .line:      return "line.diagonal"
         case .circle:    return "circle"
         case .rectangle: return "rectangle"
+        case .eraser:    return "eraser"
         }
     }
 
@@ -34,10 +36,12 @@ enum TelestrationToolMode: String, CaseIterable, Identifiable {
         case .line:      return "Line"
         case .circle:    return "Circle"
         case .rectangle: return "Rectangle"
+        case .eraser:    return "Eraser"
         }
     }
 
-    /// Shape kind this tool produces. `nil` for freehand (uses PencilKit).
+    /// Shape kind this tool produces. `nil` for freehand and eraser, which
+    /// drive the PencilKit canvas directly rather than emitting a shape.
     var shapeKind: TelestrationShapeKind? {
         switch self {
         case .freehand:  return nil
@@ -45,6 +49,13 @@ enum TelestrationToolMode: String, CaseIterable, Identifiable {
         case .line:      return .line
         case .circle:    return .circle
         case .rectangle: return .rectangle
+        case .eraser:    return nil
         }
+    }
+
+    /// True for tools that operate on the PencilKit canvas (ink + eraser),
+    /// as opposed to the shape-creation overlay.
+    var usesInkCanvas: Bool {
+        self == .freehand || self == .eraser
     }
 }

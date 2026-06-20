@@ -45,6 +45,18 @@ service cloud.firestore {
                 ];
     }
 
+    // True when the caller is a coach whose downgrade grace expired while still over
+    // their athlete limit (CF-set users/{uid}.downgradeUnresolved, by auditCoachDowngrades).
+    // Gates coach FEEDBACK WRITES (publish / coach note / comment / annotation /
+    // drill card) until they shed in CoachDowngradeSelectionView — reads and signed
+    // URLs stay open so viewing is never blocked. Reads the same user doc as
+    // hasCoachTier(), so where that already ran in the evaluation this get() is cached.
+    function coachDowngradeBlocked() {
+      let user = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return user != null && user.role == 'coach'
+             && user.get('downgradeUnresolved', false) == true;
+    }
+
     // Checks if the requesting user is the owner of a shared folder.
     function isFolderOwner(folderID) {
       let folder = get(/databases/$(database)/documents/sharedFolders/$(folderID)).data;
@@ -158,11 +170,15 @@ service cloud.firestore {
                     && (!('coachAthleteCount' in request.resource.data)
                         || request.resource.data.coachAthleteCount == 0)
                     && !('athleteTierSource' in request.resource.data)
-                    && !('coachAthleteLimit' in request.resource.data);
+                    && !('coachAthleteLimit' in request.resource.data)
+                    && !('downgradeUnresolved' in request.resource.data)
+                    && !('coachDowngradeGraceStartedAt' in request.resource.data);
 
       // Users can update their own profile, but cannot change their role,
-      // subscription tiers, tier source, or coach athlete count. These fields
-      // are managed exclusively by Cloud Functions (admin SDK).
+      // subscription tiers, tier source, coach athlete count, or the coach
+      // downgrade-backstop fields. These are managed exclusively by Cloud
+      // Functions (admin SDK) — a direct client write to downgradeUnresolved
+      // would otherwise defeat the entire feedback gate.
       allow update: if isAuthenticated()
                     && isOwner(userID)
                     && request.resource.data.role == resource.data.role
@@ -177,7 +193,8 @@ service cloud.firestore {
                     && (!('coachAthleteLimit' in resource.data)
                         || request.resource.data.coachAthleteLimit == resource.data.coachAthleteLimit)
                     && !request.resource.data.diff(resource.data).affectedKeys()
-                        .hasAny(['athleteTierSource', 'coachAthleteLimit']);
+                        .hasAny(['athleteTierSource', 'coachAthleteLimit',
+                                 'downgradeUnresolved', 'coachDowngradeGraceStartedAt']);
 
       // Profiles are deleted via Firebase Auth / Cloud Functions, not directly
       allow delete: if false;
@@ -400,7 +417,25 @@ service cloud.firestore {
                     && resource.data.uploadedBy == request.auth.uid
                     && request.resource.data.uploadedBy == resource.data.uploadedBy
                     && (!('sharedFolderID' in resource.data) || request.resource.data.sharedFolderID == resource.data.sharedFolderID)
-                    && (!('sharedFolderID' in resource.data) || canAccessFolder(resource.data.sharedFolderID));
+                    && (!('sharedFolderID' in resource.data) || canAccessFolder(resource.data.sharedFolderID))
+                    // Visibility must stay within the known set: the client read filters
+                    // treat anything != 'private' as visible, so an arbitrary string
+                    // ('published', etc.) would deliver a draft and slip past a gate that
+                    // only watches the literal 'shared'. (The create rule already does this.)
+                    && (!('visibility' in request.resource.data)
+                        || request.resource.data.visibility in ['shared', 'private'])
+                    // A downgrade-over-limit coach can't DELIVER feedback via their own
+                    // clip — block any coachNote or visibility (publish) change. Coach
+                    // instruction clips have uploadedBy == coachID, so without this the
+                    // unrestricted uploader branch would grant coachNote/visibility writes
+                    // the dedicated gated branches deny. affectedKeys() is tested first so
+                    // coachDowngradeBlocked()'s get() is skipped for writes that don't touch
+                    // these keys — markVideoCompleted (uploadStatus; visibility stays
+                    // 'private') and tag/cue edits still work, so recording isn't broken.
+                    && !(request.resource.data.diff(resource.data).affectedKeys()
+                            .hasAny(['coachNote', 'coachNoteAuthorID', 'coachNoteAuthorName',
+                                     'coachNoteUpdatedAt', 'visibility'])
+                         && coachDowngradeBlocked());
 
       // Folder coaches with an active coach tier can write a plain coach note,
       // mark a clip reviewed for themselves, or bump annotation/drawing counters
@@ -418,7 +453,8 @@ service cloud.firestore {
                          .hasOnly(['coachNote', 'coachNoteAuthorID', 'coachNoteAuthorName',
                                    'coachNoteUpdatedAt', 'updatedAt'])
                     && (!('coachNoteAuthorID' in request.resource.data)
-                        || request.resource.data.coachNoteAuthorID == request.auth.uid);
+                        || request.resource.data.coachNoteAuthorID == request.auth.uid)
+                    && !coachDowngradeBlocked();
 
       // markVideoReviewedByCoach: only the reviewedBy map, and the only
       // diff against the prior map must be the caller's own UID. Dot-path
@@ -501,7 +537,10 @@ service cloud.firestore {
                       && request.resource.data.keys().hasAll(['authorId', 'content', 'createdAt'])
                       && (getVideoData(videoID).uploadedBy == request.auth.uid
                           || ('sharedFolderID' in getVideoData(videoID)
-                              && canAccessFolder(getVideoData(videoID).sharedFolderID)));
+                              && canAccessFolder(getVideoData(videoID).sharedFolderID)))
+                      // Coaches can't deliver new comments while over their downgrade
+                      // limit; athletes (role != coach) are never blocked.
+                      && !coachDowngradeBlocked();
 
         // Update: only the comment author, authorId must remain unchanged
         allow update: if isAuthenticated()
@@ -534,6 +573,9 @@ service cloud.firestore {
                       && hasPermission(getVideoData(videoID).sharedFolderID, "comment")
                       && (isFolderOwner(getVideoData(videoID).sharedFolderID)
                           || hasCoachTier())
+                      // Block coach telestration/annotation delivery while over the
+                      // downgrade limit; the folder-owner athlete is never blocked.
+                      && !coachDowngradeBlocked()
                       // Limit drawingData size to ~300KB to prevent abuse
                       && (!('drawingData' in request.resource.data)
                           || request.resource.data.drawingData.size() < 300000);
@@ -716,7 +758,9 @@ service cloud.firestore {
                     && request.resource.data.coachID == request.auth.uid
                     && hasCoachTier()
                     && ('sharedFolderID' in getVideoData(videoID)
-                        && canAccessFolder(getVideoData(videoID).sharedFolderID));
+                        && canAccessFolder(getVideoData(videoID).sharedFolderID))
+                    // No new drill-card delivery while over the downgrade limit.
+                    && !coachDowngradeBlocked();
 
       // Only the creating coach can update/delete; coachID is immutable
       allow update: if isAuthenticated()

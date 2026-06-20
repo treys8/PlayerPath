@@ -24,6 +24,15 @@ struct CoachVideoPlayerView: View {
     var onDraftDiscarded: (() -> Void)?
     var onDraftSavedForLater: (() -> Void)?
 
+    /// Sequential-review navigation. Non-nil when the player is presented inside
+    /// a `CoachReviewSequenceView` over an ordered clip list, so the coach can
+    /// step to the next/previous clip without backing out to the folder. `onNext`
+    /// / `onPrevious` are nil at the ends of the list (which disables the chevron).
+    var onNext: (() -> Void)?
+    var onPrevious: (() -> Void)?
+    /// 1-based position in the review sequence, for the "n of m" nav-bar label.
+    var sequencePosition: CoachReviewSequencePosition?
+
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @State private var viewModel: CoachVideoPlayerViewModel
     @State private var showingCoachNoteEditor = false
@@ -42,6 +51,10 @@ struct CoachVideoPlayerView: View {
     @State private var showingDraftDiscardConfirm = false
     @State private var draftActionError: String?
     @State private var showingTelestration = false
+
+    /// Presents the athlete-selection sheet when a downgrade-blocked coach taps a
+    /// disabled feedback affordance or the in-review banner.
+    @State private var showingDowngradeSelection = false
     @State private var isVerifyingDrawPermission = false
     @State private var drillCards: [DrillCard] = []
     /// True when the drill-card fetch failed, so the Drill Card tab can show a
@@ -80,13 +93,19 @@ struct CoachVideoPlayerView: View {
         video: CoachVideoItem,
         onDraftShared: (() -> Void)? = nil,
         onDraftDiscarded: (() -> Void)? = nil,
-        onDraftSavedForLater: (() -> Void)? = nil
+        onDraftSavedForLater: (() -> Void)? = nil,
+        onNext: (() -> Void)? = nil,
+        onPrevious: (() -> Void)? = nil,
+        sequencePosition: CoachReviewSequencePosition? = nil
     ) {
         self.folder = folder
         self.video = video
         self.onDraftShared = onDraftShared
         self.onDraftDiscarded = onDraftDiscarded
         self.onDraftSavedForLater = onDraftSavedForLater
+        self.onNext = onNext
+        self.onPrevious = onPrevious
+        self.sequencePosition = sequencePosition
         _viewModel = State(initialValue: CoachVideoPlayerViewModel(video: video, folder: folder))
     }
     
@@ -113,7 +132,7 @@ struct CoachVideoPlayerView: View {
             // permission before opening — folder shares can be revoked
             // mid-session, and the server will reject the write anyway; this
             // gives the coach a clean error instead of an opaque Firestore failure.
-            if canEditCoachNote {
+            if canDeliverFeedback {
                 Button {
                     openTelestration()
                 } label: {
@@ -200,6 +219,12 @@ struct CoachVideoPlayerView: View {
             .sheet(item: $editingDrillCard) { card in
                 editDrillCardSheet(existing: card)
             }
+            .sheet(isPresented: $showingDowngradeSelection) {
+                if let coachID = authManager.userID {
+                    CoachDowngradeSelectionView(coachID: coachID)
+                        .environmentObject(authManager)
+                }
+            }
             .confirmationDialog(
                 "Delete this drill card?",
                 isPresented: Binding(
@@ -238,6 +263,7 @@ struct CoachVideoPlayerView: View {
                 // overlay doesn't accidentally tear them down mid-session.
                 viewModel.stopTimeObserver()
                 viewModel.stopFilmstripTimeObserver()
+                viewModel.teardownLoopObserver()
             }
     }
 
@@ -254,6 +280,30 @@ struct CoachVideoPlayerView: View {
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 trailingToolbarButtons
+            }
+            if let position = sequencePosition {
+                ToolbarItem(placement: .principal) {
+                    HStack(spacing: 14) {
+                        Button { onPrevious?() } label: {
+                            Image(systemName: "chevron.left")
+                                .fontWeight(.semibold)
+                        }
+                        .disabled(onPrevious == nil)
+                        .accessibilityLabel("Previous clip")
+
+                        Text("\(position.current) of \(position.total)")
+                            .font(.subheadline.weight(.semibold))
+                            .monospacedDigit()
+
+                        Button { onNext?() } label: {
+                            Image(systemName: "chevron.right")
+                                .fontWeight(.semibold)
+                        }
+                        .disabled(onNext == nil)
+                        .accessibilityLabel("Next clip")
+                    }
+                    .tint(ppAccent)
+                }
             }
         }
         .toast(isPresenting: $viewModel.didSaveSuccessfully, message: "Video Saved")
@@ -338,13 +388,12 @@ struct CoachVideoPlayerView: View {
             await ActivityNotificationService.shared.markVideoRead(videoID: video.id, forUserID: userID)
         }
 
-        // A folder coach opening an unreviewed clip counts as reviewing it —
-        // keeps the dashboard "Needs Review" count in sync with the folder
-        // badge that markVideoRead just cleared, so the two never disagree.
-        // The explicit "Mark Reviewed" button stays for marking from a list.
-        if canEditCoachNote, let coachID = authManager.userID, !viewModel.isReviewed(by: coachID) {
-            try? await viewModel.markReviewed(coachID: coachID, silent: true)
-        }
+        // Opening a clip no longer auto-marks it reviewed. "Reviewed" now means
+        // the coach actually left feedback (note / cue / drawing / drill card) or
+        // tapped "Done reviewing", so the Needs-Review queue reflects work
+        // remaining rather than what's merely been glanced at. The athlete-facing
+        // notification is still cleared above by markVideoRead. See
+        // markReviewedOnEngagement().
 
         // Pull the athlete's view receipt fresh — the clip snapshot can be
         // stale if the athlete watched after the coach opened the folder.
@@ -366,6 +415,7 @@ struct CoachVideoPlayerView: View {
                 coachName: authManager.userDisplayName ?? "Coach",
                 onSave: { card in
                     drillCards.insert(card, at: 0)
+                    markReviewedOnEngagement()
                     // Athlete is notified by the server-side onNewDrillCard CF
                     // which fires on drillCards subcollection creation.
                 }
@@ -451,6 +501,45 @@ struct CoachVideoPlayerView: View {
         }
     }
 
+    /// Compact transport row for frame-by-frame stepping and whole-clip looping —
+    /// the film-study controls AVKit's stock transport doesn't provide. Sits under
+    /// the player in both layouts; the frame buttons disable at the clip ends.
+    @ViewBuilder
+    private var transportControls: some View {
+        if viewModel.isPlayerReady {
+            HStack(spacing: 32) {
+                Button {
+                    viewModel.stepFrame(by: -1)
+                } label: {
+                    Image(systemName: "backward.frame.fill")
+                }
+                .disabled(!viewModel.canStepBackward)
+                .accessibilityLabel("Previous frame")
+
+                Button {
+                    viewModel.toggleLooping()
+                } label: {
+                    Image(systemName: "repeat")
+                        .foregroundColor(viewModel.isLooping ? ppAccent : .secondary)
+                }
+                .accessibilityLabel(viewModel.isLooping ? "Looping on" : "Loop clip")
+
+                Button {
+                    viewModel.stepFrame(by: 1)
+                } label: {
+                    Image(systemName: "forward.frame.fill")
+                }
+                .disabled(!viewModel.canStepForward)
+                .accessibilityLabel("Next frame")
+            }
+            .font(.title3)
+            .foregroundColor(ppAccent)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity)
+            .background(Theme.surface)
+        }
+    }
+
     /// Portrait phone: the video pins to the top and everything below it scrolls
     /// as one unit (the clip-detail pattern). Previously a fixed, non-scrolling
     /// VStack — its bottom (the annotation panel) fell under the floating tab bar
@@ -460,6 +549,11 @@ struct CoachVideoPlayerView: View {
         VStack(spacing: 0) {
             playerContent
                 .frame(height: playerHeight)
+            // Filmstrip stays pinned under the video (matching wideLayout) so the
+            // coach keeps precise frame-seeking in portrait while the notes below
+            // scroll. Previously wide-layout-only, so phones lost the scrubber.
+            filmstripSection
+            transportControls
             ScrollView {
                 VStack(spacing: 0) {
                     athleteNoteCard
@@ -480,6 +574,7 @@ struct CoachVideoPlayerView: View {
                 VStack(spacing: 0) {
                     playerContent
                     filmstripSection
+                    transportControls
                 }
                 Divider()
                 // Sidebar
@@ -514,7 +609,7 @@ struct CoachVideoPlayerView: View {
 
     @ViewBuilder
     private var coachNoteSection: some View {
-        if canEditCoachNote {
+        if canDeliverFeedback {
             CoachFeedbackCard(
                 authorName: viewModel.coachNoteAuthorName,
                 noteText: viewModel.coachNoteText ?? "",
@@ -620,6 +715,7 @@ struct CoachVideoPlayerView: View {
                             )
                             if saveFailure == nil {
                                 showingTelestration = false
+                                markReviewedOnEngagement()
                             }
                             return saveFailure
                         },
@@ -687,9 +783,12 @@ struct CoachVideoPlayerView: View {
     /// inside the fixed-height sidebar region.
     private func annotationPanel(inline: Bool) -> some View {
         VStack(spacing: 0) {
+            if feedbackDeliveryBlocked {
+                feedbackBlockedBanner
+            }
             Picker("View", selection: $selectedTab) {
                 ForEach(VideoTab.allCases, id: \.self) { tab in
-                    Label(tab.rawValue, systemImage: tab.icon)
+                    Label(tabTitle(tab), systemImage: tab.icon)
                         .tag(tab)
                 }
             }
@@ -720,9 +819,14 @@ struct CoachVideoPlayerView: View {
                     } else {
                         DrillCardTabView(
                             drillCards: drillCards,
-                            canManageCards: canEditCoachNote,
+                            // Blocks the "New Drill Card" button when feedback is
+                            // gated; edit/delete of existing cards stay available
+                            // (firestore.rules only blocks drill-card *creates*).
+                            canManageCards: canDeliverFeedback,
                             onAdd: { showingDrillCardEditor = true },
-                            onEdit: canEditCoachNote ? { card in editingDrillCard = card } : nil,
+                            // Editing re-delivers feedback → gated when blocked.
+                            // Delete (removing feedback) stays on plain edit permission.
+                            onEdit: canDeliverFeedback ? { card in editingDrillCard = card } : nil,
                             onDelete: canEditCoachNote ? { card in drillCardPendingDelete = card } : nil,
                             inline: inline
                         )
@@ -731,6 +835,21 @@ struct CoachVideoPlayerView: View {
                     VideoInfoTabView(video: video, inline: inline)
                 }
             }
+        }
+    }
+
+    /// Segment title with a count suffix when the tab holds content, so an
+    /// athlete whose only feedback is a drill card (or drawings) sees there's
+    /// something to open instead of landing on an empty default tab.
+    private func tabTitle(_ tab: VideoTab) -> String {
+        switch tab {
+        case .drawings:
+            let count = viewModel.annotations.filter { $0.isDrawing }.count
+            return count > 0 ? "Drawings (\(count))" : "Drawings"
+        case .drillCard:
+            return drillCards.isEmpty ? "Drill Card" : "Drill Card (\(drillCards.count))"
+        case .info:
+            return "Info"
         }
     }
 
@@ -775,7 +894,7 @@ struct CoachVideoPlayerView: View {
             text: viewModel.coachNoteText ?? "",
             authorName: viewModel.coachNoteAuthorName,
             updatedAt: viewModel.coachNoteUpdatedAt,
-            canEdit: canEditCoachNote,
+            canEdit: canDeliverFeedback,
             onEdit: { showingCoachNoteEditor = true }
         )
     }
@@ -787,6 +906,56 @@ struct CoachVideoPlayerView: View {
         guard userID != folder.ownerAthleteID else { return false }
         guard folder.sharedWithCoachIDs.contains(userID) else { return false }
         return folder.getPermissions(for: userID)?.canComment ?? false
+    }
+
+    /// True when this coach is over their athlete limit past the downgrade grace
+    /// (server-set `downgradeUnresolved`, which firestore.rules also enforces). The
+    /// review surface disables feedback-delivery affordances and points the coach
+    /// to resolve, but viewing stays available. Always false for the folder-owner
+    /// athlete (the flag only exists on coach profiles).
+    private var feedbackDeliveryBlocked: Bool {
+        // Server flag is authoritative (it's what firestore.rules enforces); the
+        // manager folds in the immediate post-shed `locallyResolved` override.
+        CoachDowngradeManager.shared.feedbackBlocked(
+            downgradeUnresolved: authManager.userProfile?.downgradeUnresolved
+        )
+    }
+
+    /// Coach may author/deliver feedback: has comment permission AND isn't blocked
+    /// by an unresolved downgrade. Gates note edit, telestration, and drill-card add.
+    private var canDeliverFeedback: Bool {
+        canEditCoachNote && !feedbackDeliveryBlocked
+    }
+
+    /// In-review banner for a downgrade-blocked coach: viewing works, but feedback
+    /// delivery is paused until they resolve. Opens the athlete-selection sheet.
+    private var feedbackBlockedBanner: some View {
+        Button { showingDowngradeSelection = true } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "person.crop.circle.badge.exclamationmark")
+                    .foregroundStyle(Theme.warning)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Over your athlete limit")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(.primary)
+                    Text("You can watch this clip, but choose which athletes to keep (or upgrade) to send feedback again.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding()
+            .background(Theme.warning.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal)
+        .padding(.vertical, 8)
     }
 
     /// True when the current user owns this folder (i.e. the athlete whose
@@ -857,6 +1026,17 @@ struct CoachVideoPlayerView: View {
         }
     }
 
+    /// Marks the clip reviewed by the current coach when they actually leave
+    /// feedback — a quick cue, a drawing, or a drill card. The coach-note path
+    /// already writes reviewedBy via setCoachNote, and "Done reviewing" marks it
+    /// explicitly. Idempotent: markReviewed no-ops once reviewed. Replaces the
+    /// old auto-mark-on-open so merely viewing a clip keeps it in the queue.
+    private func markReviewedOnEngagement() {
+        guard canEditCoachNote, let coachID = authManager.userID,
+              !viewModel.isReviewed(by: coachID) else { return }
+        Task { try? await viewModel.markReviewed(coachID: coachID, silent: true) }
+    }
+
     /// Apply or remove a cue from the clip's tags and persist. Optimistic —
     /// local state flips immediately; a write failure is logged silently and
     /// the cue is rolled back so the chip never lies about what's saved.
@@ -892,6 +1072,10 @@ struct CoachVideoPlayerView: View {
                     tags: tags,
                     drillType: video.drillType
                 )
+                // Applying a cue is real feedback → mark reviewed. Gated on a
+                // non-empty result so clearing the last cue doesn't mark a clip
+                // reviewed with no feedback left on it.
+                if !tags.isEmpty { markReviewedOnEngagement() }
             } catch {
                 selectedCueTags = previous
                 ErrorHandlerService.shared.handle(error, context: "CoachVideoPlayer.updateCueTags", showAlert: false)
@@ -901,9 +1085,10 @@ struct CoachVideoPlayerView: View {
 
     /// Coach's explicit "I'm done reviewing" confirmation. Feedback (notes /
     /// drawings / drill cards) is already delivered to the athlete by Cloud
-    /// Functions as it's authored, and the clip is auto-marked reviewed on open
-    /// — so this re-affirms the reviewed mark and confirms with a toast. It does
-    /// not itself send or notify (nothing triggers on `reviewedBy`).
+    /// Functions as it's authored. This marks the clip reviewed — useful when the
+    /// coach watched without leaving structured feedback but still wants it out of
+    /// the Needs-Review queue. It does not itself send or notify (nothing triggers
+    /// on `reviewedBy`).
     private func confirmReviewComplete() {
         guard let coachID = authManager.userID else { return }
         isConfirmingReview = true
@@ -930,11 +1115,26 @@ struct CoachVideoPlayerView: View {
             isPublishing: isPublishingDraft,
             isSavingDraft: false,
             isDiscarding: isDiscardingDraft,
-            onShareNow: shareDraftNow,
+            // Publishing delivers feedback to the athlete — blocked while over the
+            // downgrade limit. Redirect Share Now to the resolve sheet (rules would
+            // reject the publish anyway); Save for Later / Discard stay available
+            // since neither delivers anything to the athlete.
+            onShareNow: shareDraftAction,
             onSaveForLater: saveDraftForLater,
             onDiscard: { showingDraftDiscardConfirm = true }
         )
         .background(Theme.surface)
+    }
+
+    /// Share Now redirects to the resolve sheet while feedback is blocked (the
+    /// publish would be rejected by firestore.rules). Typed via guard/return — an
+    /// inline `cond ? closure : methodRef` ternary defeats the Swift type-checker
+    /// (see `doneReviewingAction`).
+    private var shareDraftAction: () -> Void {
+        if feedbackDeliveryBlocked {
+            return { showingDowngradeSelection = true }
+        }
+        return shareDraftNow
     }
 
     private func shareDraftNow() {
@@ -1087,7 +1287,19 @@ struct VideoInfoTabView: View {
                 if let opponent = video.gameOpponent {
                     InfoRow(label: "Opponent", value: opponent)
                 }
-                
+
+                if let playResult = video.playResult, !playResult.isEmpty {
+                    InfoRow(label: "Play Result", value: playResult)
+                }
+
+                if let pitchType = video.pitchType, !pitchType.isEmpty {
+                    InfoRow(label: "Pitch Type", value: pitchType.capitalized)
+                }
+
+                if let pitchSpeed = video.pitchSpeed, pitchSpeed > 0 {
+                    InfoRow(label: "Pitch Speed", value: "\(Int(pitchSpeed.rounded())) mph")
+                }
+
                 if let duration = video.duration {
                     InfoRow(label: "Duration", value: formatDuration(duration))
                 }

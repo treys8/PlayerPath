@@ -42,6 +42,9 @@ struct CoachFolderDetailView: View {
     @State private var showingDiscardConfirm = false
     @State private var showingQuickRecord = false
     @State private var showingActiveSessionAlert = false
+    /// Presents the athlete-selection sheet when an over-limit coach taps a
+    /// bulk-publish action (feedback delivery is blocked server-side until they shed).
+    @State private var showingDowngradeSelection = false
     @State private var gamesFilter: GamesFolderFilter = .needsReview
     /// Consumed once from the coordinator on first appear — routes a bell/inbox
     /// tap for a specific video into the matching row with a pulse highlight.
@@ -108,6 +111,12 @@ struct CoachFolderDetailView: View {
                             }
                         }
                     }
+                }
+            }
+            .sheet(isPresented: $showingDowngradeSelection) {
+                if let coachID = authManager.userID {
+                    CoachDowngradeSelectionView(coachID: coachID)
+                        .environmentObject(authManager)
                 }
             }
             .fullScreenCover(isPresented: $showingQuickRecord, onDismiss: {
@@ -361,7 +370,7 @@ struct CoachFolderDetailView: View {
                             await viewModel.loadVideos()
                         }, onLoadMore: {
                             await viewModel.loadMoreVideos()
-                        }, onEditTags: nil)
+                        }, onEditTags: nil, groupByGame: true)
                     }
                 }
             }
@@ -536,6 +545,12 @@ struct CoachFolderDetailView: View {
     /// "N clips" summary and avoids client/server duplication.
     private func publishClips(_ clips: [CoachVideoItem], context: String) {
         guard !clips.isEmpty, let folderID = folder.id else { return }
+        // Publishing delivers feedback — blocked while over the downgrade limit (rules
+        // reject each publish). Route the coach to resolve first instead of failing.
+        if CoachDowngradeManager.shared.feedbackBlocked(downgradeUnresolved: authManager.userProfile?.downgradeUnresolved) {
+            showingDowngradeSelection = true
+            return
+        }
         isSharingAll = true
         shareProgress = (current: 0, total: clips.count)
 

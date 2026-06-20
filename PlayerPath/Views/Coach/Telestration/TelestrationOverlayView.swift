@@ -57,7 +57,13 @@ struct TelestrationOverlayView: View {
     }
 
     private var currentTool: PKTool {
-        PKInkingTool(.pen, color: UIColor(selectedColor), width: lineWidth)
+        if toolMode == .eraser {
+            // Vector eraser removes whole strokes it touches, so strokes.count
+            // drops predictably — the undo-log reconciliation below relies on
+            // that (a bitmap eraser could split a stroke and grow the count).
+            return PKEraserTool(.vector)
+        }
+        return PKInkingTool(.pen, color: UIColor(selectedColor), width: lineWidth)
     }
 
     private var hasAnyContent: Bool {
@@ -107,11 +113,13 @@ struct TelestrationOverlayView: View {
                             drawing: $drawing,
                             drawingVersion: drawingVersion,
                             tool: currentTool,
-                            // Ink canvas only accepts input when freehand is selected;
+                            // Ink canvas accepts input for freehand and eraser;
                             // shape tools route touches to the creation overlay above.
+                            // Eraser stays enabled at the element cap so the coach
+                            // can erase their way back under it; freehand is gated.
                             isEnabled: !isSaving
-                                && elementCount < maxStrokes
-                                && toolMode == .freehand
+                                && toolMode.usesInkCanvas
+                                && (toolMode == .eraser || elementCount < maxStrokes)
                         )
                         .frame(width: fittedCanvas.width, height: fittedCanvas.height)
 
@@ -197,6 +205,22 @@ struct TelestrationOverlayView: View {
             if newCount > loggedStrokeCount {
                 for _ in 0..<(newCount - loggedStrokeCount) {
                     undoLog.append(.stroke)
+                }
+                redoStack.removeAll()
+            } else if newCount < loggedStrokeCount {
+                // Eraser removed whole strokes outside the undo/redo paths (which
+                // keep the log in lockstep themselves, so they never hit this).
+                // Drop that many .stroke entries — most recent first — to keep the
+                // log's stroke count equal to drawing.strokes.count. Erasing is a
+                // destructive edit and is not itself redoable.
+                var toRemove = loggedStrokeCount - newCount
+                var index = undoLog.count - 1
+                while index >= 0 && toRemove > 0 {
+                    if undoLog[index] == .stroke {
+                        undoLog.remove(at: index)
+                        toRemove -= 1
+                    }
+                    index -= 1
                 }
                 redoStack.removeAll()
             }

@@ -153,6 +153,22 @@ struct FirestoreVideoMetadata: Codable, Identifiable {
     let practiceDate: Date?
     let notes: String? // Athlete-authored context attached at share time
 
+    // Athlete-tagged play context, written at share time by
+    // createPendingVideoMetadata. Typed here so the coach pipeline doesn't drop
+    // them on Codable round-trip — the athlete-side parser (VideoClipMetadata)
+    // already reads these; without these declarations the coach saw a bare clip.
+    //
+    // IMPORTANT: read `playResultName` (always a String), NOT `playResult`. The
+    // `playResult` key is written as an Int rawValue by the athlete-upload path
+    // and as a String by the coach-share path; declaring a String? against that
+    // mixed-type key would throw DecodingError.typeMismatch and silently drop the
+    // whole doc from the coach's folder list. `playResultName` is consistently a
+    // String (or absent) across both writers.
+    var playResultName: String? = nil  // human-readable PlayResultType.displayName
+    var pitchSpeed: Double? = nil       // mph
+    var pitchType: String? = nil        // "fastball" / "offspeed"
+    var seasonName: String? = nil
+
     // Golf club tag (Club enum rawValue, e.g. "7i", "Driver", "Putter").
     // Set at recording time for clips in a golf season; nil for baseball/softball.
     // Mirrors VideoClip.club in SchemaV23 — typed here so the coach pipeline
@@ -377,6 +393,15 @@ struct UserProfile: Codable, Identifiable {
     /// Cloud Function. Used to reconcile local SwiftData User.cloudStorageUsedBytes
     /// across devices signed into the same account.
     let cloudStorageUsedBytes: Int64?
+
+    /// Coach-downgrade backstop fields, CF-managed by `auditCoachDowngrades`.
+    /// `downgradeUnresolved` is true once the server-authoritative grace expires
+    /// while the coach is still over their tier's athlete limit — firestore.rules
+    /// then blocks coach feedback writes until they shed. `coachDowngradeGraceStartedAt`
+    /// is when that over-limit grace began (server clock, survives a reinstall —
+    /// unlike the local UserDefaults fallback in CoachDowngradeManager).
+    let downgradeUnresolved: Bool?
+    let coachDowngradeGraceStartedAt: Date?
 
     // Role-specific profiles would be nested objects in Firestore
 

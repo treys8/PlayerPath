@@ -63,6 +63,9 @@ class CoachVideoPlayerViewModel {
     var isGeneratingFilmstrip = false
     var observedPlaybackTime: Double = 0
     var isPlaying: Bool = false
+    /// Whole-clip loop toggle. When on, the player re-seeks to zero and resumes
+    /// at item end so the coach can watch a rep on repeat without re-scrubbing.
+    var isLooping: Bool = false
 
     // Telestration state. `ActiveDrawingOverlay` is defined in
     // Views/Coach/Telestration/AnnotationPlaybackViews.swift so the athlete's
@@ -83,6 +86,7 @@ class CoachVideoPlayerViewModel {
     private var timeObserver: Any?
     private var filmstripTimeObserver: Any?
     private var annotationsListener: ListenerRegistration?
+    private var loopObserver: NSObjectProtocol?
 
     var currentPlaybackTime: Double {
         player?.currentTime().seconds ?? 0.0
@@ -116,6 +120,9 @@ class CoachVideoPlayerViewModel {
             }
             if let observer = filmstripTimeObserver {
                 player?.removeTimeObserver(observer)
+            }
+            if let observer = loopObserver {
+                NotificationCenter.default.removeObserver(observer)
             }
             statusObservation?.invalidate()
             playingObservation?.invalidate()
@@ -413,7 +420,14 @@ class CoachVideoPlayerViewModel {
         playingObservation = player.observe(\.timeControlStatus, options: [.initial, .new]) { [weak self] player, _ in
             let playing = player.timeControlStatus == .playing
             Task { @MainActor [weak self] in
-                self?.isPlaying = playing
+                guard let self else { return }
+                self.isPlaying = playing
+                // Apply the chosen playback rate the instant playback starts, so
+                // a slow-mo rate picked while paused engages immediately instead
+                // of snapping in on the next ~periodic observer tick.
+                if playing, player.rate != Float(self.playbackRate) {
+                    player.rate = Float(self.playbackRate)
+                }
             }
         }
     }
@@ -448,6 +462,76 @@ class CoachVideoPlayerViewModel {
         if player?.timeControlStatus == .playing {
             player?.rate = Float(rate)
         }
+    }
+
+    // MARK: - Frame stepping
+
+    var canStepForward: Bool { player?.currentItem?.canStepForward ?? false }
+    var canStepBackward: Bool { player?.currentItem?.canStepBackward ?? false }
+
+    /// Steps the player by whole frames on a paused frame (negative = backward),
+    /// for breaking down a swing/pitch one frame at a time. The periodic time
+    /// observers only tick during playback, so nudge `observedPlaybackTime` here
+    /// to keep the filmstrip + drawing markers in sync with the new still frame.
+    func stepFrame(by count: Int) {
+        guard let player, let item = player.currentItem else { return }
+        player.pause()
+        if count >= 0 {
+            guard item.canStepForward else { return }
+        } else {
+            guard item.canStepBackward else { return }
+        }
+        item.step(byCount: count)
+        observedPlaybackTime = player.currentTime().seconds
+        Haptics.light()
+    }
+
+    // MARK: - Looping
+
+    /// Toggles whole-clip looping. Uses an item-did-play-to-end observer rather
+    /// than AVPlayerLooper so we keep the existing plain AVPlayer (AVPlayerLooper
+    /// requires an AVQueuePlayer, which would mean reworking loadVideo).
+    func toggleLooping() {
+        isLooping.toggle()
+        if isLooping {
+            attachLoopObserver()
+        } else {
+            detachLoopObserver()
+        }
+        Haptics.light()
+    }
+
+    private func attachLoopObserver() {
+        guard let item = player?.currentItem, loopObserver == nil else { return }
+        player?.actionAtItemEnd = .none
+        loopObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: item,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.isLooping else { return }
+                self.player?.seek(to: .zero)
+                self.player?.play()
+            }
+        }
+    }
+
+    private func detachLoopObserver() {
+        if let observer = loopObserver {
+            NotificationCenter.default.removeObserver(observer)
+            loopObserver = nil
+        }
+        player?.actionAtItemEnd = .pause
+    }
+
+    /// Tears down the loop observer when the player view disappears, for parity
+    /// with stopTimeObserver/stopFilmstripTimeObserver. Without this, a clip left
+    /// looping keeps a live item-scoped NotificationCenter registration until the
+    /// viewModel deinits — non-deterministic under SwiftUI `.id()` clip swaps.
+    func teardownLoopObserver() {
+        detachLoopObserver()
+        isLooping = false
     }
 
     // MARK: - Filmstrip

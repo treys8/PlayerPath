@@ -54,7 +54,7 @@ struct TelestrationToolbar: View {
                 Text("Drawing limit: \(elementCount)/\(maxStrokes)")
                     .font(.caption2)
                     .foregroundColor(elementCount >= maxStrokes ? .red : Theme.warning)
-            } else if toolMode != .freehand, shapeCount >= maxShapes {
+            } else if toolMode.shapeKind != nil, shapeCount >= maxShapes {
                 Text("Shape limit reached (\(maxShapes)). Switch to freehand to keep drawing.")
                     .font(.caption2)
                     .foregroundColor(Theme.warning)

@@ -1808,6 +1808,9 @@ export const sendCoachAccessRevokedEmail = functions.firestore
         await admin.firestore().collection('users').doc(revocation.coachID).update({
           coachAthleteCount: trueCount,
         });
+        // Lift the downgrade feedback gate immediately if this shed brought the
+        // coach back within their limit (don't wait for the daily audit).
+        await clearCoachDowngradeFlagsIfResolved(admin.firestore(), revocation.coachID, trueCount);
       } catch (e) {
         console.warn(`Failed to recompute coachAthleteCount for ${revocation.coachID}:`, e);
       }
@@ -3239,6 +3242,25 @@ export const syncSubscriptionTier = functions.https.onCall(async (data, context)
   }
   // else: resolved free, current is a manual grant (Academy/comp) → preserve it.
 
+  // If a coach-downgrade backstop is active, lift it when the (possibly upgraded)
+  // coach tier now covers the connected count — so buying a higher tier instantly
+  // restores feedback delivery without waiting for the daily audit. Only pay the
+  // recompute cost when a flag is actually set.
+  const hadDowngradeFlags = userDoc.data()?.downgradeUnresolved === true
+    || userDoc.data()?.coachDowngradeGraceStartedAt !== undefined;
+  if (hadDowngradeFlags) {
+    const effectiveCoachTier = (updateData.coachSubscriptionTier as string | undefined) ?? currentCoachTier;
+    try {
+      const count = await computeCoachConnectionCount(admin.firestore(), uid);
+      if (count <= getCoachAthleteLimit(effectiveCoachTier)) {
+        updateData.downgradeUnresolved = admin.firestore.FieldValue.delete();
+        updateData.coachDowngradeGraceStartedAt = admin.firestore.FieldValue.delete();
+      }
+    } catch (e) {
+      console.warn(`syncSubscriptionTier: downgrade-flag reconcile failed for ${uid}:`, e);
+    }
+  }
+
   try {
     await admin.firestore().collection('users').doc(uid).set(updateData, { merge: true });
     console.log(`✅ Synced tiers for ${uid}: athlete=${athleteTier}, coach=${coachTier}`);
@@ -3602,6 +3624,118 @@ async function computeCoachConnectionKeys(
   return keys;
 }
 
+// ---------------------------------------------------------------------------
+// Coach downgrade backstop (server-authoritative grace + feedback gate)
+// ---------------------------------------------------------------------------
+// The client (CoachDowngradeManager) runs the 7-day grace + selection sheet, but
+// shedding was 100% client-driven: a coach who never opened the sheet kept full
+// access forever, and the grace lived in UserDefaults so a reinstall reset it.
+// These two CF-managed fields on users/{coachID} make the grace server-authoritative
+// and gate FEEDBACK DELIVERY (not viewing) once it expires while still over limit:
+//   - coachDowngradeGraceStartedAt: Timestamp — when the over-limit grace began.
+//   - downgradeUnresolved: bool — true once grace expired and still over limit.
+// firestore.rules (coachDowngradeBlocked) blocks coach publish/comment/annotation/
+// drill-card writes when downgradeUnresolved is true; reads + signed URLs are
+// untouched. The server never picks who to drop — the coach still chooses in the
+// selection sheet. Cleared the instant the coach is back within limit.
+const COACH_DOWNGRADE_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Lift the downgrade backstop when the coach is back within their limit. Called
+ * from every site that recomputes coachAthleteCount so the feedback gate clears
+ * immediately (don't wait for the next daily audit). Reads the coach doc to get
+ * the tier and to avoid a needless write when no flag is set. Best-effort.
+ */
+async function clearCoachDowngradeFlagsIfResolved(
+  db: admin.firestore.Firestore,
+  coachID: string,
+  count: number
+): Promise<void> {
+  try {
+    const snap = await db.collection('users').doc(coachID).get();
+    const data = snap.data() || {};
+    const tier = data.coachSubscriptionTier || 'coach_free';
+    if (count > getCoachAthleteLimit(tier)) return;
+    if (data.downgradeUnresolved === undefined && data.coachDowngradeGraceStartedAt === undefined) return;
+    await db.collection('users').doc(coachID).update({
+      downgradeUnresolved: admin.firestore.FieldValue.delete(),
+      coachDowngradeGraceStartedAt: admin.firestore.FieldValue.delete(),
+    });
+  } catch (e) {
+    console.warn(`Failed to clear coach downgrade flags for ${coachID}:`, e);
+  }
+}
+
+/**
+ * Daily backstop for the coach-downgrade shed flow. Recomputes each coach's
+ * authoritative connection count (NOT the cached coachAthleteCount, to avoid
+ * false positives from drift). Over limit with no grace yet → start the
+ * server-authoritative grace. Over limit past 7 days → set downgradeUnresolved
+ * (gates feedback delivery in firestore.rules). Back within limit → clear both.
+ */
+export const auditCoachDowngrades = functions.pubsub
+  .schedule('every 24 hours')
+  .onRun(async () => {
+    const db = admin.firestore();
+    const now = Date.now();
+    let gracedStarted = 0, flagged = 0, cleared = 0;
+
+    // Single-field role query (no composite index needed); the cheap
+    // coachAthleteCount/flag pre-filter below avoids recomputing for coaches with
+    // nothing connected and no backstop state to clear.
+    const coachSnap = await db.collection('users').where('role', '==', 'coach').get();
+
+    for (const doc of coachSnap.docs) {
+      const data = doc.data();
+      const hasFlags = data.downgradeUnresolved === true || data.coachDowngradeGraceStartedAt !== undefined;
+      // Skip only when the count is explicitly zero (genuinely no connections) and
+      // there's no backstop state to clear. A MISSING coachAthleteCount (legacy doc)
+      // falls through to the authoritative recompute below, so a legacy over-limit
+      // coach still gets graced — one extra count per such coach per day.
+      if (data.coachAthleteCount === 0 && !hasFlags) continue;
+
+      const coachID = doc.id;
+      const limit = getCoachAthleteLimit(data.coachSubscriptionTier || 'coach_free');
+
+      let count: number;
+      try {
+        count = await computeCoachConnectionCount(db, coachID);
+      } catch (e) {
+        console.warn(`auditCoachDowngrades: count failed for ${coachID}:`, e);
+        continue;
+      }
+
+      const graceStartedAt = data.coachDowngradeGraceStartedAt as admin.firestore.Timestamp | undefined;
+      const unresolved = data.downgradeUnresolved === true;
+
+      if (count > limit) {
+        if (!graceStartedAt) {
+          // Start a fresh grace window. Note: a coach who drops within limit gets
+          // both fields cleared below, so coming back over later starts a NEW 7-day
+          // window (lenient restart), not a resume of the old one. A coach who stays
+          // continuously over keeps the original timestamp (no restart).
+          await doc.ref.update({ coachDowngradeGraceStartedAt: admin.firestore.FieldValue.serverTimestamp() })
+            .then(() => { gracedStarted++; })
+            .catch(e => console.warn(`auditCoachDowngrades: set grace failed for ${coachID}:`, e));
+        } else if (!unresolved && (now - graceStartedAt.toMillis()) >= COACH_DOWNGRADE_GRACE_MS) {
+          await doc.ref.update({ downgradeUnresolved: true })
+            .then(() => { flagged++; })
+            .catch(e => console.warn(`auditCoachDowngrades: set unresolved failed for ${coachID}:`, e));
+        }
+      } else if (graceStartedAt || unresolved) {
+        await doc.ref.update({
+          downgradeUnresolved: admin.firestore.FieldValue.delete(),
+          coachDowngradeGraceStartedAt: admin.firestore.FieldValue.delete(),
+        })
+          .then(() => { cleared++; })
+          .catch(e => console.warn(`auditCoachDowngrades: clear failed for ${coachID}:`, e));
+      }
+    }
+
+    console.log(`✅ auditCoachDowngrades: ${gracedStarted} grace-started, ${flagged} flagged, ${cleared} cleared`);
+    return null;
+  });
+
 /**
  * Server mirror of Swift `SubscriptionGate.personMatches`: a UUID-bearing row
  * matches ONLY on the UUID axis (personGroupID/athleteUUID) and never falls
@@ -3712,6 +3846,7 @@ async function cleanupStaleInvitationsAfterRevocation(
     try {
       const trueCount = await computeCoachConnectionCount(db, coachID);
       await db.collection('users').doc(coachID).update({ coachAthleteCount: trueCount });
+      await clearCoachDowngradeFlagsIfResolved(db, coachID, trueCount);
     } catch (e) {
       console.warn(`cleanupStaleInvitations: failed to recompute coachAthleteCount for ${coachID}:`, e);
     }

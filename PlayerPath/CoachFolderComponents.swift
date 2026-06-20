@@ -53,6 +53,10 @@ struct AllVideosTabView: View {
     let onRefresh: () async -> Void
     var onLoadMore: (() async -> Void)?
     var onEditTags: ((CoachVideoItem) -> Void)?
+    /// When true (games folders), clips are grouped under per-opponent headers
+    /// instead of one flat list, so clips from different games don't blur
+    /// together. Pagination, deep-link scroll, and sequence review are preserved.
+    var groupByGame: Bool = false
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
@@ -61,6 +65,10 @@ struct AllVideosTabView: View {
     /// Remembers which target we've already highlighted so returning from the
     /// video player doesn't re-pulse the card.
     @State private var handledTargetID: String?
+    /// Cached game grouping (games folders only), recomputed when `videos`
+    /// changes. Cached so the grouped layout and the review sequence share one
+    /// stable ordering instead of recomputing the Dictionary on every row render.
+    @State private var cachedGameGroups: [GameGroup] = []
 
     private var videoGridColumns: [GridItem] {
         if horizontalSizeClass == .regular {
@@ -90,42 +98,125 @@ struct AllVideosTabView: View {
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
-                        LazyVGrid(columns: videoGridColumns, spacing: 16) {
-                            ForEach(videos) { video in
-                                videoNavigationLink(folder: folder, video: video)
-                                    .id(video.id)
-                            }
-
-                            if hasMoreVideos {
-                                Button {
-                                    Task { await onLoadMore?() }
-                                } label: {
-                                    if isLoadingMore {
-                                        ProgressView()
-                                            .frame(maxWidth: .infinity)
-                                            .padding()
-                                    } else {
-                                        Text("Load More Videos")
-                                            .font(.subheadline.weight(.medium))
-                                            .foregroundColor(.brandNavy)
-                                            .frame(maxWidth: .infinity)
-                                            .padding()
-                                    }
-                                }
-                                .disabled(isLoadingMore)
-                            }
+                        if groupByGame {
+                            groupedVideoContent
+                        } else {
+                            flatVideoContent
                         }
-                        .padding(.vertical)
-                        .padding(.horizontal, horizontalSizeClass == .regular ? 32 : 16)
                     }
                     .refreshable { await onRefresh() }
-                    .onAppear { scrollToTargetIfNeeded(proxy: proxy) }
+                    .onAppear {
+                        if groupByGame { recomputeGameGroups() }
+                        scrollToTargetIfNeeded(proxy: proxy)
+                    }
                     .onChange(of: videos.map(\.id)) { _, _ in
+                        if groupByGame { recomputeGameGroups() }
                         scrollToTargetIfNeeded(proxy: proxy)
                     }
                 }
             }
         }
+    }
+
+    private var flatVideoContent: some View {
+        LazyVGrid(columns: videoGridColumns, spacing: 16) {
+            ForEach(videos) { video in
+                videoNavigationLink(folder: folder, video: video)
+                    .id(video.id)
+            }
+            loadMoreButton
+        }
+        .padding(.vertical)
+        .padding(.horizontal, horizontalSizeClass == .regular ? 32 : 16)
+    }
+
+    private var groupedVideoContent: some View {
+        LazyVStack(alignment: .leading, spacing: 20) {
+            ForEach(cachedGameGroups) { group in
+                VStack(alignment: .leading, spacing: 12) {
+                    gameGroupHeader(group)
+                    LazyVGrid(columns: videoGridColumns, spacing: 16) {
+                        ForEach(group.videos) { video in
+                            videoNavigationLink(folder: folder, video: video)
+                                .id(video.id)
+                        }
+                    }
+                }
+            }
+            loadMoreButton
+        }
+        .padding(.vertical)
+        .padding(.horizontal, horizontalSizeClass == .regular ? 32 : 16)
+    }
+
+    @ViewBuilder
+    private var loadMoreButton: some View {
+        if hasMoreVideos {
+            Button {
+                Task { await onLoadMore?() }
+            } label: {
+                if isLoadingMore {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                } else {
+                    Text("Load More Videos")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundColor(.brandNavy)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                }
+            }
+            .disabled(isLoadingMore)
+        }
+    }
+
+    /// Recomputes `cachedGameGroups`: clips grouped by opponent AND game day, so
+    /// two games against the same opponent on different dates (or a season's
+    /// repeat matchups) stay separate — keying on opponent alone would merge a
+    /// May "Eagles" game with a June one. Same-day doubleheaders still merge
+    /// (CoachVideoItem carries no game id to split them). Each group is
+    /// newest-first; groups are ordered most-recent first.
+    private func recomputeGameGroups() {
+        let grouped = Dictionary(grouping: videos) { video -> String in
+            let opponent = video.gameOpponent ?? "Other"
+            let day = video.gameDate ?? video.createdAt
+            let dayKey = day.map { Calendar.current.startOfDay(for: $0).timeIntervalSince1970 } ?? 0
+            return "\(opponent)|\(dayKey)"
+        }
+        cachedGameGroups = grouped.map { _, vids in
+            GameGroup(
+                opponent: vids.first?.gameOpponent ?? "Other",
+                date: vids.first?.gameDate ?? vids.compactMap(\.createdAt).max() ?? Date(),
+                videos: vids.sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
+            )
+        }
+        .sorted { $0.date > $1.date }
+    }
+
+    /// The clip order a coach actually sees, used to build the review sequence so
+    /// Next/Previous and the "n of m" position follow the on-screen order rather
+    /// than the raw chronological `videos` array (which differs once grouped).
+    private var orderedVideos: [CoachVideoItem] {
+        groupByGame ? cachedGameGroups.flatMap(\.videos) : videos
+    }
+
+    private func gameGroupHeader(_ group: GameGroup) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(group.opponent)
+                    .font(.headline)
+                    .foregroundColor(.primary)
+                Text(group.date.formatted(date: .abbreviated, time: .omitted))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            Spacer()
+            Text("\(group.videos.count) video\(group.videos.count == 1 ? "" : "s")")
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+        .padding(.horizontal, 4)
     }
 
     private func scrollToTargetIfNeeded(proxy: ScrollViewProxy) {
@@ -146,7 +237,15 @@ struct AllVideosTabView: View {
 
     @ViewBuilder
     private func videoNavigationLink(folder: SharedFolder, video: CoachVideoItem) -> some View {
-        let link = NavigationLink(destination: CoachVideoPlayerView(folder: folder, video: video)) {
+        // Push a sequence over the on-screen order starting at this clip so the
+        // coach can step next/previous without backing out — and so Next follows
+        // the cards they see (grouped order when grouped), not raw chronology.
+        // Falls back to index 0 if the clip somehow isn't in the list.
+        let sequence = orderedVideos
+        let startIndex = sequence.firstIndex(where: { $0.id == video.id }) ?? 0
+        let link = NavigationLink(
+            destination: CoachReviewSequenceView(folder: folder, clips: sequence, startIndex: startIndex)
+        ) {
             CoachVideoCard(
                 video: video,
                 isUnread: unreadVideoIDs.contains(video.id),

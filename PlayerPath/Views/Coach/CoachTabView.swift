@@ -48,7 +48,10 @@ struct CoachTabView: View {
             // Configure archive manager
             if let coachID = authManager.userID {
                 CoachFolderArchiveManager.shared.configure(coachUID: coachID)
-                await downgradeManager.evaluate(coachID: coachID, coachTier: authManager.currentCoachTier)
+                await downgradeManager.evaluate(coachID: coachID,
+                                                coachTier: authManager.currentCoachTier,
+                                                serverGraceStartedAt: authManager.userProfile?.coachDowngradeGraceStartedAt,
+                                                serverUnresolved: authManager.userProfile?.downgradeUnresolved ?? false)
             }
 
             AnalyticsService.shared.trackScreenView(
@@ -81,16 +84,36 @@ struct CoachTabView: View {
             coordinator.resolvePendingNavigation(folders: folders)
             // Re-evaluate downgrade state when folders change
             if let coachID = authManager.userID {
-                Task { await downgradeManager.evaluate(coachID: coachID, coachTier: authManager.currentCoachTier) }
+                Task { await downgradeManager.evaluate(coachID: coachID,
+                                                coachTier: authManager.currentCoachTier,
+                                                serverGraceStartedAt: authManager.userProfile?.coachDowngradeGraceStartedAt,
+                                                serverUnresolved: authManager.userProfile?.downgradeUnresolved ?? false) }
             }
         }
         .onChange(of: authManager.currentCoachTier) { _, _ in
             // Re-evaluate when coach tier changes (upgrade or downgrade)
             if let coachID = authManager.userID {
-                Task { await downgradeManager.evaluate(coachID: coachID, coachTier: authManager.currentCoachTier) }
+                Task { await downgradeManager.evaluate(coachID: coachID,
+                                                coachTier: authManager.currentCoachTier,
+                                                serverGraceStartedAt: authManager.userProfile?.coachDowngradeGraceStartedAt,
+                                                serverUnresolved: authManager.userProfile?.downgradeUnresolved ?? false) }
             }
         }
-        .fullScreenCover(isPresented: $showDowngradeSelection) {
+        .onChange(of: authManager.userProfile?.downgradeUnresolved) { _, _ in
+            // The daily audit flips downgradeUnresolved server-side; re-evaluate when
+            // the refreshed profile surfaces it so the resolve banner + feedback block
+            // engage without needing a folder or tier change first.
+            if let coachID = authManager.userID {
+                Task { await downgradeManager.evaluate(coachID: coachID,
+                                                coachTier: authManager.currentCoachTier,
+                                                serverGraceStartedAt: authManager.userProfile?.coachDowngradeGraceStartedAt,
+                                                serverUnresolved: authManager.userProfile?.downgradeUnresolved ?? false) }
+            }
+        }
+        // Opened on demand from the resolve banner (no longer auto-forced) — the
+        // coach can dismiss and keep viewing; feedback stays blocked server-side
+        // until they actually shed or upgrade.
+        .sheet(isPresented: $showDowngradeSelection) {
             if let coachID = authManager.userID {
                 CoachDowngradeSelectionView(coachID: coachID)
                     .environmentObject(authManager)
@@ -102,9 +125,6 @@ struct CoachTabView: View {
         .sheet(isPresented: $showingCoachPaywall) {
             CoachPaywallView()
                 .environmentObject(authManager)
-        }
-        .onChange(of: downgradeManager.state) { _, newState in
-            showDowngradeSelection = newState == .selectionRequired
         }
         .environment(coordinator)
         .addKeyboardShortcuts()
@@ -143,7 +163,8 @@ struct CoachTabView: View {
 
     @ViewBuilder
     private var downgradeGraceBanner: some View {
-        if case .gracePeriod(let daysRemaining) = downgradeManager.state {
+        switch downgradeManager.state {
+        case .gracePeriod(let daysRemaining):
             CoachDowngradeGraceBanner(
                 daysRemaining: daysRemaining,
                 connectedCount: downgradeManager.connectedCount,
@@ -151,6 +172,19 @@ struct CoachTabView: View {
             )
             .padding(.top, 4)
             .transition(.move(edge: .top).combined(with: .opacity))
+        case .selectionRequired:
+            // Grace expired and still over limit. Feedback delivery is blocked
+            // server-side (firestore.rules), but viewing stays open — so this is a
+            // persistent banner, not the old non-dismissable full-screen blocker.
+            CoachDowngradeResolveBanner(
+                connectedCount: downgradeManager.connectedCount,
+                limit: downgradeManager.currentLimit,
+                onChooseAthletes: { showDowngradeSelection = true }
+            )
+            .padding(.top, 4)
+            .transition(.move(edge: .top).combined(with: .opacity))
+        case .none:
+            EmptyView()
         }
     }
 

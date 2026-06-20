@@ -26,6 +26,10 @@ struct CoachVideoItem: Identifiable, Equatable {
     let gameDate: Date?
     let practiceDate: Date?
     let notes: String?
+    let playResult: String?
+    let pitchSpeed: Double?
+    let pitchType: String?
+    let seasonName: String?
     let club: String?
     let holeNumber: Int?
     let coachNote: String?
@@ -92,6 +96,12 @@ struct CoachVideoItem: Identifiable, Equatable {
         self.gameDate = metadata.gameDate
         self.practiceDate = metadata.practiceDate
         self.notes = metadata.notes
+        // Sourced from the always-String `playResultName` key (see
+        // FirestoreVideoMetadata) — the `playResult` key is mixed Int/String.
+        self.playResult = metadata.playResultName
+        self.pitchSpeed = metadata.pitchSpeed
+        self.pitchType = metadata.pitchType
+        self.seasonName = metadata.seasonName
         self.club = metadata.club
         self.holeNumber = metadata.holeNumber
         self.coachNote = metadata.coachNote

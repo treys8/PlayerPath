@@ -68,7 +68,13 @@ extension FirestoreManager {
             videoData["sessionID"] = sessionID
         }
         if let playResult {
+            // `playResult` here is already a display name (PlayResultType.displayName,
+            // passed by ShareToCoachFolderView). Also write it to `playResultName`
+            // — the always-String key the coach read model (FirestoreVideoMetadata)
+            // decodes. Writing only `playResult` left the coach unable to read it
+            // safely, since that key is an Int rawValue on the athlete-upload path.
             videoData["playResult"] = playResult
+            videoData["playResultName"] = playResult
         }
         if let pitchSpeed {
             videoData["pitchSpeed"] = pitchSpeed

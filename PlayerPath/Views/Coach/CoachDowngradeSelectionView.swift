@@ -2,9 +2,11 @@
 //  CoachDowngradeSelectionView.swift
 //  PlayerPath
 //
-//  Full-screen blocker shown after the grace period expires.
-//  The coach must choose which athletes to keep (up to their tier limit).
-//  Unchosen athletes have their folder access and invitations revoked.
+//  Selection sheet opened from the downgrade resolve banner once the grace
+//  period expires. The coach chooses which athletes to keep (up to their tier
+//  limit); unchosen athletes have their folder access and invitations revoked.
+//  Dismissable — the coach can defer and keep viewing (feedback delivery stays
+//  blocked server-side until they resolve here or upgrade).
 //
 
 import SwiftUI
@@ -15,6 +17,7 @@ private let selectionLog = Logger(subsystem: "com.playerpath.app", category: "Co
 
 struct CoachDowngradeSelectionView: View {
     let coachID: String
+    @Environment(\.dismiss) private var dismiss
     @State private var athletes: [ConnectedAthlete] = []
     @State private var selectedIDs: Set<String> = []
     @State private var isLoading = true
@@ -46,6 +49,10 @@ struct CoachDowngradeSelectionView: View {
             .navigationTitle("Choose Athletes")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Later") { dismiss() }
+                        .disabled(isSubmitting)
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Upgrade Instead") {
                         showingPaywall = true
@@ -53,7 +60,7 @@ struct CoachDowngradeSelectionView: View {
                     .fontWeight(.medium)
                 }
             }
-            .interactiveDismissDisabled()
+            .interactiveDismissDisabled(isSubmitting)
             .task { await loadAthletes() }
             .sheet(isPresented: $showingPaywall) {
                 CoachPaywallView()
@@ -286,6 +293,9 @@ struct CoachDowngradeSelectionView: View {
             CoachDowngradeManager.shared.markResolved(coachID: coachID)
             Haptics.success()
             selectionLog.info("Revoked access for \(athleteIDsToRevoke.count) athletes")
+            isSubmitting = false
+            dismiss()
+            return
         } catch {
             errorMessage = "Failed to update. Please try again."
             ErrorHandlerService.shared.handle(error, context: "CoachDowngradeSelectionView.submit", showAlert: false)

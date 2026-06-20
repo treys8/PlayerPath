@@ -39,6 +39,9 @@ struct CoachDashboardView: View {
     /// Surfaced when completing a session fails, or when "Publish & Complete"
     /// couldn't share every draft — so the coach never gets a false "done".
     @State private var sessionCompleteError: String?
+    /// Presents the athlete-selection sheet when an over-limit coach taps a
+    /// publish action (feedback delivery is blocked server-side until they shed).
+    @State private var showingDowngradeSelection = false
     @State private var startingScheduledSessionID: String?
     @State private var showingCancelConfirmation = false
     @State private var sessionToCancel: CoachSession?
@@ -216,6 +219,12 @@ struct CoachDashboardView: View {
         }) {
             NavigationStack {
                 CoachInvitationsView(initialTab: invitationsInitialTab)
+                    .environmentObject(authManager)
+            }
+        }
+        .sheet(isPresented: $showingDowngradeSelection) {
+            if let coachID = authManager.userID {
+                CoachDowngradeSelectionView(coachID: coachID)
                     .environmentObject(authManager)
             }
         }
@@ -994,6 +1003,14 @@ struct CoachDashboardView: View {
     /// never a false "done" while clips sit unshared.
     private func publishAllThenComplete(_ session: CoachSession) {
         guard let sessionID = session.id else { return }
+        // Publishing delivers feedback — blocked while over the downgrade limit. Send
+        // the coach to resolve first (rules would reject each publish anyway). They can
+        // still "Complete Without Sharing" from the same dialog (no publish, allowed).
+        if CoachDowngradeManager.shared.feedbackBlocked(downgradeUnresolved: authManager.userProfile?.downgradeUnresolved) {
+            sessionPendingComplete = nil
+            showingDowngradeSelection = true
+            return
+        }
         let drafts = unpublishedDrafts(for: session)
         sessionPendingComplete = nil
         isCompletingSession = true
