@@ -437,7 +437,10 @@ struct GameDetailView: View {
             EnterScoreSheet(game: game)
         }
         .sheet(item: $scoreHoleTarget) { target in
-            ScoreHoleSheet(game: game, holeNumber: target.holeNumber)
+            // One unified sheet: a Quick | Shot-by-shot switch picks the entry
+            // style per hole. A hole that already has shots opens locked to
+            // shot-by-shot, preserving the two-writer guard.
+            HoleScoringSheet(game: game, holeNumber: target.holeNumber)
         }
         .sheet(isPresented: $showingScorecard) {
             GolfScorecardView(round: .game(game))

@@ -50,6 +50,27 @@ struct GolfScorecardView: View {
     @State private var showPutts: Bool = false
     @State private var didLoad = false
     @State private var isSaving = false
+    /// Hole picked for shot-by-shot entry — only used on shot-tracked rounds,
+    /// where tapping a hole routes to ShotEntryView instead of inline editing.
+    @State private var shotEntryTarget: ScoreHoleTarget?
+
+    /// When true this round is logged shot-by-shot: the inline score editor is
+    /// read-only (only ShotRollup writes these holes) and hole taps open the
+    /// shot-entry card. Guards against two writers touching one HoleScore.
+    private var isShotTracked: Bool { round.tracksShotByShot }
+
+    /// A hole is owned by ShotRollup when the round is shot-tracked OR the hole
+    /// already carries shots. Such holes stay read-only here and route to
+    /// ShotEntryView even if `tracksShotByShot` was later turned off — so the
+    /// inline editor can never two-write a shot-derived hole (plan risk #4).
+    private func isHoleShotLocked(_ n: Int) -> Bool {
+        isShotTracked || round.hasShots(onHole: n)
+    }
+
+    /// Whether any hole is still editable inline — drives Save vs Done.
+    private var hasEditableHole: Bool {
+        (1...holeCount).contains { !isHoleShotLocked($0) }
+    }
 
     private var holeCount: Int { round.holeCount }
     private var outRange: ClosedRange<Int> { 1...min(9, holeCount) }
@@ -90,15 +111,33 @@ struct GolfScorecardView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    // Nothing editable inline (fully shot-owned round) → a single
+                    // "Done" suffices; no separate Cancel.
+                    if hasEditableHole {
+                        Button("Cancel") { dismiss() }
+                    }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { save() }
-                        .disabled(!anyScored || isSaving)
-                        .fontWeight(.semibold)
+                    if hasEditableHole {
+                        Button("Save") { save() }
+                            .disabled(!anyScored || isSaving)
+                            .fontWeight(.semibold)
+                    } else {
+                        Button("Done") { dismiss() }
+                            .fontWeight(.semibold)
+                    }
                 }
             }
             .safeAreaInset(edge: .bottom) { editorPanel }
+            .sheet(item: $shotEntryTarget, onDismiss: { seedEntries() }) { target in
+                // Re-seed on dismiss so the grid reflects the freshly derived
+                // score / putts after logging shots. A shot-owned hole opens the
+                // unified sheet locked to shot-by-shot.
+                switch round {
+                case .game(let g):     HoleScoringSheet(game: g, holeNumber: target.holeNumber)
+                case .practice(let p): HoleScoringSheet(practice: p, holeNumber: target.holeNumber)
+                }
+            }
             .onAppear(perform: loadIfNeeded)
         }
     }
@@ -156,11 +195,18 @@ struct GolfScorecardView: View {
 
     private func holeCell(_ n: Int) -> some View {
         let entry = entries[n]
-        let isSelected = n == selectedHole
+        let locked = isHoleShotLocked(n)
+        // A shot-owned hole shows no inline selection — tapping opens the
+        // shot-entry card rather than selecting it for inline editing.
+        let isSelected = !locked && n == selectedHole
         let scoreColor: Color = entry?.score == nil ? .secondary : .parRelative((entry!.score! ) - entry!.par)
         return Button {
             Haptics.light()
-            selectedHole = n
+            if locked {
+                shotEntryTarget = ScoreHoleTarget(holeNumber: n)
+            } else {
+                selectedHole = n
+            }
         } label: {
             VStack(spacing: 1) {
                 Text("\(n)")
@@ -191,7 +237,33 @@ struct GolfScorecardView: View {
 
     // MARK: - Bottom editor panel (selected hole)
 
+    @ViewBuilder
     private var editorPanel: some View {
+        if isHoleShotLocked(selectedHole) {
+            shotTrackedHint
+        } else {
+            scoreEditorPanel
+        }
+    }
+
+    /// Read-only footer shown when the selected hole is shot-owned — inline
+    /// editing is disabled so only ShotRollup writes it (plan risk #4: avoid
+    /// two writers).
+    private var shotTrackedHint: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "scope")
+                .foregroundColor(Theme.golfAccent)
+            Text("Tracked shot by shot. Tap a hole to log or edit its shots.")
+                .font(.bodySmall)
+                .foregroundColor(.secondary)
+            Spacer()
+        }
+        .padding(.spacingMedium)
+        .frame(maxWidth: .infinity)
+        .background(.bar)
+    }
+
+    private var scoreEditorPanel: some View {
         let entry = entries[selectedHole] ?? HoleEntry(par: 4, score: nil, putts: nil)
         return VStack(spacing: .spacingSmall) {
             HStack {
@@ -297,10 +369,11 @@ struct GolfScorecardView: View {
         dirtyHoles.insert(selectedHole)
     }
 
-    /// Jump to the next still-unscored hole after a score is entered, so a
-    /// front-to-back round is pure tapping. Stays put once everything's scored.
+    /// Jump to the next still-unscored, inline-editable hole after a score is
+    /// entered, so a front-to-back round is pure tapping. Skips shot-owned holes
+    /// (they're entered via the shot card) and stays put once everything's done.
     private func advance() {
-        if let next = (1...holeCount).first(where: { entries[$0]?.score == nil }) {
+        if let next = (1...holeCount).first(where: { !isHoleShotLocked($0) && entries[$0]?.score == nil }) {
             selectedHole = next
         }
     }
@@ -310,7 +383,23 @@ struct GolfScorecardView: View {
     private func loadIfNeeded() {
         guard !didLoad else { return }
         didLoad = true
+        seedEntries()
+        selectedHole = firstSelectableHole()
+    }
 
+    /// First inline-editable hole to land on: the first unscored editable hole,
+    /// else any editable hole, else hole 1 (a fully shot-owned round just shows
+    /// the read-only hint regardless of `selectedHole`).
+    private func firstSelectableHole() -> Int {
+        if let n = (1...holeCount).first(where: { !isHoleShotLocked($0) && entries[$0]?.score == nil }) { return n }
+        if let n = (1...holeCount).first(where: { !isHoleShotLocked($0) }) { return n }
+        return 1
+    }
+
+    /// (Re)build the in-flight grid from the round's current HoleScores. Called
+    /// once on appear, and again after a shot-entry sheet dismisses so the
+    /// derived score / putts show without reopening the scorecard.
+    private func seedEntries() {
         var seeded: [Int: HoleEntry] = [:]
         for hole in round.holeScores {
             seeded[hole.holeNumber] = HoleEntry(
@@ -326,17 +415,24 @@ struct GolfScorecardView: View {
             seeded[n] = HoleEntry(par: prior ?? inRoundPar ?? 4, score: nil, putts: nil)
         }
         entries = seeded
-        selectedHole = (1...holeCount).first { seeded[$0]?.score == nil } ?? 1
     }
 
     private func save() {
         guard !isSaving else { return }
+        // Shot-tracked rounds derive their holes from ShotRollup; the scorecard
+        // must never write them. The Save button is hidden in that mode, so this
+        // is a defensive backstop only.
+        guard !isShotTracked else { dismiss(); return }
         isSaving = true
 
         // Only write holes the user touched that carry a real score. Build the
         // inputs first so the total mirror folds them in atomically.
         var written: [GolfScoreWriter.HoleInput] = []
         for n in dirtyHoles.sorted() {
+            // Never write a shot-owned hole — it's derived by ShotRollup. Such a
+            // hole can't be selected/dirtied via the editor, so this is a
+            // defensive backstop.
+            guard !isHoleShotLocked(n) else { continue }
             guard let entry = entries[n], let score = entry.score, score >= 1 else { continue }
             // Per-hole putts: write whatever the hole carries (nil if untracked).
             // The Track Putts toggle is visibility-only — it never nulls putts on

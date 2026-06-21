@@ -66,6 +66,26 @@ enum GolfRoundRef {
         case .practice(let p): return p.holes ?? 18
         }
     }
+
+    /// Whether this round is logged shot-by-shot. When true the scorecard's
+    /// inline score editor is read-only — only ShotRollup writes these holes —
+    /// and tapping a hole routes to the shot-entry card.
+    var tracksShotByShot: Bool {
+        switch self {
+        case .game(let g):     return g.tracksShotByShot
+        case .practice(let p): return p.tracksShotByShot
+        }
+    }
+
+    /// True when a specific hole already carries live (non-soft-deleted) shots.
+    /// A hole with shots is always owned by ShotRollup — it must route to
+    /// ShotEntryView and stay read-only in the scorecard even when the round's
+    /// `tracksShotByShot` flag has since been turned off, so the legacy quick
+    /// editors can never two-write a shot-derived hole.
+    func hasShots(onHole holeNumber: Int) -> Bool {
+        holeScores.first { $0.holeNumber == holeNumber }?
+            .shots?.contains { !$0.isDeletedRemotely } ?? false
+    }
 }
 
 struct HoleDetailView: View {

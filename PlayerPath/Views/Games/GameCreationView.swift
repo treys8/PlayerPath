@@ -14,6 +14,9 @@ struct GolfRoundDetails: Equatable {
     var holes: Int
     var par: Int?
     var totalScore: Int?
+    /// Opt-in shot-by-shot tracking for this round. When true, scoring a hole
+    /// opens ShotEntryView and the HoleScore is derived from the logged shots.
+    var tracksShotByShot: Bool = false
 }
 
 struct GameCreationView: View {
@@ -409,7 +412,11 @@ struct GameCreationView: View {
         let golf: GolfRoundDetails? = isGolf ? GolfRoundDetails(
             holes: golfHoles,
             par: Int(golfParText.trimmingCharacters(in: .whitespacesAndNewlines)),
-            totalScore: Int(golfScoreText.trimmingCharacters(in: .whitespacesAndNewlines))
+            totalScore: Int(golfScoreText.trimmingCharacters(in: .whitespacesAndNewlines)),
+            // Seed the round's default scoring mode from the remembered global
+            // preference (set by the in-sheet Quick | Shot-by-shot switch). The
+            // first Score Hole tap then opens in that mode; no creation toggle.
+            tracksShotByShot: UserDefaults.standard.bool(forKey: GolfPrefs.preferredShotByShot)
         ) : nil
 
         let locationTrimmed = golfLocation.trimmingCharacters(in: .whitespacesAndNewlines)

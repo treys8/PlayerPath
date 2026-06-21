@@ -17,6 +17,7 @@ struct SettingsView: View {
     @Environment(\.ppAccent) private var ppAccent
 
     @AppStorage(GolfPrefs.trackDetailedStats) private var trackDetailedGolfStats = false
+    @AppStorage(GolfPrefs.preferredShotByShot) private var preferShotByShot = false
 
     /// Only surface the golf detailed-stats toggle to users who actually have a
     /// golf athlete — it's clutter for baseball-only accounts.
@@ -70,6 +71,13 @@ struct SettingsView: View {
                         Label("Track Detailed Stats", systemImage: "flag.fill")
                     }
                     Text("Adds fairway, green-in-regulation, and penalty inputs when scoring a round.")
+                        .font(.bodySmall)
+                        .foregroundColor(.secondary)
+
+                    Toggle(isOn: $preferShotByShot) {
+                        Label("Default to Shot-by-Shot", systemImage: "scope")
+                    }
+                    Text("New rounds open the shot-by-shot card when you score a hole. You can still switch to Quick on any hole.")
                         .font(.bodySmall)
                         .foregroundColor(.secondary)
                 }

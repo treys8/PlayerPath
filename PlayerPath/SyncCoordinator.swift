@@ -138,6 +138,8 @@ final class SyncCoordinator {
             guard self.shouldContinueSync(expectedUID: expectedUID) else { return }
             await self.isolatedSync("HoleScores") { try await self.syncHoleScores(for: user) }
             guard self.shouldContinueSync(expectedUID: expectedUID) else { return }
+            await self.isolatedSync("Shots")      { try await self.syncShots(for: user) }
+            guard self.shouldContinueSync(expectedUID: expectedUID) else { return }
             await self.isolatedSync("Videos")     { try await self.syncVideos(for: user) }
             guard self.shouldContinueSync(expectedUID: expectedUID) else { return }
             await self.isolatedSync("HighlightReels") { try await self.syncHighlightReels(for: user) }
@@ -233,6 +235,8 @@ final class SyncCoordinator {
             await self.isolatedSync("Practices")  { try await self.syncPractices(for: user) }
             guard self.shouldContinueSync(expectedUID: expectedUID) else { return }
             await self.isolatedSync("HoleScores") { try await self.syncHoleScores(for: user) }
+            guard self.shouldContinueSync(expectedUID: expectedUID) else { return }
+            await self.isolatedSync("Shots")      { try await self.syncShots(for: user) }
 
             // Video download is the expensive per-athlete query — scope it.
             guard self.shouldContinueSync(expectedUID: expectedUID) else { return }
@@ -354,6 +358,8 @@ final class SyncCoordinator {
             await self.isolatedSync("FlushNotes")      { try await self.syncPracticeNotes(for: user) }
             if Task.isCancelled { return }
             await self.isolatedSync("FlushHoleScores") { try await self.syncHoleScores(for: user) }
+            if Task.isCancelled { return }
+            await self.isolatedSync("FlushShots")      { try await self.syncShots(for: user) }
             if Task.isCancelled { return }
             await self.isolatedSync("FlushReels")      { try await self.syncHighlightReels(for: user) }
             if Task.isCancelled { return }

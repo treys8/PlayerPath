@@ -120,6 +120,12 @@ final class Game {
     /// standalone rounds and non-golf games.
     var roundNumber: Int?
 
+    /// Per-round opt-in for shot-by-shot tracking (SchemaV30). When true, this
+    /// round's holes are entered shot-by-shot (`ShotEntryView`) and the hole
+    /// score / FIR / GIR / putts are derived from the shots. Defaults false so
+    /// existing rounds keep the quick hole-at-a-time flow.
+    var tracksShotByShot: Bool = false
+
     var athlete: Athlete?
     var season: Season?
     @Relationship(inverse: \VideoClip.game) var videoClips: [VideoClip]?
@@ -263,6 +269,9 @@ final class Game {
         if let holes = holes { data["holes"] = holes }
         if let par = par { data["par"] = par }
         if let totalScore = totalScore { data["totalScore"] = totalScore }
+        // Per-round shot-tracking opt-in (SchemaV30). Written unconditionally so
+        // toggling it mid-round replicates; false for baseball/softball.
+        data["tracksShotByShot"] = tracksShotByShot
 
         // Multi-round tournament link (SchemaV27). Written unconditionally —
         // NSNull when standalone — so removing a round from a tournament clears
@@ -348,6 +357,10 @@ final class Practice {
     /// Range sessions and baseball practices leave this nil.
     var course: String?
 
+    /// Per-round opt-in for shot-by-shot tracking (SchemaV30). Mirrors
+    /// `Game.tracksShotByShot` for golf practice rounds; defaults false.
+    var tracksShotByShot: Bool = false
+
     // MARK: - Firestore Sync Metadata (Phase 3)
 
     /// Firestore document ID (maps to cloud storage)
@@ -396,6 +409,7 @@ final class Practice {
         data["isLive"] = isLive
         if let liveStartDate = liveStartDate { data["liveStartDate"] = liveStartDate }
         if let course = course { data["course"] = course }
+        data["tracksShotByShot"] = tracksShotByShot
         return data
     }
 

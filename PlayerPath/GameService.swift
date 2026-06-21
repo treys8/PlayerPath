@@ -222,6 +222,7 @@ class GameService {
             game.holes = golf.holes
             game.par = golf.par
             game.totalScore = golf.totalScore
+            game.tracksShotByShot = golf.tracksShotByShot
         }
         if let location {
             game.location = location

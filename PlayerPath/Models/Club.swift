@@ -16,6 +16,7 @@ enum Club: String, CaseIterable, Codable {
     case driver = "Driver"
     case wood3 = "3W"
     case wood5 = "5W"
+    case hybrid = "Hybrid"
     case iron3 = "3i"
     case iron4 = "4i"
     case iron5 = "5i"
@@ -31,11 +32,24 @@ enum Club: String, CaseIterable, Codable {
 
     var displayName: String { rawValue }
 
+    /// Compact label for dense pickers (the shot-entry club grid). Woods/irons/
+    /// wedges already read short ("3W", "7i", "PW"); only the full-word cases
+    /// need shortening.
+    var shortName: String {
+        switch self {
+        case .driver: return "Dr"
+        case .hybrid: return "Hy"
+        case .putter: return "Pt"
+        default:      return rawValue
+        }
+    }
+
     var accessibilityLabel: String {
         switch self {
         case .driver: return "Driver"
         case .wood3:  return "3 Wood"
         case .wood5:  return "5 Wood"
+        case .hybrid: return "Hybrid"
         case .iron3:  return "3 Iron"
         case .iron4:  return "4 Iron"
         case .iron5:  return "5 Iron"
@@ -84,7 +98,7 @@ enum Club: String, CaseIterable, Codable {
 
     var category: Category {
         switch self {
-        case .driver, .wood3, .wood5:
+        case .driver, .wood3, .wood5, .hybrid:
             return .wood
         case .iron3, .iron4, .iron5, .iron6, .iron7, .iron8, .iron9:
             return .iron

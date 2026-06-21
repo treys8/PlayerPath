@@ -42,6 +42,7 @@ struct PracticeDetailView: View {
         practice.practiceType == PracticeType.practiceRound.rawValue
     }
 
+
     /// Type-aware label for ending the live session — "End Session" for a range
     /// session, "End Round" for a practice round (mirrors GameDetailView's golf
     /// "End Round"). Only shown while `practice.isLive`.
@@ -291,7 +292,9 @@ struct PracticeDetailView: View {
             AddPracticeNoteView(practice: practice)
         }
         .sheet(item: $scoreHoleTarget) { target in
-            ScoreHoleSheet(practice: practice, holeNumber: target.holeNumber)
+            // One unified sheet with a Quick | Shot-by-shot switch. A hole that
+            // already has shots opens locked to shot-by-shot (two-writer guard).
+            HoleScoringSheet(practice: practice, holeNumber: target.holeNumber)
         }
         .sheet(isPresented: $showingScorecard) {
             GolfScorecardView(round: .practice(practice))

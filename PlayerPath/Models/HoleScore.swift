@@ -33,6 +33,12 @@ final class HoleScore {
     var game: Game?
     var practice: Practice?
 
+    /// Shot-by-shot rows (SchemaV30) for rounds in shot-tracking mode. Cascade
+    /// so deleting a hole (re-score wipe / round delete) takes its shots with
+    /// it — no orphan sweep needed. nil/empty for rounds scored hole-at-a-time.
+    @Relationship(deleteRule: .cascade, inverse: \Shot.holeScore)
+    var shots: [Shot]? = nil
+
     var createdAt: Date? = nil
     var updatedAt: Date? = nil
 

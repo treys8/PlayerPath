@@ -1,18 +1,22 @@
 //
-//  ScoreHoleSheet.swift
+//  QuickScoreContent.swift
 //  PlayerPath
 //
-//  Per-hole scoring entry for a live golf tournament (PR1) or practice round
-//  (PR3). Opens with the passed `holeNumber` preselected. If a HoleScore
-//  already exists for (parent, holeNumber) we pre-fill from it and save edits;
-//  otherwise we insert a new row. Save → upsert HoleScore → upsert/demote
-//  HighlightReel (PR2 — works for both parents) → dismiss.
+//  Quick hole-at-a-time scoring body for a live golf tournament (PR1) or
+//  practice round (PR3) — the "just enter my score" path. Hosted inside
+//  `HoleScoringSheet`, which owns the NavigationStack, title, Cancel button and
+//  detents; this view only contributes the scoring fields + a Save toolbar item.
+//
+//  Opens with the passed `holeNumber` preselected. If a HoleScore already exists
+//  for (parent, holeNumber) we pre-fill from it and save edits; otherwise we
+//  insert a new row. Save → upsert HoleScore → upsert/demote HighlightReel
+//  (works for both parents) → dismiss.
 //
 
 import SwiftUI
 import SwiftData
 
-struct ScoreHoleSheet: View {
+struct QuickScoreContent: View {
     /// XOR parent — exactly one is non-nil at construction. Internal storage
     /// lets us share all UI / save logic via small switch branches without
     /// duplicating the view body.
@@ -71,8 +75,8 @@ struct ScoreHoleSheet: View {
         }
     }
 
-    /// Bridges the sheet's private `Parent` to the shared `GolfRoundRef` the
-    /// writer and scorecard operate on, so all three share one save path.
+    /// Bridges the private `Parent` to the shared `GolfRoundRef` the writer and
+    /// scorecard operate on, so all three share one save path.
     private var roundRef: GolfRoundRef {
         switch parent {
         case .game(let g):     return .game(g)
@@ -81,96 +85,87 @@ struct ScoreHoleSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: .spacingLarge) {
-                    ScoreHeroCard(score: score, par: par)
+        ScrollView {
+            VStack(spacing: .spacingLarge) {
+                ScoreHeroCard(score: score, par: par)
 
-                    // Par — one-tap segmented control, seeds the score default.
-                    VStack(alignment: .leading, spacing: .spacingSmall) {
-                        Text("PAR")
-                            .font(.labelMedium)
-                            .foregroundColor(.secondary)
-                        Picker("Par", selection: $par) {
-                            ForEach(3...6, id: \.self) { Text("\($0)").tag($0) }
-                        }
-                        .pickerStyle(.segmented)
-                        .onChange(of: par) { _, newPar in
-                            if !scoreManuallySet { score = newPar }
-                        }
+                // Par — one-tap segmented control, seeds the score default.
+                VStack(alignment: .leading, spacing: .spacingSmall) {
+                    Text("PAR")
+                        .font(.labelMedium)
+                        .foregroundColor(.secondary)
+                    Picker("Par", selection: $par) {
+                        ForEach(3...6, id: \.self) { Text("\($0)").tag($0) }
                     }
-
-                    // Score — tap the number you shot.
-                    VStack(alignment: .leading, spacing: .spacingSmall) {
-                        Text("SCORE")
-                            .font(.labelMedium)
-                            .foregroundColor(.secondary)
-                        NumberChipGrid(range: 1...15, selected: score, par: par) { value in
-                            score = value
-                            scoreManuallySet = true
-                        }
-                    }
-
-                    // Putts — optional, behind the toggle as before.
-                    VStack(alignment: .leading, spacing: .spacingSmall) {
-                        Toggle("Track Putts", isOn: $includePutts.animation())
-                            .font(.bodyLarge)
-                            .onChange(of: includePutts) { _, on in
-                                // Seed a default so the highlighted chip matches
-                                // what save() will persist (save writes nil if
-                                // putts is still nil, even with the toggle on).
-                                if on, putts == nil { putts = 2 }
-                            }
-                        if includePutts {
-                            // Putts can never exceed total strokes — cap the grid
-                            // at the score so an impossible round can't be entered.
-                            NumberChipGrid(range: 0...min(10, score), selected: min(putts ?? 2, score), par: nil) { value in
-                                putts = value
-                            }
-                        } else {
-                            Text("Putts are optional.")
-                                .font(.bodySmall)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-
-                    // Detailed — fairway / green / penalties, opt-in (SchemaV29).
-                    if trackDetailed {
-                        VStack(alignment: .leading, spacing: .spacingSmall) {
-                            if par >= 4 {
-                                HitMissControl(label: "Fairway", systemImage: "arrow.up.forward", value: $fairwayHit)
-                            }
-                            HitMissControl(label: "Green in Reg.", systemImage: "flag.fill", value: $greenInRegulation)
-                            Stepper(value: penaltyBinding, in: 0...10) {
-                                HStack {
-                                    Text("Penalties").font(.bodyLarge)
-                                    Spacer()
-                                    Text("\(penalties ?? 0)")
-                                        .monospacedDigit()
-                                        .foregroundColor(.secondary)
-                                }
-                            }
-                        }
+                    .pickerStyle(.segmented)
+                    .onChange(of: par) { _, newPar in
+                        if !scoreManuallySet { score = newPar }
                     }
                 }
-                .padding(.spacingLarge)
-            }
-            .ppDetailBackground()
-            .navigationTitle("Score Hole \(holeNumber)")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+
+                // Score — tap the number you shot.
+                VStack(alignment: .leading, spacing: .spacingSmall) {
+                    Text("SCORE")
+                        .font(.labelMedium)
+                        .foregroundColor(.secondary)
+                    NumberChipGrid(range: 1...15, selected: score, par: par) { value in
+                        score = value
+                        scoreManuallySet = true
+                    }
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { save() }
-                        .disabled(score < 1 || isSaving)
+
+                // Putts — optional, behind the toggle as before.
+                VStack(alignment: .leading, spacing: .spacingSmall) {
+                    Toggle("Track Putts", isOn: $includePutts.animation())
+                        .font(.bodyLarge)
+                        .onChange(of: includePutts) { _, on in
+                            // Seed a default so the highlighted chip matches
+                            // what save() will persist (save writes nil if
+                            // putts is still nil, even with the toggle on).
+                            if on, putts == nil { putts = 2 }
+                        }
+                    if includePutts {
+                        // Putts can never exceed total strokes — cap the grid
+                        // at the score so an impossible round can't be entered.
+                        NumberChipGrid(range: 0...min(10, score), selected: min(putts ?? 2, score), par: nil) { value in
+                            putts = value
+                        }
+                    } else {
+                        Text("Putts are optional.")
+                            .font(.bodySmall)
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                // Detailed — fairway / green / penalties, opt-in (SchemaV29).
+                if trackDetailed {
+                    VStack(alignment: .leading, spacing: .spacingSmall) {
+                        if par >= 4 {
+                            HitMissControl(label: "Fairway", systemImage: "arrow.up.forward", value: $fairwayHit)
+                        }
+                        HitMissControl(label: "Green in Reg.", systemImage: "flag.fill", value: $greenInRegulation)
+                        Stepper(value: penaltyBinding, in: 0...10) {
+                            HStack {
+                                Text("Penalties").font(.bodyLarge)
+                                Spacer()
+                                Text("\(penalties ?? 0)")
+                                    .monospacedDigit()
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
                 }
             }
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
-            .onAppear { loadIfNeeded() }
+            .padding(.spacingLarge)
         }
+        .ppDetailBackground()
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Save") { save() }
+                    .disabled(score < 1 || isSaving)
+            }
+        }
+        .onAppear { loadIfNeeded() }
     }
 
     private func loadIfNeeded() {
@@ -246,12 +241,11 @@ struct ScoreHoleSheet: View {
             try modelContext.save()
         } catch {
             isSaving = false
-            ErrorHandlerService.shared.handle(error, context: "ScoreHoleSheet.save", showAlert: true)
+            ErrorHandlerService.shared.handle(error, context: "QuickScoreContent.save", showAlert: true)
             return
         }
 
         Haptics.success()
         dismiss()
     }
-
 }

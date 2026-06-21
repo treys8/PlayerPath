@@ -580,6 +580,9 @@ struct FirestoreGame: Codable, Identifiable {
     let holes: Int?
     let par: Int?
     let totalScore: Int?
+    /// Per-round shot-tracking opt-in (SchemaV30). Optional so pre-V30 docs
+    /// decode cleanly; nil/false means the round uses hole-at-a-time scoring.
+    let tracksShotByShot: Bool?
 
     // GameStatistics counters inlined onto the game doc. All optional so pre-V20
     // docs (which lack these fields) decode cleanly — nil means "remote has no
@@ -629,6 +632,7 @@ struct FirestoreGame: Codable, Identifiable {
         case holes
         case par
         case totalScore
+        case tracksShotByShot
         case statsHasManualEntry = "stats_hasManualEntry"
         case statsAtBats = "stats_atBats"
         case statsHits = "stats_hits"
@@ -678,6 +682,9 @@ struct FirestorePractice: Codable, Identifiable {
     let liveStartDate: Date?
     /// Optional course / location for golf practices (SchemaV26).
     let course: String?
+    /// Per-round shot-tracking opt-in (SchemaV30). Optional so pre-V30 docs
+    /// decode cleanly; nil/false means hole-at-a-time scoring.
+    let tracksShotByShot: Bool?
 
     enum CodingKeys: String, CodingKey {
         case swiftDataId = "id"
@@ -693,6 +700,7 @@ struct FirestorePractice: Codable, Identifiable {
         case isLive
         case liveStartDate
         case course
+        case tracksShotByShot
     }
 }
 
@@ -716,6 +724,42 @@ struct FirestoreHoleScore: Codable, Identifiable {
     let updatedAt: Date?
     let version: Int?
     let isDeleted: Bool?
+}
+
+/// Per-shot row (SchemaV30) for shot-by-shot golf tracking. Doc id is the shot
+/// UUID (NOT shotNumber) because shots reorder on delete/insert. Lives nested
+/// under the hole doc at `.../holes/{holeNumber}/shots/{shotId}`. The custom
+/// decoder tolerates a doc missing a later-added field (defaults instead of
+/// throwing keyNotFound and dropping the whole row).
+struct FirestoreShot: Codable, Identifiable {
+    var id: String?
+    let shotNumber: Int
+    let club: String?
+    let lie: String
+    let outcome: String
+    let penaltyStrokes: Int
+    let distanceBefore: Int?
+    let isPutt: Bool
+    let createdAt: Date?
+    let updatedAt: Date?
+    let version: Int?
+    let isDeleted: Bool?
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(String.self, forKey: .id)
+        shotNumber = try c.decodeIfPresent(Int.self, forKey: .shotNumber) ?? 1
+        club = try c.decodeIfPresent(String.self, forKey: .club)
+        lie = try c.decodeIfPresent(String.self, forKey: .lie) ?? "tee"
+        outcome = try c.decodeIfPresent(String.self, forKey: .outcome) ?? "fairway"
+        penaltyStrokes = try c.decodeIfPresent(Int.self, forKey: .penaltyStrokes) ?? 0
+        distanceBefore = try c.decodeIfPresent(Int.self, forKey: .distanceBefore)
+        isPutt = try c.decodeIfPresent(Bool.self, forKey: .isPutt) ?? false
+        createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt)
+        updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt)
+        version = try c.decodeIfPresent(Int.self, forKey: .version)
+        isDeleted = try c.decodeIfPresent(Bool.self, forKey: .isDeleted)
+    }
 }
 
 /// Virtual highlight reel (SchemaV25 / v6.1 PR2). Top-level athlete collection

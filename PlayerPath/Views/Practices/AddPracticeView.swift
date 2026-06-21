@@ -194,6 +194,12 @@ struct AddPracticeView: View {
         // Persist hole count only for golf practice rounds; range sessions
         // and baseball practices stay nil so LiveHoleTracker's gate is clean.
         practice.holes = (practiceType == .practiceRound) ? holes : nil
+        // Shot tracking is a practice-round concept only; range sessions and
+        // baseball practices never reach the shot-entry surface. The default
+        // mode is seeded from the remembered global preference (set by the
+        // in-sheet Quick | Shot-by-shot switch); no creation toggle.
+        practice.tracksShotByShot = (practiceType == .practiceRound)
+            && UserDefaults.standard.bool(forKey: GolfPrefs.preferredShotByShot)
         let trimmedCourse = course.trimmingCharacters(in: .whitespacesAndNewlines)
         practice.course = (isGolf && !trimmedCourse.isEmpty) ? trimmedCourse : nil
         practice.athlete = athlete

@@ -342,9 +342,9 @@ struct DashboardView: View {
         .sheet(item: $liveScoreTarget) { target in
             switch target.parent {
             case .game(let game):
-                ScoreHoleSheet(game: game, holeNumber: target.holeNumber)
+                HoleScoringSheet(game: game, holeNumber: target.holeNumber)
             case .practice(let practice):
-                ScoreHoleSheet(practice: practice, holeNumber: target.holeNumber)
+                HoleScoringSheet(practice: practice, holeNumber: target.holeNumber)
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .presentFullscreenVideo)) { notification in

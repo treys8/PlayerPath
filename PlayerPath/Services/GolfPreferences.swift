@@ -14,4 +14,11 @@ enum GolfPrefs {
     /// inputs. Default false — casual scorers keep the score + putts fast path,
     /// which is the "optional for users" guarantee.
     static let trackDetailedStats = "golf.trackDetailedStats"
+
+    /// Remembered default scoring mode for new golf holes. When true, tapping
+    /// "Score Hole" opens the shot-by-shot card by default; when false it opens
+    /// quick entry. Set by the in-sheet Quick / Shot-by-shot switch so a
+    /// shot-tracker doesn't re-pick every round, and seeded into a round's
+    /// `tracksShotByShot` at creation. Default false.
+    static let preferredShotByShot = "golf.preferredShotByShot"
 }

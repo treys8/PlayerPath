@@ -536,12 +536,35 @@ enum SchemaV29: VersionedSchema {
     }
 }
 
+// MARK: - Schema V30 (2026-06-20 — Shot-by-shot golf tracking)
+//
+//  Changes from V29:
+//    • Shot (new @Model) — per-shot rows (club/lie/outcome/penalty/distance)
+//      nested under HoleScore via HoleScore.shots (cascade delete).
+//    • HoleScore.shots ([Shot]?) relationship added.
+//    • Game.tracksShotByShot (Bool = false) — per-round shot-tracking opt-in.
+//    • Practice.tracksShotByShot (Bool = false) — same for practice rounds.
+//    • Club.hybrid case added (rawValue enum, additive on the wire).
+//
+//  All additions are a new @Model, a new optional relationship to that new
+//  model, defaulted Bools, and a new rawValue enum case → lightweight
+//  migration is sufficient. The hole score / FIR / GIR / putts are DERIVED
+//  from shots (ShotRollup) into the existing HoleScore fields, so non-shot
+//  rounds are untouched.
+
+enum SchemaV30: VersionedSchema {
+    static var versionIdentifier = Schema.Version(30, 0, 0)
+    static var models: [any PersistentModel.Type] {
+        SchemaV1.models + [HoleScore.self, HighlightReel.self, GolfTournament.self, Shot.self]
+    }
+}
+
 // MARK: - Migration Plan
 
 enum PlayerPathMigrationPlan: SchemaMigrationPlan {
     /// All schema versions in chronological order (oldest first).
     static var schemas: [any VersionedSchema.Type] {
-        [SchemaV1.self, SchemaV2.self, SchemaV3.self, SchemaV4.self, SchemaV5.self, SchemaV6.self, SchemaV7.self, SchemaV8.self, SchemaV9.self, SchemaV10.self, SchemaV11.self, SchemaV12.self, SchemaV13.self, SchemaV14.self, SchemaV15.self, SchemaV16.self, SchemaV17.self, SchemaV18.self, SchemaV19.self, SchemaV20.self, SchemaV21.self, SchemaV22.self, SchemaV23.self, SchemaV24.self, SchemaV25.self, SchemaV26.self, SchemaV27.self, SchemaV28.self, SchemaV29.self]
+        [SchemaV1.self, SchemaV2.self, SchemaV3.self, SchemaV4.self, SchemaV5.self, SchemaV6.self, SchemaV7.self, SchemaV8.self, SchemaV9.self, SchemaV10.self, SchemaV11.self, SchemaV12.self, SchemaV13.self, SchemaV14.self, SchemaV15.self, SchemaV16.self, SchemaV17.self, SchemaV18.self, SchemaV19.self, SchemaV20.self, SchemaV21.self, SchemaV22.self, SchemaV23.self, SchemaV24.self, SchemaV25.self, SchemaV26.self, SchemaV27.self, SchemaV28.self, SchemaV29.self, SchemaV30.self]
     }
 
     /// Migration stages between consecutive versions.
@@ -574,7 +597,8 @@ enum PlayerPathMigrationPlan: SchemaMigrationPlan {
             .lightweight(fromVersion: SchemaV25.self, toVersion: SchemaV26.self),
             .lightweight(fromVersion: SchemaV26.self, toVersion: SchemaV27.self),
             .lightweight(fromVersion: SchemaV27.self, toVersion: SchemaV28.self),
-            .lightweight(fromVersion: SchemaV28.self, toVersion: SchemaV29.self)
+            .lightweight(fromVersion: SchemaV28.self, toVersion: SchemaV29.self),
+            .lightweight(fromVersion: SchemaV29.self, toVersion: SchemaV30.self)
         ]
     }
 }

@@ -100,6 +100,14 @@ struct GolfStatsSection: View {
         return GolfExportData.advancedStats(for: athlete, season: season)
     }
 
+    /// Free shot-derived patterns (tee miss bias, approach miss, sand saves).
+    /// `hasData` gates the section so a golfer with no shot tracking sees
+    /// nothing new. No subscription check — this is the free descriptive payoff.
+    private var shotPatterns: ShotPatternStats? {
+        guard let athlete else { return nil }
+        return ShotStats.compute(for: athlete, season: season)
+    }
+
     private func toParString(_ v: Double) -> String {
         if abs(v) < 0.05 { return "E" }
         let r = (v * 10).rounded() / 10
@@ -130,6 +138,9 @@ struct GolfStatsSection: View {
                 summaryGrid
                 if let advanced, advanced.hasDetailed {
                     detailedGrid(advanced)
+                }
+                if let sp = shotPatterns, sp.hasData {
+                    shotPatternGrid(sp)
                 }
                 parSplitRow
                 recentRoundsChart
@@ -241,6 +252,43 @@ struct GolfStatsSection: View {
                 }
             }
         }
+    }
+
+    // MARK: - Shot patterns (free, shot-tracking only)
+
+    /// Free descriptive shot patterns — tee miss bias, dominant approach miss,
+    /// and greenside sand saves. Only the chips with data render; the whole
+    /// section is gated on `ShotPatternStats.hasData` by the caller.
+    @ViewBuilder
+    private func shotPatternGrid(_ s: ShotPatternStats) -> some View {
+        let chips = shotPatternChips(s)
+        if !chips.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Shot Patterns")
+                    .font(.headingMedium)
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                    ForEach(Array(chips.enumerated()), id: \.offset) { _, chip in
+                        CompactStatChip(data: chip)
+                    }
+                }
+            }
+        }
+    }
+
+    private func shotPatternChips(_ s: ShotPatternStats) -> [CompactStatData] {
+        var chips: [CompactStatData] = []
+        if s.teeMisses > 0 {
+            chips.append(.init(label: "Tee Miss",
+                               value: "L\(s.teeMissLeft) · R\(s.teeMissRight)",
+                               color: Theme.warning))
+        }
+        if let dir = s.dominantApproachMiss {
+            chips.append(.init(label: "Approach Miss", value: dir, color: Theme.warning))
+        }
+        if let ss = s.sandSavePct {
+            chips.append(.init(label: "Sand Saves", value: pctString(ss), color: Theme.golfAccent))
+        }
+        return chips
     }
 
     // MARK: - Scoring by par
