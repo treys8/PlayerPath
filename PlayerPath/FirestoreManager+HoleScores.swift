@@ -28,12 +28,12 @@ extension FirestoreManager {
     }
 
     func updateGameHoleScore(userId: String, gameFirestoreId: String, holeNumber: Int, data: [String: Any]) async throws {
-        let allowedFields: Set<String> = ["id", "holeNumber", "par", "score", "putts", "fairwayHit", "greenInRegulation", "penalties", "version"]
+        let allowedFields: Set<String> = ["id", "holeNumber", "par", "score", "putts", "fairwayHit", "greenInRegulation", "penalties", "yardage", "version"]
         var updateData = data.filter { allowedFields.contains($0.key) }
         // Optional fields absent from `data` were cleared locally (toFirestoreData
         // omits nils) — explicitly delete them remotely so removing putts / FIR /
         // GIR / penalties propagates instead of leaving a stale value behind.
-        for field in ["putts", "fairwayHit", "greenInRegulation", "penalties"] where updateData[field] == nil {
+        for field in ["putts", "fairwayHit", "greenInRegulation", "penalties", "yardage"] where updateData[field] == nil {
             updateData[field] = FieldValue.delete()
         }
         updateData["updatedAt"] = FieldValue.serverTimestamp()
@@ -90,12 +90,12 @@ extension FirestoreManager {
     }
 
     func updatePracticeHoleScore(userId: String, practiceFirestoreId: String, holeNumber: Int, data: [String: Any]) async throws {
-        let allowedFields: Set<String> = ["id", "holeNumber", "par", "score", "putts", "fairwayHit", "greenInRegulation", "penalties", "version"]
+        let allowedFields: Set<String> = ["id", "holeNumber", "par", "score", "putts", "fairwayHit", "greenInRegulation", "penalties", "yardage", "version"]
         var updateData = data.filter { allowedFields.contains($0.key) }
         // Optional fields absent from `data` were cleared locally (toFirestoreData
         // omits nils) — explicitly delete them remotely so removing putts / FIR /
         // GIR / penalties propagates instead of leaving a stale value behind.
-        for field in ["putts", "fairwayHit", "greenInRegulation", "penalties"] where updateData[field] == nil {
+        for field in ["putts", "fairwayHit", "greenInRegulation", "penalties", "yardage"] where updateData[field] == nil {
             updateData[field] = FieldValue.delete()
         }
         updateData["updatedAt"] = FieldValue.serverTimestamp()

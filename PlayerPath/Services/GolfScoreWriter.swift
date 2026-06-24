@@ -35,6 +35,12 @@ enum GolfScoreWriter {
         var fairwayHit: Bool? = nil
         var greenInRegulation: Bool? = nil
         var penalties: Int? = nil
+        /// Hole length in yards (SchemaV31), as an opt-in write: `.none` (default)
+        /// leaves the hole's existing yardage UNTOUCHED — so score-only writers
+        /// (the scorecard grid, the shot rollup) never clobber a yardage set
+        /// elsewhere. `.some(x)` sets it (x may be nil to clear). Only the
+        /// yardage-aware editors (Quick / Shot-by-shot) pass a value.
+        var yardage: Int?? = .none
     }
 
     // MARK: - Hole upsert
@@ -50,6 +56,9 @@ enum GolfScoreWriter {
             existing.fairwayHit = input.fairwayHit
             existing.greenInRegulation = input.greenInRegulation
             existing.penalties = input.penalties
+            // Opt-in: only touch yardage when the caller provided one (.some);
+            // score-only writers leave `.none` and preserve any set yardage.
+            if case let .some(yardage) = input.yardage { existing.yardage = yardage }
             existing.updatedAt = Date()
             existing.version += 1
             existing.needsSync = true
@@ -61,7 +70,8 @@ enum GolfScoreWriter {
                 putts: input.putts,
                 fairwayHit: input.fairwayHit,
                 greenInRegulation: input.greenInRegulation,
-                penalties: input.penalties
+                penalties: input.penalties,
+                yardage: input.yardage ?? nil   // .none → nil; .some(x) → x
             )
             switch ref {
             case .game(let g):     new.game = g
@@ -211,6 +221,31 @@ enum GolfScoreWriter {
                 .filter { $0.id != current.id && $0.course == course }
                 .max(by: { ($0.date ?? .distantPast) < ($1.date ?? .distantPast) })
             return prior?.holeScores?.first { $0.holeNumber == hole }?.par
+        }
+    }
+
+    /// Hole length in yards for `hole` from the most recent *prior* round at the
+    /// same course, so per-hole yardage carries across rounds (mirrors
+    /// `priorRoundPar`). Returns nil when unknown — unlike par's `4` there is NO
+    /// sensible constant fallback for yardage, and no "previous hole" fallback
+    /// (each hole has a distinct length), so the field stays empty rather than
+    /// inventing a default that would mislead the derived drive distance.
+    static func priorRoundYardage(forHole hole: Int, in ref: GolfRoundRef) -> Int? {
+        switch ref {
+        case .game(let current):
+            guard let athlete = current.athlete, !current.opponent.isEmpty else { return nil }
+            let prior = (athlete.games ?? [])
+                .filter { $0.id != current.id && $0.opponent == current.opponent
+                          && ($0.season?.sport ?? .baseball) == .golf }
+                .max(by: { ($0.date ?? .distantPast) < ($1.date ?? .distantPast) })
+            return prior?.holeScores?.first { $0.holeNumber == hole }?.yardage
+        case .practice(let current):
+            guard let athlete = current.athlete,
+                  let course = current.course, !course.isEmpty else { return nil }
+            let prior = (athlete.practices ?? [])
+                .filter { $0.id != current.id && $0.course == course }
+                .max(by: { ($0.date ?? .distantPast) < ($1.date ?? .distantPast) })
+            return prior?.holeScores?.first { $0.holeNumber == hole }?.yardage
         }
     }
 

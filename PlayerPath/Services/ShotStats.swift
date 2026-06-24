@@ -65,6 +65,15 @@ struct ShotPatternStats {
     }
 }
 
+/// Pooled Est. Driving-Distance summary (SchemaV31). `hasData == false` → the UI
+/// renders nothing, like `ShotPatternStats`.
+struct DrivingSummary {
+    let averageYards: Int
+    let longestYards: Int
+    let count: Int
+    var hasData: Bool { count > 0 }
+}
+
 enum ShotStats {
 
     /// Pools shot-tracked holes from the same round sets the rest of the golf
@@ -160,5 +169,56 @@ enum ShotStats {
             strokesUsed += 1 + shot.penaltyStrokes
         }
         return nil   // green reached before the regulation stroke (a GIR, not a miss)
+    }
+
+    // MARK: - Est. Driving Distance (SchemaV31)
+
+    /// Estimated driving distance for one hole, in yards: the hole's length minus
+    /// the lasered yards-to-pin on the regulation approach. Derivable only on a
+    /// par 4/5 with a recorded hole yardage, a tee shot, and a regulation approach
+    /// carrying a `distanceBefore`. nil on every other case (par 3, no yardage, no
+    /// approach number, a penalty-consumed regulation stroke, a drivable green, or
+    /// a non-positive result from a mis-entry / wrong tee). Card yardage is routed
+    /// distance, so this systematically OVER-reads on doglegs — always present it
+    /// as an ESTIMATE.
+    static func driveDistance(for hole: HoleScore) -> Int? {
+        driveDistance(par: hole.par, yardage: hole.yardage, shots: hole.shots ?? [])
+    }
+
+    /// Same derivation over raw inputs, so the live shot-entry view can show a
+    /// running estimate from @State before the hole is persisted.
+    static func driveDistance(par: Int, yardage: Int?, shots: [Shot]) -> Int? {
+        guard par >= 4, let yardage else { return nil }
+        let live = shots
+            .filter { !$0.isDeletedRemotely && !$0.isPutt }
+            .sorted { $0.shotNumber < $1.shotNumber }
+        guard live.contains(where: { $0.lie == .tee }) else { return nil }
+        guard let approach = regulationApproach(in: live, par: par),
+              let toPin = approach.distanceBefore else { return nil }
+        let drive = yardage - toPin
+        return drive > 0 ? drive : nil   // guard a mis-entry / wrong-tee negative
+    }
+
+    /// All derivable Est. Driving Distances across a hole set (yards).
+    static func driveDistances(in holes: [HoleScore]) -> [Int] {
+        holes.compactMap(driveDistance(for:))
+    }
+
+    /// Pooled Est. Driving-Distance summary (avg + longest) over the same round
+    /// sets the rest of the golf stats screen uses.
+    static func drivingSummary(for athlete: Athlete, season: Season?) -> DrivingSummary {
+        let gameHoles = GolfExportData.scoredTournamentGames(for: athlete, season: season)
+            .flatMap { $0.holeScores ?? [] }
+        let practicePool = season?.practices ?? athlete.practices ?? []
+        let practiceHoles = practicePool
+            .filter { $0.practiceType == PracticeType.practiceRound.rawValue }
+            .flatMap { $0.holeScores ?? [] }
+        let dists = driveDistances(in: gameHoles + practiceHoles)
+        guard !dists.isEmpty else { return DrivingSummary(averageYards: 0, longestYards: 0, count: 0) }
+        return DrivingSummary(
+            averageYards: Int((Double(dists.reduce(0, +)) / Double(dists.count)).rounded()),
+            longestYards: dists.max() ?? 0,
+            count: dists.count
+        )
     }
 }

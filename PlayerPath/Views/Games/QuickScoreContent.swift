@@ -45,6 +45,11 @@ struct QuickScoreContent: View {
     @State private var putts: Int? = nil
     @State private var includePutts: Bool = false
     @State private var didLoad: Bool = false
+    /// Hole length in yards (SchemaV31) — a hole property like par. Seeded from
+    /// the existing hole or the prior round; written at save() via the shared
+    /// HoleInput so a score-only scorecard write never clobbers it.
+    @State private var holeYardage: Int? = nil
+    @State private var showingYardagePicker = false
 
     /// Tracks whether the user has tapped a score chip. Until they do, changing
     /// par keeps the score even (score follows par) so a fresh hole defaults to
@@ -91,9 +96,30 @@ struct QuickScoreContent: View {
 
                 // Par — one-tap segmented control, seeds the score default.
                 VStack(alignment: .leading, spacing: .spacingSmall) {
-                    Text("PAR")
-                        .font(.labelMedium)
-                        .foregroundColor(.secondary)
+                    HStack {
+                        Text("PAR")
+                            .font(.labelMedium)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        // Hole length (yards) — a hole property like par; opens the wheel.
+                        Button {
+                            showingYardagePicker = true
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "ruler").font(.caption)
+                                Text(holeYardage.map { "\($0) yds" } ?? "Add yardage")
+                                    .font(.bodySmall).fontWeight(.medium)
+                            }
+                            .foregroundColor(holeYardage == nil ? .secondary : Theme.golfAccent)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(Capsule().fill((holeYardage == nil ? Color.secondary : Theme.golfAccent).opacity(0.12)))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Hole length")
+                        .accessibilityValue(holeYardage.map { "\($0) yards" } ?? "Not set")
+                        .accessibilityHint("Opens a yardage picker")
+                    }
                     Picker("Par", selection: $par) {
                         ForEach(3...6, id: \.self) { Text("\($0)").tag($0) }
                     }
@@ -166,6 +192,10 @@ struct QuickScoreContent: View {
             }
         }
         .onAppear { loadIfNeeded() }
+        .sheet(isPresented: $showingYardagePicker) {
+            YardagePickerSheet(distance: $holeYardage,
+                               defaultCenter: holeYardage ?? (par == 3 ? 165 : par >= 5 ? 530 : 400))
+        }
     }
 
     private func loadIfNeeded() {
@@ -185,6 +215,7 @@ struct QuickScoreContent: View {
             fairwayHit = existing.fairwayHit
             greenInRegulation = existing.greenInRegulation
             penalties = existing.penalties
+            holeYardage = existing.yardage ?? GolfScoreWriter.priorRoundYardage(forHole: holeNumber, in: roundRef)
             return
         }
 
@@ -200,6 +231,7 @@ struct QuickScoreContent: View {
         let seedPar = priorRoundPar(forHole: holeNumber) ?? inRoundPar ?? 4
         par = seedPar
         score = seedPar
+        holeYardage = GolfScoreWriter.priorRoundYardage(forHole: holeNumber, in: roundRef)
     }
 
     /// Par for `hole` from the most recent *prior* round at the same course, so
@@ -227,7 +259,8 @@ struct QuickScoreContent: View {
             putts: savedPutts,
             fairwayHit: par >= 4 ? fairwayHit : nil,
             greenInRegulation: greenInRegulation,
-            penalties: penalties
+            penalties: penalties,
+            yardage: holeYardage   // .some(holeYardage) — sets/clears the hole length
         )
 
         // One shared write path (also used by GolfScorecardView): upsert the

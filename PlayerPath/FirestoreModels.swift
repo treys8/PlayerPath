@@ -720,6 +720,7 @@ struct FirestoreHoleScore: Codable, Identifiable {
     let fairwayHit: Bool?
     let greenInRegulation: Bool?
     let penalties: Int?
+    let yardage: Int?   // SchemaV31 — hole length; absent on pre-V31 docs → nil (synthesized decode)
     let createdAt: Date?
     let updatedAt: Date?
     let version: Int?

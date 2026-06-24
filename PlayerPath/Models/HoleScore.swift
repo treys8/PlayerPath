@@ -20,6 +20,13 @@ final class HoleScore {
     var score: Int = 0
     var putts: Int? = nil
 
+    /// Hole length in yards (SchemaV31) — a property of the hole/tees, like par.
+    /// Optional; entered via the yardage chip (or a future scorecard scan) and
+    /// carried across rounds at the same course (`priorRoundYardage`). Backs the
+    /// derived Est. Driving Distance (hole yardage − approach yards-to-pin).
+    /// nil = unknown.
+    var yardage: Int? = nil
+
     /// Detailed tracking (SchemaV29) — all optional; nil = not tracked. Shown
     /// only when the user enables "track detailed stats", so a casual scorer's
     /// rows stay score+putts. `fairwayHit` is nil on par 3s (no fairway); GIR
@@ -79,7 +86,8 @@ final class HoleScore {
     }
 
     init(holeNumber: Int, par: Int = 4, score: Int = 0, putts: Int? = nil,
-         fairwayHit: Bool? = nil, greenInRegulation: Bool? = nil, penalties: Int? = nil) {
+         fairwayHit: Bool? = nil, greenInRegulation: Bool? = nil, penalties: Int? = nil,
+         yardage: Int? = nil) {
         self.id = UUID()
         self.holeNumber = holeNumber
         self.par = par
@@ -88,6 +96,7 @@ final class HoleScore {
         self.fairwayHit = fairwayHit
         self.greenInRegulation = greenInRegulation
         self.penalties = penalties
+        self.yardage = yardage
         self.createdAt = Date()
         self.updatedAt = Date()
         self.needsSync = true
@@ -115,6 +124,9 @@ final class HoleScore {
         }
         if let penalties = penalties {
             data["penalties"] = penalties
+        }
+        if let yardage = yardage {
+            data["yardage"] = yardage
         }
         return data
     }

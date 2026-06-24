@@ -15,6 +15,8 @@ struct ShotLogRow: View {
     let shot: Shot
     /// True when this row is the one currently open in the editor.
     let isEditing: Bool
+    /// Est. driving distance (yards) to caption on the tee-shot row; nil = hide.
+    var driveDistance: Int? = nil
     let onTap: () -> Void
 
     var body: some View {
@@ -37,6 +39,12 @@ struct ShotLogRow: View {
                     Text(flowLabel)
                         .font(.bodySmall)
                         .foregroundColor(.secondary)
+                    if shot.lie == .tee, let drive = driveDistance {
+                        Text("≈ \(drive) yd drive")
+                            .font(.caption2)
+                            .monospacedDigit()
+                            .foregroundColor(Theme.golfAccent)
+                    }
                 }
 
                 Spacer(minLength: .spacingSmall)

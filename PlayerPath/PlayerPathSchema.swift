@@ -559,12 +559,28 @@ enum SchemaV30: VersionedSchema {
     }
 }
 
+// MARK: - Schema V31 (2026-06-24 — Hole yardage)
+//
+//  Changes from V30:
+//    • HoleScore.yardage (Int? = nil) — hole length in yards, a property of the
+//      hole/tees like par. Backs the derived Est. Driving Distance.
+//
+//  A single new optional column → lightweight migration is sufficient; existing
+//  rows read back yardage == nil. No new model, no relationship change.
+
+enum SchemaV31: VersionedSchema {
+    static var versionIdentifier = Schema.Version(31, 0, 0)
+    static var models: [any PersistentModel.Type] {
+        SchemaV1.models + [HoleScore.self, HighlightReel.self, GolfTournament.self, Shot.self]
+    }
+}
+
 // MARK: - Migration Plan
 
 enum PlayerPathMigrationPlan: SchemaMigrationPlan {
     /// All schema versions in chronological order (oldest first).
     static var schemas: [any VersionedSchema.Type] {
-        [SchemaV1.self, SchemaV2.self, SchemaV3.self, SchemaV4.self, SchemaV5.self, SchemaV6.self, SchemaV7.self, SchemaV8.self, SchemaV9.self, SchemaV10.self, SchemaV11.self, SchemaV12.self, SchemaV13.self, SchemaV14.self, SchemaV15.self, SchemaV16.self, SchemaV17.self, SchemaV18.self, SchemaV19.self, SchemaV20.self, SchemaV21.self, SchemaV22.self, SchemaV23.self, SchemaV24.self, SchemaV25.self, SchemaV26.self, SchemaV27.self, SchemaV28.self, SchemaV29.self, SchemaV30.self]
+        [SchemaV1.self, SchemaV2.self, SchemaV3.self, SchemaV4.self, SchemaV5.self, SchemaV6.self, SchemaV7.self, SchemaV8.self, SchemaV9.self, SchemaV10.self, SchemaV11.self, SchemaV12.self, SchemaV13.self, SchemaV14.self, SchemaV15.self, SchemaV16.self, SchemaV17.self, SchemaV18.self, SchemaV19.self, SchemaV20.self, SchemaV21.self, SchemaV22.self, SchemaV23.self, SchemaV24.self, SchemaV25.self, SchemaV26.self, SchemaV27.self, SchemaV28.self, SchemaV29.self, SchemaV30.self, SchemaV31.self]
     }
 
     /// Migration stages between consecutive versions.
@@ -598,7 +614,8 @@ enum PlayerPathMigrationPlan: SchemaMigrationPlan {
             .lightweight(fromVersion: SchemaV26.self, toVersion: SchemaV27.self),
             .lightweight(fromVersion: SchemaV27.self, toVersion: SchemaV28.self),
             .lightweight(fromVersion: SchemaV28.self, toVersion: SchemaV29.self),
-            .lightweight(fromVersion: SchemaV29.self, toVersion: SchemaV30.self)
+            .lightweight(fromVersion: SchemaV29.self, toVersion: SchemaV30.self),
+            .lightweight(fromVersion: SchemaV30.self, toVersion: SchemaV31.self)
         ]
     }
 }

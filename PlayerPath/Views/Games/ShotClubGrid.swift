@@ -12,13 +12,12 @@ import SwiftUI
 struct ShotClubGrid: View {
     let selected: Club?
     let recommended: Set<Club>
+    /// Most-recently-used clubs (most-recent-first), owned + supplied by
+    /// ShotByShotContent — the lone reader/writer of `golf.recentlyUsedClubs`, so
+    /// the RECENT row refreshes deterministically when the parent re-renders after
+    /// a commit (a second @AppStorage here made the cross-view refresh flaky).
+    let recentClubs: [Club]
     let onSelect: (Club) -> Void
-
-    /// Most-recently-used clubs (CSV of raw values), written by ShotByShotContent.
-    @AppStorage(GolfPrefs.recentlyUsedClubs) private var recentRaw = ""
-    private var recentClubs: [Club] {
-        recentRaw.split(separator: ",").compactMap { Club(rawValue: String($0)) }
-    }
 
     private let columns = [GridItem(.adaptive(minimum: 56), spacing: 7)]
 

@@ -68,6 +68,13 @@ struct ShotByShotContent: View {
     @State private var pendingDistance: Int? = nil
     @State private var pendingPenalty: Int = 0
     @State private var editingShot: Shot? = nil
+    @State private var showingYardagePicker = false
+    /// Hole length in yards (SchemaV31) — a hole property like par, edited via the
+    /// header chip. Seeded from the existing hole or the prior round; written onto
+    /// the HoleScore through the shared `upsertHole` path (so it rides the same
+    /// write as the derived score and never creates a phantom score-0 hole).
+    @State private var holeYardage: Int? = nil
+    @State private var showingHoleYardagePicker = false
 
     @State private var shots: [Shot] = []
     @State private var holeScore: HoleScore?
@@ -107,7 +114,25 @@ struct ShotByShotContent: View {
     }
 
     private var derivedInput: GolfScoreWriter.HoleInput {
-        ShotRollup.deriveInput(holeNumber: holeNumber, par: par, shots: shots, putts: puttsValue)
+        var input = ShotRollup.deriveInput(holeNumber: holeNumber, par: par, shots: shots, putts: puttsValue)
+        input.yardage = .some(holeYardage)   // carry the hole length through the shared writer
+        return input
+    }
+
+    /// Where the hole-length wheel starts when none is set — roughly by par so
+    /// it's usually a short scroll.
+    private var defaultHoleYardageCenter: Int {
+        switch par {
+        case 3:  return 165
+        case 5:  return 530
+        default: return 400
+        }
+    }
+
+    /// Running Est. Driving Distance from live @State (hole yardage − the
+    /// regulation approach's lasered yards-to-pin); nil until both exist.
+    private var liveDriveDistance: Int? {
+        ShotStats.driveDistance(par: par, yardage: holeYardage, shots: shots)
     }
 
     private var isComplete: Bool { ShotRollup.isComplete(shots: shots, putts: puttsValue) }
@@ -120,27 +145,17 @@ struct ShotByShotContent: View {
         ShotClubRecommender.recommended(lie: currentLie, par: par, distanceBefore: pendingDistance)
     }
 
-    /// Inline yardage entry — writes `pendingDistance`, dropping non-positive.
-    private var distanceFieldBinding: Binding<String> {
-        Binding(
-            get: { pendingDistance.map(String.init) ?? "" },
-            set: { pendingDistance = Int($0).flatMap { $0 > 0 ? $0 : nil } }
-        )
-    }
-
-    /// Stepper view of the same yardage (0 == unset), for ±5-yard nudges without
-    /// the keyboard.
-    private var distanceStepperBinding: Binding<Int> {
-        Binding(
-            get: { pendingDistance ?? 0 },
-            set: { pendingDistance = $0 > 0 ? $0 : nil }
-        )
-    }
-
-    /// Distance of the most recent shot that recorded one — backs a "same as last"
-    /// shortcut (often you're hitting from a known sprinkler-head yardage again).
+    /// Distance of the most recent shot that recorded one — seeds the yardage
+    /// wheel so re-entering a known yardage is a single flick.
     private var lastApproachDistance: Int? {
         shots.reversed().compactMap { $0.distanceBefore }.first
+    }
+
+    /// Recently-used clubs (most-recent-first) parsed from the shared pref. This
+    /// view is the lone reader/writer of the key, so passing the result down to
+    /// `ShotClubGrid` keeps the RECENT row in deterministic sync after each shot.
+    private var recentClubs: [Club] {
+        recentClubsRaw.split(separator: ",").compactMap { Club(rawValue: String($0)) }
     }
 
     // MARK: - Body
@@ -153,7 +168,8 @@ struct ShotByShotContent: View {
                 if !shots.isEmpty {
                     VStack(spacing: .spacingSmall) {
                         ForEach(shots) { shot in
-                            ShotLogRow(shot: shot, isEditing: editingShot?.id == shot.id) {
+                            ShotLogRow(shot: shot, isEditing: editingShot?.id == shot.id,
+                                       driveDistance: shot.lie == .tee ? liveDriveDistance : nil) {
                                 beginEdit(shot)
                             }
                         }
@@ -189,6 +205,10 @@ struct ShotByShotContent: View {
             Text("This deletes the shots logged for hole \(holeNumber) and switches to quick score entry. Your other holes aren't affected.")
         }
         .onAppear { loadIfNeeded() }
+        .sheet(isPresented: $showingHoleYardagePicker, onDismiss: { persistIfDirty() }) {
+            YardagePickerSheet(distance: $holeYardage,
+                               defaultCenter: holeYardage ?? defaultHoleYardageCenter)
+        }
     }
 
     // MARK: - Slim header (Par chip + running score)
@@ -201,14 +221,21 @@ struct ShotByShotContent: View {
                 }
             } label: {
                 Text("Par \(par)")
-                    .font(.bodyMedium)
-                    .fontWeight(.semibold)
-                    .foregroundColor(Theme.golfAccent)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(Capsule().fill(Theme.golfAccent.opacity(0.12)))
+                    .golfControlChip()
             }
             .onChange(of: par) { _, _ in persistIfDirty() }
+
+            // Hole length (yards) — a hole property like par, opens the wheel.
+            Button {
+                showingHoleYardagePicker = true
+            } label: {
+                Label(holeYardage.map { "\($0) yds" } ?? "Yardage", systemImage: "ruler")
+                    .golfControlChip(tint: holeYardage == nil ? .secondary : Theme.golfAccent)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Hole length")
+            .accessibilityValue(holeYardage.map { "\($0) yards" } ?? "Not set")
+            .accessibilityHint("Opens a yardage picker")
 
             Spacer()
 
@@ -268,52 +295,52 @@ struct ShotByShotContent: View {
                 }
             } label: {
                 Label("from \(currentLie.displayName)", systemImage: "arrow.triangle.turn.up.right.diamond")
-                    .font(.bodyMedium)
-                    .foregroundColor(Theme.golfAccent)
+                    .golfControlChip()
             }
 
             Text("CLUB")
                 .font(.labelMedium)
                 .foregroundColor(.secondary)
-            ShotClubGrid(selected: selectedClub, recommended: recommendedClubs) { club in
+            ShotClubGrid(selected: selectedClub, recommended: recommendedClubs, recentClubs: recentClubs) { club in
                 selectedClub = (selectedClub == club) ? nil : club
             }
 
-            // Distance (approach shots only) on its own row so the field, a ±5
-            // stepper, and the "same as last" shortcut all fit comfortably.
+            // Yardage to target (approach shots only). A tappable pill opens a
+            // wheel sheet — no keyboard, so it never covers the RESULT buttons,
+            // and it reads as an input rather than the old faint chip.
             if currentContext == .approach {
-                HStack(spacing: .spacingSmall) {
-                    HStack(spacing: 6) {
+                Button {
+                    showingYardagePicker = true
+                } label: {
+                    HStack(spacing: 8) {
                         Image(systemName: "ruler")
-                            .font(.bodySmall)
-                            .foregroundColor(Theme.golfAccent)
-                        TextField("yds", text: distanceFieldBinding)
-                            .keyboardType(.numberPad)
                             .font(.bodyMedium)
+                        Text(pendingDistance.map { "\($0) yds" } ?? "Add yardage")
+                            .font(.bodyMedium)
+                            .fontWeight(pendingDistance == nil ? .regular : .semibold)
                             .monospacedDigit()
-                            .frame(width: 44)
-                            .multilineTextAlignment(.center)
-                        Text("yds")
-                            .font(.bodySmall)
-                            .foregroundColor(.secondary)
-                        Stepper("Distance", value: distanceStepperBinding, in: 0...400, step: 5)
-                            .labelsHidden()
+                        Spacer()
+                        Image(systemName: pendingDistance == nil ? "chevron.right" : "pencil")
+                            .font(.caption)
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 7)
-                    .background(Capsule().fill(Theme.golfAccent.opacity(0.10)))
-
-                    if let last = lastApproachDistance, last != pendingDistance {
-                        Button {
-                            Haptics.selection()
-                            pendingDistance = last
-                        } label: {
-                            Label("\(last)", systemImage: "arrow.uturn.left")
-                                .font(.bodySmall)
-                        }
-                    }
-                    Spacer()
+                    .foregroundColor(pendingDistance == nil ? .secondary : Theme.golfAccent)
+                    .padding(.horizontal, 14)
+                    .frame(height: 44)
+                    .frame(maxWidth: .infinity)
+                    .background(
+                        RoundedRectangle(cornerRadius: .cornerMedium)
+                            .fill(Color(.secondarySystemBackground))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: .cornerMedium)
+                            .stroke(Theme.golfAccent.opacity(pendingDistance == nil ? 0.35 : 0.6),
+                                    lineWidth: 1.5)
+                    )
                 }
+                .buttonStyle(ScaleButtonStyle())
+                .accessibilityLabel("Yardage to target")
+                .accessibilityValue(pendingDistance.map { "\($0) yards" } ?? "Not set")
+                .accessibilityHint("Opens a yardage picker")
             }
 
             // Penalty + Undo row.
@@ -327,8 +354,7 @@ struct ShotByShotContent: View {
                 } label: {
                     Label(pendingPenalty == 0 ? "Penalty" : "+\(pendingPenalty)",
                           systemImage: "exclamationmark.triangle")
-                        .font(.bodySmall)
-                        .foregroundColor(pendingPenalty == 0 ? .secondary : Theme.warning)
+                        .golfControlChip(tint: pendingPenalty == 0 ? .secondary : Theme.warning)
                 }
 
                 Spacer()
@@ -382,6 +408,10 @@ struct ShotByShotContent: View {
             RoundedRectangle(cornerRadius: .cornerLarge)
                 .stroke(Theme.golfAccent.opacity(editingShot != nil ? 0.9 : 0.4), lineWidth: 1.5)
         )
+        .sheet(isPresented: $showingYardagePicker) {
+            YardagePickerSheet(distance: $pendingDistance,
+                               defaultCenter: lastApproachDistance ?? 150)
+        }
     }
 
     // MARK: - Putting
@@ -469,6 +499,9 @@ struct ShotByShotContent: View {
             let inRoundPar = priorHoles.max(by: { $0.holeNumber < $1.holeNumber })?.par
             par = GolfScoreWriter.priorRoundPar(forHole: holeNumber, in: roundRef) ?? inRoundPar ?? 4
         }
+        // Hole length: the existing hole's value, else carried from the prior
+        // round at this course (nil if unknown — no constant fallback).
+        holeYardage = holeScore?.yardage ?? GolfScoreWriter.priorRoundYardage(forHole: holeNumber, in: roundRef)
         currentLie = shots.last.map { ShotLieChain.nextLie(after: $0.outcome) } ?? .tee
         onLiveShotsChanged?(!shots.isEmpty)
     }
@@ -706,5 +739,29 @@ struct ShotByShotContent: View {
         }
         // Always persist the shots themselves (incl. soft-deletes) + any insert.
         ErrorHandlerService.shared.saveContext(modelContext, caller: "ShotByShotContent.persist")
+    }
+}
+
+// MARK: - Tappable control chip
+
+/// Shared pill styling for the card's tappable menus (Par / lie / penalty) so
+/// they all read as controls rather than static captions. Mirrors the original
+/// Par-chip treatment: accent-tinted text on a faint accent capsule.
+private struct GolfControlChip: ViewModifier {
+    var tint: Color = Theme.golfAccent
+    func body(content: Content) -> some View {
+        content
+            .font(.bodyMedium)
+            .fontWeight(.semibold)
+            .foregroundColor(tint)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(Capsule().fill(tint.opacity(0.12)))
+    }
+}
+
+private extension View {
+    func golfControlChip(tint: Color = Theme.golfAccent) -> some View {
+        modifier(GolfControlChip(tint: tint))
     }
 }

@@ -168,6 +168,26 @@ struct HoleDetailView: View {
                                 .foregroundColor(.secondary)
                         }
                     }
+                    if let yards = score.yardage {
+                        HStack {
+                            Text("Yardage")
+                                .font(.headingMedium)
+                            Spacer()
+                            Text("\(yards) yds")
+                                .monospacedDigit()
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    if let drive = ShotStats.driveDistance(for: score) {
+                        HStack {
+                            Text("Est. Drive")
+                                .font(.headingMedium)
+                            Spacer()
+                            Text("\(drive) yds")
+                                .monospacedDigit()
+                                .foregroundColor(Theme.golfAccent)
+                        }
+                    }
                 }
             }
 

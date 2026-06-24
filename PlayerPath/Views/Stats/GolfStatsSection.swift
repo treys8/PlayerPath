@@ -108,6 +108,14 @@ struct GolfStatsSection: View {
         return ShotStats.compute(for: athlete, season: season)
     }
 
+    /// Est. Driving Distance summary (avg + longest) — free, derived from hole
+    /// yardage minus the ranged approach. `hasData` gates the tiles so a golfer
+    /// without yardage + shot data sees nothing new.
+    private var driving: DrivingSummary? {
+        guard let athlete else { return nil }
+        return ShotStats.drivingSummary(for: athlete, season: season)
+    }
+
     private func toParString(_ v: Double) -> String {
         if abs(v) < 0.05 { return "E" }
         let r = (v * 10).rounded() / 10
@@ -141,6 +149,9 @@ struct GolfStatsSection: View {
                 }
                 if let sp = shotPatterns, sp.hasData {
                     shotPatternGrid(sp)
+                }
+                if let dr = driving, dr.hasData {
+                    drivingGrid(dr)
                 }
                 parSplitRow
                 recentRoundsChart
@@ -289,6 +300,23 @@ struct GolfStatsSection: View {
             chips.append(.init(label: "Sand Saves", value: pctString(ss), color: Theme.golfAccent))
         }
         return chips
+    }
+
+    // MARK: - Est. Driving Distance (free, shot + yardage derived)
+
+    @ViewBuilder
+    private func drivingGrid(_ d: DrivingSummary) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Est. Driving Distance")
+                .font(.headingMedium)
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                statTile(label: "Avg Drive", value: "\(d.averageYards) yds", color: Theme.golfAccent)
+                statTile(label: "Longest", value: "\(d.longestYards) yds", color: Theme.golfAccent)
+            }
+            Text("Estimated from hole yardage minus your ranged approach. Routed (dogleg) holes read long.")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+        }
     }
 
     // MARK: - Scoring by par
