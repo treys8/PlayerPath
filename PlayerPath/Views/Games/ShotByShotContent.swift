@@ -315,7 +315,7 @@ struct ShotByShotContent: View {
                     HStack(spacing: 8) {
                         Image(systemName: "ruler")
                             .font(.bodyMedium)
-                        Text(pendingDistance.map { "\($0) yds" } ?? "Add yardage")
+                        Text(pendingDistance.map { "\($0) yds" } ?? "Yards to pin")
                             .font(.bodyMedium)
                             .fontWeight(pendingDistance == nil ? .regular : .semibold)
                             .monospacedDigit()
@@ -493,15 +493,20 @@ struct ShotByShotContent: View {
             shots = liveShots.sorted { $0.shotNumber < $1.shotNumber }
             hadPriorScore = existing.score > 0 && liveShots.isEmpty
         } else {
-            // Seed par the same way QuickScoreContent does: prior round at this
-            // course → most recent prior hole this round → 4.
+            // Seed par the same way QuickScoreContent does: scanned card → prior
+            // round at this course → most recent prior hole this round → 4.
             let priorHoles = parentHoles.filter { $0.holeNumber < holeNumber }
             let inRoundPar = priorHoles.max(by: { $0.holeNumber < $1.holeNumber })?.par
-            par = GolfScoreWriter.priorRoundPar(forHole: holeNumber, in: roundRef) ?? inRoundPar ?? 4
+            par = GolfScoreWriter.scannedPar(forHole: holeNumber, in: roundRef)
+                ?? GolfScoreWriter.priorRoundPar(forHole: holeNumber, in: roundRef)
+                ?? inRoundPar ?? 4
         }
-        // Hole length: the existing hole's value, else carried from the prior
-        // round at this course (nil if unknown — no constant fallback).
-        holeYardage = holeScore?.yardage ?? GolfScoreWriter.priorRoundYardage(forHole: holeNumber, in: roundRef)
+        // Hole length: the existing hole's value, else the confirmed scan, else
+        // carried from the prior round at this course (nil if unknown — no
+        // constant fallback).
+        holeYardage = holeScore?.yardage
+            ?? GolfScoreWriter.scannedYardage(forHole: holeNumber, in: roundRef)
+            ?? GolfScoreWriter.priorRoundYardage(forHole: holeNumber, in: roundRef)
         currentLie = shots.last.map { ShotLieChain.nextLie(after: $0.outcome) } ?? .tee
         onLiveShotsChanged?(!shots.isEmpty)
     }

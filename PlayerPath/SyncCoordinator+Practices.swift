@@ -262,6 +262,8 @@ extension SyncCoordinator {
                     }
                     local.course = remoteData.course
                     local.tracksShotByShot = remoteData.tracksShotByShot ?? false
+                    local.selectedTee = remoteData.selectedTee
+                    local.scorecardData = remoteData.scorecardData
                     // Re-home (legacy-split migration): re-bind the parent athlete when a
                     // remote athleteId change moved this practice to another profile. The
                     // season id is invariant across a split, so local.season stays valid.
@@ -289,6 +291,8 @@ extension SyncCoordinator {
                 newPractice.liveStartDate = remoteData.liveStartDate
                 newPractice.course = remoteData.course
                 newPractice.tracksShotByShot = remoteData.tracksShotByShot ?? false
+                newPractice.selectedTee = remoteData.selectedTee
+                newPractice.scorecardData = remoteData.scorecardData
                 newPractice.athlete = athlete
 
                 // Link to season if seasonId provided

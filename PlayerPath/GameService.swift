@@ -223,6 +223,12 @@ class GameService {
             game.par = golf.par
             game.totalScore = golf.totalScore
             game.tracksShotByShot = golf.tracksShotByShot
+            // Scorecard scan (SchemaV32): now that the round exists, persist the
+            // confirmed card (blob + tee + summed par). No rows are materialized —
+            // each hole seeds lazily from the blob when it's scored.
+            if let scanned = golf.scannedHoles, !scanned.isEmpty {
+                GolfScoreWriter.applyScannedCard(scanned, tee: golf.selectedTee, to: .game(game), context: modelContext)
+            }
         }
         if let location {
             game.location = location

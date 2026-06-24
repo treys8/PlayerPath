@@ -126,6 +126,16 @@ final class Game {
     /// existing rounds keep the quick hole-at-a-time flow.
     var tracksShotByShot: Bool = false
 
+    /// Tee box played for this golf round (SchemaV32), chosen once in the
+    /// scorecard-scan confirm grid (e.g. "Blue"). Display/export only; nil when
+    /// unscanned or non-golf.
+    var selectedTee: String?
+
+    /// JSON blob of the confirmed scanned scorecard (SchemaV32):
+    /// `[{"hole":1,"par":4,"yardage":412}, …]`. Seeds each hole's par/yardage
+    /// lazily when it's scored (no phantom score-0 rows). nil when unscanned.
+    var scorecardData: String?
+
     var athlete: Athlete?
     var season: Season?
     @Relationship(inverse: \VideoClip.game) var videoClips: [VideoClip]?
@@ -164,6 +174,16 @@ final class Game {
     }
 
     // MARK: - Golf derived scoring
+
+    /// The captured scorecard image for this round, if any (SchemaV32).
+    /// Deterministic (oldest-first) so a two-device double-flag — possible
+    /// because `FirestorePhoto` has no `version`/LWW — stays cosmetic, never
+    /// nondeterministic. Used by the scan flow to replace/delete the prior card.
+    var scorecardPhoto: Photo? {
+        (photos ?? [])
+            .filter { $0.isScorecardPhoto }
+            .min { ($0.createdAt ?? .distantPast) < ($1.createdAt ?? .distantPast) }
+    }
 
     /// Sum of per-hole scores, or nil when no holes have been scored. The live
     /// source of truth for a per-hole-scored round.
@@ -269,6 +289,9 @@ final class Game {
         if let holes = holes { data["holes"] = holes }
         if let par = par { data["par"] = par }
         if let totalScore = totalScore { data["totalScore"] = totalScore }
+        // Scorecard scan (SchemaV32) — round-level tee + confirmed card JSON.
+        if let selectedTee = selectedTee { data["selectedTee"] = selectedTee }
+        if let scorecardData = scorecardData { data["scorecardData"] = scorecardData }
         // Per-round shot-tracking opt-in (SchemaV30). Written unconditionally so
         // toggling it mid-round replicates; false for baseball/softball.
         data["tracksShotByShot"] = tracksShotByShot
@@ -361,6 +384,16 @@ final class Practice {
     /// `Game.tracksShotByShot` for golf practice rounds; defaults false.
     var tracksShotByShot: Bool = false
 
+    /// Tee box played for this practice round (SchemaV32). Mirrors
+    /// `Game.selectedTee`; wired for sync parity (no practice scan entry point
+    /// this phase). nil when unscanned or non-golf.
+    var selectedTee: String?
+
+    /// JSON blob of the confirmed scanned scorecard (SchemaV32). Mirrors
+    /// `Game.scorecardData`; seeds each hole's par/yardage lazily. nil when
+    /// unscanned.
+    var scorecardData: String?
+
     // MARK: - Firestore Sync Metadata (Phase 3)
 
     /// Firestore document ID (maps to cloud storage)
@@ -410,7 +443,18 @@ final class Practice {
         if let liveStartDate = liveStartDate { data["liveStartDate"] = liveStartDate }
         if let course = course { data["course"] = course }
         data["tracksShotByShot"] = tracksShotByShot
+        // Scorecard scan (SchemaV32) — round-level tee + confirmed card JSON.
+        if let selectedTee = selectedTee { data["selectedTee"] = selectedTee }
+        if let scorecardData = scorecardData { data["scorecardData"] = scorecardData }
         return data
+    }
+
+    /// The captured scorecard image for this practice round, if any (SchemaV32).
+    /// Deterministic oldest-first; see `Game.scorecardPhoto`.
+    var scorecardPhoto: Photo? {
+        (photos ?? [])
+            .filter { $0.isScorecardPhoto }
+            .min { ($0.createdAt ?? .distantPast) < ($1.createdAt ?? .distantPast) }
     }
 
     /// Properly delete practice with all associated files and data

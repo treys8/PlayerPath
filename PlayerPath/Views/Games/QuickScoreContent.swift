@@ -215,23 +215,28 @@ struct QuickScoreContent: View {
             fairwayHit = existing.fairwayHit
             greenInRegulation = existing.greenInRegulation
             penalties = existing.penalties
-            holeYardage = existing.yardage ?? GolfScoreWriter.priorRoundYardage(forHole: holeNumber, in: roundRef)
+            holeYardage = existing.yardage
+                ?? GolfScoreWriter.scannedYardage(forHole: holeNumber, in: roundRef)
+                ?? GolfScoreWriter.priorRoundYardage(forHole: holeNumber, in: roundRef)
             return
         }
 
         // New hole — seed par. Priority:
-        //  1. Same hole at the most recent prior round on this course — a strong
+        //  1. The confirmed scorecard scan for this hole, if any.
+        //  2. Same hole at the most recent prior round on this course — a strong
         //     signal (hole 7 stays a par 3 every visit), so the golfer doesn't
         //     re-enter the layout each round.
-        //  2. Most recently scored prior hole in THIS round — weak fallback for
+        //  3. Most recently scored prior hole in THIS round — weak fallback for
         //     a first-time course (a user who set par=5 on 3 keeps it on 4).
-        //  3. 4.
+        //  4. 4.
         let priorHoles = holes.filter { $0.holeNumber < holeNumber }
         let inRoundPar = priorHoles.max(by: { $0.holeNumber < $1.holeNumber })?.par
-        let seedPar = priorRoundPar(forHole: holeNumber) ?? inRoundPar ?? 4
+        let seedPar = GolfScoreWriter.scannedPar(forHole: holeNumber, in: roundRef)
+            ?? priorRoundPar(forHole: holeNumber) ?? inRoundPar ?? 4
         par = seedPar
         score = seedPar
-        holeYardage = GolfScoreWriter.priorRoundYardage(forHole: holeNumber, in: roundRef)
+        holeYardage = GolfScoreWriter.scannedYardage(forHole: holeNumber, in: roundRef)
+            ?? GolfScoreWriter.priorRoundYardage(forHole: holeNumber, in: roundRef)
     }
 
     /// Par for `hole` from the most recent *prior* round at the same course, so

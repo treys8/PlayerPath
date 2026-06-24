@@ -17,6 +17,11 @@ struct GolfRoundDetails: Equatable {
     /// Opt-in shot-by-shot tracking for this round. When true, scoring a hole
     /// opens ShotEntryView and the HoleScore is derived from the logged shots.
     var tracksShotByShot: Bool = false
+    /// Tee chosen in the scorecard-scan confirm grid (SchemaV32), nil when not scanned.
+    var selectedTee: String? = nil
+    /// Confirmed scanned card (SchemaV32). Written to the round AFTER it's
+    /// inserted on Save (the round doesn't exist yet at scan time).
+    var scannedHoles: [GolfScoreWriter.ScannedHole]? = nil
 }
 
 struct GameCreationView: View {
@@ -45,6 +50,11 @@ struct GameCreationView: View {
     @State private var golfParText: String = ""
     @State private var golfScoreText: String = ""
     @State private var golfLocation: String = ""
+
+    // Scorecard scan (SchemaV32). Captured here, written to the round AFTER Save.
+    @State private var showingScanScorecard = false
+    @State private var scannedHoles: [GolfScoreWriter.ScannedHole]? = nil
+    @State private var scannedTee: String? = nil
     /// Tournament this round joins (golf only). Initialized from
     /// `preselectedTournament`; otherwise chosen via the picker.
     @State private var selectedTournament: GolfTournament?
@@ -150,6 +160,27 @@ struct GameCreationView: View {
                     if isGolf {
                         TextField("Location (Optional)", text: $golfLocation)
                             .textInputAutocapitalization(.words)
+                    }
+                }
+
+                if isGolf {
+                    Section {
+                        Button {
+                            showingScanScorecard = true
+                        } label: {
+                            Label(scannedHoles == nil ? "Scan scorecard" : "Rescan scorecard",
+                                  systemImage: "doc.viewfinder")
+                        }
+                        if let scanned = scannedHoles {
+                            HStack(spacing: 6) {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(Theme.golfAccent)
+                                Text("\(scanned.count) hole\(scanned.count == 1 ? "" : "s") scanned\(scannedTee.map { " · \($0)" } ?? "")")
+                                    .font(.bodySmall).foregroundColor(.secondary)
+                            }
+                        }
+                    } footer: {
+                        Text("Capture the printed scorecard to fill in par and yardage for every hole.")
                     }
                 }
 
@@ -330,6 +361,32 @@ struct GameCreationView: View {
         } message: {
             Text("You already have a live \(athlete.flatMap { LiveActivityGuard.currentLiveGolfLabel(for: $0) } ?? "activity") going. Starting a new one will end it.")
         }
+        .fullScreenCover(isPresented: $showingScanScorecard) {
+            if let athlete {
+                // Creation: the round doesn't exist yet, so we only STASH the
+                // confirmed card here and write it after the Game is inserted on
+                // Save. No existing holes to pre-fill.
+                ScorecardScanFlow(
+                    athlete: athlete,
+                    game: nil,
+                    holeCount: golfHoles,
+                    existingByHole: [:],
+                    onComplete: { holes, tee in
+                        scannedHoles = holes
+                        scannedTee = tee
+                        // Reflect the scanned par in the form ONLY on a full-round
+                        // read — a partial scan (fewer holes than the round) would
+                        // show a too-low par. applyScannedCard applies the same
+                        // full-coverage rule to the authoritative Game.par on Save.
+                        if holes.count >= golfHoles {
+                            golfParText = String(holes.reduce(0) { $0 + $1.par })
+                        }
+                        showingScanScorecard = false
+                    },
+                    onCancel: { showingScanScorecard = false }
+                )
+            }
+        }
     }
 
     private func saveGame() {
@@ -424,7 +481,9 @@ struct GameCreationView: View {
             // Seed the round's default scoring mode from the remembered global
             // preference (set by the in-sheet Quick | Shot-by-shot switch). The
             // first Score Hole tap then opens in that mode; no creation toggle.
-            tracksShotByShot: UserDefaults.standard.bool(forKey: GolfPrefs.preferredShotByShot)
+            tracksShotByShot: UserDefaults.standard.bool(forKey: GolfPrefs.preferredShotByShot),
+            selectedTee: scannedTee,
+            scannedHoles: scannedHoles
         ) : nil
 
         let locationTrimmed = golfLocation.trimmingCharacters(in: .whitespacesAndNewlines)

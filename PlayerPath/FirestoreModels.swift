@@ -583,6 +583,9 @@ struct FirestoreGame: Codable, Identifiable {
     /// Per-round shot-tracking opt-in (SchemaV30). Optional so pre-V30 docs
     /// decode cleanly; nil/false means the round uses hole-at-a-time scoring.
     let tracksShotByShot: Bool?
+    /// Scorecard scan (SchemaV32). Optional so pre-V32 docs decode cleanly.
+    let selectedTee: String?
+    let scorecardData: String?
 
     // GameStatistics counters inlined onto the game doc. All optional so pre-V20
     // docs (which lack these fields) decode cleanly — nil means "remote has no
@@ -633,6 +636,8 @@ struct FirestoreGame: Codable, Identifiable {
         case par
         case totalScore
         case tracksShotByShot
+        case selectedTee
+        case scorecardData
         case statsHasManualEntry = "stats_hasManualEntry"
         case statsAtBats = "stats_atBats"
         case statsHits = "stats_hits"
@@ -685,6 +690,9 @@ struct FirestorePractice: Codable, Identifiable {
     /// Per-round shot-tracking opt-in (SchemaV30). Optional so pre-V30 docs
     /// decode cleanly; nil/false means hole-at-a-time scoring.
     let tracksShotByShot: Bool?
+    /// Scorecard scan (SchemaV32). Optional so pre-V32 docs decode cleanly.
+    let selectedTee: String?
+    let scorecardData: String?
 
     enum CodingKeys: String, CodingKey {
         case swiftDataId = "id"
@@ -701,6 +709,8 @@ struct FirestorePractice: Codable, Identifiable {
         case liveStartDate
         case course
         case tracksShotByShot
+        case selectedTee
+        case scorecardData
     }
 }
 
@@ -820,6 +830,11 @@ struct FirestorePhoto: Codable, Identifiable {
     let createdAt: Date?
     let updatedAt: Date?
     let isDeleted: Bool
+    // OPTIONAL on purpose (SchemaV32): legacy photo docs predate this key, and the
+    // synthesized decoder only safely defaults missing keys for Optionals
+    // (decodeIfPresent). A bare non-optional Bool would throw keyNotFound on every
+    // legacy doc and drop the whole row. Consumers read `?? false`.
+    let isScorecardPhoto: Bool?
 
     enum CodingKeys: String, CodingKey {
         case swiftDataId = "id"
@@ -834,6 +849,7 @@ struct FirestorePhoto: Codable, Identifiable {
         case createdAt
         case updatedAt
         case isDeleted
+        case isScorecardPhoto
     }
 }
 

@@ -249,6 +249,86 @@ enum GolfScoreWriter {
         }
     }
 
+    // MARK: - Scorecard scan (SchemaV32)
+
+    /// One hole's confirmed scan values, persisted as JSON in
+    /// `Game.scorecardData` / `Practice.scorecardData`. The tee has already been
+    /// collapsed to a single `yardage` column by the confirm grid.
+    struct ScannedHole: Codable, Equatable {
+        let hole: Int
+        let par: Int
+        let yardage: Int?
+    }
+
+    /// Decoded scanned card for `ref`, or `[]` when none / unparseable.
+    static func scannedCard(in ref: GolfRoundRef) -> [ScannedHole] {
+        guard let json = ref.scorecardData, let data = json.data(using: .utf8) else { return [] }
+        return (try? JSONDecoder().decode([ScannedHole].self, from: data)) ?? []
+    }
+
+    /// Par for `hole` from the confirmed scan of the CURRENT round (vs
+    /// `priorRoundPar`, which reads other rounds). Seeds the scoring sheets
+    /// BETWEEN `existing` and the prior-round fallback. nil when unscanned / not
+    /// in the card.
+    static func scannedPar(forHole hole: Int, in ref: GolfRoundRef) -> Int? {
+        scannedCard(in: ref).first { $0.hole == hole }?.par
+    }
+
+    /// Yardage for `hole` from the confirmed scan of the CURRENT round. nil when
+    /// unscanned, not in the card, or the card left it blank.
+    static func scannedYardage(forHole hole: Int, in ref: GolfRoundRef) -> Int? {
+        scannedCard(in: ref).first { $0.hole == hole }?.yardage
+    }
+
+    /// Persist a confirmed scorecard scan WITHOUT materializing rows for
+    /// unplayed holes — this preserves the no-phantom-score-0-hole invariant.
+    /// Stores the card as a JSON blob that seeds each hole lazily when it's
+    /// scored; records the tee; and for the GAME case sets the par/holes scalars
+    /// so the pre-play to-par display (`effectivePar` falls back to `Game.par`
+    /// while no hole is scored) is correct. Holes that ALREADY have a row (were
+    /// played) get par + yardage updated in place — score/putts/penalties/FIR/GIR
+    /// are never touched. Does NOT call `mirrorTotalScore` (no score change) and
+    /// does NOT save the context (caller batches the save).
+    static func applyScannedCard(_ holes: [ScannedHole], tee: String?, to ref: GolfRoundRef, context: ModelContext) {
+        // 1. Card blob + tee on the round.
+        if let json = try? JSONEncoder().encode(holes), let str = String(data: json, encoding: .utf8) {
+            ref.scorecardData = str
+        }
+        ref.selectedTee = tee
+
+        // 2. Game par scalar: summed par so a freshly-scanned, unplayed round
+        //    reads a sensible course par (effectivePar's pre-play fallback). Set
+        //    it ONLY when the scan covers the whole round — a partial read (e.g.
+        //    9 of 18 holes confirmed) would otherwise set par to ~36 on an
+        //    18-hole round and clobber a par the user may have typed. Never touch
+        //    `holes` — the hole count is the user's pick, not what the scan read.
+        if case .game(let g) = ref, !holes.isEmpty {
+            let roundHoles = g.holes ?? holes.count
+            if holes.count >= roundHoles {
+                g.par = holes.reduce(0) { $0 + $1.par }
+            }
+        }
+        switch ref {
+        case .game(let g):     g.needsSync = true
+        case .practice(let p): p.needsSync = true
+        }
+
+        // 3. In-place update of already-played holes only. NO new rows, so an
+        //    unplayed hole never becomes a phantom score-0 row.
+        let byHole = Dictionary(holes.map { ($0.hole, $0) }, uniquingKeysWith: { first, _ in first })
+        for existing in ref.holeScores {
+            guard let scan = byHole[existing.holeNumber] else { continue }
+            var changed = false
+            if existing.par != scan.par { existing.par = scan.par; changed = true }
+            if existing.yardage != scan.yardage { existing.yardage = scan.yardage; changed = true }
+            if changed {
+                existing.updatedAt = Date()
+                existing.version += 1
+                existing.needsSync = true
+            }
+        }
+    }
+
     // MARK: - Helpers
 
     private static func roundAthlete(_ ref: GolfRoundRef) -> Athlete? {

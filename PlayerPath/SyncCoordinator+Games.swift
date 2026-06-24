@@ -274,6 +274,8 @@ extension SyncCoordinator {
                     if local.totalScore != remoteGame.totalScore { local.totalScore = remoteGame.totalScore; changed = true }
                     if local.roundNumber != remoteGame.roundNumber { local.roundNumber = remoteGame.roundNumber; changed = true }
                     if local.tracksShotByShot != (remoteGame.tracksShotByShot ?? false) { local.tracksShotByShot = remoteGame.tracksShotByShot ?? false; changed = true }
+                    if local.selectedTee != remoteGame.selectedTee { local.selectedTee = remoteGame.selectedTee; changed = true }
+                    if local.scorecardData != remoteGame.scorecardData { local.scorecardData = remoteGame.scorecardData; changed = true }
                     // Re-link tournament (SchemaV27): attach when the parent is
                     // resolved locally, detach only when the remote explicitly
                     // cleared it. If the remote points at a tournament not yet
@@ -321,6 +323,8 @@ extension SyncCoordinator {
                 newGame.totalScore = remoteGame.totalScore
                 newGame.roundNumber = remoteGame.roundNumber
                 newGame.tracksShotByShot = remoteGame.tracksShotByShot ?? false
+                newGame.selectedTee = remoteGame.selectedTee
+                newGame.scorecardData = remoteGame.scorecardData
                 newGame.createdAt = remoteGame.createdAt
                 newGame.lastSyncDate = Date()
                 newGame.needsSync = false

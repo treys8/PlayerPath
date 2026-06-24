@@ -22,6 +22,7 @@ struct GameDetailView: View {
     @State private var showingScoreEntry = false
     /// Presents the full-round scorecard grid (all holes on one screen).
     @State private var showingScorecard = false
+    @State private var showingScanScorecard = false
     @State private var gameService: GameService? = nil
     /// Hole picked for per-hole scoring; non-nil presents ScoreHoleSheet.
     /// Use a wrapper instead of a bare Int so `.sheet(item:)` redraws when
@@ -110,6 +111,17 @@ struct GameDetailView: View {
         let total = game.holes ?? 18
         let scored = Set(holeScores.map(\.holeNumber))
         return (1...total).first { !scored.contains($0) }
+    }
+
+    /// Current per-hole par/yardage, so a re-scan pre-fills cells the new scan
+    /// didn't read instead of blanking them. Keyed by hole number.
+    private var existingScannedByHole: [Int: (par: Int?, yardage: Int?)] {
+        var result: [Int: (par: Int?, yardage: Int?)] = [:]
+        for hole in (game.holeScores ?? []) {
+            let entry: (par: Int?, yardage: Int?) = (hole.par, hole.yardage)
+            result[hole.holeNumber] = entry
+        }
+        return result
     }
 
     var body: some View {
@@ -445,6 +457,23 @@ struct GameDetailView: View {
         .sheet(isPresented: $showingScorecard) {
             GolfScorecardView(round: .game(game))
         }
+        .fullScreenCover(isPresented: $showingScanScorecard) {
+            if let athlete = game.athlete {
+                ScorecardScanFlow(
+                    athlete: athlete,
+                    game: game,
+                    holeCount: game.holes ?? 18,
+                    existingByHole: existingScannedByHole,
+                    onComplete: { holes, tee in
+                        // Detail screen: the round exists, so write immediately.
+                        GolfScoreWriter.applyScannedCard(holes, tee: tee, to: .game(game), context: modelContext)
+                        ErrorHandlerService.shared.saveContext(modelContext, caller: "GameDetailView.scanScorecard")
+                        showingScanScorecard = false
+                    },
+                    onCancel: { showingScanScorecard = false }
+                )
+            }
+        }
         .fullScreenCover(isPresented: $showingVideoRecorder) {
             DirectCameraRecorderView(athlete: game.athlete, game: game)
         }
@@ -536,6 +565,9 @@ struct GameDetailView: View {
                 } else {
                     Button(action: { showingScorecard = true }) {
                         Label("Scorecard", systemImage: "tablecells")
+                    }
+                    Button(action: { showingScanScorecard = true }) {
+                        Label("Scan Scorecard", systemImage: "doc.viewfinder")
                     }
                     Button(action: { showingScoreEntry = true }) {
                         Label(game.effectiveTotalScore == nil ? "Enter Score" : "Edit Score", systemImage: "pencil.line")

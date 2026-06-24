@@ -30,6 +30,12 @@ final class Photo {
     var version: Int = 0
     var isDeletedRemotely: Bool = false
 
+    /// True when this Photo is a captured golf scorecard (SchemaV32). Lets the
+    /// scan flow find/replace the card image; the deskewed scan rides the
+    /// existing Photo upload path. Advisory only — no `version`/LWW guard, so a
+    /// two-device double-flag is resolved by the deterministic scorecard getter.
+    var isScorecardPhoto: Bool = false
+
     init(fileName: String, filePath: String) {
         self.id = UUID()
         self.fileName = fileName
@@ -45,7 +51,8 @@ final class Photo {
             "uploadedBy": ownerUID,
             "createdAt": createdAt ?? Date(),
             "updatedAt": Date(),
-            "isDeleted": false
+            "isDeleted": false,
+            "isScorecardPhoto": isScorecardPhoto
         ]
         if let caption = caption { data["caption"] = caption }
         if let gameId = game?.firestoreId ?? game?.id.uuidString { data["gameId"] = gameId }
@@ -58,7 +65,11 @@ final class Photo {
     /// Returns metadata fields that can change after initial upload.
     func updatableFirestoreData() -> [String: Any] {
         var data: [String: Any] = [
-            "updatedAt": Date()
+            "updatedAt": Date(),
+            // Photo has TWO write methods; the scorecard flag is set/cleared AFTER
+            // the first upload, so it must ride this update path too (the create
+            // path alone would silently drop a later flag).
+            "isScorecardPhoto": isScorecardPhoto
         ]
         data["caption"] = caption ?? NSNull()
         data["gameId"] = (game?.firestoreId ?? game?.id.uuidString) ?? NSNull()

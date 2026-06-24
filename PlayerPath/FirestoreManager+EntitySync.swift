@@ -313,7 +313,7 @@ extension FirestoreManager {
             "id", "athleteId", "seasonId", "tournamentId", "roundNumber", "opponent", "date",
             "year", "isLive", "isComplete", "location", "notes", "version",
             // Golf-only fields (nil for baseball/softball)
-            "holes", "par", "totalScore", "tracksShotByShot",
+            "holes", "par", "totalScore", "tracksShotByShot", "selectedTee", "scorecardData",
             // GameStatistics counters (inlined for cross-device manual-entry sync)
             "stats_hasManualEntry",
             "stats_atBats", "stats_hits", "stats_runs", "stats_singles",
@@ -471,7 +471,7 @@ extension FirestoreManager {
     ///   - data: Updated practice data dictionary
     func updatePractice(userId: String, practiceId: String, data: [String: Any]) async throws {
 
-        let allowedFields: Set<String> = ["id", "athleteId", "seasonId", "practiceType", "date", "version", "holes", "isLive", "liveStartDate", "course", "tracksShotByShot"]
+        let allowedFields: Set<String> = ["id", "athleteId", "seasonId", "practiceType", "date", "version", "holes", "isLive", "liveStartDate", "course", "tracksShotByShot", "selectedTee", "scorecardData"]
         var updateData = data.filter { allowedFields.contains($0.key) }
         updateData["updatedAt"] = FieldValue.serverTimestamp()
 
@@ -652,7 +652,7 @@ extension FirestoreManager {
     func updatePhoto(photoId: String, data: [String: Any]) async throws {
         // Mirror the allowlist pattern used by updateAthlete/Season/Game/Practice
         // so callers can't accidentally write arbitrary fields to the photo doc.
-        let allowedFields: Set<String> = ["caption", "gameId", "practiceId", "seasonId"]
+        let allowedFields: Set<String> = ["caption", "gameId", "practiceId", "seasonId", "isScorecardPhoto"]
         var updateData = data.filter { allowedFields.contains($0.key) }
         updateData["updatedAt"] = FieldValue.serverTimestamp()
         try await db.collection(FC.photos).document(photoId).updateData(updateData)

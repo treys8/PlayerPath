@@ -135,6 +135,7 @@ extension SyncCoordinator {
                 if let rid = remotePhoto.id, let existing = globalLocalPhotosByFirestoreId[rid] {
                     if !existing.needsSync, existing.athlete?.id != athlete.id {
                         existing.athlete = athlete
+                        existing.isScorecardPhoto = remotePhoto.isScorecardPhoto ?? false
                         if let gameId = remotePhoto.gameId {
                             existing.game = (athlete.games ?? []).first { $0.id.uuidString == gameId || $0.firestoreId == gameId }
                         }
@@ -166,6 +167,7 @@ extension SyncCoordinator {
                 newPhoto.firestoreId = remotePhoto.id
                 newPhoto.needsSync = false
                 newPhoto.athlete = athlete
+                newPhoto.isScorecardPhoto = remotePhoto.isScorecardPhoto ?? false
 
                 // Link to game/practice/season by ID if available
                 if let gameId = remotePhoto.gameId {

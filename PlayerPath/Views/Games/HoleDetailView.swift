@@ -77,6 +77,40 @@ enum GolfRoundRef {
         }
     }
 
+    /// Round-level confirmed-scan card JSON (SchemaV32). Get/set passes through
+    /// to the wrapped Game/Practice; `nonmutating` because the enum wraps a class
+    /// reference, so the enum value itself is never mutated.
+    var scorecardData: String? {
+        get {
+            switch self {
+            case .game(let g):     return g.scorecardData
+            case .practice(let p): return p.scorecardData
+            }
+        }
+        nonmutating set {
+            switch self {
+            case .game(let g):     g.scorecardData = newValue
+            case .practice(let p): p.scorecardData = newValue
+            }
+        }
+    }
+
+    /// Round-level tee played (SchemaV32). See `scorecardData`.
+    var selectedTee: String? {
+        get {
+            switch self {
+            case .game(let g):     return g.selectedTee
+            case .practice(let p): return p.selectedTee
+            }
+        }
+        nonmutating set {
+            switch self {
+            case .game(let g):     g.selectedTee = newValue
+            case .practice(let p): p.selectedTee = newValue
+            }
+        }
+    }
+
     /// True when a specific hole already carries live (non-soft-deleted) shots.
     /// A hole with shots is always owned by ShotRollup — it must route to
     /// ShotEntryView and stay read-only in the scorecard even when the round's
