@@ -32,21 +32,33 @@ struct ShotByShotContent: View {
     /// reliably (a shot inserted into an existing HoleScore isn't a dependable
     /// SwiftUI dependency for the host's relationship read).
     private let onLiveShotsChanged: ((Bool) -> Void)?
+    /// Called after the user clears this hole's shots to switch the host sheet
+    /// back to Quick entry (the host owns the mode state).
+    private let onRevertToQuick: (() -> Void)?
 
-    init(game: Game, holeNumber: Int, onLiveShotsChanged: ((Bool) -> Void)? = nil) {
+    init(game: Game, holeNumber: Int,
+         onLiveShotsChanged: ((Bool) -> Void)? = nil,
+         onRevertToQuick: (() -> Void)? = nil) {
         self.parent = .game(game)
         self.holeNumber = holeNumber
         self.onLiveShotsChanged = onLiveShotsChanged
+        self.onRevertToQuick = onRevertToQuick
     }
 
-    init(practice: Practice, holeNumber: Int, onLiveShotsChanged: ((Bool) -> Void)? = nil) {
+    init(practice: Practice, holeNumber: Int,
+         onLiveShotsChanged: ((Bool) -> Void)? = nil,
+         onRevertToQuick: (() -> Void)? = nil) {
         self.parent = .practice(practice)
         self.holeNumber = holeNumber
         self.onLiveShotsChanged = onLiveShotsChanged
+        self.onRevertToQuick = onRevertToQuick
     }
 
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+
+    /// Most-recently-used clubs (CSV of raw values) for the quick-access row.
+    @AppStorage(GolfPrefs.recentlyUsedClubs) private var recentClubsRaw = ""
 
     @State private var par: Int = 4
     @State private var putts: Int = 0
@@ -60,6 +72,7 @@ struct ShotByShotContent: View {
     @State private var shots: [Shot] = []
     @State private var holeScore: HoleScore?
     @State private var didLoad = false
+    @State private var showRevertConfirm = false
     /// True when this hole already had a real hole-at-a-time score (no shots)
     /// when opened — e.g. shot mode flipped on mid-round over a scored hole.
     /// Guards against a partial shot-derived score clobbering it until the hole
@@ -115,6 +128,21 @@ struct ShotByShotContent: View {
         )
     }
 
+    /// Stepper view of the same yardage (0 == unset), for ±5-yard nudges without
+    /// the keyboard.
+    private var distanceStepperBinding: Binding<Int> {
+        Binding(
+            get: { pendingDistance ?? 0 },
+            set: { pendingDistance = $0 > 0 ? $0 : nil }
+        )
+    }
+
+    /// Distance of the most recent shot that recorded one — backs a "same as last"
+    /// shortcut (often you're hitting from a known sprinkler-head yardage again).
+    private var lastApproachDistance: Int? {
+        shots.reversed().compactMap { $0.distanceBefore }.first
+    }
+
     // MARK: - Body
 
     var body: some View {
@@ -152,6 +180,13 @@ struct ShotByShotContent: View {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Done") { dismiss() }
             }
+        }
+        .confirmationDialog("Clear all shots on this hole?",
+                            isPresented: $showRevertConfirm, titleVisibility: .visible) {
+            Button("Clear & Use Quick", role: .destructive) { revertToQuick() }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("This deletes the shots logged for hole \(holeNumber) and switches to quick score entry. Your other holes aren't affected.")
         }
         .onAppear { loadIfNeeded() }
     }
@@ -244,9 +279,10 @@ struct ShotByShotContent: View {
                 selectedClub = (selectedClub == club) ? nil : club
             }
 
-            // Inline distance (approach shots only) + penalty.
-            HStack(spacing: .spacingSmall) {
-                if currentContext == .approach {
+            // Distance (approach shots only) on its own row so the field, a ±5
+            // stepper, and the "same as last" shortcut all fit comfortably.
+            if currentContext == .approach {
+                HStack(spacing: .spacingSmall) {
                     HStack(spacing: 6) {
                         Image(systemName: "ruler")
                             .font(.bodySmall)
@@ -255,17 +291,33 @@ struct ShotByShotContent: View {
                             .keyboardType(.numberPad)
                             .font(.bodyMedium)
                             .monospacedDigit()
-                            .frame(width: 52)
+                            .frame(width: 44)
                             .multilineTextAlignment(.center)
                         Text("yds")
                             .font(.bodySmall)
                             .foregroundColor(.secondary)
+                        Stepper("Distance", value: distanceStepperBinding, in: 0...400, step: 5)
+                            .labelsHidden()
                     }
                     .padding(.horizontal, 10)
                     .padding(.vertical, 7)
                     .background(Capsule().fill(Theme.golfAccent.opacity(0.10)))
-                }
 
+                    if let last = lastApproachDistance, last != pendingDistance {
+                        Button {
+                            Haptics.selection()
+                            pendingDistance = last
+                        } label: {
+                            Label("\(last)", systemImage: "arrow.uturn.left")
+                                .font(.bodySmall)
+                        }
+                    }
+                    Spacer()
+                }
+            }
+
+            // Penalty + Undo row.
+            HStack(spacing: .spacingSmall) {
                 Menu {
                     Picker("Penalty", selection: $pendingPenalty) {
                         Text("No penalty").tag(0)
@@ -307,6 +359,18 @@ struct ShotByShotContent: View {
                         .frame(maxWidth: .infinity)
                 }
                 .padding(.top, .spacingSmall)
+            } else if !shots.isEmpty {
+                // Escape hatch off a shot-tracked hole without deleting each shot
+                // one at a time (the mode switch is otherwise locked while shots
+                // exist — the two-writer guard).
+                Button(role: .destructive) {
+                    showRevertConfirm = true
+                } label: {
+                    Label("Clear shots & use Quick", systemImage: "arrow.uturn.backward.circle")
+                        .font(.bodySmall)
+                        .frame(maxWidth: .infinity)
+                }
+                .padding(.top, .spacingSmall)
             }
         }
         .padding(.spacingMedium)
@@ -329,13 +393,11 @@ struct ShotByShotContent: View {
                 .foregroundColor(.secondary)
             Text("How many putts?")
                 .font(.bodyLarge)
-            HStack(spacing: .spacingLarge) {
-                stepButton("minus") { if putts > 1 { putts -= 1; persistIfDirty() } }
-                Text("\(putts)")
-                    .font(.system(size: 40, weight: .bold, design: .rounded))
-                    .monospacedDigit()
-                    .frame(minWidth: 60)
-                stepButton("plus") { if putts < 6 { putts += 1; persistIfDirty() } }
+            // One-tap chip grid (consistent with quick scoring) instead of ±1
+            // buttons — a 4-putt is one tap, not three.
+            NumberChipGrid(range: 1...6, selected: putts, par: nil) { value in
+                putts = value
+                persistIfDirty()
             }
             doneButton(title: "Hole out · Done")
                 .disabled(putts < 1)
@@ -346,22 +408,6 @@ struct ShotByShotContent: View {
             RoundedRectangle(cornerRadius: .cornerLarge)
                 .fill(Color(.secondarySystemBackground))
         )
-    }
-
-    private func stepButton(_ symbol: String, action: @escaping () -> Void) -> some View {
-        Button {
-            Haptics.selection()
-            action()
-        } label: {
-            Image(systemName: symbol)
-                .font(.title2.weight(.semibold))
-                .foregroundColor(Theme.golfAccent)
-                .frame(width: 52, height: 52)
-                .background(
-                    RoundedRectangle(cornerRadius: .cornerLarge)
-                        .stroke(Theme.golfAccent, lineWidth: 1.5)
-                )
-        }
     }
 
     // MARK: - Completion
@@ -472,6 +518,9 @@ struct ShotByShotContent: View {
             shots.append(shot)
         }
 
+        // Remember the club for the quick-access "Recent" row before resetting.
+        if let club = selectedClub { recordRecentClub(club) }
+
         // Reset the draft and auto-chain the next lie from the actual last shot.
         selectedClub = nil
         pendingDistance = nil
@@ -538,6 +587,38 @@ struct ShotByShotContent: View {
         persist()
     }
 
+    /// Discard EVERY shot on this hole and hand control back to Quick entry —
+    /// the one-tap way off a shot-tracked hole (the mode switch is locked while
+    /// shots exist). Mirrors `delete()`'s per-shot soft/hard-delete rule so synced
+    /// shots tombstone rather than resurrect, reverts the hole via
+    /// `clearEmptyHole` (which respects a prior quick score), then unlocks the
+    /// host and switches it to Quick.
+    private func revertToQuick() {
+        for shot in shots {
+            if shot.firestoreId == nil {
+                shot.holeScore = nil
+                modelContext.delete(shot)
+            } else {
+                shot.isDeletedRemotely = true
+                shot.version += 1
+                shot.needsSync = true
+                shot.updatedAt = Date()
+            }
+        }
+        shots.removeAll()
+
+        editingShot = nil
+        selectedClub = nil
+        pendingDistance = nil
+        pendingPenalty = 0
+        currentLie = .tee
+
+        clearEmptyHole()
+        onLiveShotsChanged?(false)
+        persist()
+        onRevertToQuick?()
+    }
+
     /// All shots gone. A FRESH shot-tracked hole's `HoleScore` exists only to
     /// back the shots, so revert the hole to unscored — leaving a stale derived
     /// score would inflate the round total, demote nothing, and (score 0) render
@@ -590,6 +671,15 @@ struct ShotByShotContent: View {
             }
         }
         shots = ordered
+    }
+
+    /// Push a just-used club to the front of the recents list (deduped, capped at
+    /// 5). Club raw values contain no commas, so a plain CSV is safe.
+    private func recordRecentClub(_ club: Club) {
+        var recent = recentClubsRaw.split(separator: ",").map(String.init)
+        recent.removeAll { $0 == club.rawValue }
+        recent.insert(club.rawValue, at: 0)
+        recentClubsRaw = recent.prefix(5).joined(separator: ",")
     }
 
     // MARK: - Persist (the shared GolfScoreWriter sequence)

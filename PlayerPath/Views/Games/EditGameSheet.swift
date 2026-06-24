@@ -19,8 +19,16 @@ struct EditGameSheet: View {
     @State private var date: Date = Date()
     @State private var location: String = ""
     @State private var notes: String = ""
+    /// Golf only — the tournament this round belongs to (nil = standalone).
+    @State private var selectedTournament: GolfTournament?
 
     private var isGolf: Bool { game.season?.sport == .golf }
+
+    /// The athlete's tournaments, newest first — the "Move to Tournament" options.
+    private var availableTournaments: [GolfTournament] {
+        (game.athlete?.golfTournaments ?? [])
+            .sorted { ($0.startDate ?? $0.createdAt ?? .distantPast) > ($1.startDate ?? $1.createdAt ?? .distantPast) }
+    }
     private var primaryLabel: String { isGolf ? "Course" : "Opponent" }
     private var sectionTitle: String { isGolf ? "Round Details" : "Game Details" }
     private var navigationTitle: String { isGolf ? "Edit Round" : "Edit Game" }
@@ -44,7 +52,8 @@ struct EditGameSheet: View {
         opponent != game.opponent ||
         date != (game.date ?? Date()) ||
         location != (game.location ?? "") ||
-        notes != (game.notes ?? "")
+        notes != (game.notes ?? "") ||
+        selectedTournament?.id != game.tournament?.id
     }
 
     var body: some View {
@@ -80,6 +89,19 @@ struct EditGameSheet: View {
                         .focused($focusedField, equals: .notes)
                         .submitLabel(.done)
                         .lineLimit(3...6)
+                }
+
+                // Move this round into / out of a tournament. Round-numbering and
+                // the dirty-both-tournaments rule live in GameService.linkRound.
+                if isGolf && !availableTournaments.isEmpty {
+                    Section(header: Text("Tournament").smallCapsLabel()) {
+                        Picker("Tournament", selection: $selectedTournament) {
+                            Text("None").tag(GolfTournament?.none)
+                            ForEach(availableTournaments) { tournament in
+                                Text(tournament.name).tag(GolfTournament?.some(tournament))
+                            }
+                        }
+                    }
                 }
 
                 if game.isLive {
@@ -130,6 +152,7 @@ struct EditGameSheet: View {
                 date = game.date ?? Date()
                 location = game.location ?? ""
                 notes = game.notes ?? ""
+                selectedTournament = game.tournament
             }
             .alert("Save Error", isPresented: $showingSaveError) {
                 Button("OK", role: .cancel) { }
@@ -165,6 +188,8 @@ struct EditGameSheet: View {
         let dateChanged = date != (game.date ?? Date())
         let gameId = game.id.uuidString
         let newOpponent = opponent.trimmingCharacters(in: .whitespacesAndNewlines)
+        let tournamentChanged = isGolf && selectedTournament?.id != game.tournament?.id
+        let userForSync = game.athlete?.user
 
         isSaving = true
 
@@ -175,6 +200,13 @@ struct EditGameSheet: View {
         // Mark dirty so SyncCoordinator uploads the edit — every other game
         // mutation path sets this. The sync layer bumps `version` itself.
         game.needsSync = true
+
+        // Re-link / unlink the round's tournament before save so the relationship
+        // change lands in the same write. The helper recomputes the round number
+        // and dirties both the old and new tournament.
+        if tournamentChanged {
+            GameService.linkRound(game, to: selectedTournament)
+        }
 
         guard ErrorHandlerService.shared.saveContext(modelContext, caller: "EditGameSheet.saveChanges") else {
             modelContext.rollback()
@@ -198,6 +230,13 @@ struct EditGameSheet: View {
                         isGolf: game.season?.sport == .golf
                     )
                 }
+            }
+
+            // Push the round's new tournament link (and both dirtied tournaments)
+            // promptly so other devices don't see a dangling tournamentId.
+            if tournamentChanged, let user = userForSync {
+                try? await SyncCoordinator.shared.syncGames(for: user)
+                try? await SyncCoordinator.shared.syncGolfTournaments(for: user)
             }
 
             Haptics.success()

@@ -1,6 +1,6 @@
 # PlayerPath Pricing Model V2 — Proposal
 
-*Drafted 2026-06-11. Companion to the instructor-channel growth strategy. Status: PROPOSAL — nothing implemented.*
+*Drafted 2026-06-11. Companion to the instructor-channel growth strategy. Status: **SHIPPED** — server deployed + client committed June 2026 (this doc remains the design rationale / "why").*
 
 ---
 

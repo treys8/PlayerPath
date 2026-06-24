@@ -138,7 +138,7 @@ PlayerPath uses **subscriptions** (free tier + paid upgrades). There are two sep
 | Price (monthly) | — | $9.99 | $19.99 | Contact us |
 | Price (annual) | — | $95.99 | $191.99 | Contact us |
 
-> Marketing implication: there are **two distinct audiences** (athletes/parents vs. coaches) with different value props and price points. Campaigns can be split accordingly. The "Pro unlocks coach sharing" link is a natural upsell story.
+> Marketing implication: there are **two distinct audiences** (athletes/parents vs. coaches) with different value props and price points. Campaigns can be split accordingly. Under Pricing V2 the **coach** pays for connections (athletes never pay for coach sharing), so the coach-seat tiers are the monetization lever on the instructor side.
 
 ---
 

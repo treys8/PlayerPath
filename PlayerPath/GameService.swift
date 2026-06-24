@@ -228,14 +228,11 @@ class GameService {
             game.location = location
         }
 
-        // Multi-round tournament link (SchemaV27). When this round joins a
-        // tournament, assign the next round number (max existing + 1) so rounds
-        // order stably even if added out of sequence.
+        // Multi-round tournament link (SchemaV27) — routed through the shared
+        // helper so the round-numbering rule lives in one place (also used by
+        // EditGameSheet's "Move to Tournament").
         if let tournament {
-            game.tournament = tournament
-            let maxRound = (tournament.rounds ?? []).compactMap { $0.roundNumber }.max() ?? 0
-            game.roundNumber = maxRound + 1
-            tournament.needsSync = true
+            GameService.linkRound(game, to: tournament)
         }
 
         // Create and link statistics
@@ -291,6 +288,33 @@ class GameService {
             logger.error("Game save failed: \(error.localizedDescription)")
             return .failure(.saveFailed)
         }
+    }
+
+    /// Links (or unlinks) a golf round to/from a tournament, assigning the next
+    /// round number (max existing + 1) and dirtying the round plus any affected
+    /// tournament so the change syncs. Shared by `createGame` and EditGameSheet's
+    /// "Move to Tournament". Pass `nil` to unlink (the round becomes standalone).
+    /// No-op when membership is unchanged.
+    @MainActor
+    static func linkRound(_ game: Game, to tournament: GolfTournament?) {
+        let old = game.tournament
+        guard old !== tournament else { return }
+
+        // Dirty the previous tournament so its inverse-relation change re-syncs.
+        old?.needsSync = true
+
+        if let tournament {
+            game.tournament = tournament
+            let maxRound = (tournament.rounds ?? [])
+                .filter { $0.id != game.id }
+                .compactMap { $0.roundNumber }.max() ?? 0
+            game.roundNumber = maxRound + 1
+            tournament.needsSync = true
+        } else {
+            game.tournament = nil
+            game.roundNumber = nil
+        }
+        game.needsSync = true
     }
 
     /// Schedule a local reminder for the game if user preferences allow and

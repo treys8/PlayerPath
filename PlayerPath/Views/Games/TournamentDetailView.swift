@@ -18,12 +18,22 @@ struct TournamentDetailView: View {
     @Bindable var tournament: GolfTournament
 
     @State private var showingAddRound = false
+    @State private var showingEdit = false
     @State private var showingDeleteConfirm = false
     /// Set when createGame fails (e.g. .noActiveSeason / .saveFailed) so the
     /// failure surfaces instead of being silently swallowed by addRound.
     @State private var addRoundError: String?
 
     private var rounds: [Game] { tournament.sortedRounds }
+    /// At least one round carries per-hole scores → show the full holes matrix;
+    /// otherwise the grid falls back to a compact totals-only table.
+    private var anyRoundHasHoleScores: Bool {
+        rounds.contains { !($0.holeScores ?? []).isEmpty }
+    }
+    /// Any round has a usable total (per-hole or quick-entry) → worth showing a grid.
+    private var anyRoundScored: Bool {
+        rounds.contains { $0.effectiveTotalScore != nil }
+    }
 
     var body: some View {
         List {
@@ -40,6 +50,7 @@ struct TournamentDetailView: View {
                             roundRow(round)
                         }
                     }
+                    .onMove(perform: reorderRounds)
                 }
 
                 Button {
@@ -50,11 +61,12 @@ struct TournamentDetailView: View {
                 .labelStyle(ActionRowLabelStyle())
             }
 
-            // Round-by-round holes matrix — only when at least one round has
-            // per-hole scores (quick-entry total-only tournaments skip it).
-            if rounds.contains(where: { !($0.holeScores ?? []).isEmpty }) {
+            // Round-by-round comparison. Full holes matrix when any round has
+            // per-hole scores; otherwise a compact totals-only table so quick-entry
+            // tournaments still get a side-by-side leaderboard.
+            if anyRoundScored {
                 Section(header: Text("Scorecard").smallCapsLabel()) {
-                    TournamentScorecardGrid(rounds: rounds)
+                    TournamentScorecardGrid(rounds: rounds, includeHoleDetails: anyRoundHasHoleScores)
                         .listRowInsets(EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8))
                 }
             }
@@ -77,6 +89,28 @@ struct TournamentDetailView: View {
         .ppDetailBackground()
         .navigationTitle(tournament.name)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            // Reorder handles (drag-to-renumber) appear only with 2+ rounds.
+            if rounds.count > 1 {
+                ToolbarItem(placement: .topBarTrailing) {
+                    EditButton()
+                }
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Button {
+                        showingEdit = true
+                    } label: {
+                        Label("Edit Tournament", systemImage: "pencil")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+            }
+        }
+        .sheet(isPresented: $showingEdit) {
+            EditTournamentSheet(tournament: tournament)
+        }
         .sheet(isPresented: $showingAddRound) {
             GameCreationView(
                 athlete: tournament.athlete,
@@ -196,6 +230,32 @@ struct TournamentDetailView: View {
             if case .failure(let error) = result {
                 addRoundError = error.localizedDescription
             }
+        }
+    }
+
+    /// Drag-to-renumber. Resequences `roundNumber` 1…N over the new order (also
+    /// healing any legacy nil numbers), dirties each moved round + the tournament,
+    /// then pushes the change. Last-write-wins across devices — acceptable for a
+    /// rarely-concurrent action.
+    private func reorderRounds(from source: IndexSet, to destination: Int) {
+        var ordered = rounds
+        ordered.move(fromOffsets: source, toOffset: destination)
+        for (index, round) in ordered.enumerated() {
+            let newNumber = index + 1
+            if round.roundNumber != newNumber {
+                round.roundNumber = newNumber
+                round.needsSync = true
+            }
+        }
+        tournament.needsSync = true
+        // On save failure roll back the renumber so the grid and the dirty flags
+        // don't drift from disk, and skip the sync kick (mirrors EditGameSheet).
+        guard ErrorHandlerService.shared.saveContext(modelContext, caller: "TournamentDetailView.reorderRounds") else {
+            modelContext.rollback()
+            return
+        }
+        if let user = tournament.athlete?.user {
+            Task { try? await SyncCoordinator.shared.syncGames(for: user) }
         }
     }
 

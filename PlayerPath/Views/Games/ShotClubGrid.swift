@@ -14,17 +14,43 @@ struct ShotClubGrid: View {
     let recommended: Set<Club>
     let onSelect: (Club) -> Void
 
+    /// Most-recently-used clubs (CSV of raw values), written by ShotByShotContent.
+    @AppStorage(GolfPrefs.recentlyUsedClubs) private var recentRaw = ""
+    private var recentClubs: [Club] {
+        recentRaw.split(separator: ",").compactMap { Club(rawValue: String($0)) }
+    }
+
     private let columns = [GridItem(.adaptive(minimum: 56), spacing: 7)]
 
     var body: some View {
-        LazyVGrid(columns: columns, spacing: 7) {
-            ForEach(Club.allCases, id: \.self) { club in
-                ClubChip(
-                    club: club,
-                    isSelected: selected == club,
-                    isRecommended: recommended.contains(club),
-                    onTap: { onSelect(club) }
-                )
+        VStack(alignment: .leading, spacing: .spacingSmall) {
+            // Quick-access row of habitual clubs so the golfer isn't scanning the
+            // whole bag every shot. Still also shown in the full grid below.
+            if !recentClubs.isEmpty {
+                Text("RECENT")
+                    .font(.labelSmall)
+                    .foregroundColor(.secondary)
+                LazyVGrid(columns: columns, spacing: 7) {
+                    ForEach(recentClubs, id: \.self) { club in
+                        ClubChip(
+                            club: club,
+                            isSelected: selected == club,
+                            isRecommended: recommended.contains(club),
+                            onTap: { onSelect(club) }
+                        )
+                    }
+                }
+            }
+
+            LazyVGrid(columns: columns, spacing: 7) {
+                ForEach(Club.allCases, id: \.self) { club in
+                    ClubChip(
+                        club: club,
+                        isSelected: selected == club,
+                        isRecommended: recommended.contains(club),
+                        onTap: { onSelect(club) }
+                    )
+                }
             }
         }
     }

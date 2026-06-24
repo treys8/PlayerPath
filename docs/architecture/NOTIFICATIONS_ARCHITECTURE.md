@@ -67,12 +67,13 @@ These notifications are written by the Swift client because the triggering event
 | `upload_failed` | `UploadQueueManager` via `postClipUploadFailedNotification` | Coach's upload queue exhausted retries | The coach (self, for their own feed) |
 | `access_revoked` (permission-loss variant) | `CoachSessionManager` via `postClipUploadFailedPermissionNotification` | Coach detects mid-upload that their folder access was removed | The coach (self) |
 
-Two tier-change notifications are also currently client-written, pending a future migration to a `users/{id}` onUpdate CF:
+One tier-change notification is still client-written (pending a future migration to a `users/{id}` onUpdate CF):
 
 | Type | Writer | Trigger | Recipient |
 |---|---|---|---|
 | `access_revoked` (coach downgrade) | `CoachDowngradeSelectionView` via `postCoachAccessLostNotification` | Coach voluntarily drops tier and loses folder access | Affected athlete |
-| `access_lapsed` | `AthleteDowngradeManager` via `postAccessLapsedNotification` | Athlete subscription lapses | Coaches with access to affected folders |
+
+> **Retired under Pricing Model V2:** `access_lapsed` (formerly written by `AthleteDowngradeManager` via `postAccessLapsedNotification` when an athlete's subscription lapsed) is **no longer produced** — V2 removed the athlete-lapse → coach-revocation pipeline and `AthleteDowngradeManager` was deleted. The enum case is retained only for back-compat decoding of historical notifications.
 
 ## Deterministic ID scheme
 

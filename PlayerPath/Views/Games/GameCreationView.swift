@@ -154,7 +154,7 @@ struct GameCreationView: View {
                 }
 
                 if isGolf {
-                    Section("Round") {
+                    Section {
                         Picker("Holes", selection: $golfHoles) {
                             Text("9").tag(9)
                             Text("18").tag(18)
@@ -178,6 +178,12 @@ struct GameCreationView: View {
                                 .multilineTextAlignment(.trailing)
                                 .frame(width: 100)
                         }
+                    } header: {
+                        Text("Round")
+                    } footer: {
+                        if !previousOpponents.isEmpty {
+                            Text("Pick a course below to auto-fill holes & par from your most recent round there.")
+                        }
                     }
 
                     // Tournament link (SchemaV27). Read-only when added from a
@@ -199,8 +205,10 @@ struct GameCreationView: View {
                     }
                 }
 
-                // Opponent Suggestions — show when there are matches and at least one differs from the current input.
-                if !filteredOpponents.isEmpty && !filteredOpponents.allSatisfy({ $0 == opponent }) {
+                // Opponent/course suggestions — show on an empty field (so the
+                // par/holes auto-fill is discoverable before typing) and while
+                // typing when at least one match differs from the current input.
+                if !filteredOpponents.isEmpty && (opponent.isEmpty || !filteredOpponents.allSatisfy({ $0 == opponent })) {
                     Section(recentLabel) {
                         ForEach(filteredOpponents, id: \.self) { suggestion in
                             Button {

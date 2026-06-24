@@ -1,6 +1,6 @@
 # PlayerPath Architecture Overview
 
-**Last Updated:** March 27, 2026
+**Last Updated:** June 24, 2026 (app v6.1.2 / build 189)
 
 Comprehensive architecture reference for the PlayerPath iOS app. Covers app entry, navigation, data layer, services, video pipeline, and subscription system.
 
@@ -11,7 +11,7 @@ Comprehensive architecture reference for the PlayerPath iOS app. Covers app entr
 **Entry:** `PlayerPathApp.swift` (`@main`)
 
 Bootstrap sequence:
-1. Configure SwiftData `ModelContainer` with `SchemaV14` (lightweight migrations only)
+1. Configure SwiftData `ModelContainer` with `SchemaV30` (lightweight migrations only)
 2. Initialize Firebase via `AppDelegate` (App Check enabled)
 3. Inject environment objects: `ComprehensiveAuthManager`, `NavigationCoordinator`, `ThemeManager`
 4. Register NotificationCenter observers for deep links and cross-feature navigation
@@ -65,7 +65,7 @@ Routes based on user role and onboarding state:
 
 | Tab | View | Badge |
 |-----|------|-------|
-| Home | `DashboardView` | Pending invitations |
+| Home | `JournalView` | Pending invitations |
 | Games | `GamesView` | -- |
 | Videos | `VideoClipsView` | Unread activity |
 | Stats | `StatisticsView` | -- |
@@ -99,16 +99,22 @@ Both tab views support iOS 18+ sidebar for regular horizontal size class.
 
 ### SwiftData (Local Persistence)
 
-**Schema:** `SchemaV14` with 14 lightweight migration stages (V1-V14). No custom migrations.
+**Schema:** `SchemaV30` with 30 lightweight migration stages (V1-V30). No custom migrations. PlayerPathApp.swift binds `Schema(SchemaV30.models)`.
 
-**15 SwiftData Models:**
+PlayerPath is **dual-sport** (baseball/softball + golf). The golf layer adds its own model hierarchy (tournaments, rounds, hole scores, shot-by-shot) alongside the original baseball/softball models.
+
+**SwiftData Models:**
 
 | Model | Purpose |
 |-------|---------|
 | `User` | Root account with Firebase UID, subscription tier, cloud storage quota |
-| `Athlete` | Athlete profile with Firestore sync metadata |
-| `Season` | Seasonal grouping with sport type (baseball/softball) |
-| `Game` | Game record with live tracking (`liveStartDate` for stale-game alerts) |
+| `Athlete` | Athlete profile with Firestore sync metadata; `personGroupID` links a dual-sport person's two `Athlete` rows into ONE subscription slot |
+| `Season` | Seasonal grouping with sport type (baseball/softball/golf) |
+| `GolfTournament` | Golf multi-round event. Sits ABOVE `Game` (a golf `Game` is a "Round"). `rounds` inverse to `Game.tournament` is nullify — deleting a tournament UNLINKS its rounds, never cascades. (There is no `Tournament` @Model — golf only.) |
+| `Game` | Game record with live tracking (`liveStartDate` for stale-game alerts); a golf `Game` represents a round and may link to a `GolfTournament` |
+| `HoleScore` | Per-hole golf score, child of a `Game` (tournament round) OR a `Practice` (practice round) — XOR; cascades to its `Shot` children |
+| `Shot` | Shot-by-shot golf record, child of `HoleScore` (cascade-deleted with its hole) |
+| `HighlightReel` | Virtual birdie-or-better golf highlight reels |
 | `Practice` | Practice sessions with `practiceType` (general/batting/fielding/bullpen/team) |
 | `PracticeNote` | Notes attached to practices |
 | `VideoClip` | Video recordings with denormalized display fields, pitch type tracking |
@@ -123,7 +129,7 @@ Both tab views support iOS 18+ sidebar for regular horizontal size class.
 
 Core model hierarchy: `User -> Athlete -> Season -> Game/Practice -> VideoClip -> PlayResult`
 
-Models defined in `Models.swift` + `PlayerPath/Models/` directory. Additional types: `PlayResultType` (16 result types), `SubscriptionTier`, `CoachSubscriptionTier`, `VideoQuality`, `AutoUploadMode`, `SessionStatus`, `AnnotationCategory`.
+Models defined in `Models.swift` + `PlayerPath/Models/` directory. Additional types: `PlayResultType` (16 result types), `Club` (golf club enum — not a @Model), `SubscriptionTier`, `CoachSubscriptionTier`, `VideoQuality`, `AutoUploadMode`, `SessionStatus`, `AnnotationCategory`.
 
 ### Firebase Firestore (Cloud Sync)
 
@@ -138,7 +144,7 @@ FirestoreAthlete, FirestoreSeason, FirestoreGame, FirestorePractice, FirestorePr
 
 ## Services Architecture
 
-51 total services. All singletons use `static let shared`. Most are `@MainActor` isolated.
+70+ service-layer files (58 in `PlayerPath/Services/` plus the top-level managers/services below; a handful of `Services/` files are golf view models / helpers rather than true services). The tables below are a representative catalog, not an exhaustive list. All singletons use `static let shared`. Most are `@MainActor` isolated.
 
 ### Core Infrastructure
 
@@ -176,8 +182,7 @@ FirestoreAthlete, FirestoreSeason, FirestoreGame, FirestorePractice, FirestorePr
 | `AthleteInvitationManager` | Services/ | Singleton, @Observable | Athlete-side invitation acceptance |
 | `CoachFolderArchiveManager` | Services/ | Singleton, @Observable | Per-coach, per-device folder archiving |
 | `CoachTemplateService` | Services/ | Singleton, @Observable | Quick cue and annotation templates |
-| `CoachDowngradeManager` | Services/ | Singleton, @Observable | 7-day grace period, forced athlete selection |
-| `AthleteDowngradeManager` | Services/ | Singleton, @Observable | Detects Pro tier loss, notifies coaches |
+| `CoachDowngradeManager` | Services/ | Singleton, @Observable | 7-day grace period, forced athlete selection (paired with the `auditCoachDowngrades` server backstop) |
 | `SubscriptionGateService` | Services/ | Static utility | Centralized coach tier limit checks |
 | `CoachUploadableAthletesHelper` | Services/ | Static utility | Resolve uploadable athletes from folders |
 
@@ -225,7 +230,7 @@ See [SERVICES_QUICK_REFERENCE.md](../quick-reference/SERVICES_QUICK_REFERENCE.md
 ### Athlete Recording Flow
 
 ```
-VideoRecorderView_Refactored
+DirectCameraRecorderView
   -> CameraViewModel -> ModernCameraView (AVFoundation)
   -> PreUploadTrimmerView (optional)
   -> Play result tagging (PlayResultOverlayView)
@@ -270,20 +275,24 @@ Supports background tasks and persists queue via SwiftData `PendingUpload` model
 
 ### Athlete Tiers
 
-| Tier | Athletes | Storage | Coach Sharing | Price |
-|------|----------|---------|---------------|-------|
-| Free | 1 | 2 GB | No | -- |
-| Plus | 3 | 25 GB | No | $4.99/mo |
-| Pro | 5 | 100 GB | Yes | $9.99/mo |
+| Tier | Athletes | Storage | Price |
+|------|----------|---------|-------|
+| Free | 1 | 2 GB | -- |
+| Plus | 3 | 25 GB | $5.99/mo, $57.99/yr |
+| Pro | 5 | 100 GB | $12.99/mo, $124.99/yr |
+
+Plus+ adds auto highlights, stats export, and season comparison.
+
+**Coach sharing is NOT gated by athlete tier.** Under Pricing Model V2 (shipped June 2026), coach connections are paid by the **coach's** seat, not the athlete's tier — ANY athlete tier (Free/Plus/Pro) can create shared folders and keep coaches connected. The old athlete-lapse -> coach-revocation pipeline was removed and `AthleteDowngradeManager` was deleted.
 
 ### Coach Tiers
 
 | Tier | Athletes | Price |
 |------|----------|-------|
 | Free | 2 | -- |
-| Instructor | 10 | $9.99/mo |
-| Pro Instructor | 30 | $19.99/mo |
-| Academy | Unlimited | Manual Firestore grant |
+| Instructor | 10 | $9.99/mo, $95.99/yr |
+| Pro Instructor | 30 | $19.99/mo, $191.99/yr |
+| Academy | Unlimited | Manual Firestore grant (no StoreKit product) |
 
 Product IDs and feature gates in `SubscriptionModels.swift`. StoreKit config: `PlayerPathStoreKit.storekit`.
 
@@ -292,9 +301,9 @@ Product IDs and feature gates in `SubscriptionModels.swift`. StoreKit config: `P
 - `StoreKitManager.shared` manages entitlements for both athlete and coach tiers
 - `hasResolvedEntitlements` flag prevents stale tier syncs
 - `SubscriptionGateService` (static utility) enforces coach athlete limits
-- `CoachDowngradeManager` provides 7-day grace period before forced athlete selection
-- `AthleteDowngradeManager` detects Pro tier loss and notifies coaches
-- Tier sync to Firestore via `syncSubscriptionTier` Cloud Function
+- `CoachDowngradeManager` (client) provides a 7-day grace period before forced athlete selection
+- **Server downgrade backstop:** the `auditCoachDowngrades` daily cron + the CF-managed `coachDowngradeGraceStartedAt` / `downgradeUnresolved` fields enforce the limit even if an over-limit coach never runs the client shed flow. `firestore.rules` blocks coach feedback writes when `downgradeUnresolved` is true ("block feedback, allow viewing" — reads and signed URLs still work).
+- Tier sync to Firestore via the `syncSubscriptionTier` Cloud Function AND an App Store Server Notifications V2 webhook (`appStoreServerNotifications`)
 
 ---
 

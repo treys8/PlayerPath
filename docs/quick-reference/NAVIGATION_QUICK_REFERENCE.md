@@ -10,7 +10,7 @@
 
 | Tab | Index | View | Badge |
 |-----|-------|------|-------|
-| Home | 0 | `DashboardView` | Pending invitations |
+| Home | 0 | `JournalView` | Pending invitations |
 | Games | 1 | `GamesView` | -- |
 | Videos | 2 | `VideoClipsView` | Unread activity |
 | Stats | 3 | `StatisticsView` | -- |

@@ -21,4 +21,9 @@ enum GolfPrefs {
     /// shot-tracker doesn't re-pick every round, and seeded into a round's
     /// `tracksShotByShot` at creation. Default false.
     static let preferredShotByShot = "golf.preferredShotByShot"
+
+    /// Recently-used clubs (shot-by-shot), most-recent-first, stored as a CSV of
+    /// `Club` raw values. Powers a quick-access "Recent" row above the full bag so
+    /// the golfer isn't scanning 16 clubs every shot. Capped to a handful.
+    static let recentlyUsedClubs = "golf.recentlyUsedClubs"
 }

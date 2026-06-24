@@ -484,7 +484,7 @@ Tiers are `Comparable`: `free < instructor < proInstructor < academy`.
 
 **Direction 1: Athlete invites Coach**
 ```
-1. Athlete creates shared folder (requires Pro tier)
+1. Athlete creates shared folder (any tier — Pricing V2; the coach pays for the connection)
 2. Athlete enters coach email → creates invitation (type: "athlete_to_coach", status: "pending")
 3. Coach signs in, app queries invitations WHERE coachEmail = {email} AND status = "pending"
 4. Coach accepts → Cloud Function atomically:
@@ -498,7 +498,7 @@ Tiers are `Comparable`: `free < instructor < proInstructor < academy`.
 1. Coach enters athlete name + parent email + optional message
 2. Creates invitation (type: "coach_to_athlete", status: "pending")
 3. Athlete signs in, app queries invitations WHERE athleteEmail = {email} AND status = "pending"
-4. Athlete accepts (requires Pro tier) → Cloud Function atomically:
+4. Athlete accepts (any tier — Pricing V2) → Cloud Function atomically:
    - Creates TWO shared folders: "{Name}'s Games" and "{Name}'s Lessons"
    - Adds coachID to both folders' sharedWithCoachIDs
    - Sets invitation.status = "accepted"

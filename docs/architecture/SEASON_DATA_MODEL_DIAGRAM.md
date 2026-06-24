@@ -3,14 +3,18 @@
 ## Entity Relationship Diagram
 
 ```
-┌────────────────────┐
-│       User         │
-│                    │
-│ • id: UUID        │
-│ • username        │
-│ • email           │
-│ • isPremium       │
-└─────────┬──────────┘
+┌──────────────────────────────┐
+│            User              │
+│                              │
+│ • id: UUID                  │
+│ • username                  │
+│ • email                     │
+│ • subscriptionTier          │
+│   (free / plus / pro)       │
+│ • coachSubscriptionTier      │
+│   (free/instructor/          │
+│    proInstructor/academy)   │
+└─────────┬────────────────────┘
           │ 1
           │ has many
           │ n
@@ -32,54 +36,50 @@
 │ • startDate: Date                      │
 │ • endDate: Date?                       │
 │ • isActive: Bool                       │◄── Only ONE active per athlete
-│ • sport: SportType (baseball/softball) │
+│ • sport: SportType                     │
+│   (baseball / softball / golf)         │
 │ • notes: String                        │
-└───┬────┬────┬────┬────────────────────┘
-    │    │    │    │
-    │    │    │    │ has many
-    │    │    │    │
-    │    │    │    ▼
-    │    │    │  ┌────────────────────┐
-    │    │    │  │   Tournament       │
-    │    │    │  │                    │
-    │    │    │  │ • name             │
-    │    │    │  │ • date             │
-    │    │    │  │ • location         │
-    │    │    │  └────────────────────┘
-    │    │    │
-    │    │    │ has many
-    │    │    ▼
-    │    │  ┌────────────────────┐
-    │    │  │     Practice       │
-    │    │  │                    │
-    │    │  │ • date             │
-    │    │  │ • notes            │
-    │    │  └────────────────────┘
-    │    │
-    │    │ has many
-    │    ▼
-    │  ┌────────────────────┐
-    │  │      Game          │
-    │  │                    │
-    │  │ • date             │
-    │  │ • opponent         │
-    │  │ • isLive           │
-    │  │ • isComplete       │
-    │  └─────────┬──────────┘
-    │            │ has one
-    │            ▼
-    │  ┌────────────────────┐
-    │  │  GameStatistics    │
-    │  │                    │
-    │  │ • atBats           │
-    │  │ • hits             │
-    │  │ • homeRuns         │
-    │  │ • rbis             │
-    │  │ • strikeouts       │
-    │  └────────────────────┘
-    │
-    │ has many
-    ▼
+└──────┬────────┬─────────┬───────────────┘
+       │        │         │
+       │        │         │ has many
+       │        │         ▼
+       │        │       ┌────────────────────┐
+       │        │       │     Practice       │
+       │        │       │                    │
+       │        │       │ • date             │
+       │        │       │ • notes            │
+       │        │       └─────────┬──────────┘
+       │        │                 │ has many (golf practice rounds, XOR w/ Game)
+       │        │                 ▼
+       │        │           [ HoleScore ] ── see golf hierarchy below
+       │        │
+       │        │ has many
+       │        ▼
+       │      ┌─────────────────────────────┐
+       │      │            Game             │
+       │      │  (golf: a "Round")          │
+       │      │                             │
+       │      │ • date                      │
+       │      │ • opponent                  │
+       │      │ • isLive                    │
+       │      │ • isComplete                │
+       │      │ • tournament: GolfTournament? │◄─ golf only (optional)
+       │      │ • roundNumber: Int?         │◄─ golf only
+       │      └───┬─────────────────────┬───┘
+       │          │ has one             │ has many (golf, XOR w/ Practice)
+       │          ▼                     ▼
+       │   ┌────────────────────┐  [ HoleScore ] ── see golf hierarchy below
+       │   │  GameStatistics    │
+       │   │                    │
+       │   │ • atBats           │
+       │   │ • hits             │
+       │   │ • homeRuns         │
+       │   │ • rbis             │
+       │   │ • strikeouts       │
+       │   └────────────────────┘
+       │
+       │ has many
+       ▼
 ┌────────────────────┐
 │    VideoClip       │
 │                    │
@@ -98,6 +98,58 @@
 │   (single, double, │
 │    homerun, etc.)  │
 └────────────────────┘
+```
+
+## Golf Hierarchy (separate from Season)
+
+Golf reuses `Game` (a golf Game **is** a "Round") and `Practice` (a practice round),
+but adds three @Model entities. **`GolfTournament` is NOT a child of `Season`** — it
+hangs off `Athlete` directly and sits *above* `Game`, grouping several rounds (the
+same way `Season` sits above `Game`). A golf round may belong to a tournament OR stand
+alone; deleting a tournament **UNLINKS** its rounds (clears `tournament`/`roundNumber`),
+it never cascade-deletes them.
+
+```
+┌────────────────────┐
+│      Athlete       │
+└─────────┬──────────┘
+          │ has many                       has many (virtual birdie reels)
+          ▼                                          │
+┌──────────────────────────────┐                    ▼
+│       GolfTournament         │          ┌────────────────────┐
+│                              │          │   HighlightReel    │
+│ • id: UUID                  │          │  (virtual reel)    │
+│ • name                      │          │                    │
+│ • location                  │          │ • athleteID        │
+│ • startDate / endDate       │          │ • ordered clip refs│
+│ • notes                     │          │   (birdie-or-better│
+└─────────┬────────────────────┘          │    holes w/ clips) │
+          │ has many (rounds)             └────────────────────┘
+          │ inverse = Game.tournament
+          ▼
+┌──────────────────────────────┐
+│      Game  (a "Round")       │
+│  tournament?, roundNumber?   │
+└─────────┬────────────────────┘
+          │ has many (XOR: a HoleScore attaches to a Game OR a Practice)
+          ▼
+┌──────────────────────────────┐
+│         HoleScore            │
+│                              │
+│ • holeNumber: Int           │
+│ • par / score / putts       │
+│ • fairwayHit?               │
+│ • greenInRegulation?        │
+│ • penalties?                │
+│ • game? / practice? (XOR)   │
+└─────────┬────────────────────┘
+          │ has many (cascade delete)
+          ▼
+┌──────────────────────────────┐
+│            Shot              │
+│  (shot-by-shot rows for      │
+│   rounds in shot-track mode) │
+└──────────────────────────────┘
 ```
 
 ## Season Lifecycle States
@@ -214,12 +266,17 @@ Athlete: "Sarah Johnson"
 | Season | has many | Game | 1:n |
 | Season | has many | Practice | 1:n |
 | Season | has many | VideoClip | 1:n |
-| Season | has many | Tournament | 1:n |
 | Season | has one | AthleteStatistics | 1:1 |
 | Game | belongs to | Season | n:1 |
 | Game | has one | GameStatistics | 1:1 |
 | VideoClip | belongs to | Season | n:1 |
 | VideoClip | has one | PlayResult | 1:1 |
+| Athlete | has many | GolfTournament | 1:n (golf — NOT under Season) |
+| Athlete | has many | HighlightReel | 1:n (golf — virtual birdie reels) |
+| GolfTournament | groups (has many) | Game (Round) | 1:n (optional; delete UNLINKS) |
+| Game (Round) | belongs to | GolfTournament | n:1 (optional) |
+| Game / Practice | has many | HoleScore | 1:n (golf — XOR parent) |
+| HoleScore | has many | Shot | 1:n (golf — cascade delete) |
 
 ## Important Constraints
 
@@ -261,8 +318,9 @@ final class Season {
     var games: [Game] = []
     var practices: [Practice] = []
     var videoClips: [VideoClip] = []
-    var tournaments: [Tournament] = []
     var seasonStatistics: AthleteStatistics?
+    // Note: golf tournaments are NOT a Season relationship — GolfTournament
+    // hangs off Athlete (Athlete.golfTournaments) and sits above Game.
     
     // Computed properties
     var displayName: String { /* ... */ }

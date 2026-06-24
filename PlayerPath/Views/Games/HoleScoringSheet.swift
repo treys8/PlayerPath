@@ -94,6 +94,18 @@ struct HoleScoringSheet: View {
                     .padding(.horizontal, .spacingLarge)
                     .padding(.top, .spacingSmall)
                     .padding(.bottom, .spacingSmall)
+                } else {
+                    // Shot-owned hole: the Quick switch is hidden (two-writer
+                    // guard). Show a static badge so the locked mode is explicit.
+                    HStack(spacing: 6) {
+                        Image(systemName: "scope")
+                        Text("Shot by shot")
+                    }
+                    .font(.labelSmall)
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, .spacingSmall)
+                    .padding(.bottom, .spacingSmall)
                 }
 
                 content
@@ -119,10 +131,12 @@ struct HoleScoringSheet: View {
             switch parent {
             case .game(let g):
                 ShotByShotContent(game: g, holeNumber: holeNumber,
-                                  onLiveShotsChanged: { holeHasLiveShots = $0 })
+                                  onLiveShotsChanged: { holeHasLiveShots = $0 },
+                                  onRevertToQuick: { mode = .quick })
             case .practice(let p):
                 ShotByShotContent(practice: p, holeNumber: holeNumber,
-                                  onLiveShotsChanged: { holeHasLiveShots = $0 })
+                                  onLiveShotsChanged: { holeHasLiveShots = $0 },
+                                  onRevertToQuick: { mode = .quick })
             }
         } else {
             switch parent {

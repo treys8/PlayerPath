@@ -14,7 +14,7 @@ import Foundation
 /// Where a golf shot is played FROM. Auto-chains from the previous shot's
 /// `ShotOutcome` (see `ShotLieChain`); the player only corrects exceptions.
 enum ShotLie: String, CaseIterable, Codable {
-    case tee, fairway, rough, sand, fringe, green, recovery
+    case tee, fairway, rough, sand, fringe, green, recovery, water
 
     var displayName: String {
         switch self {
@@ -25,6 +25,7 @@ enum ShotLie: String, CaseIterable, Codable {
         case .fringe:   return "Fringe"
         case .green:    return "Green"
         case .recovery: return "Recovery"
+        case .water:    return "Water"
         }
     }
 }
@@ -112,9 +113,9 @@ enum ShotContext {
     static func forLie(_ lie: ShotLie, par: Int) -> ShotContext? {
         switch lie {
         case .green:                       return nil
-        case .tee:                         return par == 3 ? .approach : .teeFull
-        case .fairway, .rough, .recovery:  return .approach
-        case .sand, .fringe:               return .aroundGreen
+        case .tee:                                return par == 3 ? .approach : .teeFull
+        case .fairway, .rough, .recovery, .water: return .approach
+        case .sand, .fringe:                      return .aroundGreen
         }
     }
 }

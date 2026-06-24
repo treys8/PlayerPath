@@ -543,7 +543,7 @@ struct GameDetailView: View {
                 }
 
                 Button(action: { showingEditGame = true }) {
-                    Label(isGolf ? "Edit Tournament" : "Edit Game", systemImage: "pencil")
+                    Label(isGolf ? "Edit Round" : "Edit Game", systemImage: "pencil")
                 }
 
                 if game.isComplete {

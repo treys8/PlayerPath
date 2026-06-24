@@ -267,6 +267,17 @@ service cloud.firestore {
           allow create: if isAuthenticated() && isOwner(userID);
           allow update: if isAuthenticated() && isOwner(userID);
           allow delete: if isAuthenticated() && isOwner(userID);
+
+          // Per-shot golf rows (SchemaV30). Doc id is the shot UUID string
+          // (shots reorder on delete/insert, so a positional id would
+          // overwrite on renumber). Owner-only, matching the hole doc above —
+          // shot-by-shot data is athlete-side, no coach access in v1.
+          match /shots/{shotID} {
+            allow read:   if isAuthenticated() && isOwner(userID);
+            allow create: if isAuthenticated() && isOwner(userID);
+            allow update: if isAuthenticated() && isOwner(userID);
+            allow delete: if isAuthenticated() && isOwner(userID);
+          }
         }
       }
 
@@ -296,6 +307,15 @@ service cloud.firestore {
           allow create: if isAuthenticated() && isOwner(userID);
           allow update: if isAuthenticated() && isOwner(userID);
           allow delete: if isAuthenticated() && isOwner(userID);
+
+          // Per-shot golf rows (SchemaV30) for practice rounds. Owner-only,
+          // mirroring the games path above. Doc id is the shot UUID string.
+          match /shots/{shotID} {
+            allow read:   if isAuthenticated() && isOwner(userID);
+            allow create: if isAuthenticated() && isOwner(userID);
+            allow update: if isAuthenticated() && isOwner(userID);
+            allow delete: if isAuthenticated() && isOwner(userID);
+          }
         }
       }
 

@@ -1,8 +1,8 @@
 # Services Quick Reference
 
-**Last Updated:** March 27, 2026
+**Last Updated:** June 24, 2026
 
-Complete catalog of all 51 services. Grouped by domain.
+Complete catalog of services (~58 in `PlayerPath/Services/`, plus top-level service-style files). Grouped by domain.
 
 ---
 
@@ -10,9 +10,9 @@ Complete catalog of all 51 services. Grouped by domain.
 
 | Service | Location | Pattern | Purpose |
 |---------|----------|---------|---------|
-| `SyncCoordinator` | Top-level | Singleton, @Observable | SwiftData <-> Firestore bidirectional sync. Extensions: +Athletes, +Seasons, +Games, +Practices, +Videos, +PracticeNotes, +Photos, +Coaches |
+| `SyncCoordinator` | Top-level | Singleton, @Observable | SwiftData <-> Firestore bidirectional sync. Extensions: +Athletes, +Seasons, +Games, +Practices, +Videos, +PracticeNotes, +Photos, +Coaches, +HighlightReels, +GolfTournaments, +HoleScores, +Shots |
 | `ComprehensiveAuthManager` | Top-level | Singleton, ObservableObject | Firebase Auth (email + Apple Sign In), biometric auth, user role, profile. Extensions: +Auth, +Profile, +Tier |
-| `FirestoreManager` | Top-level | Singleton, ObservableObject | All Firestore operations. 7 extensions: +SharedFolders, +VideoMetadata, +Annotations, +Invitations, +UserProfile, +EntitySync, +DrillCards |
+| `FirestoreManager` | Top-level | Singleton, ObservableObject | All Firestore operations. Extensions: +SharedFolders, +VideoMetadata, +Annotations, +Invitations, +UserProfile, +EntitySync, +DrillCards, +HighlightReels, +GolfTournaments, +HoleScores, +Shots |
 | `StoreKitManager` | Top-level | Singleton, ObservableObject | StoreKit 2 subscriptions. Dual tiers (athlete + coach), entitlements, `hasResolvedEntitlements` flag |
 | `ErrorHandlerService` | Services/ | Singleton, ObservableObject | OSLog, error history (50 cap), analytics, haptic feedback. Methods: `reportError()`, `reportWarning()`, `saveContext()` |
 | `ConnectivityMonitor` | Services/ | Singleton, @Observable | NWPathMonitor. Properties: `isConnected`, `connectionType`, `isExpensive` |
@@ -45,7 +45,6 @@ Complete catalog of all 51 services. Grouped by domain.
 | `CoachFolderArchiveManager` | Services/ | Singleton, @Observable | Per-coach, per-device folder archiving via UserDefaults |
 | `CoachTemplateService` | Services/ | Singleton, @Observable | Firestore CRUD for quick cues and annotation templates |
 | `CoachDowngradeManager` | Services/ | Singleton, @Observable | 7-day grace period when over athlete limit. States: none/gracePeriod/selectionRequired |
-| `AthleteDowngradeManager` | Services/ | Singleton, @Observable | Detects Pro tier loss while sharing. Notifies coaches but preserves folder access on re-sub |
 | `SubscriptionGateService` | Services/ | Static utility enum | `isCoachOverLimit()`, `fullConnectedAthleteCount()`, `coachAthleteSlotsRemaining()` |
 | `CoachUploadableAthletesHelper` | Services/ | Static utility enum | Resolves uploadable athletes from folders, prefers "lessons" folders |
 
@@ -61,6 +60,27 @@ Complete catalog of all 51 services. Grouped by domain.
 | `SeasonManager` | Top-level | Static utility | `ensureActiveSeason()`, `linkGameToActiveSeason()` |
 | `OrphanedClipRecoveryService` | Services/ | Singleton | Recovers videos orphaned by TestFlight schema changes as untagged practice clips |
 | `GameAlertService` | Top-level | Singleton | Local notifications for stale games (3.5hr threshold) |
+
+## Golf System
+
+PlayerPath supports golf alongside baseball/softball (~160 golf-touching Swift files). Golf scoring/shot data has no video and syncs through its own FirestoreManager / SyncCoordinator extensions.
+
+| Service | Location | Pattern | Purpose |
+|---------|----------|---------|---------|
+| `GolfScoreWriter` | Services/ | Static utility enum | Shared write path for golf per-hole scoring (used by ScoreHoleSheet + shot-derived rollups) |
+| `HandicapEstimator` | Services/ | Static utility enum | Lightweight estimated handicap from recent scoring (no course/slope collected) |
+| `GolfCaptureSession` | Services/ | Static utility enum | Groups "orphan" golf clips recorded with no game/practice context into the day's session |
+| `GolfCaptureContext` | Services/ | @Observable class | Holds the "current hole" for casual golf swing capture (CurrentHoleStepper on camera) |
+| `GolfExportData` | Services/ | Static utility enum | Single source of golf scoring rows + summary for CSV/PDF export |
+| `GolfPreferences` | Services/ | Static keys | Shared UserDefaults / @AppStorage keys for golf-scoring preferences |
+| `ShotClubRecommender` | Services/ | Static utility enum | v1 club-suggestion heuristic for shot-by-shot entry (~4 likely clubs) |
+| `ShotLieChain` | Services/ | Static utility enum | Pure lie auto-chaining: next shot's lie defaults from the prior shot |
+| `ShotRollup` | Services/ | Static utility enum | Derives a hole's score / FIR / GIR / putts from shot-by-shot data |
+| `ShotStats` | Services/ | Static utility enum | Free descriptive shot-derived golf stats (SchemaV30) |
+
+**Golf sync extensions:**
+- `FirestoreManager+GolfTournaments`, `FirestoreManager+HoleScores`, `FirestoreManager+Shots`
+- `SyncCoordinator+GolfTournaments`, `SyncCoordinator+HoleScores`, `SyncCoordinator+Shots`
 
 ## Auth & Identity
 
@@ -96,7 +116,7 @@ Complete catalog of all 51 services. Grouped by domain.
 
 ## Patterns Summary
 
-- **51 total services** across top-level and Services/ directory
+- **~58 services in `PlayerPath/Services/`** plus additional top-level service-style files (FirestoreManager, SyncCoordinator, StoreKitManager, etc.)
 - **Singletons:** `static let shared` (most services)
 - **Instantiable:** ClipPersistenceService, PhotoPersistenceService, GameService, VideoUploadService, VideoRecordingPermissionManager
 - **@MainActor:** Most services (thread safety on ViewModels)

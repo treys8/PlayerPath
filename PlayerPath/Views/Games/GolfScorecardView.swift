@@ -266,6 +266,22 @@ struct GolfScorecardView: View {
     private var scoreEditorPanel: some View {
         let entry = entries[selectedHole] ?? HoleEntry(par: 4, score: nil, putts: nil)
         return VStack(spacing: .spacingSmall) {
+            // Running total — the top summary scrolls off the screen while you're
+            // entering holes, so mirror it here in the pinned editor.
+            if anyScored {
+                HStack(spacing: 8) {
+                    Text("Round Total")
+                        .font(.labelSmall)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Text("\(roundTotal)")
+                        .font(.bodyMedium).monospacedDigit().fontWeight(.semibold)
+                    Text("(\(toParString))")
+                        .font(.labelMedium).monospacedDigit()
+                        .foregroundColor(.parRelative(toPar))
+                }
+            }
+
             HStack {
                 Text("Hole \(selectedHole)")
                     .font(.headingMedium)
@@ -281,8 +297,18 @@ struct GolfScorecardView: View {
                 setScore(value)
             }
 
-            Toggle("Track Putts", isOn: $showPutts.animation())
-                .font(.bodyMedium)
+            // Compact, equal-footing toggles so the fast path (scores only) keeps
+            // the pinned panel short and both strips are equally discoverable.
+            // Round-level visibility — turning a strip off never nulls a hole's
+            // saved putts/detail (each hole writes from its own entry).
+            HStack(spacing: .spacingSmall) {
+                Toggle("Putts", isOn: $showPutts.animation())
+                Toggle("Details", isOn: $trackDetailed.animation())
+                Spacer()
+            }
+            .font(.bodyMedium)
+            .toggleStyle(.button)
+
             if showPutts {
                 NumberChipGrid(range: 0...min(10, entry.score ?? 10),
                                selected: entry.putts ?? -1,
@@ -291,8 +317,6 @@ struct GolfScorecardView: View {
                 }
             }
 
-            Toggle("Detailed Stats", isOn: $trackDetailed.animation())
-                .font(.bodyMedium)
             if trackDetailed {
                 if entry.par >= 4 {
                     HitMissControl(label: "Fairway", systemImage: "arrow.up.forward", value: firBinding)

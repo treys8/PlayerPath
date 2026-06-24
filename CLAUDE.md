@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-PlayerPath is an iOS baseball/softball performance tracking app (SwiftUI, iOS 17+). Athletes record game videos with play-by-play tagging, track statistics across seasons, and share clips with coaches for annotated feedback. Monetized via StoreKit 2 subscriptions.
+PlayerPath is an iOS **dual-sport** performance tracking app (SwiftUI, iOS 17+): baseball/softball (record game videos with play-by-play tagging, track stats across seasons) and **golf** (round/tournament scoring, per-hole + opt-in shot-by-shot stats, birdie-or-better auto-highlight reels). Athletes share clips with coaches for annotated feedback. A person who plays two sports is modeled as **two `Athlete` rows linked by `personGroupID`** = one subscription slot. Monetized via StoreKit 2 subscriptions.
 
 ## Build & Run
 
@@ -37,11 +37,9 @@ Two parallel tab bars based on user role:
 
 Athlete navigation uses `NavigationCoordinator` (Observable class) with deep linking via `DeepLinkIntent`. Coach navigation uses `CoachNavigationCoordinator` (Observable class, in `Views/Coach/CoachNavigationCoordinator.swift`).
 
-Note: `ContentView.swift` exists but is dead code — `PlayerPathApp` goes directly to `PlayerPathMainView`.
-
 ### Data Layer
 
-- **SwiftData** for local persistence. Schema is versioned (V1–V10) in `PlayerPathSchema.swift` with lightweight migrations only.
+- **SwiftData** for local persistence. Schema is versioned (V1–V30; currently `SchemaV30`) in `PlayerPathSchema.swift` with lightweight migrations only. The live container binds `Schema(SchemaV30.models)` in `PlayerPathApp.swift` — bump the **bound schema**, not the `MigrationPlan` (which is documentation only).
 - **Firebase Firestore** for cloud sync and shared data (coach folders, invitations, clip metadata).
 - **Local-first architecture**: `SyncCoordinator` handles bidirectional sync between SwiftData and Firestore using dirty flags and version numbers for conflict resolution.
 
@@ -49,7 +47,9 @@ Note: `ContentView.swift` exists but is dead code — `PlayerPathApp` goes direc
 
 `User → Athlete → Season → Game/Practice → VideoClip → PlayResult`
 
-Core models are defined in `Models.swift` with additional model files in `PlayerPath/Models/` (`Athlete.swift`, `Season.swift`, `VideoClip.swift`, `Coach.swift`, `Photo.swift`, `AthleteStatistics.swift`, `PlayResultType.swift`, `AnnotationModels.swift`). Firestore data types are in `FirestoreModels.swift`.
+**Golf** extends this: `GolfTournament` sits above `Game` (a golf `Game` = a "Round"; deleting a tournament UNLINKS rounds, never cascades), `HoleScore` hangs off Game/Practice (with child `Shot` for shot-by-shot), and birdie-or-better rounds bundle clips into a virtual `HighlightReel`.
+
+Core models are defined in `Models.swift` with additional model files in `PlayerPath/Models/` (`Athlete.swift`, `Season.swift`, `VideoClip.swift`, `Coach.swift`, `Photo.swift`, `AthleteStatistics.swift`, `PlayResultType.swift`, `AnnotationModels.swift`; golf: `GolfTournament.swift`, `HoleScore.swift`, `Shot.swift`, `ShotEnums.swift`, `HighlightReel.swift`, `Club.swift`). Firestore data types are in `FirestoreModels.swift`.
 
 ### Key Services
 
@@ -116,7 +116,7 @@ Playback: `VideoPlayerView.swift` with `PlayResultOverlayView` for tagging and c
 | Monthly | — | $5.99 | $12.99 |
 | Annual | — | $57.99 | $124.99 |
 
-Pro includes coach sharing. Plus+ includes auto highlights, stats export, season comparison.
+Coach sharing is **not** gated by athlete tier: under Pricing Model V2 the **coach** pays for each connection via their seat, so an athlete on any tier (Free/Plus/Pro) can share with a coach. Athlete tiers re-anchor on storage + multi-athlete + Plus+ features (auto highlights, stats export, season comparison).
 
 **Coach tiers:**
 
@@ -128,14 +128,14 @@ Pro includes coach sharing. Plus+ includes auto highlights, stats export, season
 
 Academy is manually granted via Firestore — no StoreKit product exists for it.
 
-Product IDs and feature gates are in `SubscriptionModels.swift`. StoreKit configuration file: `PlayerPathStoreKit.storekit`.
+Product IDs and feature gates are in `SubscriptionModels.swift`. StoreKit configuration file: `PlayerPath/PlayerPathStoreKit.storekit`.
 
 ### Firebase Backend
 
-- **Firestore collections:** `users/`, `sharedFolders/`, `videos/`, `invitations/`, `photos/`, `notifications/`, `coach_access_revocations/`, `coachTemplates/`, `coachSessions/`
-- **Subcollections:** `videos/{id}/comments/`, `videos/{id}/annotations/`, `videos/{id}/drillCards/`, `users/{id}/athletes/`, `users/{id}/seasons/`, `users/{id}/games/`, `users/{id}/practices/`
-- **Security rules:** `firestore.rules` (~500 lines) with helper functions for auth/tier/permission checks
-- **Cloud Functions:** `firebase/functions/src/index.ts` (Node.js) — email notifications via SendGrid, signed URL generation
+- **Firestore collections:** `users/`, `sharedFolders/`, `videos/`, `invitations/`, `photos/`, `notifications/`, `coach_access_revocations/`, `coachTemplates/`, `coachSessions/`, `appConfig/`, `pendingDeletions/`
+- **Subcollections:** `videos/{id}/comments/`, `videos/{id}/annotations/`, `videos/{id}/drillCards/`, `users/{id}/athletes/`, `users/{id}/seasons/`, `users/{id}/games/`, `users/{id}/practices/`, `users/{id}/golfTournaments/`, `users/{id}/highlightReels/`, `users/{id}/games|practices/{id}/holes/`, `.../holes/{n}/shots/`
+- **Security rules:** `firestore.rules` (~950 lines) with helper functions for auth/tier/permission checks
+- **Cloud Functions:** `firebase/functions/src/index.ts` (Node.js, ~4,700 lines) — email notifications (SendGrid), signed-URL generation, StoreKit subscription/tier sync + App Store Server Notifications V2 webhook, coach athlete-limit enforcement transactions + downgrade audit cron, GDPR deletion, and daily storage cleanup
 - **Config:** `GoogleService-Info.plist`
 
 **Authorization model invariants:**

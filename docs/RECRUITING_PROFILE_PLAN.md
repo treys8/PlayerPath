@@ -1,8 +1,10 @@
-# Recruiting Profile — Implementation Plan (V29 refresh)
+# Recruiting Profile — Implementation Plan (V30 refresh)
 
-> Refreshed 2026-06-12 against schema **V29**, golf-as-first-class, and the V2
+> Refreshed 2026-06-12 against schema **V30**, golf-as-first-class, and the V2
 > coach-pays pricing pivot. Supersedes the V15-era plan captured in memory
 > `project_recruiting_profile.md` (all its file:line citations were stale).
+>
+> ⚠️ **Schema baseline note:** the live schema is now **V30** (golf shipped after this plan was first drafted). Every "V29→V30" step in §1B below shifts up one — the recruiting field lands in **SchemaV31** (mirror V30, bump `Schema(SchemaV30.models)`→V31).
 
 ## What this feature is
 

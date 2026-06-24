@@ -12,9 +12,12 @@ import SwiftUI
 
 struct TournamentScorecardGrid: View {
     let rounds: [Game]   // already sorted by the caller
+    /// When false, render a compact Round | Total | To-Par table only (no per-hole
+    /// columns) — used when no round has per-hole scores (quick-entry tournaments).
+    var includeHoleDetails: Bool = true
 
     private var scoredRounds: [Game] {
-        rounds.filter { !($0.holeScores ?? []).isEmpty }
+        rounds.filter { !($0.holeScores ?? []).isEmpty || $0.effectiveTotalScore != nil }
     }
 
     /// Widest round drives the column count so a 9-hole round in an 18-hole
@@ -30,7 +33,7 @@ struct TournamentScorecardGrid: View {
     private let totWidth: CGFloat = 60
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: true) {
+        ScrollView(.horizontal, showsIndicators: includeHoleDetails) {
             VStack(alignment: .leading, spacing: 6) {
                 headerRow
                 ForEach(scoredRounds) { roundRow($0) }
@@ -41,15 +44,17 @@ struct TournamentScorecardGrid: View {
 
     private var headerRow: some View {
         HStack(spacing: 0) {
-            Text("Hole")
+            Text(includeHoleDetails ? "Hole" : "Round")
                 .font(.labelSmall)
                 .foregroundColor(.secondary)
                 .frame(width: labelWidth, alignment: .leading)
-            ForEach(1...maxHoles, id: \.self) { n in
-                Text("\(n)")
-                    .font(.labelSmall)
-                    .foregroundColor(.secondary)
-                    .frame(width: cellWidth)
+            if includeHoleDetails {
+                ForEach(1...maxHoles, id: \.self) { n in
+                    Text("\(n)")
+                        .font(.labelSmall)
+                        .foregroundColor(.secondary)
+                        .frame(width: cellWidth)
+                }
             }
             Text("Tot")
                 .font(.labelSmall)
@@ -65,18 +70,20 @@ struct TournamentScorecardGrid: View {
             Text("R\(round.roundNumber.map(String.init) ?? "–")")
                 .font(.labelMedium)
                 .frame(width: labelWidth, alignment: .leading)
-            ForEach(1...maxHoles, id: \.self) { n in
-                if let hole = byHole[n] {
-                    Text("\(hole.score)")
-                        .font(.bodySmall)
-                        .monospacedDigit()
-                        .foregroundColor(.parRelative(hole.diff))
-                        .frame(width: cellWidth)
-                } else {
-                    Text("·")
-                        .font(.bodySmall)
-                        .foregroundColor(.secondary)
-                        .frame(width: cellWidth)
+            if includeHoleDetails {
+                ForEach(1...maxHoles, id: \.self) { n in
+                    if let hole = byHole[n] {
+                        Text("\(hole.score)")
+                            .font(.bodySmall)
+                            .monospacedDigit()
+                            .foregroundColor(.parRelative(hole.diff))
+                            .frame(width: cellWidth)
+                    } else {
+                        Text("·")
+                            .font(.bodySmall)
+                            .foregroundColor(.secondary)
+                            .frame(width: cellWidth)
+                    }
                 }
             }
             totalCell(round)

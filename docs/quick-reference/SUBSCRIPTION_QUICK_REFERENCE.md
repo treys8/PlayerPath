@@ -1,6 +1,6 @@
 # Subscription Quick Reference
 
-**Last Updated:** March 27, 2026
+**Last Updated:** June 24, 2026
 
 ---
 
@@ -10,9 +10,11 @@
 
 | Tier | Athletes | Storage | Coach Sharing | Stats Export |
 |------|----------|---------|---------------|-------------|
-| Free | 1 | 2 GB | No | No |
-| Plus | 3 | 25 GB | No | CSV/PDF |
+| Free | 1 | 2 GB | Yes | No |
+| Plus | 3 | 25 GB | Yes | CSV/PDF |
 | Pro | 5 | 100 GB | Yes | CSV/PDF |
+
+**Pricing Model V2 (shipped June 2026):** coach connections are paid by the **coach's seat**, not the athlete's tier. Any athlete tier (Free/Plus/Pro) can create shared folders and keep coaches connected. There is no athlete-tier gate on coach sharing.
 
 ### Coach Tiers
 
@@ -45,13 +47,6 @@ let ready = StoreKitManager.shared.hasResolvedEntitlements
 ### Gate a Feature
 
 ```swift
-// Athlete: require Pro for coach sharing
-if StoreKitManager.shared.currentTier >= .pro {
-    // Allow shared folder creation
-} else {
-    showPaywall = true
-}
-
 // Coach: check athlete limit
 if SubscriptionGate.isCoachOverLimit(coachID: id, folders: folders, invitations: invitations) {
     showCoachPaywall = true
@@ -92,28 +87,38 @@ Task {
 
 ## Downgrade Handling
 
-### Coach Downgrade
+Under **Pricing Model V2** the coach pays for each connected athlete seat, so downgrade
+enforcement lives entirely on the **coach** side. Athlete tier changes no longer touch coach
+access.
 
-`CoachDowngradeManager.shared` manages the flow:
+### Coach Downgrade (client shed flow)
+
+`CoachDowngradeManager.shared` manages the flow when a coach drops below their connected
+athlete count:
 
 | State | Behavior |
 |-------|----------|
 | `.none` | Under limit, no action |
 | `.gracePeriod` | 7-day warning banner; coach can still operate normally |
-| `.selectionRequired` | Grace period expired; full-screen selection view forces athlete deselection |
+| `.selectionRequired` | Grace period expired; `CoachDowngradeSelectionView` forces athlete deselection |
 
-### Athlete Downgrade
+When the coach selects which athletes to shed, `FirestoreManager.batchRevokeCoachAccess`
+removes them from the over-limit folders.
 
-`AthleteDowngradeManager.shared` detects Pro tier loss:
-- Does NOT auto-revoke shared folder access
-- Notifies coaches via `ActivityNotificationService`
-- Access restores automatically on re-subscription
+### Server backstop
+
+A coach who never runs the client shed flow is still enforced server-side:
+
+- `auditCoachDowngrades` — daily Cloud Function cron that detects over-limit coaches
+- CF-managed `downgradeUnresolved` / `coachDowngradeGraceStartedAt` fields on `users/{id}`
+- Security rules **block coach feedback writes** (comments/annotations) once a coach is over
+  limit — "block feedback, allow viewing" (the coach can still view, just not deliver feedback)
 
 ---
 
 ## Product IDs & Configuration
 
-Defined in `SubscriptionModels.swift`. StoreKit config file: `PlayerPathStoreKit.storekit`.
+Defined in `SubscriptionModels.swift`. StoreKit config file: `PlayerPath/PlayerPathStoreKit.storekit`.
 
 ### Testing
 
@@ -132,7 +137,10 @@ Set StoreKit config in: Edit Scheme > Run > Options > StoreKit Configuration.
 1. `StoreKitManager` resolves entitlements from App Store receipts
 2. Calls `FirestoreManager.shared.syncSubscriptionTiers()` to update Firestore `users/{id}`
 3. `syncSubscriptionTier` Cloud Function validates server-side
-4. Security rules use Firestore tier fields for access control
+4. The `appStoreServerNotifications` Cloud Function (App Store Server Notifications V2 webhook)
+   receives Apple-pushed subscription lifecycle events (renew/expire/refund) and keeps the
+   server tier in sync even when the app is not open
+5. Security rules use Firestore tier fields for access control
 
 Important: `hasResolvedEntitlements` must be `true` before syncing to prevent stale writes.
 
@@ -162,8 +170,7 @@ Active
 |---------|---------|
 | `StoreKitManager` | StoreKit 2 entitlements, purchase flow, tier resolution |
 | `SubscriptionGateService` | Coach athlete limit enforcement |
-| `CoachDowngradeManager` | 7-day grace period, forced selection |
-| `AthleteDowngradeManager` | Pro tier loss detection, coach notification |
+| `CoachDowngradeManager` | 7-day grace period, forced selection (client shed flow) |
 | `FirestoreManager+UserProfile` | Tier sync to Firestore |
 
 ---

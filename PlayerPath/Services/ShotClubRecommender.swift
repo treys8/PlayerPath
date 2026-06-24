@@ -42,7 +42,7 @@ enum ShotClubRecommender {
             // Par 3 is an approach off the tee — suggest mid irons, not woods.
             return par == 3 ? [.iron7, .iron6, .iron8, .iron5]
                             : [.driver, .wood3, .hybrid, .wood5]
-        case .fairway, .rough, .recovery:
+        case .fairway, .rough, .recovery, .water:
             return [.iron7, .iron6, .iron8, .iron9]
         case .sand:
             return [.sw, .lw, .gw, .pw]
