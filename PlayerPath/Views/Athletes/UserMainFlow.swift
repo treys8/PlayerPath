@@ -46,6 +46,9 @@ struct UserMainFlow: View {
     // Quick Actions manager
     @ObservedObject private var quickActionsManager = QuickActionsManager.shared
 
+    // App Intents (Siri/Shortcuts) hand-off. Replayed cold-launch-safe below.
+    @ObservedObject private var intentBridge = IntentNavigationBridge.shared
+
     // StoreKit win-back: drives the cancellation-reason sheet when the user's
     // subscription is in grace period or billing retry.
     @ObservedObject private var storeKitManager = StoreKitManager.shared
@@ -277,6 +280,12 @@ struct UserMainFlow: View {
                 SyncCoordinator.shared.activeAthleteID = athlete.id.uuidString
             }
             hasRestoredSelection = true
+
+            // Cold-launch hand-off: an App Intent may have set a pending action
+            // before this view's .onChange was registered. Consume the initial
+            // value here (after selection is restored so it lands on the right
+            // profile). Warm-launch is handled by .onChange(of: intentBridge.pending).
+            handleIntentAction()
         }
         .onChange(of: selectedAthlete) { _, newValue in
             // Persist athlete selection
@@ -294,6 +303,58 @@ struct UserMainFlow: View {
             if let action = newAction {
                 log.info("Executing quick action: \(action.title)")
                 quickActionsManager.executeAction(action)
+            }
+        }
+        .onChange(of: intentBridge.pending) { _, newValue in
+            // Warm launch: app already running when a Siri/Shortcuts intent fired.
+            if newValue != nil { handleIntentAction() }
+        }
+    }
+
+    // MARK: - App Intents Hand-off
+
+    /// Replays a pending Siri/Shortcuts action onto the existing in-app
+    /// NotificationCenter routes. Runs on the main actor from .task (cold
+    /// launch) and .onChange (warm launch); `consume()` is idempotent so the
+    /// two paths never double-fire.
+    private func handleIntentAction() {
+        // Wait until the selected profile is restored so the action lands on the
+        // right athlete (record context / create-game scope).
+        guard hasRestoredSelection else { return }
+        guard let action = intentBridge.consume() else { return }
+
+        switch action {
+        case .recordClip:
+            // Open the recorder for the selected athlete, attaching to its live
+            // game/round (or live practice/range session) if one is in progress.
+            // MainTabView's .presentVideoRecorder observer switches to the Videos
+            // tab; VideoClipsView resolves the id in userInfo and binds context.
+            guard let athlete = selectedAthlete ?? athletesForUser.first else { return }
+            var userInfo: [String: String]? = nil
+            if let gameID = athlete.games?.first(where: { $0.isLive })?.id {
+                userInfo = ["gameId": gameID.uuidString]
+            } else if let practiceID = athlete.practices?.first(where: { $0.isLive })?.id {
+                userInfo = ["practiceId": practiceID.uuidString]
+            }
+            NotificationCenter.default.post(name: .presentVideoRecorder, object: nil, userInfo: userInfo)
+            postSwitchTab(.videos)
+
+        case .startGame(let athleteID):
+            // Switch to the requested profile (if any) so GamesView re-scopes
+            // sport-aware, then open its create-game/round screen.
+            if let athleteID,
+               let target = athletesForUser.first(where: { $0.id == athleteID }) {
+                selectedAthlete = target
+            }
+            // Setting selectedAthlete re-keys (tears down + rebuilds) GamesView
+            // via MainTabView's per-tab athlete id, which re-registers its
+            // .presentAddGame observer. Wait one short hop (~15 frames, well
+            // clear of the <50ms rebuild) so the fire-once post isn't dropped
+            // in the rebuild gap. A no-op switch (same profile) is unaffected.
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(250))
+                postSwitchTab(.games)
+                NotificationCenter.default.post(name: .presentAddGame, object: nil)
             }
         }
     }

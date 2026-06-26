@@ -53,6 +53,14 @@ extension Notification.Name {
     static let navigateToCloudStorage = Notification.Name("navigateToCloudStorage")
     /// Posted when the weekly-summary local notification is tapped.
     static let navigateToWeeklySummary = Notification.Name("navigateToWeeklySummary")
+    /// Posted by the TAG_CLIPS nudge tap (action or default). MainTabView
+    /// switches to the Videos tab; VideoClipsView flips its `untaggedOnly`
+    /// filter so the athlete lands on exactly the clips that need tags.
+    static let navigateToUntaggedClips = Notification.Name("navigateToUntaggedClips")
+    /// Posted by the milestone nudge tap with `object: athleteID` (String).
+    /// MainTabView selects that athlete (the milestone may belong to a different
+    /// profile than the selected one) and switches to the Stats tab.
+    static let navigateToAthleteStats = Notification.Name("navigateToAthleteStats")
     /// Posted by the GAME_REMINDER action / default tap with `object: gameId` (String).
     static let startRecordingForGame = Notification.Name("startRecordingForGame")
     /// Posted by the PRACTICE_REMINDER action / default tap with `object: practiceId` (String).

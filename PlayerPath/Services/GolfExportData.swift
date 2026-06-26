@@ -27,6 +27,11 @@ struct GolfRoundRow {
     let girPct: Double?
     let firPct: Double?
 
+    /// Est. Strokes Gained for this round vs the PGA Tour baseline (Broadie),
+    /// computed live from per-hole yardage; nil unless every scored hole has a
+    /// known yardage. Signed (positive = gained). Plus-gated at the UI layer.
+    let strokesGained: Double?
+
     /// Signed strokes relative to par; nil when either side is unknown.
     var toPar: Int? {
         guard let score, let par else { return nil }
@@ -110,20 +115,24 @@ enum GolfExportData {
             guard !g.isLive else { return false }
             return g.isGolfRoundScored
         }
-        return scored
-            .sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
-            .map { game in
-                GolfRoundRow(
-                    date: game.date,
-                    course: game.opponent.isEmpty ? "Unknown Course" : game.opponent,
-                    holes: game.holes ?? (game.holeScores ?? []).count,
-                    par: game.effectivePar,
-                    score: game.effectiveTotalScore,
-                    putts: puttsTotal(game.holeScores),
-                    girPct: girRate(game.holeScores ?? []),
-                    firPct: firRate(game.holeScores ?? [])
-                )
-            }
+        let sorted = scored.sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
+        // Explicit typed closure + a holeScores local so the type-checker stays
+        // fast (this chained map otherwise times out — same reason the filter is
+        // an annotated closure).
+        return sorted.map { (game: Game) -> GolfRoundRow in
+            let holeScores = game.holeScores ?? []
+            return GolfRoundRow(
+                date: game.date,
+                course: game.opponent.isEmpty ? "Unknown Course" : game.opponent,
+                holes: game.holes ?? holeScores.count,
+                par: game.effectivePar,
+                score: game.effectiveTotalScore,
+                putts: puttsTotal(game.holeScores),
+                girPct: girRate(holeScores),
+                firPct: firRate(holeScores),
+                strokesGained: ShotStrokesGained.roundSGTotal(holes: holeScores)
+            )
+        }
     }
 
     /// Golf practice rounds with ≥1 scored hole, newest first. Mirrors
@@ -135,21 +144,22 @@ enum GolfExportData {
             p.practiceType == PracticeType.practiceRound.rawValue
                 && !(p.holeScores ?? []).isEmpty
         }
-        return scored
-            .sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
-            .map { practice in
-                let holes = practice.holeScores ?? []
-                return GolfRoundRow(
-                    date: practice.date,
-                    course: practice.course ?? "Practice Round",
-                    holes: practice.holes ?? holes.count,
-                    par: parTotal(practice.holeScores),
-                    score: holes.reduce(0) { $0 + $1.score },
-                    putts: puttsTotal(practice.holeScores),
-                    girPct: girRate(holes),
-                    firPct: firRate(holes)
-                )
-            }
+        let sorted = scored.sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
+        // Explicit typed closure keeps the type-checker fast (see tournamentRounds).
+        return sorted.map { (practice: Practice) -> GolfRoundRow in
+            let holes = practice.holeScores ?? []
+            return GolfRoundRow(
+                date: practice.date,
+                course: practice.course ?? "Practice Round",
+                holes: practice.holes ?? holes.count,
+                par: parTotal(practice.holeScores),
+                score: holes.reduce(0) { $0 + $1.score },
+                putts: puttsTotal(practice.holeScores),
+                girPct: girRate(holes),
+                firPct: firRate(holes),
+                strokesGained: ShotStrokesGained.roundSGTotal(holes: holes)
+            )
+        }
     }
 
     /// Five-number scoring summary across both pools (matches GolfStatsSection).

@@ -153,6 +153,7 @@ struct GolfStatsSection: View {
                 if let dr = driving, dr.hasData {
                     drivingGrid(dr)
                 }
+                GolfStrokesGainedSection(athlete: athlete, season: season)
                 parSplitRow
                 recentRoundsChart
             }

@@ -22,6 +22,13 @@ struct NotificationSettingsView: View {
     @AppStorage(NotificationPrefKeys.coachActivity) private var coachActivity = true
     @AppStorage(NotificationPrefKeys.athleteActivity) private var athleteActivity = true
 
+    // Behavioral re-engagement nudges (local-only; read directly from UserDefaults
+    // by their schedulers). Opt-out, default on. (`weeklyStats` above is nudge #4,
+    // the weekly recap.)
+    @AppStorage(NotificationPrefKeys.clipTaggingReminder) private var clipTaggingReminder = true
+    @AppStorage(NotificationPrefKeys.milestoneReminder) private var milestoneReminder = true
+    @AppStorage(NotificationPrefKeys.inactivityReminder) private var inactivityReminder = true
+
     @Environment(\.modelContext) private var modelContext
     @Query private var allPrefs: [UserPreferences]
 
@@ -187,6 +194,42 @@ struct NotificationSettingsView: View {
                     Text("Statistics")
                 } footer: {
                     Text("Weekly summary delivers every Sunday at 6 PM.")
+                }
+                .disabled(authorizationStatus == .denied)
+            }
+
+            if !isCoach {
+                Section {
+                    Toggle("Tag Clips Reminder", isOn: $clipTaggingReminder)
+                        .onChange(of: clipTaggingReminder) { _, enabled in
+                            guard !enabled else { return }
+                            Task { @MainActor in
+                                await ClipTaggingReminderService.shared.cancelAll()
+                            }
+                        }
+
+                    Toggle("Milestone Celebrations", isOn: $milestoneReminder)
+                        .onChange(of: milestoneReminder) { _, enabled in
+                            guard !enabled else { return }
+                            Task { @MainActor in
+                                await MilestoneReminderService.shared.cancel()
+                            }
+                        }
+
+                    Toggle("Inactivity Reminder", isOn: $inactivityReminder)
+                        .onChange(of: inactivityReminder) { _, enabled in
+                            Task { @MainActor in
+                                if enabled {
+                                    await InactivityReminderService.shared.reschedule()
+                                } else {
+                                    InactivityReminderService.shared.cancel()
+                                }
+                            }
+                        }
+                } header: {
+                    Text("Reminders")
+                } footer: {
+                    Text("Optional nudges to tag your clips, celebrate new milestones, and check back in after time away.")
                 }
                 .disabled(authorizationStatus == .denied)
             }

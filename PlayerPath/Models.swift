@@ -461,6 +461,8 @@ final class Practice {
     @MainActor func delete(in context: ModelContext) {
         // Drop any pending stale-session reminder (no-op when none scheduled).
         GameAlertService.shared.cancelEndPracticeReminder(forID: self.id)
+        // Drop any pending clip-tagging nudge so it can't fire for a deleted round.
+        ClipTaggingReminderService.shared.cancelNudge(eventID: self.id)
 
         // Delete video clips using their delete method for proper cleanup.
         // cleanupReels: false — this method hard-deletes the practice's reels

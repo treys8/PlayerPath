@@ -94,11 +94,27 @@ final class ClipPersistenceService {
         ).filter { $0.pathExtension.lowercased() == "mov" || $0.pathExtension.lowercased() == "mp4" }
 
 
+        // Per-file failure counts persisted across launches. A file that can never
+        // migrate (corrupt asset, unresolvable name collision) must not pin the
+        // whole migration in a permanent re-run loop — after `maxMigrationAttempts`
+        // tries it is permanently skipped so the migration can mark itself done.
+        let failureCountsKey = "videoStorageMigrationFailureCounts"
+        let maxMigrationAttempts = 3
+        var failureCounts = (UserDefaults.standard.dictionary(forKey: failureCountsKey) as? [String: Int]) ?? [:]
+
         var migratedCount = 0
         var failedCount = 0
 
         for oldVideoURL in oldVideoFiles {
-            let newVideoURL = newClipsDirectory.appendingPathComponent(oldVideoURL.lastPathComponent)
+            let fileName = oldVideoURL.lastPathComponent
+
+            // Skip files that have already exhausted their retry budget on prior
+            // launches. Leaves the file in place but stops it from blocking completion.
+            if (failureCounts[fileName] ?? 0) >= maxMigrationAttempts {
+                continue
+            }
+
+            let newVideoURL = newClipsDirectory.appendingPathComponent(fileName)
 
             do {
                 // Move file to new location
@@ -110,7 +126,6 @@ final class ClipPersistenceService {
                 }
 
                 // Update VideoClip path in SwiftData (store as relative)
-                let fileName = oldVideoURL.lastPathComponent
                 let predicate = #Predicate<VideoClip> { clip in
                     clip.fileName == fileName
                 }
@@ -125,10 +140,12 @@ final class ClipPersistenceService {
                 try context.save()
 
                 migratedCount += 1
+                failureCounts[fileName] = nil   // clear any prior failures on success
 
             } catch {
-                clipLog.error("Video migration failed for \(oldVideoURL.lastPathComponent): \(error.localizedDescription)")
+                clipLog.error("Video migration failed for \(fileName): \(error.localizedDescription)")
                 failedCount += 1
+                failureCounts[fileName, default: 0] += 1
             }
         }
 
@@ -146,9 +163,24 @@ final class ClipPersistenceService {
             ErrorHandlerService.shared.handle(error, context: "ClipPersistence.readMigrationDir", showAlert: false)
         }
 
-        // Only mark migration complete if all files succeeded
-        if failedCount == 0 {
+        clipLog.info("Video storage migration pass: \(migratedCount) migrated, \(failedCount) failed this run, \(failureCounts.count) file(s) with unresolved failures")
+
+        // Persist updated per-file failure counts so attempts accumulate across launches.
+        if failureCounts.isEmpty {
+            UserDefaults.standard.removeObject(forKey: failureCountsKey)
+        } else {
+            UserDefaults.standard.set(failureCounts, forKey: failureCountsKey)
+        }
+
+        // Mark migration complete when nothing retriable remains: either every file
+        // migrated, or every remaining failure has exhausted its retry budget and is
+        // now permanently skipped. This stops a single un-migratable file from
+        // re-running the whole migration on every launch (the old `failedCount == 0`
+        // check would never pass while that file lingered).
+        let hasRetriableFailure = failureCounts.values.contains { $0 < maxMigrationAttempts }
+        if !hasRetriableFailure {
             UserDefaults.standard.set(true, forKey: migrationKey)
+            UserDefaults.standard.removeObject(forKey: failureCountsKey)
         }
 
     }
@@ -519,26 +551,9 @@ final class ClipPersistenceService {
         // Notify dashboard to refresh
         NotificationCenter.default.post(name: .videoRecorded, object: videoClip)
 
-        // Automatically queue for cloud upload if enabled in preferences
-        Task { @MainActor in
-            // Check user preferences for auto-upload setting
-            let descriptor = FetchDescriptor<UserPreferences>()
-            let autoUploadPrefs: UserPreferences?
-            do {
-                autoUploadPrefs = try context.fetch(descriptor).first
-            } catch {
-                ErrorHandlerService.shared.handle(error, context: "ClipPersistence.fetchAutoUploadPrefs", showAlert: false)
-                autoUploadPrefs = nil
-            }
-            guard let preferences = autoUploadPrefs, preferences.autoUploadToCloud else { return }
-
-            let fileSize = self.fileManager.fileSize(atPath: videoClip.resolvedFilePath)
-            let fileSizeMB = fileSize / StorageConstants.bytesPerMB
-            guard fileSizeMB <= preferences.maxVideoFileSize else { return }
-            guard !preferences.syncHighlightsOnly || videoClip.isHighlight else { return }
-
-            UploadQueueManager.shared.enqueue(videoClip, athlete: athlete, priority: .normal)
-        }
+        // Automatically queue for cloud upload if the user's preferences allow it. Centralized
+        // in UploadQueueManager so the same gate also runs when a clip is starred post-hoc.
+        UploadQueueManager.shared.enqueueForAutoUploadIfEligible(videoClip, athlete: athlete, context: context)
 
         return videoClip
     }

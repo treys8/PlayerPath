@@ -201,7 +201,7 @@ enum ShotStats {
 
     /// All derivable Est. Driving Distances across a hole set (yards).
     static func driveDistances(in holes: [HoleScore]) -> [Int] {
-        holes.compactMap(driveDistance(for:))
+        holes.compactMap { driveDistance(for: $0) }
     }
 
     /// Pooled Est. Driving-Distance summary (avg + longest) over the same round

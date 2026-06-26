@@ -19,12 +19,18 @@ struct GenerateReelView: View {
     let clips: [VideoClip]
     /// StitchedReelCache scope, e.g. "game_<uuid>", "season_<uuid>", "reel_<uuid>".
     let scopeKey: String
-    /// Header label shown while generating, e.g. "vs Tigers · Jun 8".
+    /// Header label shown while generating, e.g. "vs Tigers · Jun 8". Also seeds the
+    /// social-export caption.
     let title: String
+    /// Athlete name for the optional overlay (nil ⇒ no name toggle in the options sheet).
+    var athleteName: String? = nil
 
     @Environment(\.dismiss) private var dismiss
     @State private var coordinator = ReelStitchCoordinator()
     @State private var player: AVPlayer?
+    /// Currently-applied social-export options. `.default` reproduces today's reel.
+    @State private var options: ReelExportOptions = .default
+    @State private var showingOptions = false
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -34,7 +40,7 @@ struct GenerateReelView: View {
         }
         .onAppear {
             guard !clips.isEmpty else { return }
-            coordinator.generate(clips: clips, scopeKey: scopeKey)
+            coordinator.generate(clips: clips, scopeKey: scopeKey, options: options)
         }
         .onChange(of: coordinator.state) { _, newState in
             if case .ready(let url) = newState { setupPlayer(url) }
@@ -42,6 +48,14 @@ struct GenerateReelView: View {
         .onDisappear {
             coordinator.cancel()
             teardownPlayer()
+        }
+        .sheet(isPresented: $showingOptions) {
+            ReelExportOptionsView(
+                athleteName: resolvedAthleteName,
+                initial: seededOptions
+            ) { newOptions in
+                applyOptions(newOptions)
+            }
         }
     }
 
@@ -107,7 +121,7 @@ struct GenerateReelView: View {
                 .padding(.horizontal, 32)
             Button {
                 Haptics.light()
-                coordinator.generate(clips: clips, scopeKey: scopeKey)
+                coordinator.generate(clips: clips, scopeKey: scopeKey, options: options)
             } label: {
                 Label("Retry", systemImage: "arrow.clockwise")
                     .font(.bodyMedium)
@@ -152,7 +166,23 @@ struct GenerateReelView: View {
                 }
                 Spacer()
                 if case .ready(let url) = coordinator.state {
-                    ReelExportControls(url: url)
+                    HStack(spacing: 16) {
+                        // Social overlay + 9:16 are a Plus+ perk (parity with reel
+                        // generation). Basic Save/Share stays available regardless of
+                        // how this surface was reached.
+                        if canCustomize {
+                            Button {
+                                Haptics.light()
+                                showingOptions = true
+                            } label: {
+                                Image(systemName: "slider.horizontal.3")
+                                    .font(.title3)
+                                    .foregroundStyle(.white)
+                            }
+                            .accessibilityLabel("Customize reel for social")
+                        }
+                        ReelExportControls(url: url)
+                    }
                 }
             }
             if isPartial {
@@ -168,6 +198,50 @@ struct GenerateReelView: View {
             }
         }
         .padding()
+    }
+
+    // MARK: - Social-export options
+
+    /// The overlay/9:16 customization is a Plus+ perk. Most surfaces already gate the
+    /// whole reel behind this; checking here also covers any ungated entry point (e.g.
+    /// the golf reel player) so the social options never leak to free users.
+    private var canCustomize: Bool {
+        SubscriptionGate.effectiveAthleteTier.hasAutoHighlights
+    }
+
+    /// Athlete name for the overlay. Prefers an explicitly-passed name, else derives it
+    /// from the clips (every reel's clips belong to one athlete) so the prefill works on
+    /// all surfaces — including golf, where no Athlete is held directly.
+    private var resolvedAthleteName: String? {
+        if let athleteName, !athleteName.isEmpty { return athleteName }
+        return clips.lazy.compactMap { $0.athlete?.name }.first
+    }
+
+    /// Options to seed the sheet with. When nothing custom is applied yet, pre-fill the
+    /// name (athlete) + caption (reel title) so the common case is one tap; once the user
+    /// has applied a real variant, reopen with their current choices.
+    private var seededOptions: ReelExportOptions {
+        guard options.isVisuallyDefault else { return options }
+        return ReelExportOptions(
+            nameText: resolvedAthleteName,
+            captionText: title,
+            aspect: options.aspect,
+            cropMode: options.cropMode
+        )
+    }
+
+    /// Apply new options and re-stitch the matching variant (cache-keyed by the options
+    /// suffix, so a previously-built variant returns instantly). No-op if unchanged.
+    private func applyOptions(_ newOptions: ReelExportOptions) {
+        guard newOptions != options else { return }
+        options = newOptions
+        teardownPlayer()   // reset the `player == nil` guard so the new URL plays
+        coordinator.generate(clips: clips, scopeKey: scopeKey, options: newOptions)
+        // A cache hit resolves synchronously to `.ready`. If the URL equals the prior
+        // one (e.g. the options netted back to visually-default), `onChange` won't fire,
+        // so set the player up explicitly here. The `player == nil` guard inside
+        // setupPlayer makes the async / different-URL paths (handled by onChange) no-ops.
+        if case .ready(let url) = coordinator.state { setupPlayer(url) }
     }
 
     // MARK: - Helpers

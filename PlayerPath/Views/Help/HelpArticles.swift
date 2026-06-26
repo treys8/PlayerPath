@@ -29,6 +29,13 @@ enum HelpArticle: HelpArticleProtocol {
     case managingPhotos
     case coachSharing
 
+    // Golf variants — shown when the active athlete's pinned sport is golf.
+    case recordingVideosGolf
+    case scoringGolf
+    case golfStats
+    case seasonTrackingGolf
+    case roundManagementGolf
+
     var title: String {
         switch self {
         case .recordingVideos: return "Recording Videos"
@@ -43,6 +50,11 @@ enum HelpArticle: HelpArticleProtocol {
         case .deletingAccount: return "Deleting Your Account"
         case .managingPhotos: return "Managing Photos"
         case .coachSharing: return "Sharing with Coaches"
+        case .recordingVideosGolf: return "Recording Videos"
+        case .scoringGolf: return "Scoring Your Round"
+        case .golfStats: return "Golf Stats"
+        case .seasonTrackingGolf: return "Season Tracking"
+        case .roundManagementGolf: return "Rounds & Tournaments"
         }
     }
 
@@ -60,6 +72,11 @@ enum HelpArticle: HelpArticleProtocol {
         case .deletingAccount: return "trash"
         case .managingPhotos: return "photo.fill"
         case .coachSharing: return "person.2.fill"
+        case .recordingVideosGolf: return "video"
+        case .scoringGolf: return "list.bullet.clipboard.fill"
+        case .golfStats: return "chart.bar.fill"
+        case .seasonTrackingGolf: return "calendar"
+        case .roundManagementGolf: return "figure.golf"
         }
     }
 
@@ -473,8 +490,8 @@ enum HelpArticle: HelpArticleProtocol {
             return """
             PlayerPath lets you share your videos and stats with coaches:
 
-            **Shared Folders (Pro Feature)**
-            Shared Folders allow you to share clips directly with a coach:
+            **Shared Folders**
+            Shared Folders let you share clips directly with a coach:
             1. Go to More tab → "Shared Folders"
             2. Tap "+" to create a new folder
             3. Name the folder (e.g., "Spring 2026 Highlights")
@@ -489,7 +506,7 @@ enum HelpArticle: HelpArticleProtocol {
 
             **What Coaches Can See**
             • Videos you've added to the shared folder
-            • Play result tags (hit, out, walk, etc.)
+            • The tags and results on those clips
             • Game and date information
             • Your statistics for shared clips
 
@@ -503,6 +520,151 @@ enum HelpArticle: HelpArticleProtocol {
 
             **Removing Access**
             To revoke a coach's access, open the shared folder, tap the coach's name, and tap "Remove Access."
+            """
+
+        case .recordingVideosGolf:
+            return """
+            PlayerPath offers two ways to record videos:
+
+            **Quick Record (Fastest)**
+            1. Tap "Quick Record" on the Dashboard
+            2. The camera opens instantly
+            3. Record your swing
+            4. It's saved to your library
+
+            **Advanced Mode (More Options)**
+            1. Go to the Videos tab
+            2. Tap the "+" button
+            3. Choose "Record Video"
+            4. Pick your quality settings
+            5. Record a swing or a full range session
+            6. Optionally trim before saving
+
+            **Recording During a Round:**
+            While a round is open, use the hole stepper to tag clips to the hole you're playing, so your swings stay organized by hole.
+
+            **Auto Highlight Reels:**
+            Post a birdie or better in a round and PlayerPath automatically bundles that round's clips into a highlight reel — no setup needed.
+
+            **Tips:**
+            • Film down-the-line and face-on for the most useful swing review
+            • Hold the device steady or use a tripod
+            • Use slow motion for mechanics when your camera supports it
+            • Videos are limited to 10 minutes
+            """
+
+        case .scoringGolf:
+            return """
+            Track every round hole-by-hole — and go as deep as you like.
+
+            **Starting a Round**
+            1. Go to the Rounds tab
+            2. Tap "+" to start a round
+            3. Pick your course (par and hole info prefill when available)
+            4. Set the date
+
+            **Per-Hole Scoring**
+            For each hole, enter:
+            • Score (strokes)
+            • Putts
+            • Fairway hit — FIR (par 4s and 5s)
+            • Green in regulation — GIR
+            Your score to par updates live as you play.
+
+            **Shot-by-Shot Tracking (Optional)**
+            Want more detail? Turn on shot tracking for a hole and log each shot's lie, club, and distance. It's completely opt-in — score-only rounds work great, and shot tracking simply unlocks deeper stats (estimated driving distance, tee-miss and approach patterns, sand saves) when you want them.
+
+            **Practice Rounds**
+            Rounds you log as practice still count toward your stats, so range days and casual rounds build the same picture as tournament rounds.
+
+            **Editing**
+            Tap any hole to fix a score, add putts, or toggle FIR/GIR later — your stats recalculate automatically.
+            """
+
+        case .golfStats:
+            return """
+            PlayerPath turns the rounds you log into golf statistics automatically:
+
+            **Scoring**
+            • Scoring average across your rounds
+            • Score to par, per round and overall
+            • Handicap estimate — calculated from your recent rounds (an estimate, not an official USGA Handicap Index)
+
+            **Accuracy**
+            • Fairways in Regulation (FIR) — how often you find the fairway off the tee on par 4s and 5s
+            • Greens in Regulation (GIR) — how often you reach the green in regulation
+            • Putts per round
+
+            **From Shot Tracking**
+            When you log shots on a hole, you also unlock:
+            • Estimated driving distance (an estimate — it reads long on doglegs)
+            • Tee-miss tendency (left vs. right)
+            • Approach miss pattern (short / long / left / right / bunker)
+            • Sand saves
+
+            Score-only rounds still give you scoring, FIR, GIR, and putts — shot stats just need shot-by-shot tracking turned on.
+
+            **Where to View:**
+            • Stats tab → Golf
+            • Round detail for a single round's breakdown
+
+            All of these stats are descriptive and free, and they update as you log more rounds.
+            """
+
+        case .seasonTrackingGolf:
+            return """
+            Organize your rounds and videos by golf season:
+
+            **Creating a Season:**
+            1. Go to More tab → Seasons
+            2. Tap "+" to create a new season
+            3. Enter a name (e.g., "2026 Season")
+            4. Set the start date
+            5. Choose Golf as the sport
+            6. Optionally make it your active season
+            7. Tap "Create"
+
+            **Active Season:**
+            • Only one season is active at a time
+            • New rounds automatically join the active season
+            • Clips you record during rounds link to the season too
+
+            **Viewing Season Stats:**
+            • Tap a season to see season-specific golf stats
+            • Scoring average, FIR, GIR, and putts for the season
+            • Every round and video from that season in one place
+
+            **Ending a Season:**
+            1. Open the season detail
+            2. Tap "End Season"
+            3. It's archived with its final stats — reactivate any time from the archived list
+            """
+
+        case .roundManagementGolf:
+            return """
+            Track individual rounds and group them into tournaments:
+
+            **Rounds**
+            A round is a single trip around the course. To create one:
+            1. Go to the Rounds tab
+            2. Tap "+"
+            3. Pick the course and date
+            4. Score it hole-by-hole (see "Scoring Your Round")
+
+            **Tournaments**
+            A tournament groups multiple rounds together — perfect for a multi-day event:
+            1. Create a tournament
+            2. Link your rounds to it
+            3. See combined scoring across all rounds
+
+            **Deleting a Tournament**
+            Deleting a tournament only *unlinks* its rounds — the rounds themselves, with all their scores and videos, are kept. Nothing is lost.
+
+            **Practice vs. Tournament Rounds**
+            Mark a round as a practice round to keep range days separate from competitive rounds. Both still feed your stats.
+
+            **Videos**
+            Clips recorded during a round stay linked to it. Delete a round and its videos remain in your library.
             """
         }
     }

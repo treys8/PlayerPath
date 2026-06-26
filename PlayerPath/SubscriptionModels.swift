@@ -75,6 +75,9 @@ enum SubscriptionTier: String, Comparable, CaseIterable {
     var hasAutoHighlights: Bool   { self >= .plus }
     var hasStatsExport: Bool      { self >= .plus }
     var hasSeasonComparison: Bool { self >= .plus }
+    /// Est. Strokes Gained golf analytics (Broadie baseline). The free
+    /// ShotStats / DrivingSummary / HandicapEstimator stats are NOT gated.
+    var hasStrokesGained: Bool    { self >= .plus }
 
     // MARK: - Product ID Sets
 

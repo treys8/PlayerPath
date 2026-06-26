@@ -176,6 +176,11 @@ struct BatchClipTagEditor: View {
             clip.needsSync = true
         }
         if ErrorHandlerService.shared.saveContext(modelContext, caller: "BatchClipTagEditor") {
+            // A batch club tag may have cleared an event's last untagged clip —
+            // drop its pending "tag your clips" nudge (self-guards per event).
+            for clip in clips where selectedClipIDs.contains(clip.id) {
+                ClipTaggingReminderService.shared.cancelIfEventFullyTagged(for: clip)
+            }
             Haptics.success()
         } else {
             Haptics.error()

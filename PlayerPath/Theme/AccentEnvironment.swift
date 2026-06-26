@@ -26,6 +26,10 @@ private struct PPAccentLightKey: EnvironmentKey {
     static let defaultValue: Color = Theme.accentLight
 }
 
+private struct PPIsGolfKey: EnvironmentKey {
+    static let defaultValue: Bool = false
+}
+
 extension EnvironmentValues {
     /// The active accent, resolved by the current athlete's sport. Defaults to
     /// the terracotta base when nothing upstream injects a sport.
@@ -39,6 +43,16 @@ extension EnvironmentValues {
         get { self[PPAccentLightKey.self] }
         set { self[PPAccentLightKey.self] = newValue }
     }
+
+    /// Whether the active athlete's pinned sport is golf. Injected alongside
+    /// `ppAccent` (same call site, same default), so sport-aware copy — Help,
+    /// FAQ, onboarding guides — can branch without threading the athlete through
+    /// every screen. Defaults to false (baseball/softball) for any surface that
+    /// never injects a sport.
+    var ppIsGolf: Bool {
+        get { self[PPIsGolfKey.self] }
+        set { self[PPIsGolfKey.self] = newValue }
+    }
 }
 
 extension View {
@@ -48,6 +62,7 @@ extension View {
         self
             .environment(\.ppAccent, Theme.accent(forGolf: isGolf))
             .environment(\.ppAccentLight, Theme.accentLight(forGolf: isGolf))
+            .environment(\.ppIsGolf, isGolf)
             .tint(Theme.accent(forGolf: isGolf))
     }
 

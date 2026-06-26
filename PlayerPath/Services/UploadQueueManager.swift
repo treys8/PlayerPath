@@ -425,6 +425,45 @@ final class UploadQueueManager {
         }
     }
 
+    /// Enqueues `clip` for cloud upload **only if** the user's auto-upload preferences allow it:
+    /// auto-upload is enabled, the file is within the per-clip size cap, and — when "Highlights
+    /// Only" is set — the clip is actually a highlight. This mirrors the gate applied at record
+    /// time (`ClipPersistenceService.saveClip`) so a clip starred *after* recording, which the
+    /// save-time gate skipped, still gets uploaded. Safe to call repeatedly: `enqueue` ignores
+    /// clips that are already uploaded or already queued.
+    func enqueueForAutoUploadIfEligible(
+        _ clip: VideoClip,
+        athlete: Athlete,
+        context: ModelContext,
+        priority: UploadPriority = .normal
+    ) {
+        let preferences: UserPreferences?
+        do {
+            preferences = try context.fetch(FetchDescriptor<UserPreferences>()).first
+        } catch {
+            ErrorHandlerService.shared.handle(error, context: "UploadQueue.fetchAutoUploadPrefs", showAlert: false)
+            return
+        }
+        guard let preferences, preferences.autoUploadToCloud else { return }
+
+        let fileSizeMB = FileManager.default.fileSize(atPath: clip.resolvedFilePath) / StorageConstants.bytesPerMB
+        guard fileSizeMB <= preferences.maxVideoFileSize else { return }
+        guard !preferences.syncHighlightsOnly || clip.isHighlight else { return }
+
+        enqueue(clip, athlete: athlete, priority: priority)
+    }
+
+    /// Call after a local action toggles a clip's highlight flag (star button, play-result
+    /// tagging, bulk mark, etc.). No-op unless the clip is now a highlight with an athlete;
+    /// otherwise it re-runs the auto-upload gate so a clip the save-time path skipped (e.g.
+    /// under "Highlights Only") uploads now. Funnel every highlight-on path through this so a
+    /// new call site can't silently reintroduce the never-uploaded gap. Do NOT call from
+    /// remote→local hydration (sync/download) — those clips are already in or coming from cloud.
+    func reevaluateAutoUploadAfterHighlightChange(_ clip: VideoClip, context: ModelContext) {
+        guard clip.isHighlight, let athlete = clip.athlete else { return }
+        enqueueForAutoUploadIfEligible(clip, athlete: athlete, context: context)
+    }
+
     /// Queues a coach video for upload to a shared folder.
     /// Uses the same background task support, persistence, and retry logic as athlete uploads.
     func enqueueCoachUpload(

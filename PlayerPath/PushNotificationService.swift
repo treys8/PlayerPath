@@ -169,6 +169,21 @@ final class PushNotificationService: NSObject, ObservableObject {
                 )
             ],
             intentIdentifiers: []
+        ),
+
+        // Tag-your-clips re-engagement nudge. Mirrors COACH_REVIEW_REMINDER /
+        // REVIEW_CLIPS — a single foreground action that opens the untagged-
+        // filtered clips list.
+        UNNotificationCategory(
+            identifier: "TAG_CLIPS",
+            actions: [
+                UNNotificationAction(
+                    identifier: "START_TAGGING",
+                    title: "Tag Clips",
+                    options: [.foreground]
+                )
+            ],
+            intentIdentifiers: []
         )
     ]
     
@@ -771,6 +786,16 @@ extension PushNotificationService: UNUserNotificationCenterDelegate {
             }
         }
 
+        // Local re-engagement nudges already have an in-app surface (the Journal
+        // milestone marker, the Videos untagged banner), so suppress their
+        // foreground banner. Their content carries no `badge` value, so the app
+        // icon badge stays untouched either way. (weekly_summary intentionally
+        // still presents — its prior behavior is unchanged.)
+        if isActive, let notifType, ["clip_tagging", "inactivity", "milestone"].contains(notifType) {
+            completionHandler([])
+            return
+        }
+
         if isActive && isActivityFCM {
             completionHandler([])
         } else {
@@ -860,6 +885,9 @@ extension PushNotificationService: UNUserNotificationCenterDelegate {
         case "REVIEW_CLIPS":
             NotificationCenter.default.post(name: .switchCoachTab, object: 1) // Athletes tab
 
+        case "START_TAGGING":
+            NotificationCenter.default.post(name: .navigateToUntaggedClips, object: nil)
+
         case UNNotificationDefaultActionIdentifier:
             // Handle default tap (open app)
             guard let notificationType = userInfo["type"] as? String else {
@@ -881,6 +909,21 @@ extension PushNotificationService: UNUserNotificationCenterDelegate {
             case "weekly_summary":
                 // Fix AJ: route default tap to the same destination as the VIEW_SUMMARY action
                 NotificationCenter.default.post(name: .navigateToWeeklySummary, object: nil)
+            case "clip_tagging":
+                // Land on the untagged-filtered clips list (tier-accessible).
+                NotificationCenter.default.post(name: .navigateToUntaggedClips, object: nil)
+            case "milestone":
+                // Stats tab hosts the milestones list (free for all tiers). If the
+                // nudge carries the owning athlete, select that profile first so a
+                // dual-sport / multi-athlete tap lands where the milestone lives.
+                if let athleteID = userInfo["athleteID"] as? String {
+                    NotificationCenter.default.post(name: .navigateToAthleteStats, object: athleteID)
+                } else {
+                    NotificationCenter.default.post(name: .switchTab, object: MainTab.stats.rawValue)
+                }
+            case "inactivity":
+                // Just bring them home — the Journal feed is the re-entry surface.
+                NotificationCenter.default.post(name: .switchTab, object: MainTab.home.rawValue)
             case "new_video", "coach_comment", "drill_card":
                 if let folderID = userInfo["folderID"] as? String {
                     // Post both role-scoped notifications — only the active tab bar observes its own.

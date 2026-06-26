@@ -21,7 +21,7 @@ import Vision
 import UIKit
 import os
 
-private let ocrLog = Logger(subsystem: "com.playerpath.app", category: "ScorecardOCR")
+nonisolated private let ocrLog = Logger(subsystem: "com.playerpath.app", category: "ScorecardOCR")
 
 /// One hole as read off the card. Any field may be missing (partial read); the
 /// confirm grid fills the gaps. `yardageByTee` maps a detected tee label
@@ -49,9 +49,10 @@ struct ScorecardExtraction {
     struct Subtotals {
         var parTotal: Int?
         var yardageTotalByTee: [String: Int] = [:]
+        nonisolated init() {}
     }
 
-    static let empty = ScorecardExtraction(holes: [], detectedTees: [], subtotals: .init(), overallConfidence: 0)
+    nonisolated static let empty = ScorecardExtraction(holes: [], detectedTees: [], subtotals: .init(), overallConfidence: 0)
 }
 
 enum ScorecardOCR {
@@ -98,7 +99,7 @@ enum ScorecardOCR {
 
     // MARK: - Vision
 
-    private static func recognizeCells(in cg: CGImage) -> [Cell] {
+    nonisolated private static func recognizeCells(in cg: CGImage) -> [Cell] {
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = false
@@ -134,7 +135,7 @@ enum ScorecardOCR {
 
     // MARK: - Parse
 
-    private static func parse(cells: [Cell]) -> ScorecardExtraction {
+    nonisolated private static func parse(cells: [Cell]) -> ScorecardExtraction {
         let rows = clusterRows(cells)
 
         // 1. Hole-number header → column X-centers. The header row maximizes the
@@ -247,7 +248,7 @@ enum ScorecardOCR {
     // MARK: - Grouping helpers
 
     /// Greedily clusters cells into rows by Y proximity (top to bottom).
-    private static func clusterRows(_ cells: [Cell], yTol: Double = 0.018) -> [[Cell]] {
+    nonisolated private static func clusterRows(_ cells: [Cell], yTol: Double = 0.018) -> [[Cell]] {
         let sorted = cells.sorted { $0.y > $1.y }
         var rows: [[Cell]] = []
         var current: [Cell] = []
@@ -270,7 +271,7 @@ enum ScorecardOCR {
     /// Finds the hole-number header row (max integer cells in 1…18) and returns
     /// `holeNumber → center X`. Uses each cell's own value as the hole number, so
     /// OUT/IN gaps don't shift the mapping.
-    private static func detectHoleColumns(_ rows: [[Cell]]) -> [Int: Double] {
+    nonisolated private static func detectHoleColumns(_ rows: [[Cell]]) -> [Int: Double] {
         var best: [Int: Double] = [:]
         for row in rows {
             var columns: [Int: Double] = [:]
@@ -287,13 +288,13 @@ enum ScorecardOCR {
         return best
     }
 
-    private static func isHeaderRow(_ ints: [(Cell, Int)], holeCount: Int) -> Bool {
+    nonisolated private static func isHeaderRow(_ ints: [(Cell, Int)], holeCount: Int) -> Bool {
         let inRange = ints.filter { (1...18).contains($0.1) }
         // A header row is dominated by 1…18 values and contains the "1" anchor.
         return inRange.count >= max(5, holeCount / 2) && inRange.contains { $0.1 == 1 }
     }
 
-    private static func nearestHole(toX x: Double, columns: [Int: Double], maxDist: Double) -> Int? {
+    nonisolated private static func nearestHole(toX x: Double, columns: [Int: Double], maxDist: Double) -> Int? {
         var best: Int?
         var bestD = maxDist
         for (hole, cx) in columns {
@@ -305,7 +306,7 @@ enum ScorecardOCR {
 
     /// Half the median gap between adjacent hole columns — the match radius for
     /// assigning a value cell to a hole. Falls back to a wide-ish default.
-    private static func halfMedianSpacing(of xs: [Double]) -> Double {
+    nonisolated private static func halfMedianSpacing(of xs: [Double]) -> Double {
         guard xs.count >= 2 else { return 0.03 }
         let gaps = zip(xs.dropFirst(), xs).map { $0 - $1 }.sorted()
         let median = gaps[gaps.count / 2]
@@ -314,7 +315,7 @@ enum ScorecardOCR {
 
     /// Tee label for a yardage row: first non-numeric token (e.g. "BLUE"), else a
     /// recognized color word anywhere in the row, else "Tee N".
-    private static func teeLabel(for row: [Cell], fallbackIndex: Int) -> String {
+    nonisolated private static func teeLabel(for row: [Cell], fallbackIndex: Int) -> String {
         let colors = ["BLACK", "BLUE", "WHITE", "GOLD", "YELLOW", "RED", "GREEN", "SILVER", "GRAY", "GREY", "ORANGE", "PURPLE"]
         for cell in row {
             let upper = cell.text.uppercased().trimmingCharacters(in: .punctuationCharacters)
@@ -329,7 +330,7 @@ enum ScorecardOCR {
 
     /// Parses a token to a small integer, tolerating stray non-digits. Rejects
     /// anything over 4 digits (not a hole/par/yardage value).
-    private static func intValue(_ s: String) -> Int? {
+    nonisolated private static func intValue(_ s: String) -> Int? {
         let digits = s.filter { $0.isNumber }
         guard !digits.isEmpty, digits.count <= 4 else { return nil }
         return Int(digits)

@@ -60,7 +60,7 @@ struct CoachDetailView: View {
                         Text("Active")
                             .foregroundStyle(.green)
                     } label: {
-                        Label("Account Status", systemImage: "person.badge.checkmark")
+                        Label("Account Status", systemImage: "person.fill.checkmark")
                     }
 
                     if let acceptedAt = coach.invitationAcceptedAt {
@@ -208,7 +208,13 @@ struct CoachDetailView: View {
             Haptics.medium()
             dismiss()
         } catch {
+            // The remote revoke below proceeds regardless (revoke-first design,
+            // see CoachRemovalService), so the coach is leaving either way.
+            // Dismiss so we don't keep rendering this detail view against a
+            // pending-delete coach object. The pending local delete commits on
+            // the next successful save or on relaunch.
             ErrorHandlerService.shared.handle(error, context: "CoachDetailView.deleteCoach", showAlert: true)
+            dismiss()
         }
 
         Task {

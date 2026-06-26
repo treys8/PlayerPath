@@ -2,8 +2,7 @@
 //  InviteCoachSheet.swift
 //  PlayerPath
 //
-//  Allows athletes to invite coaches by email
-//  Premium feature for coach sharing
+//  Allows athletes to invite coaches by email.
 //
 
 import SwiftUI
@@ -30,8 +29,12 @@ struct InviteCoachSheet: View {
         coachEmail.isValidEmail
     }
 
+    private var trimmedName: String {
+        coachName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private var canSend: Bool {
-        isValidEmail && !coachName.isEmpty && !isSending
+        isValidEmail && !trimmedName.isEmpty && !isSending
     }
 
     var body: some View {
@@ -171,38 +174,12 @@ struct InviteCoachSheet: View {
                         .padding(.horizontal)
                     }
 
-                    Spacer(minLength: 20)
-
-                    // Send Button
-                    Button(action: sendInvitation) {
-                        HStack(spacing: 10) {
-                            if isSending {
-                                ProgressView()
-                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                            } else {
-                                Image(systemName: "paperplane.fill")
-                            }
-                            Text(isSending ? "Sending..." : "Send Invitation")
-                                .fontWeight(.semibold)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 54)
-                        .foregroundColor(.white)
-                        .background(
-                            RoundedRectangle(cornerRadius: .cornerXLarge, style: .continuous)
-                                .fill(canSend ? ppAccent : Theme.textTertiary)
-                        )
-                        .shadow(color: canSend ? ppAccent.opacity(0.3) : .clear, radius: 12, x: 0, y: 6)
-                    }
-                    .buttonStyle(PremiumButtonStyle())
-                    .disabled(!canSend)
-                    .padding(.horizontal)
-                    .padding(.bottom)
                 }
             }
             .background(Theme.surface)
             .tint(ppAccent)
             .scrollDismissesKeyboard(.interactively)
+            .safeAreaInset(edge: .bottom) { sendButton }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -216,6 +193,38 @@ struct InviteCoachSheet: View {
                 if !new { dismiss() }
             }
         }
+    }
+
+    /// Primary action, pinned to the bottom safe area so it's always visible
+    /// without scrolling. The opaque surface background keeps form content from
+    /// bleeding behind it as it scrolls underneath.
+    private var sendButton: some View {
+        Button(action: sendInvitation) {
+            HStack(spacing: 10) {
+                if isSending {
+                    ProgressView()
+                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                } else {
+                    Image(systemName: "paperplane.fill")
+                }
+                Text(isSending ? "Sending..." : "Send Invitation")
+                    .fontWeight(.semibold)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 54)
+            .foregroundColor(.white)
+            .background(
+                RoundedRectangle(cornerRadius: .cornerXLarge, style: .continuous)
+                    .fill(canSend ? ppAccent : Theme.textTertiary)
+            )
+            .shadow(color: canSend ? ppAccent.opacity(0.3) : .clear, radius: 12, x: 0, y: 6)
+        }
+        .buttonStyle(PremiumButtonStyle())
+        .disabled(!canSend)
+        .padding(.horizontal)
+        .padding(.top, 12)
+        .padding(.bottom, 8)
+        .background(Theme.surface)
     }
 
     private func sendInvitation() {
@@ -258,7 +267,7 @@ struct InviteCoachSheet: View {
 
                 // Save coach locally (pending status) — safe on MainActor
                 let coach = Coach(
-                    name: coachName,
+                    name: trimmedName,
                     email: coachEmail.lowercased()
                 )
                 coach.needsSync = true

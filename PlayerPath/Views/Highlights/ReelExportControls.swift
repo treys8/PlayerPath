@@ -42,6 +42,12 @@ struct ReelExportControls: View {
 
             Button {
                 Haptics.light()
+                // Guard a missing/empty export before handing it to the share sheet.
+                guard reelFileIsUsable else {
+                    errorMessage = "Reel file not found. Try generating it again."
+                    showingError = true
+                    return
+                }
                 showingShare = true
             } label: {
                 Image(systemName: "square.and.arrow.up")
@@ -65,9 +71,16 @@ struct ReelExportControls: View {
         }
     }
 
+    /// True when the reel file exists on disk and is non-empty — a failed/cancelled
+    /// export can leave a missing or zero-byte file, which must never reach share/save.
+    private var reelFileIsUsable: Bool {
+        let size = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? Int ?? 0
+        return size > 0
+    }
+
     // Mirrors VideoClipCard.saveToPhotos() — addOnly auth → creation request.
     private func saveToPhotos() {
-        guard FileManager.default.fileExists(atPath: url.path) else {
+        guard reelFileIsUsable else {
             errorMessage = "Reel file not found. Try generating it again."
             showingError = true
             return

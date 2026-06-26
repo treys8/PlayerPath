@@ -93,6 +93,7 @@ final class AutoHighlightSettings: ObservableObject {
     func scanLibrary(for athlete: Athlete, context: ModelContext) throws -> Int {
         guard let clips = athlete.videoClips else { return 0 }
         var changed = 0
+        var newlyHighlighted: [VideoClip] = []
         for clip in clips {
             guard let playResult = clip.playResult else {
                 // No play result. Golf clips are manual-only highlights (golf
@@ -110,9 +111,17 @@ final class AutoHighlightSettings: ObservableObject {
                 clip.isHighlight = shouldTag
                 clip.needsSync = true
                 changed += 1
+                if shouldTag { newlyHighlighted.append(clip) }
             }
         }
-        if changed > 0 { try context.save() }
+        if changed > 0 {
+            try context.save()
+            // Clips this scan flipped on may have been skipped by the save-time auto-upload
+            // gate (e.g. "Highlights Only"); re-run it so their binaries upload now.
+            for clip in newlyHighlighted {
+                UploadQueueManager.shared.reevaluateAutoUploadAfterHighlightChange(clip, context: context)
+            }
+        }
         return changed
     }
 

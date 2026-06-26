@@ -42,12 +42,6 @@ class GameService {
             logger.error("Failed to fetch HighlightReels for cascade delete: \(error.localizedDescription)")
         }
 
-        // Cancel any pending push notification for this game
-        PushNotificationService.shared.cancelNotifications(
-            withIdentifiers: ["game_reminder_\(gameIdString)"]
-        )
-        GameAlertService.shared.cancelEndGameReminder(for: game)
-
         // Delete all video clips — VideoClip.delete handles local files, thumbnails,
         // cloud storage, and play results. SwiftData handles inverse relationship cleanup.
         for clip in game.videoClips ?? [] {
@@ -81,6 +75,17 @@ class GameService {
             logger.error("Failed to save game deletion: \(error.localizedDescription)")
             return
         }
+
+        // Cancel pending notifications only AFTER the delete is committed to disk.
+        // If the save above fails we return early, leaving the game — and its
+        // reminders — intact. All identifiers come from primitives captured at
+        // entry, so nothing here touches the now-deleted `game` model.
+        PushNotificationService.shared.cancelNotifications(
+            withIdentifiers: ["game_reminder_\(gameIdString)"]
+        )
+        GameAlertService.shared.cancelEndGameReminder(forGameID: gameID)
+        // Drop any pending clip-tagging nudge so it can't fire for a deleted game.
+        ClipTaggingReminderService.shared.cancelNudge(eventID: gameID)
 
         // Recalculate athlete statistics to reflect the removed game
         if let athlete = gameAthlete {
@@ -482,6 +487,28 @@ class GameService {
             ReviewPromptManager.shared.recordCompletedGame()
 
             NotificationCenter.default.post(name: .gameEnded, object: game)
+
+            // Behavioral re-engagement nudges (local-only, opt-out). Snapshot
+            // model values to plain types BEFORE any await so a concurrent delete
+            // can't invalidate the model mid-flight. The stale-game reminder was
+            // already cancelled above, preserving cancel-before-nudge ordering.
+            // This is the shared "game completed" extension hook (Feature 6 reuses
+            // it) — keep each side-effect a small, well-ordered call.
+            let endedGameID = game.id
+            let isGolfRound = game.season?.sport == .golf
+            let untaggedClipCount = (game.videoClips ?? []).filter {
+                !$0.isTagged && !$0.isDeletedRemotely && $0.sourceCoachVideoID == nil
+            }.count
+            let endedSeason = game.season
+
+            // Milestone diff first: its only model read (milestones(for:)) runs
+            // synchronously at the top of processGameEnd, before any suspension.
+            await MilestoneReminderService.shared.processGameEnd(season: endedSeason)
+            await ClipTaggingReminderService.shared.scheduleIfNeeded(
+                eventID: endedGameID,
+                untaggedCount: untaggedClipCount,
+                eventNoun: isGolfRound ? "round" : "game"
+            )
         } catch {
             logger.error("Failed to save game end: \(error.localizedDescription)")
         }

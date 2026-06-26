@@ -23,14 +23,17 @@ struct GolfChartsView: View {
         case putts = "Putts"
         case gir = "GIR"
         case fir = "Fairways"
+        /// Est. Strokes Gained per round vs the PGA Tour baseline. Plus-gated —
+        /// see `availableMetrics`. Short label keeps the segmented picker legible.
+        case strokesGained = "SG"
         var id: String { rawValue }
 
         /// Lower is better for strokes-based metrics; higher is better for the
-        /// regulation percentages. Drives Best/Worst selection + axis.
+        /// regulation percentages and Strokes Gained. Drives Best/Worst + axis.
         var lowerIsBetter: Bool {
             switch self {
             case .score, .toPar, .putts: return true
-            case .gir, .fir: return false
+            case .gir, .fir, .strokesGained: return false
             }
         }
     }
@@ -81,6 +84,7 @@ struct GolfChartsView: View {
         case .putts: return row.putts.map(Double.init)
         case .gir: return row.girPct
         case .fir: return row.firPct
+        case .strokesGained: return row.strokesGained
         }
     }
 
@@ -145,11 +149,23 @@ struct GolfChartsView: View {
         .pickerStyle(.segmented)
     }
 
+    /// Strokes Gained is Plus-only; free users don't see it in the picker (the
+    /// gated GolfStrokesGainedSection carries the upsell — that's the conversion
+    /// point, not a broken locked chart).
+    private var availableMetrics: [Metric] {
+        SubscriptionGate.effectiveAthleteTier.hasStrokesGained
+            ? Metric.allCases
+            : Metric.allCases.filter { $0 != .strokesGained }
+    }
+
     private var metricPicker: some View {
         Picker("Metric", selection: $metric) {
-            ForEach(Metric.allCases) { Text($0.rawValue).tag($0) }
+            ForEach(availableMetrics) { Text($0.rawValue).tag($0) }
         }
         .pickerStyle(.segmented)
+        // Belt-and-suspenders: if the tier dropped while viewing, fall back to
+        // a metric that's still in scope so the segmented control isn't blank.
+        .onAppear { if !availableMetrics.contains(metric) { metric = .score } }
     }
 
     private var trendCard: some View {
@@ -181,14 +197,14 @@ struct GolfChartsView: View {
                         )
                         .foregroundStyle(Color.brandNavy)
                     }
-                    if metric == .toPar {
-                        RuleMark(y: .value("Par", 0))
+                    if metric == .toPar || metric == .strokesGained {
+                        RuleMark(y: .value("Baseline", 0))
                             .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
                             .foregroundStyle(.secondary)
                     }
                 }
                 .frame(height: 200)
-                .chartYScale(domain: .automatic(includesZero: metric == .toPar))
+                .chartYScale(domain: .automatic(includesZero: metric == .toPar || metric == .strokesGained))
             }
         }
         .padding()
@@ -259,6 +275,11 @@ struct GolfChartsView: View {
             let rounded = (value * 10).rounded() / 10
             let body = rounded == rounded.rounded() ? "\(Int(rounded))" : String(format: "%.1f", rounded)
             return rounded > 0 ? "+\(body)" : body
+        case .strokesGained:
+            // Signed one-decimal; higher (more gained) is better.
+            if abs(value) < 0.05 { return "E" }
+            let rounded = (value * 10).rounded() / 10
+            return rounded > 0 ? "+\(String(format: "%.1f", rounded))" : String(format: "%.1f", rounded)
         }
     }
 }
