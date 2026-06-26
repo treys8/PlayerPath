@@ -134,6 +134,14 @@ struct MainTabView: View {
                 // Schedule weekly summary notification with real stats for every athlete
                 await WeeklySummaryScheduler.scheduleAll(for: user)
 
+                // Behavioral re-engagement nudges (local-only). Seed the milestone
+                // baseline once (so the first post-install game end only celebrates
+                // genuinely new achievements) and (re)arm the inactivity nudge —
+                // rescheduled on every foreground below so it only fires after a
+                // real stretch away.
+                MilestoneReminderService.shared.seedBaselineIfNeeded(for: user)
+                await InactivityReminderService.shared.reschedule()
+
                 // Show connected walkthrough for new users
                 if !onboardingManager.hasSeenWelcomeTutorial {
                     showingWelcomeTutorial = true
@@ -151,9 +159,12 @@ struct MainTabView: View {
             }
             .onChange(of: scenePhase) { _, phase in
                 // Weekly summary body is baked in at schedule time — refresh on
-                // every foreground so stats stay current across the week.
+                // every foreground so stats stay current across the week. Push the
+                // inactivity nudge forward on every open so an active user never
+                // sees it.
                 if phase == .active {
                     Task(operation: { await WeeklySummaryScheduler.scheduleAll(for: user) })
+                    Task(operation: { await InactivityReminderService.shared.reschedule() })
                 }
             }
             .onChange(of: selectedTab) { _, newValue in
@@ -317,10 +328,36 @@ struct MainTabView: View {
             }
         }
 
+        // Clip-tagging nudge tap: switch to the Videos tab. VideoClipsView (always
+        // in the TabView hierarchy) observes the same notification and applies the
+        // untagged filter, so the athlete lands on exactly the clips to tag.
+        notificationManager.observe(name: Notification.Name.navigateToUntaggedClips) { _ in
+            MainActor.assumeIsolated {
+                selectedTab = MainTab.videos.rawValue
+                Haptics.light()
+            }
+        }
+
         // Refresh the baked-in weekly-summary body whenever the underlying
         // stats change. Each call cancel+adds the pending notification,
         // which is cheap and idempotent.
         nonisolated(unsafe) let user = user
+
+        // Milestone nudge tap: select the milestone's own athlete (may differ from
+        // the selected profile on dual-sport / multi-athlete accounts), then open
+        // Stats — its career view flattens that sport's seasons so the milestone
+        // is visible. Falls back to just opening Stats if the id can't be resolved.
+        notificationManager.observe(name: Notification.Name.navigateToAthleteStats) { note in
+            MainActor.assumeIsolated {
+                if let idStr = note.object as? String, let uuid = UUID(uuidString: idStr),
+                   let athlete = (user.athletes ?? []).first(where: { $0.id == uuid }) {
+                    selectedAthlete = athlete
+                }
+                selectedTab = MainTab.stats.rawValue
+                Haptics.light()
+            }
+        }
+
         notificationManager.observe(name: Notification.Name.gameCreated) { _ in
             Task { @MainActor in await WeeklySummaryScheduler.scheduleAll(for: user) }
         }

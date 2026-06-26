@@ -260,7 +260,7 @@ struct VideoClipsView: View {
         videosContent
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.surface)
-        .navigationTitle("Videos")
+        .navigationTitle("The Tape.")
         .navigationBarTitleDisplayMode(.large)
         .searchable(text: $viewModel.searchText, prompt: "Search videos")
         .toolbar { videosToolbar }
@@ -305,6 +305,16 @@ struct VideoClipsView: View {
                 selectedVideo = video
                 Haptics.light()
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .navigateToUntaggedClips)) { _ in
+            // Clip-tagging nudge tap landed here. Clear EVERY filter dimension the
+            // VM ANDs together — search text, season pin, and the filter struct
+            // (Highlights/Coach/result/club) — so a leftover from a prior session
+            // can't intersect untagged to an empty dead-end. The existing
+            // onChange handlers refilter. MainTabView handles the tab switch.
+            viewModel.searchText = ""
+            viewModel.selectedSeasonFilter = nil
+            viewModel.filter = VideoClipFilter(untaggedOnly: true)
         }
         .task {
             viewModel.update(videos: videosForActiveSport)
@@ -505,6 +515,11 @@ struct VideoClipsView: View {
 
         do {
             try modelContext.save()
+            // Clips starred here may have been skipped by the save-time auto-upload gate
+            // (e.g. "Highlights Only"); re-evaluate each now that it's a highlight.
+            for video in videosToMark {
+                UploadQueueManager.shared.reevaluateAutoUploadAfterHighlightChange(video, context: modelContext)
+            }
             viewModel.refilter()
             Haptics.success()
             showBulkToast("\(videosToMark.count) video\(videosToMark.count == 1 ? "" : "s") marked as highlights")

@@ -164,6 +164,9 @@ struct ClubPickerEditorView: View {
 
         do {
             try modelContext.save()
+            // If this tag cleared the event's last untagged clip, drop its
+            // pending "tag your clips" nudge.
+            ClipTaggingReminderService.shared.cancelIfEventFullyTagged(for: clip)
             Haptics.success()
             dismiss()
         } catch {

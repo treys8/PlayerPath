@@ -14,6 +14,7 @@ struct VideoThumbnailView: View {
     let cornerRadius: CGFloat
     let showPlayResult: Bool
     let showHighlight: Bool
+    let showNote: Bool
     let showSeason: Bool
     let showContext: Bool
     let showDuration: Bool
@@ -42,6 +43,7 @@ struct VideoThumbnailView: View {
         cornerRadius: CGFloat = 12,
         showPlayResult: Bool = true,
         showHighlight: Bool = true,
+        showNote: Bool = true,
         showSeason: Bool = false,
         showContext: Bool = true,
         showDuration: Bool = false,
@@ -53,6 +55,7 @@ struct VideoThumbnailView: View {
         self.cornerRadius = cornerRadius
         self.showPlayResult = showPlayResult
         self.showHighlight = showHighlight
+        self.showNote = showNote
         self.showSeason = showSeason
         self.showContext = showContext
         self.showDuration = showDuration
@@ -127,7 +130,7 @@ struct VideoThumbnailView: View {
                 Spacer()
                 HStack(spacing: 4) {
                     Spacer()
-                    if let note = clip.note, !note.isEmpty {
+                    if showNote, let note = clip.note, !note.isEmpty {
                         noteIndicator
                     }
                     if showHighlight && clip.isHighlight {
@@ -162,7 +165,13 @@ struct VideoThumbnailView: View {
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
-        .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
+        // Drop the shadow when embedded (fillsContainer): the wrapping tile/card
+        // already clips us to a rounded rect and provides its own depth, so this
+        // shadow is clipped away yet still computed — a wasted offscreen pass per
+        // cell during scroll. A .clear/0-radius shadow is a no-op and keeps view
+        // identity stable. Standalone thumbnails keep the shadow.
+        .shadow(color: fillsContainer ? .clear : .black.opacity(0.1),
+                radius: fillsContainer ? 0 : 5, x: 0, y: fillsContainer ? 0 : 2)
         .accessibilityIgnoresInvertColors()
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityDescription)

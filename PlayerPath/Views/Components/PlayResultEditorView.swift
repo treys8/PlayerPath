@@ -328,6 +328,14 @@ struct PlayResultEditorView: View {
                 }
             }
 
+            // If this tag cleared the event's last untagged clip, drop its
+            // pending "tag your clips" nudge.
+            ClipTaggingReminderService.shared.cancelIfEventFullyTagged(for: clip)
+
+            // Tagging may have just flipped the clip to a highlight (auto-highlight rule);
+            // re-run the auto-upload gate so a save-time-skipped clip uploads now.
+            UploadQueueManager.shared.reevaluateAutoUploadAfterHighlightChange(clip, context: modelContext)
+
             Haptics.success()
             dismiss()
         } catch {

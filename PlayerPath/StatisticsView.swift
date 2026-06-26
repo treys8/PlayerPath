@@ -590,4 +590,5 @@ extension View {
         return athlete
     }()
     return NavigationStack { StatisticsView(athlete: mockAthlete, currentTier: .free) }
+        .environmentObject(ComprehensiveAuthManager())
 }

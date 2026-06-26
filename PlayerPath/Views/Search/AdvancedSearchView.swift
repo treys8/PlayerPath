@@ -279,7 +279,7 @@ struct AdvancedSearchView: View {
                     }
 
                     ForEach(results) { practice in
-                        PracticeSearchResultRow(practice: practice)
+                        PracticeSearchResultRow(practice: practice, searchText: searchText)
                     }
                 }
                 .listStyle(.plain)
@@ -509,7 +509,8 @@ struct AdvancedSearchView: View {
             videos = videos.filter {
                 $0.fileName.localizedCaseInsensitiveContains(searchText) ||
                 $0.displayTagName?.localizedCaseInsensitiveContains(searchText) == true ||
-                $0.game?.opponent.localizedCaseInsensitiveContains(searchText) == true
+                $0.game?.opponent.localizedCaseInsensitiveContains(searchText) == true ||
+                $0.season?.displayName.localizedCaseInsensitiveContains(searchText) == true
             }
         }
         if selectedDateRange != .allTime { videos = videos.filter { matchesDateRange($0.createdAt) } }
@@ -522,7 +523,12 @@ struct AdvancedSearchView: View {
 
     private func filteredGames() -> [Game] {
         var games = athlete.games ?? []
-        if !searchText.isEmpty { games = games.filter { $0.opponent.localizedCaseInsensitiveContains(searchText) } }
+        if !searchText.isEmpty {
+            games = games.filter {
+                $0.opponent.localizedCaseInsensitiveContains(searchText) ||
+                $0.season?.displayName.localizedCaseInsensitiveContains(searchText) == true
+            }
+        }
         if selectedDateRange != .allTime { games = games.filter { matchesDateRange($0.date) } }
         if selectedSeason != nil { games = games.filter { matchesSeason($0.season?.id) } }
         return games.sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
@@ -530,6 +536,15 @@ struct AdvancedSearchView: View {
 
     private func filteredPractices() -> [Practice] {
         var practices = athlete.practices ?? []
+        if !searchText.isEmpty {
+            practices = practices.filter { practice in
+                // "Where did I write that?" — match the free text of any of the
+                // practice's notes, plus the season name (more robust than the
+                // UUID season filter, which dangles if the season is deleted).
+                (practice.notes ?? []).contains { $0.content.localizedCaseInsensitiveContains(searchText) } ||
+                practice.season?.displayName.localizedCaseInsensitiveContains(searchText) == true
+            }
+        }
         if selectedDateRange != .allTime { practices = practices.filter { matchesDateRange($0.date) } }
         if selectedSeason != nil { practices = practices.filter { matchesSeason($0.season?.id) } }
         return practices.sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
@@ -540,7 +555,8 @@ struct AdvancedSearchView: View {
         if !searchText.isEmpty {
             photos = photos.filter {
                 ($0.game?.opponent.localizedCaseInsensitiveContains(searchText) ?? false) ||
-                ($0.caption?.localizedCaseInsensitiveContains(searchText) ?? false)
+                ($0.caption?.localizedCaseInsensitiveContains(searchText) ?? false) ||
+                ($0.season?.displayName.localizedCaseInsensitiveContains(searchText) ?? false)
             }
         }
         if selectedDateRange != .allTime { photos = photos.filter { matchesDateRange($0.createdAt) } }
@@ -827,6 +843,16 @@ struct GameSearchResultRow: View {
 
 struct PracticeSearchResultRow: View {
     let practice: Practice
+    /// When the result was surfaced by a note-text match, the active query — used
+    /// to show the matching note snippet so the user sees *why* this row matched.
+    var searchText: String = ""
+
+    /// The first note whose content matches the active query, if any.
+    private var matchingNote: PracticeNote? {
+        let query = searchText.trimmingCharacters(in: .whitespaces)
+        guard !query.isEmpty else { return nil }
+        return (practice.notes ?? []).first { $0.content.localizedCaseInsensitiveContains(query) }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -839,11 +865,21 @@ struct PracticeSearchResultRow: View {
                     .foregroundColor(.secondary)
             }
 
-            let notesCount = practice.notes?.count ?? 0
-            if notesCount > 0 {
-                Text("\(notesCount) note\(notesCount == 1 ? "" : "s")")
-                    .font(.labelSmall)
+            if let note = matchingNote {
+                // Show the note that matched, not just a count — this is the
+                // "where did I write that" payoff.
+                Text(note.content)
+                    .font(.bodySmall)
                     .foregroundColor(.secondary)
+                    .lineLimit(2)
+                    .truncationMode(.tail)
+            } else {
+                let notesCount = practice.notes?.count ?? 0
+                if notesCount > 0 {
+                    Text("\(notesCount) note\(notesCount == 1 ? "" : "s")")
+                        .font(.labelSmall)
+                        .foregroundColor(.secondary)
+                }
             }
         }
         .padding(.vertical, 4)

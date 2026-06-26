@@ -85,7 +85,14 @@ final class GameAlertService {
 
     /// Cancels the pending end-game reminder for the given game.
     func cancelEndGameReminder(for game: Game) {
-        let notifID = "stale-game-\(game.id.uuidString)"
+        cancelEndGameReminder(forGameID: game.id)
+    }
+
+    /// ID-based variant for callers that have already deleted the `Game` model
+    /// (or are about to). Building the identifier from a captured UUID avoids
+    /// reading `game.id` on a SwiftData object that may no longer be valid.
+    func cancelEndGameReminder(forGameID gameID: UUID) {
+        let notifID = "stale-game-\(gameID.uuidString)"
         UNUserNotificationCenter.current()
             .removePendingNotificationRequests(withIdentifiers: [notifID])
     }

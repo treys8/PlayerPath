@@ -264,3 +264,37 @@ extension View {
         padding(.horizontal, 8).padding(.vertical, 4)
     }
 }
+
+// MARK: - Reel Overlay (UIKit / Core Animation)
+
+/// UIKit-facing text style for the social-export reel overlay baked into the MP4 via
+/// `AVVideoCompositionCoreAnimationTool` (see `ReelOverlayRenderer`). The SwiftUI `Font`
+/// tokens above can't drive a `CATextLayer`, which needs a concrete `UIFont`. Sizes are
+/// relative to the render canvas so they read correctly at 1080×1920 and at source aspect.
+enum ReelOverlayTextStyle {
+    /// Athlete-name line — the app's Inter family for brand consistency, system fallback.
+    static func nameFont(canvasHeight: CGFloat) -> UIFont {
+        let size = max(28, min(64, canvasHeight * 0.034))
+        return UIFont(name: "Inter18pt-SemiBold", size: size) ?? .systemFont(ofSize: size, weight: .semibold)
+    }
+
+    /// Caption line (e.g. "vs Tigers · Jun 8").
+    static func captionFont(canvasHeight: CGFloat) -> UIFont {
+        let size = max(20, min(48, canvasHeight * 0.026))
+        return UIFont(name: "Inter18pt-Medium", size: size) ?? .systemFont(ofSize: size, weight: .medium)
+    }
+
+    static let textColor = UIColor.white
+    static let shadowColor = UIColor.black
+    static let shadowOpacity: Float = 0.85
+    static let shadowRadius: CGFloat = 4
+
+    /// Backing-store oversample for the text layers. Our layers are sized in the video's
+    /// pixel space, so a fixed 2× guarantees crisp glyphs without touching the
+    /// deprecated, main-actor `UIScreen.main.scale`.
+    static let renderScale: CGFloat = 2
+
+    /// Insets as a fraction of the canvas (keeps text off the very edge on any aspect).
+    static let horizontalInsetFraction: CGFloat = 0.06
+    static let bottomInsetFraction: CGFloat = 0.08
+}

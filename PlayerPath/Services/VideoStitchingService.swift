@@ -36,6 +36,7 @@ enum VideoStitchingService {
     static func stitch(
         sourceURLs: [URL],
         outputURL: URL,
+        options: ReelExportOptions = .default,
         progress: @escaping @MainActor @Sendable (Float) -> Void
     ) async throws -> URL {
         let usable = sourceURLs.filter { url in
@@ -119,6 +120,11 @@ enum VideoStitchingService {
         guard cursor.seconds > 0 else { throw StitchError.noClips }
         if renderSize == .zero { renderSize = CGSize(width: 1920, height: 1080) }
 
+        // Override the canvas for a forced aspect (e.g. 9:16 → 1080×1920). For
+        // `.source` this returns the computed canvas unchanged, so default reels
+        // render at exactly the same size as before.
+        renderSize = options.renderSize(sourceCanvas: renderSize)
+
         let fps = Int32(maxFrameRate.rounded())
         let frameDuration = CMTime(value: 1, timescale: CMTimeScale(max(fps, 1)))
 
@@ -137,13 +143,16 @@ enum VideoStitchingService {
         session.outputURL = outputURL
         session.outputFileType = .mp4
 
-        // Aspect-fit each segment into `renderSize` (the largest clip's frame):
-        // scale to fit, then center. Composed AFTER the source's preferredTransform
-        // (orient first, then place). Identity when the segment already matches the
-        // canvas — so same-orientation/-resolution reels are byte-for-byte unchanged.
+        // Place each segment into `renderSize`: aspect-FIT (letterbox) by default, or
+        // aspect-FILL (center-crop) when `options.fillCrop` — then center. Composed
+        // AFTER the source's preferredTransform (orient first, then place). For the
+        // default options this is `min`-scale + identity-when-matching, so
+        // same-orientation/-resolution reels stay byte-for-byte unchanged.
         func placedTransform(_ transform: CGAffineTransform, sourceSize: CGSize) -> CGAffineTransform {
             guard sourceSize.width > 0, sourceSize.height > 0 else { return transform }
-            let scale = min(renderSize.width / sourceSize.width, renderSize.height / sourceSize.height)
+            let scaleX = renderSize.width / sourceSize.width
+            let scaleY = renderSize.height / sourceSize.height
+            let scale = options.fillCrop ? max(scaleX, scaleY) : min(scaleX, scaleY)
             let scaledW = sourceSize.width * scale
             let scaledH = sourceSize.height * scale
             let fit = CGAffineTransform(scaleX: scale, y: scale)
@@ -152,7 +161,33 @@ enum VideoStitchingService {
             return transform.concatenating(fit)
         }
 
-        if #available(iOS 26.0, *) {
+        if !options.isVisuallyDefault {
+            // Social-export variant (forced aspect and/or overlay). One mutable-API
+            // path on all OS versions — confined here so the default reel keeps its
+            // existing (deprecation-free) dual codepath below and stays identical.
+            let videoComposition = AVMutableVideoComposition()
+            videoComposition.renderSize = renderSize
+            videoComposition.frameDuration = frameDuration
+            let needsBlackBars = options.aspect == .vertical9x16
+            videoComposition.instructions = segments.map { segment in
+                let layerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: compVideoTrack)
+                layerInstruction.setTransform(placedTransform(segment.transform, sourceSize: segment.sourceSize), at: segment.timeRange.start)
+                let instruction = AVMutableVideoCompositionInstruction()
+                instruction.timeRange = segment.timeRange
+                instruction.layerInstructions = [layerInstruction]
+                // Opaque-black letterbox bars (the composition-instruction half of the
+                // 9:16 background; the Core Animation parent layer is the other half).
+                if needsBlackBars { instruction.backgroundColor = CGColor(red: 0, green: 0, blue: 0, alpha: 1) }
+                return instruction
+            }
+            // Bake the name/caption overlay into the frames. Layers MUST be built on
+            // the main thread (this stitch is main-actor-isolated by default), or the
+            // Core Animation tool renders black frames.
+            if options.showsOverlay {
+                videoComposition.animationTool = ReelOverlayRenderer.makeAnimationTool(renderSize: renderSize, options: options)
+            }
+            session.videoComposition = videoComposition
+        } else if #available(iOS 26.0, *) {
             let instructions: [AVVideoCompositionInstruction] = segments.map { segment in
                 var layerConfig = AVVideoCompositionLayerInstruction.Configuration(assetTrack: compVideoTrack)
                 layerConfig.setTransform(placedTransform(segment.transform, sourceSize: segment.sourceSize), at: segment.timeRange.start)

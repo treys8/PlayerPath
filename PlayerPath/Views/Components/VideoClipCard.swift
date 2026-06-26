@@ -265,6 +265,9 @@ struct VideoClipCard: View {
             Task {
                 do {
                     try modelContext.save()
+                    // If this turned the clip into a highlight, re-run the auto-upload gate
+                    // so a clip the save-time path skipped (e.g. "Highlights Only") uploads.
+                    UploadQueueManager.shared.reevaluateAutoUploadAfterHighlightChange(video, context: modelContext)
                 } catch {
                     video.isHighlight = prevHighlight
                     video.needsSync = prevNeedsSync

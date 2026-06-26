@@ -48,11 +48,15 @@ nonisolated enum StitchedReelCache {
         return folder.appendingPathComponent("\(safeScope)_\(contentHash(for: clips)).mp4")
     }
 
-    /// The cached reel URL if a file for this exact (scope, clip set) already
-    /// exists on disk; otherwise nil (caller should stitch).
+    /// The cached reel URL if a usable (non-empty) file for this exact (scope, clip
+    /// set) already exists on disk; otherwise nil (caller should stitch). A zero-byte
+    /// file is treated as absent: the cache keys on filename only, so a truncated /
+    /// partial export — or a post-export cleanup `removeItem` that silently failed —
+    /// would otherwise be served as a permanent "hit" that no Retry could ever clear.
     static func cachedURLIfPresent(scopeKey: String, clips: [VideoClip]) -> URL? {
         let candidate = url(scopeKey: scopeKey, clips: clips)
-        return FileManager.default.fileExists(atPath: candidate.path) ? candidate : nil
+        let size = (try? FileManager.default.attributesOfItem(atPath: candidate.path))?[.size] as? Int ?? 0
+        return size > 0 ? candidate : nil
     }
 
     /// Removes cached reels whose modification date is older than `days` days ago.

@@ -25,6 +25,12 @@ struct JournalView: View {
 
     @State private var filter: JournalFilter = .all
 
+    /// Drives the Home search sheet — the app's single advanced-search surface
+    /// (`AdvancedSearchView`), previously reachable only from the Videos tab.
+    /// Promoting it here makes search discoverable from the landing screen;
+    /// athlete profiles are single-sport, so this stays sport-scoped for free.
+    @State private var showingSearch = false
+
     private let athleteID: UUID
     @Query private var games: [Game]
     @Query private var practices: [Practice]
@@ -278,6 +284,9 @@ struct JournalView: View {
         .fullScreenCover(item: $recordingGame) { game in
             DirectCameraRecorderView(athlete: athlete, game: game)
         }
+        .sheet(isPresented: $showingSearch) {
+            AdvancedSearchView(athlete: athlete)
+        }
         .onChange(of: filters) { _, newValue in
             // If the active pill no longer has any matching entries (e.g. the
             // last highlight was un-starred), fall back to All so the feed
@@ -287,6 +296,15 @@ struct JournalView: View {
         .toolbar {
             ToolbarItem(placement: .principal) {
                 PPAthleteSwitcher(athlete: athlete)
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    Haptics.light()
+                    showingSearch = true
+                } label: {
+                    Image(systemName: "magnifyingglass")
+                }
+                .accessibilityLabel("Search")
             }
         }
     }

@@ -188,6 +188,9 @@ struct VideoPlayerView: View {
         clip.isHighlight.toggle()
         clip.needsSync = true
         ErrorHandlerService.shared.saveContext(modelContext, caller: "VideoPlayerView.toggleHighlight")
+        // A clip starred after recording may have been skipped by the save-time auto-upload
+        // gate (e.g. "Highlights Only"); re-evaluate it now that it's a highlight.
+        UploadQueueManager.shared.reevaluateAutoUploadAfterHighlightChange(clip, context: modelContext)
         Haptics.medium()
     }
 

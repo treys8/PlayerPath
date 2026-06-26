@@ -17,13 +17,18 @@ extension View {
     func ppCard(cornerRadius: CGFloat = .cornerXLarge) -> some View {
         self
             .background(
+                // Shadow rides on the filled shape (not the whole composited
+                // view) so Core Animation renders it as a cheap path shadow
+                // instead of rasterizing each card's alpha into an offscreen
+                // buffer every frame — the big scroll win. Visually identical:
+                // the card is an opaque rounded rect that casts exactly this.
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .fill(Theme.card)
+                    .shadow(color: .black.opacity(0.04), radius: 10, x: 0, y: 4)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .strokeBorder(Theme.divider, lineWidth: 1)
             )
-            .shadow(color: .black.opacity(0.04), radius: 10, x: 0, y: 4)
     }
 }

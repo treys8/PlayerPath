@@ -9,13 +9,17 @@ import SwiftUI
 
 struct FAQView: View {
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
+    @Environment(\.ppIsGolf) private var isGolf
     @State private var expandedQuestions: Set<Int> = []
     @State private var searchText = ""
 
     private var isCoach: Bool { authManager.userRole == .coach }
 
-    /// The active question set for the current role.
-    private var faqs: [(question: String, answer: String)] { isCoach ? coachFAQs : athleteFAQs }
+    /// The active question set for the current role (and sport, for athletes).
+    private var faqs: [(question: String, answer: String)] {
+        if isCoach { return coachFAQs }
+        return isGolf ? golfAthleteFAQs : athleteFAQs
+    }
 
     private var filteredFaqs: [(question: String, answer: String)] {
         guard !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return faqs }
@@ -126,6 +130,73 @@ struct FAQView: View {
         (
             question: "How do I backup my videos?",
             answer: "Save important videos to your Photos app using the share button. Then enable iCloud Photo Library in iOS Settings to backup to iCloud."
+        ),
+        (
+            question: "Is my data private?",
+            answer: "Yes! Your data is protected with industry-standard encryption. Videos are uploaded to Firebase Storage (Google Cloud) for backup and cross-device access. Only you and coaches you explicitly invite can see your content. See our Privacy Policy for full details."
+        )
+    ]
+
+    private let golfAthleteFAQs: [(question: String, answer: String)] = [
+        (
+            question: "How do I score a round?",
+            answer: "Go to the Rounds tab and tap '+'. Pick your course and date, then enter your score hole-by-hole — strokes, putts, fairway hit (FIR), and green in regulation (GIR). Your score to par updates as you play. See 'Scoring Your Round' in Help for the full walkthrough."
+        ),
+        (
+            question: "What do FIR and GIR mean?",
+            answer: "FIR (Fairways in Regulation) is how often your tee shot finds the fairway on par 4s and 5s. GIR (Greens in Regulation) is how often you reach the green in regulation — by your 1st shot on a par 3, 2nd on a par 4, or 3rd on a par 5. They're the two core accuracy stats."
+        ),
+        (
+            question: "How is my handicap estimate calculated?",
+            answer: "PlayerPath estimates a handicap from your recent rounds' scores relative to par, so you can track your trend over time. It's a quick estimate — not an official USGA Handicap Index, which requires rated courses and a sanctioned system."
+        ),
+        (
+            question: "Do I have to track every shot?",
+            answer: "No. Shot-by-shot tracking is completely optional. You can score a round with just strokes and putts, or turn on shot tracking for a hole to log each shot's lie, club, and distance. Shot tracking unlocks deeper stats like driving distance and miss patterns, but score-only rounds still give you scoring, FIR, GIR, and putts."
+        ),
+        (
+            question: "What's the difference between a round and a tournament?",
+            answer: "A round is a single trip around the course. A tournament groups several rounds together — handy for a multi-day event — and shows your combined scoring. You create rounds in the Rounds tab and can link them to a tournament."
+        ),
+        (
+            question: "What happens to my rounds if I delete a tournament?",
+            answer: "Nothing is lost. Deleting a tournament only unlinks its rounds — the rounds themselves, with all their scores and videos, stay in your history."
+        ),
+        (
+            question: "Why don't I see driving distance or some shot stats?",
+            answer: "Those come from shot-by-shot tracking. Estimated driving distance also needs a tee shot plus a recorded approach distance on a par 4 or 5. If you only scored a round (strokes and putts), you'll still see scoring, FIR, GIR, and putts, but the shot-derived stats won't appear."
+        ),
+        (
+            question: "How are highlight reels created for golf?",
+            answer: "When you post a birdie or better in a round, PlayerPath automatically bundles that round's clips into a highlight reel — no setup needed. You can save or share it from the Highlights area."
+        ),
+        (
+            question: "Can I track practice rounds?",
+            answer: "Yes. Log a round as a practice round to keep range days and casual rounds separate from competitive ones. Practice rounds still count toward your stats."
+        ),
+        (
+            question: "Can I share my golf videos with a coach?",
+            answer: "Yes! Create a Shared Folder, add your swing clips, and invite your coach by email. They can view the clips you share and leave notes and drawings. Go to More → Shared Folders to start."
+        ),
+        (
+            question: "Can I track more than one player?",
+            answer: "Yes! You can create multiple athlete profiles and switch between them by tapping the name at the top of the Dashboard. Each profile keeps its own rounds, videos, and stats."
+        ),
+        (
+            question: "Why aren't my videos syncing to my other devices?",
+            answer: "Videos upload to the cloud automatically when you have an internet connection. If a clip isn't showing on another device, make sure both are signed into the same account and online. Pull to refresh to trigger a manual sync."
+        ),
+        (
+            question: "How much storage do videos use?",
+            answer: "High-quality video uses about 60MB per minute. A typical swing clip of 10–20 seconds uses roughly 10–20MB. Check your available space in iOS Settings → General → iPhone Storage."
+        ),
+        (
+            question: "Can I export my data?",
+            answer: "Yes. Go to More → Export Data to download all your rounds, stats, and video info as a JSON file you can open in Excel or Google Sheets."
+        ),
+        (
+            question: "Do I need an internet connection?",
+            answer: "No! PlayerPath works fully offline — score rounds, record swings, and view stats without a connection. Everything syncs automatically when you're back online."
         ),
         (
             question: "Is my data private?",

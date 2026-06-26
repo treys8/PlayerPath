@@ -18,7 +18,7 @@ struct GamesView: View {
     private var isGolf: Bool { activeSport == .golf }
     private var unitNoun: String { isGolf ? "round" : "game" }
     private var unitNounPlural: String { isGolf ? "rounds" : "games" }
-    private var navigationTitle: String { isGolf ? "Rounds" : "Games" }
+    private var navigationTitle: String { isGolf ? "The Rounds." : "The Games." }
     private var searchPrompt: String { isGolf ? "Search by course or date" : "Search by opponent or date" }
     private var addAccessibilityLabel: String { isGolf ? "Add new round" : "Add new game" }
 

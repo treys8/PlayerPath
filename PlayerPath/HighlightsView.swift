@@ -173,7 +173,7 @@ struct HighlightsView: View {
         // Find all videos with hit play results that aren't marked as highlights
         guard let allVideos = athlete.videoClips else { return }
 
-        var migrationCount = 0
+        var migratedVideos: [VideoClip] = []
         for video in allVideos {
             // Check if video has a hit play result but isn't marked as highlight
             if let playResult = video.playResult,
@@ -181,15 +181,20 @@ struct HighlightsView: View {
                !video.isHighlight {
                 video.isHighlight = true
                 video.needsSync = true
-                migrationCount += 1
+                migratedVideos.append(video)
             }
         }
 
         // Save if we migrated any videos
-        if migrationCount > 0 {
+        if !migratedVideos.isEmpty {
             do {
                 try modelContext.save()
                 hasCompletedMigration = true
+                // These legacy clips just became highlights; re-run the auto-upload gate so
+                // any the save-time path skipped (e.g. "Highlights Only") upload now.
+                for video in migratedVideos {
+                    UploadQueueManager.shared.reevaluateAutoUploadAfterHighlightChange(video, context: modelContext)
+                }
             } catch {
                 #if DEBUG
                 print("⚠️ Failed to save highlight migration: \(error.localizedDescription)")

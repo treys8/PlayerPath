@@ -10,6 +10,7 @@ import MessageUI
 
 struct HelpView: View {
     @Environment(\.ppAccent) private var ppAccent
+    @Environment(\.ppIsGolf) private var isGolf
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
 
     private var isCoach: Bool { authManager.userRole == .coach }
@@ -80,32 +81,32 @@ struct HelpView: View {
 
         Section("Quick Help") {
             NavigationLink {
-                HelpArticleDetailView(article: HelpArticle.recordingVideos)
+                HelpArticleDetailView(article: isGolf ? HelpArticle.recordingVideosGolf : .recordingVideos)
             } label: {
                 HelpRowLabel(
                     icon: "video",
                     title: "Recording Videos",
-                    subtitle: "Learn how to capture at-bats"
+                    subtitle: isGolf ? "Capture swings & range sessions" : "Learn how to capture at-bats"
                 )
             }
 
             NavigationLink {
-                HelpArticleDetailView(article: HelpArticle.taggingPlays)
+                HelpArticleDetailView(article: isGolf ? HelpArticle.scoringGolf : .taggingPlays)
             } label: {
                 HelpRowLabel(
-                    icon: "tag.fill",
-                    title: "Tagging Play Results",
-                    subtitle: "Mark hits, outs, and more"
+                    icon: isGolf ? "list.bullet.clipboard.fill" : "tag.fill",
+                    title: isGolf ? "Scoring Your Round" : "Tagging Play Results",
+                    subtitle: isGolf ? "Pars, FIR/GIR & shot tracking" : "Mark hits, outs, and more"
                 )
             }
 
             NavigationLink {
-                HelpArticleDetailView(article: HelpArticle.understandingStats)
+                HelpArticleDetailView(article: isGolf ? HelpArticle.golfStats : .understandingStats)
             } label: {
                 HelpRowLabel(
                     icon: "chart.bar.fill",
-                    title: "Understanding Statistics",
-                    subtitle: "AVG, SLG, OPS explained"
+                    title: isGolf ? "Golf Stats" : "Understanding Statistics",
+                    subtitle: isGolf ? "Scoring avg, FIR, GIR, handicap" : "AVG, SLG, OPS explained"
                 )
             }
         }
@@ -122,22 +123,22 @@ struct HelpView: View {
             }
 
             NavigationLink {
-                HelpArticleDetailView(article: HelpArticle.seasonTracking)
+                HelpArticleDetailView(article: isGolf ? HelpArticle.seasonTrackingGolf : .seasonTracking)
             } label: {
                 HelpRowLabel(
                     icon: "calendar",
                     title: "Season Tracking",
-                    subtitle: "Organize by season"
+                    subtitle: isGolf ? "Organize by golf season" : "Organize by season"
                 )
             }
 
             NavigationLink {
-                HelpArticleDetailView(article: HelpArticle.gameManagement)
+                HelpArticleDetailView(article: isGolf ? HelpArticle.roundManagementGolf : .gameManagement)
             } label: {
                 HelpRowLabel(
-                    icon: "baseball.diamond.bases",
-                    title: "Game Management",
-                    subtitle: "Track live games"
+                    icon: isGolf ? "figure.golf" : "baseball.diamond.bases",
+                    title: isGolf ? "Rounds & Tournaments" : "Game Management",
+                    subtitle: isGolf ? "Rounds, tournaments & practice" : "Track live games"
                 )
             }
 

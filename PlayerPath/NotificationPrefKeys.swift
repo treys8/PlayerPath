@@ -26,4 +26,16 @@ enum NotificationPrefKeys {
     static let uploads = "notif_uploads"
     /// Minutes-before-game lead time for the game reminder. Default 30.
     static let gameReminderMinutes = "notif_gameReminderMinutes"
+
+    // MARK: - Behavioral re-engagement nudges (all local, opt-out, default on)
+
+    /// "Tag your clips" nudge the morning after a game/round that left untagged
+    /// clips behind. Default on.
+    static let clipTaggingReminder = "notif_clipTaggingReminder"
+    /// "We miss you" inactivity nudge, rescheduled on every app open so it only
+    /// fires after a stretch away. Default on.
+    static let inactivityReminder = "notif_inactivityReminder"
+    /// New personal-best / milestone celebration nudge fired after a game ends.
+    /// Default on. (`notif_weeklyStats` above is the weekly-recap nudge.)
+    static let milestoneReminder = "notif_milestoneReminder"
 }

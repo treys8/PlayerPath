@@ -36,10 +36,15 @@ final class ReelStitchCoordinator {
 
     private var task: Task<Void, Never>?
 
-    /// Cache-first stitch of `clips` (in the given order) under `scopeKey`.
+    /// Cache-first stitch of `clips` (in the given order) under `scopeKey`, optionally
+    /// applying social-export `options` (9:16 crop and/or name/caption overlay).
     /// No-op if already generating. Resolves to `.failed` with friendly copy when
     /// no clip is available locally yet.
-    func generate(clips: [VideoClip], scopeKey: String) {
+    ///
+    /// `options.cacheSuffix` is appended to `scopeKey` so each variant caches to its
+    /// own file; for `.default` the suffix is "" and the key is unchanged — default
+    /// reels keep hitting the existing cache and re-render nothing.
+    func generate(clips: [VideoClip], scopeKey: String, options: ReelExportOptions = .default) {
         if case .generating = state { return }
 
         // Drop cloud-only clips — the stitcher can't read them. Preserve order.
@@ -52,13 +57,15 @@ final class ReelStitchCoordinator {
             return
         }
 
-        // Cache hit — same scope + same clip set already stitched.
-        if let cached = StitchedReelCache.cachedURLIfPresent(scopeKey: scopeKey, clips: localClips) {
+        let effectiveScope = scopeKey + options.cacheSuffix
+
+        // Cache hit — same scope + options + clip set already stitched.
+        if let cached = StitchedReelCache.cachedURLIfPresent(scopeKey: effectiveScope, clips: localClips) {
             state = .ready(cached)
             return
         }
 
-        let outputURL = StitchedReelCache.url(scopeKey: scopeKey, clips: localClips)
+        let outputURL = StitchedReelCache.url(scopeKey: effectiveScope, clips: localClips)
         let sourceURLs = localClips.map { $0.resolvedFileURL }
 
         state = .generating(progress: 0)
@@ -66,12 +73,23 @@ final class ReelStitchCoordinator {
             do {
                 let url = try await VideoStitchingService.stitch(
                     sourceURLs: sourceURLs,
-                    outputURL: outputURL
+                    outputURL: outputURL,
+                    options: options
                 ) { [weak self] p in
                     guard let self else { return }
                     if case .generating = self.state { self.state = .generating(progress: p) }
                 }
                 guard !Task.isCancelled else { return }
+                // Guard a vanished/empty output before handing a URL to share/save.
+                let fileSize = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? Int ?? 0
+                guard fileSize > 0 else {
+                    // Delete the empty file — the cache keys on existence only, so leaving
+                    // it would make every Retry serve the same zero-byte "hit" forever.
+                    try? FileManager.default.removeItem(at: url)
+                    coordinatorLog.error("Reel stitch produced no usable file at \(url.lastPathComponent)")
+                    state = .failed("The reel couldn't be exported. Please try again.")
+                    return
+                }
                 state = .ready(url)
                 Haptics.success()
             } catch {

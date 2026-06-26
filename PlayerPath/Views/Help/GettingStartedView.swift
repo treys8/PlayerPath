@@ -9,6 +9,7 @@ import SwiftUI
 
 struct GettingStartedView: View {
     @Environment(\.ppAccent) private var ppAccent
+    @Environment(\.ppIsGolf) private var isGolf
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
 
     private var isCoach: Bool { authManager.userRole == .coach }
@@ -23,7 +24,9 @@ struct GettingStartedView: View {
 
                     Text(isCoach
                          ? "Welcome! Let's get you set up to connect with athletes and start giving feedback."
-                         : "Welcome! Let's get you set up to start tracking your baseball or softball performance.")
+                         : isGolf
+                            ? "Welcome! Let's get you set up to start tracking your golf game."
+                            : "Welcome! Let's get you set up to start tracking your baseball or softball performance.")
                         .font(.bodyLarge)
                         .foregroundColor(.secondary)
                 }
@@ -31,6 +34,9 @@ struct GettingStartedView: View {
                 if isCoach {
                     coachSteps
                     coachNextSteps
+                } else if isGolf {
+                    golfAthleteSteps
+                    golfAthleteNextSteps
                 } else {
                     athleteSteps
                     athleteNextSteps
@@ -188,6 +194,122 @@ struct GettingStartedView: View {
                     color: .green,
                     title: "Track Practice",
                     description: "Use the Practice tab to log practice sessions"
+                )
+
+                NextStepRow(
+                    icon: "arrow.triangle.2.circlepath",
+                    color: .brandNavy,
+                    title: "Sync Across Devices",
+                    description: "Sign in on other devices to access your data anywhere"
+                )
+            }
+        }
+    }
+
+    // MARK: - Golf athlete steps
+
+    @ViewBuilder private var golfAthleteSteps: some View {
+        GettingStartedStep(
+            number: 1,
+            title: "Create Your Athlete Profile",
+            icon: "person.fill",
+            iconColor: .brandNavy,
+            description: "If you haven't already, create your first athlete profile. This represents you or a player you're tracking.",
+            steps: [
+                "Tap your name at the top of the Dashboard",
+                "Select 'Manage Athletes'",
+                "Tap '+' to add a new athlete",
+                "Enter the athlete's name",
+                "Tap 'Create'"
+            ]
+        )
+
+        GettingStartedStep(
+            number: 2,
+            title: "Create Your First Season",
+            icon: "calendar",
+            iconColor: .green,
+            description: "Organize your rounds and videos by season (e.g., '2026 Season')",
+            steps: [
+                "Go to More tab → Seasons",
+                "Tap '+' to create a season",
+                "Enter a season name",
+                "Set the start date",
+                "Choose Golf as the sport",
+                "Toggle 'Make Active' to use this season",
+                "Tap 'Create'"
+            ],
+            tip: "Only one season can be active at a time. New rounds automatically link to your active season."
+        )
+
+        GettingStartedStep(
+            number: 3,
+            title: "Record Your First Swing",
+            icon: "video",
+            iconColor: .red,
+            description: "Capture a swing or a range session",
+            steps: [
+                "Tap 'Quick Record' on the Dashboard",
+                "The camera opens instantly",
+                "Record your swing",
+                "Tap stop when done",
+                "Optionally trim the video",
+                "It's saved to your library"
+            ],
+            tip: "Film down-the-line or face-on, and use slow motion for mechanics when your camera supports it."
+        )
+
+        GettingStartedStep(
+            number: 4,
+            title: "Score Your First Round",
+            icon: "figure.golf",
+            iconColor: ppAccent,
+            description: "Start a round and score it hole-by-hole",
+            steps: [
+                "Go to the Rounds tab",
+                "Tap '+'",
+                "Pick your course and date",
+                "Enter your score, putts, FIR, and GIR per hole",
+                "Optionally turn on shot tracking for more detail",
+                "Your score to par updates as you play"
+            ],
+            tip: "Score-only works great. Shot-by-shot tracking is optional and unlocks deeper stats when you want them."
+        )
+
+        GettingStartedStep(
+            number: 5,
+            title: "View Your Golf Stats",
+            icon: "chart.bar.fill",
+            iconColor: .purple,
+            description: "Check your performance metrics",
+            steps: [
+                "Go to Stats tab → Golf",
+                "See scoring average, FIR, and GIR",
+                "Track putts per round and your handicap estimate",
+                "View season and per-round breakdowns"
+            ],
+            tip: "Stats are calculated automatically from the rounds you log. The more you log, the clearer the picture."
+        )
+    }
+
+    @ViewBuilder private var golfAthleteNextSteps: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Next Steps")
+                .font(.displayMedium)
+
+            VStack(alignment: .leading, spacing: 12) {
+                NextStepRow(
+                    icon: "star.fill",
+                    color: .yellow,
+                    title: "Auto Highlight Reels",
+                    description: "Shoot a birdie or better and your round's clips become a highlight reel automatically"
+                )
+
+                NextStepRow(
+                    icon: "figure.golf",
+                    color: .green,
+                    title: "Track Practice Rounds",
+                    description: "Log range days and casual rounds — they count toward your stats too"
                 )
 
                 NextStepRow(

@@ -27,10 +27,30 @@ final class PracticeService {
         practice.needsSync = true
         GameAlertService.shared.cancelEndPracticeReminder(for: practice)
 
-        await save(practice, action: "end")
+        // Snapshot to plain values BEFORE the save/await for the clip-tagging
+        // nudge — a concurrent delete must not invalidate the model mid-flight.
+        // Golf clips are tagged by `club`, so `isTagged` already covers golf
+        // round parity (a no-club clip counts as untagged).
+        let endedPracticeID = practice.id
+        let untaggedClipCount = (practice.videoClips ?? []).filter {
+            !$0.isTagged && !$0.isDeletedRemotely && $0.sourceCoachVideoID == nil
+        }.count
+
+        // Practices don't roll up into athlete statistics, so there is no
+        // milestone diff here — only the clip-tagging nudge (parity with
+        // GameService.end, which nudges only inside its successful save).
+        // Practices are golf-only in practice, so "round".
+        if await save(practice, action: "end") {
+            await ClipTaggingReminderService.shared.scheduleIfNeeded(
+                eventID: endedPracticeID,
+                untaggedCount: untaggedClipCount,
+                eventNoun: "round"
+            )
+        }
     }
 
-    private func save(_ practice: Practice, action: String) async {
+    @discardableResult
+    private func save(_ practice: Practice, action: String) async -> Bool {
         let userForSync = practice.athlete?.user
         do {
             try modelContext.save()
@@ -49,17 +69,22 @@ final class PracticeService {
                     self.logger.error("Sync after practice \(action) failed: \(error.localizedDescription)")
                 }
             }
+            return true
         } catch {
             logger.error("Failed to save practice \(action): \(error.localizedDescription)")
+            return false
         }
     }
 
     // MARK: - Single-live golf invariant
 
     /// Ends every live golf activity for the athlete except an optional
-    /// in-flight game/practice. Used by both `PracticeService.startLive` and
-    /// `GameService`'s golf start paths so the "one live golf activity at a
-    /// time" rule spans games and practices. Flips flags + marks dirty; the
+    /// in-flight game/practice. Called when a golf practice goes live inline at
+    /// creation (`AddPracticeView.save`); it ends any live golf game as well as
+    /// any other live practice, so the "one live golf activity at a time" rule
+    /// spans games and practices. (The game-start side enforces the same
+    /// invariant through `GameService`'s own inline logic + its `endLivePractices`
+    /// helper — it does NOT route through here.) Flips flags + marks dirty; the
     /// caller is responsible for saving.
     static func endAllOtherLiveGolf(for athlete: Athlete,
                                     exceptGame: Game? = nil,
