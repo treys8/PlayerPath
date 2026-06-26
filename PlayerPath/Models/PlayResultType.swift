@@ -92,6 +92,26 @@ enum PlayResultType: Int, CaseIterable, Codable {
         }
     }
 
+    /// True when the play visibly went badly for the athlete — a batter's out or
+    /// a pitcher's mistake. Used to suppress the game-level "personal best"
+    /// milestone badge on a clip whose own play failed (a strikeout shouldn't
+    /// read as a personal best just because its game set one). Hits, walks,
+    /// batter-HBP (reached base), strikes, and pitching strikeouts stay positive;
+    /// untagged/golf clips have no type and keep the badge. New negative-outcome
+    /// cases must be added here.
+    var isNegativeOutcome: Bool {
+        switch self {
+        case .strikeout, .groundOut, .flyOut:                       // batter made an out
+            return true
+        case .ball, .wildPitch, .hitByPitch, .pitchingWalk,         // pitcher's mistake
+             .pitchingSingleAllowed, .pitchingDoubleAllowed,        // hits allowed
+             .pitchingTripleAllowed, .pitchingHomeRunAllowed:
+            return true
+        default:
+            return false
+        }
+    }
+
     var bases: Int {
         switch self {
         case .single: return 1
