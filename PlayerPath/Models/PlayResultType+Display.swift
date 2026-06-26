@@ -30,7 +30,9 @@ extension PlayResultType {
         }
     }
 
-    /// Short abbreviation used in badges and compact displays.
+    /// Short scorebook abbreviation used in badges and compact displays
+    /// (1B/2B/3B/HR/BB/K/…). The single source of truth for play-result
+    /// abbreviations — `PPOutcomeChip` and any other badge surface reads this.
     var abbreviation: String {
         switch self {
         case .single: return "1B"
@@ -43,7 +45,7 @@ extension PlayResultType {
         case .flyOut: return "FO"
         case .batterHitByPitch: return "HBP"
         case .ball: return "B"
-        case .strike: return "S"
+        case .strike: return "STR"
         case .hitByPitch: return "HBP"
         case .wildPitch: return "WP"
         case .pitchingStrikeout: return "K"

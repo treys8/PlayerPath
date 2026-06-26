@@ -7,9 +7,11 @@
 //  GOLF / PRACTICE (context). Accent fill for home runs and highlighted clips;
 //  dark-translucent otherwise; green for golf/result context.
 //
-//  Maps PlayResultType → short abbreviation. Color meaning here is intentionally
-//  NOT PlayResultType.color (which uses many hues) — the overhaul rule is one
-//  accent only, so significance (HR/highlight) gets accent and everything else
+//  Reads the short abbreviation from PlayResultType.abbreviation. Color meaning
+//  here is intentionally NOT PlayResultType.color (which uses many hues) — the
+//  overhaul rule is one accent only. Significance (HR / highlighted hit) gets
+//  the accent; negative outcomes (outs, hits/HR allowed — `valence == .negative`)
+//  get a quieter recede tier so they sit below routine plays; everything else
 //  stays neutral.
 //
 
@@ -22,6 +24,8 @@ struct PPOutcomeChip: View {
         case darkTranslucent // neutral outcome over media
         case green           // golf / result context
         case neutralOnCard   // outcome shown on a light card (not over media)
+        case negativeOnMedia // negative outcome (out / hit allowed) over media — recedes
+        case negativeOnCard  // negative outcome on a light card — recedes
     }
 
     let label: String
@@ -54,6 +58,8 @@ struct PPOutcomeChip: View {
         case .darkTranslucent:  return .white
         case .green:            return Theme.chipGreenText
         case .neutralOnCard:    return Theme.textSecondary
+        case .negativeOnMedia:  return .white.opacity(0.75)
+        case .negativeOnCard:   return Theme.textTertiary
         }
     }
 
@@ -63,6 +69,8 @@ struct PPOutcomeChip: View {
         case .darkTranslucent:  return .black.opacity(0.55)
         case .green:            return Theme.chipGreenBg
         case .neutralOnCard:    return Theme.divider.opacity(0.6)
+        case .negativeOnMedia:  return .black.opacity(0.35)
+        case .negativeOnCard:   return Theme.divider.opacity(0.4)
         }
     }
 }
@@ -70,32 +78,24 @@ struct PPOutcomeChip: View {
 // MARK: - PlayResultType convenience
 
 extension PPOutcomeChip {
-    /// Short scorebook abbreviation for a play result (1B/2B/3B/HR/BB/K/…).
-    static func abbreviation(for result: PlayResultType) -> String {
-        switch result {
-        case .single, .pitchingSingleAllowed:   return "1B"
-        case .double, .pitchingDoubleAllowed:   return "2B"
-        case .triple, .pitchingTripleAllowed:   return "3B"
-        case .homeRun, .pitchingHomeRunAllowed: return "HR"
-        case .walk, .pitchingWalk:              return "BB"
-        case .strikeout, .pitchingStrikeout:    return "K"
-        case .groundOut:                        return "GO"
-        case .flyOut:                           return "FO"
-        case .batterHitByPitch, .hitByPitch:    return "HBP"
-        case .ball:                             return "B"
-        case .strike:                           return "STR"
-        case .wildPitch:                        return "WP"
-        }
-    }
-
-    /// Builds a chip for a tagged play. `overMedia` picks the darker neutral
-    /// fill suited to sitting over a media tile vs on a light card.
-    /// `highlighted` forces the accent fill (e.g. a starred clip).
+    /// Builds a chip for a tagged play.
+    ///
+    /// Style tiers, in order:
+    /// 1. `highlighted` or a batter's home run → accent (the "this mattered" fill).
+    ///    A HR *allowed* is NOT significance — it's a pitcher negative and falls
+    ///    to the recede tier below.
+    /// 2. `valence == .negative` (outs, hits/HR allowed) → recede tier, quieter
+    ///    than neutral so it sits below routine plays.
+    /// 3. everything else → neutral.
+    ///
+    /// `overMedia` picks the over-a-media-tile fill vs the light-card fill.
     init(result: PlayResultType, overMedia: Bool = true, highlighted: Bool = false) {
-        let label = Self.abbreviation(for: result)
+        let label = result.abbreviation
         let style: Style
-        if highlighted || result == .homeRun || result == .pitchingHomeRunAllowed {
+        if highlighted || result == .homeRun {
             style = .accent
+        } else if result.valence == .negative {
+            style = overMedia ? .negativeOnMedia : .negativeOnCard
         } else {
             style = overMedia ? .darkTranslucent : .neutralOnCard
         }
