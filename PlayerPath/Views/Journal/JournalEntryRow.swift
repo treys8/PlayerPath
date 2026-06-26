@@ -18,7 +18,12 @@ struct JournalEntryRow: View {
     var milestone: Milestone? = nil
 
     var body: some View {
-        VStack(alignment: .leading, spacing: .spacingMedium) {
+        // Resolve the entry's media ONCE per row render (one fault of each
+        // to-many relationship) and thread it into the media tile + footer,
+        // instead of re-walking clips/photos through several computed
+        // properties as the card scrolls into view.
+        let summary = entry.mediaSummary
+        return VStack(alignment: .leading, spacing: .spacingMedium) {
             dateRail
 
             // The milestone marker rides in the date rail (top-right) instead of
@@ -43,9 +48,9 @@ struct JournalEntryRow: View {
                     .foregroundStyle(Theme.textSecondary)
             }
 
-            media
+            media(summary)
 
-            footer
+            footer(summary)
         }
         .padding(.spacingLarge)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -140,7 +145,7 @@ struct JournalEntryRow: View {
     // MARK: - Media
 
     @ViewBuilder
-    private var media: some View {
+    private func media(_ summary: JournalEntry.MediaSummary) -> some View {
         if case .photo(let photo) = entry {
             // A standalone-photo entry shows the photo itself. JournalPhotoThumbnail
             // owns its own loading/failed glyph (incl. an iCloud-download hint),
@@ -148,7 +153,7 @@ struct JournalEntryRow: View {
             PPMediaTile(tileColor: Theme.tile(forKey: entry.id)) {
                 JournalPhotoThumbnail(photo: photo)
             }
-        } else if case .photoGroup = entry, let photo = entry.representativePhoto {
+        } else if case .photoGroup = entry, let photo = summary.representativePhoto {
             // A multi-photo day collapses to one card: the most recent photo as
             // the cover, with a stack glyph marking it as a set (the headline
             // carries the exact count). Tapping opens the day-scoped grid sheet
@@ -157,7 +162,7 @@ struct JournalEntryRow: View {
                 JournalPhotoThumbnail(photo: photo)
             }
             .overlay(alignment: .bottomTrailing) { photoStackBadge }
-        } else if let clip = entry.representativeClip {
+        } else if let clip = summary.representativeClip {
             // Only a single orphan clip card promises inline playback — its ▶
             // and duration are honest because there's exactly one clip to play.
             // Event cards (.game/.practice) are multi-item previews that open
@@ -181,12 +186,13 @@ struct JournalEntryRow: View {
                     cornerRadius: 0,
                     showPlayResult: false,
                     showHighlight: false,
+                    showNote: false,
                     showContext: false,
                     showDuration: false,
                     fillsContainer: true
                 )
             }
-        } else if let photo = entry.representativePhoto {
+        } else if let photo = summary.representativePhoto {
             // No clip, but the event has photos — show an actual tagged photo.
             // JournalPhotoThumbnail owns its own loading/failed glyph (incl. the
             // iCloud-download hint), so the tile passes no glyph of its own.
@@ -232,9 +238,9 @@ struct JournalEntryRow: View {
     /// stats but no media shows just the stat; an event with media but no stats
     /// (or a practice) shows just the counts; neither → no footer row.
     @ViewBuilder
-    private var footer: some View {
+    private func footer(_ summary: JournalEntry.MediaSummary) -> some View {
         let stat = footerStat
-        let counts = countsText
+        let counts = countsText(summary)
         if stat != nil || counts != nil {
             HStack(alignment: .firstTextBaseline, spacing: .spacingSmall) {
                 if let stat {
@@ -252,7 +258,7 @@ struct JournalEntryRow: View {
 
     // MARK: - Counts
 
-    private var countsText: String? {
+    private func countsText(_ summary: JournalEntry.MediaSummary) -> String? {
         // Only event cards (game/practice) summarize their contained media here. A
         // standalone clip/photo IS its single media item — the tile already shows
         // it (▶/duration for a clip, the image for a photo) — and a photo group
@@ -263,8 +269,8 @@ struct JournalEntryRow: View {
         case .clip, .photo, .photoGroup: return nil
         }
         var parts: [String] = []
-        if entry.clipCount > 0 { parts.append("\(entry.clipCount) clip\(entry.clipCount == 1 ? "" : "s")") }
-        if entry.photoCount > 0 { parts.append("\(entry.photoCount) photo\(entry.photoCount == 1 ? "" : "s")") }
+        if summary.clipCount > 0 { parts.append("\(summary.clipCount) clip\(summary.clipCount == 1 ? "" : "s")") }
+        if summary.photoCount > 0 { parts.append("\(summary.photoCount) photo\(summary.photoCount == 1 ? "" : "s")") }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 

@@ -83,8 +83,6 @@ enum JournalEntry: Identifiable {
         }
     }
 
-    var clipCount: Int { clips.count }
-
     private var photos: [Photo] {
         switch self {
         case .game(let g):           return g.photos ?? []
@@ -95,30 +93,51 @@ enum JournalEntry: Identifiable {
         }
     }
 
-    var photoCount: Int { photos.count }
-
-    /// The photo shown on the media tile when an event has photos but no clip —
-    /// most recent photo (mirrors representativeClip). Single O(N) pass.
-    var representativePhoto: Photo? {
-        photos.max { ($0.createdAt ?? .distantPast) < ($1.createdAt ?? .distantPast) }
-    }
-
-    /// The clip used for the entry's media tile — prefer a highlight (first in
-    /// relationship order, matching the old `first(where:)`), else the most recent
-    /// clip. One O(N) pass, no sort.
-    var representativeClip: VideoClip? {
-        var newest: VideoClip?
-        for clip in clips {
-            if clip.isHighlight { return clip }
-            if newest == nil || (clip.createdAt ?? .distantPast) > (newest?.createdAt ?? .distantPast) {
-                newest = clip
-            }
-        }
-        return newest
-    }
-
+    /// True when any contained clip is starred. Cross-cuts entry type, so it's
+    /// used by the feed's Highlights filter (`JournalFilter.matches`) and the
+    /// row's type tag — the only media accessor the row still reads off the
+    /// entry directly; counts + representatives come from `mediaSummary`.
     var containsHighlight: Bool {
         clips.contains { $0.isHighlight }
+    }
+
+    // MARK: - Per-row media summary
+
+    /// One-pass resolution of all the media a feed row needs (counts +
+    /// representatives). Reading `clips`/`photos` faults each to-many
+    /// relationship exactly once and derives every value from that single walk,
+    /// instead of re-walking the relationship per derived value as the card
+    /// scrolls into view (a CPU spike on clip/photo-heavy events). Representative
+    /// clip prefers the first highlight in relationship order, else the newest;
+    /// representative photo is the newest.
+    struct MediaSummary {
+        var clipCount: Int
+        var photoCount: Int
+        var representativeClip: VideoClip?
+        var representativePhoto: Photo?
+    }
+
+    var mediaSummary: MediaSummary {
+        let clips = self.clips
+        let photos = self.photos
+
+        var newestClip: VideoClip?
+        var highlightClip: VideoClip?
+        for clip in clips {
+            if highlightClip == nil, clip.isHighlight { highlightClip = clip }
+            if newestClip == nil || (clip.createdAt ?? .distantPast) > (newestClip?.createdAt ?? .distantPast) {
+                newestClip = clip
+            }
+        }
+
+        let representativePhoto = photos.max { ($0.createdAt ?? .distantPast) < ($1.createdAt ?? .distantPast) }
+
+        return MediaSummary(
+            clipCount: clips.count,
+            photoCount: photos.count,
+            representativeClip: highlightClip ?? newestClip,
+            representativePhoto: representativePhoto
+        )
     }
 
     // MARK: - Headline (matchup fallback)
