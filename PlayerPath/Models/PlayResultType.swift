@@ -7,6 +7,15 @@
 
 import SwiftUI
 
+/// Whether a play result was good, neutral, or bad for the recording athlete.
+/// The single source of truth for outcome sentiment — drives feed de-emphasis of
+/// negatives and keeps `PlayResultType.color` honest about good/bad outcomes.
+enum PlayValence {
+    case positive
+    case neutral
+    case negative
+}
+
 enum PlayResultType: Int, CaseIterable, Codable {
     // Batting results
     case single = 0
@@ -119,21 +128,55 @@ enum PlayResultType: Int, CaseIterable, Codable {
 
     /// Canonical display color for this play result.
     /// Used by video thumbnails, tagging overlays, and result editor cards.
+    ///
+    /// Color reads from the **recording athlete's** perspective (see `valence`),
+    /// NOT the abstract play type. That's why a pitcher's strikeout is green
+    /// (good) while every hit/HR *allowed* is red (bad) — even though the same
+    /// play is green/gold when a batter records it.
     var color: Color {
         switch self {
-        case .single, .double, .triple, .strike,
-             .pitchingSingleAllowed, .pitchingDoubleAllowed, .pitchingTripleAllowed:
+        // Positives that read green: batting hits, a pitcher's called strike,
+        // and a pitcher's strikeout (a good outcome for the pitcher).
+        case .single, .double, .triple, .strike, .pitchingStrikeout:
             return .green
-        case .homeRun, .pitchingHomeRunAllowed:
+        // The marquee positive — a batter's home run. (A HR *allowed* is a
+        // pitcher negative and lives in the red group below, not here.)
+        case .homeRun:
             return .gold
-        case .walk, .pitchingWalk:
+        // Batter reaching on a walk — positive, but not a hit.
+        case .walk:
             return .cyan
-        case .strikeout, .groundOut, .flyOut, .wildPitch, .pitchingStrikeout:
+        // Negatives → red. Batter: outs/strikeouts. Pitcher (POV): walk allowed,
+        // wild pitch, and every hit/HR allowed.
+        case .strikeout, .groundOut, .flyOut, .wildPitch, .pitchingWalk,
+             .pitchingSingleAllowed, .pitchingDoubleAllowed, .pitchingTripleAllowed,
+             .pitchingHomeRunAllowed:
             return .red
+        // Hit-by-pitch (either side) — a special incident.
         case .batterHitByPitch, .hitByPitch:
             return .purple
         case .ball:
             return .orange
+        }
+    }
+
+    /// Outcome sentiment from the recording athlete's point of view.
+    ///
+    /// Note: `groundOut`/`flyOut` are shared by the batter editor (out =
+    /// negative) and the pitcher editor (induced out = positive for the
+    /// pitcher). A clip stores no role flag to disambiguate, so these use the
+    /// batter framing (`negative`), which also matches their red `color`.
+    var valence: PlayValence {
+        switch self {
+        case .single, .double, .triple, .homeRun, .walk, .batterHitByPitch,
+             .strike, .pitchingStrikeout:
+            return .positive
+        case .ball:
+            return .neutral
+        case .strikeout, .groundOut, .flyOut, .wildPitch, .hitByPitch, .pitchingWalk,
+             .pitchingSingleAllowed, .pitchingDoubleAllowed, .pitchingTripleAllowed,
+             .pitchingHomeRunAllowed:
+            return .negative
         }
     }
 
