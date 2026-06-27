@@ -509,8 +509,10 @@ struct AdvancedSearchView: View {
             videos = videos.filter {
                 $0.fileName.localizedCaseInsensitiveContains(searchText) ||
                 $0.displayTagName?.localizedCaseInsensitiveContains(searchText) == true ||
+                $0.note?.localizedCaseInsensitiveContains(searchText) == true ||
                 $0.game?.opponent.localizedCaseInsensitiveContains(searchText) == true ||
-                $0.season?.displayName.localizedCaseInsensitiveContains(searchText) == true
+                $0.season?.displayName.localizedCaseInsensitiveContains(searchText) == true ||
+                $0.season?.notes.localizedCaseInsensitiveContains(searchText) == true
             }
         }
         if selectedDateRange != .allTime { videos = videos.filter { matchesDateRange($0.createdAt) } }
@@ -526,7 +528,9 @@ struct AdvancedSearchView: View {
         if !searchText.isEmpty {
             games = games.filter {
                 $0.opponent.localizedCaseInsensitiveContains(searchText) ||
-                $0.season?.displayName.localizedCaseInsensitiveContains(searchText) == true
+                $0.notes?.localizedCaseInsensitiveContains(searchText) == true ||
+                $0.season?.displayName.localizedCaseInsensitiveContains(searchText) == true ||
+                $0.season?.notes.localizedCaseInsensitiveContains(searchText) == true
             }
         }
         if selectedDateRange != .allTime { games = games.filter { matchesDateRange($0.date) } }
@@ -542,7 +546,8 @@ struct AdvancedSearchView: View {
                 // practice's notes, plus the season name (more robust than the
                 // UUID season filter, which dangles if the season is deleted).
                 (practice.notes ?? []).contains { $0.content.localizedCaseInsensitiveContains(searchText) } ||
-                practice.season?.displayName.localizedCaseInsensitiveContains(searchText) == true
+                practice.season?.displayName.localizedCaseInsensitiveContains(searchText) == true ||
+                practice.season?.notes.localizedCaseInsensitiveContains(searchText) == true
             }
         }
         if selectedDateRange != .allTime { practices = practices.filter { matchesDateRange($0.date) } }
@@ -556,7 +561,8 @@ struct AdvancedSearchView: View {
             photos = photos.filter {
                 ($0.game?.opponent.localizedCaseInsensitiveContains(searchText) ?? false) ||
                 ($0.caption?.localizedCaseInsensitiveContains(searchText) ?? false) ||
-                ($0.season?.displayName.localizedCaseInsensitiveContains(searchText) ?? false)
+                ($0.season?.displayName.localizedCaseInsensitiveContains(searchText) ?? false) ||
+                ($0.season?.notes.localizedCaseInsensitiveContains(searchText) ?? false)
             }
         }
         if selectedDateRange != .allTime { photos = photos.filter { matchesDateRange($0.createdAt) } }

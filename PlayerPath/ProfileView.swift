@@ -827,6 +827,11 @@ struct UserProfileHeader: View {
 struct AthleteProfileRow: View {
     let athlete: Athlete
     let isSelected: Bool
+    /// When set, the row's primary line shows this instead of `athlete.name` —
+    /// used by grouped lists (a dual-sport person) where the person's name is
+    /// already the section header, so each linked profile reads as its sport
+    /// ("Baseball" / "Golf") rather than repeating the name on every row.
+    var titleOverride: String? = nil
     let onSelect: () -> Void
 
     @State private var showingEdit = false
@@ -863,7 +868,7 @@ struct AthleteProfileRow: View {
                     .accessibilityHidden(true)
 
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(athlete.name)
+                        Text(titleOverride ?? athlete.name)
                             .font(.headingMedium)
                             .foregroundColor(.primary)
 

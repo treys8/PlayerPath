@@ -2,18 +2,20 @@
 //  MilestoneReminderService.swift
 //  PlayerPath
 //
-//  Behavioral nudge #3: after a game ends and stats recalc, diff the season's
-//  `MilestoneEngine.milestones(for:)` against a persisted "already seen" set and
-//  fire a local celebration nudge for newly-earned milestones. Fully local — a
+//  Behavioral nudge #3: after a game is finished (live End or manual Mark
+//  Complete) and stats recalc, diff the season's `MilestoneEngine.milestones(for:)`
+//  against a persisted "already seen" set and fire a local celebration nudge for
+//  the milestones that game earned. Fully local — a
 //  `Milestone` is a derived struct, never persisted, so there is no schema/sync
 //  surface. The seen-set (UserDefaults) is the dedup ledger Feature 5's Badge
 //  wall can later reuse.
 //
 //  Two guards keep this from flooding on a fresh install / reinstall:
 //   1. A launch baseline seed records every existing milestone as "seen".
-//   2. Only milestones dated within `recencyWindow` (i.e. the just-ended game)
-//      can fire, so an un-baselined historical season can't dump its whole
-//      history the first time one of its games ends.
+//   2. A completion fires only the milestones owned by the just-completed game
+//      (matched on `gameID`), so logging a back-dated game still celebrates its
+//      own achievements without dumping a whole un-baselined season's history,
+//      and bulk-backfilling old games fires one game's worth at a time.
 //
 //  "Seen" semantics — IMPORTANT: a milestone counts as seen the moment it is
 //  surfaced IN-APP (the Journal `PPMilestoneMarker` shows it as soon as stats
@@ -46,10 +48,6 @@ final class MilestoneReminderService {
     /// `nil` (absent) means "never seeded" → seed silently. Feature 5 reuses this.
     static let seenKey = "notif_milestoneSeenIDs"
 
-    /// Only milestones earned this recently can fire — the just-ended game's date
-    /// is always within this window; old games' milestones are filtered out.
-    private static let recencyWindow: TimeInterval = 2 * 24 * 3600
-
     /// Short delay so the nudge isn't jarringly instant; if the athlete is still
     /// in-app the foreground `willPresent` suppression hides it (they already see
     /// the milestone in the Journal), and it lands on the Lock Screen if they
@@ -72,18 +70,20 @@ final class MilestoneReminderService {
         UserDefaults.standard.set(ids, forKey: Self.seenKey)
     }
 
-    /// Diff the ended game's season against the seen-set and fire a nudge for
-    /// newly-earned, recent milestones. Pass the season synchronously — the
-    /// `milestones(for:)` read runs before the first `await`, then only plain
-    /// values cross the suspension.
-    func processGameEnd(season: Season?) async {
+    /// Diff the just-completed game's season against the seen-set and fire a
+    /// nudge for the milestones that game earned (unseen + matched on `gameID`).
+    /// Pass the game synchronously — the `milestones(for:)` read runs before the
+    /// first `await`, then only plain values cross the suspension.
+    func processGameEnd(game: Game?) async {
         let enabled = UserDefaults.standard.object(forKey: NotificationPrefKeys.milestoneReminder) as? Bool ?? true
         guard enabled else { return }
-        guard let season, !season.isDeleted, season.modelContext != nil else { return }
+        guard let game, !game.isDeleted, game.modelContext != nil,
+              let season = game.season, !season.isDeleted else { return }
 
         // Snapshot model identity synchronously (before any await) so the tap can
         // route to the milestone's own profile, not whichever athlete happens to
         // be selected — matters for dual-sport / multi-athlete accounts.
+        let gameID = game.id
         let seasonID = season.id.uuidString
         let athleteID = season.athlete?.id.uuidString
 
@@ -100,10 +100,12 @@ final class MilestoneReminderService {
         }
         let seenSet = Set(seen)
 
-        let cutoff = Date().addingTimeInterval(-Self.recencyWindow)
-        let fresh = current.filter { !seenSet.contains($0.id) && $0.date >= cutoff }
+        // Fire only the milestones this game itself earned (unseen + owned by
+        // this game). Back-dated logging still celebrates, and completing many
+        // old games can't flood — each fires only its own achievements.
+        let fresh = current.filter { !seenSet.contains($0.id) && $0.gameID == gameID }
 
-        // Record everything seen now so nothing re-fires on the next end.
+        // Record everything seen now so nothing re-fires on the next completion.
         UserDefaults.standard.set(Array(seenSet.union(currentIDs)), forKey: Self.seenKey)
 
         guard !fresh.isEmpty else { return }

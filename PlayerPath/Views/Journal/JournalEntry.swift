@@ -19,6 +19,7 @@ enum JournalEntry: Identifiable {
     case clip(VideoClip)        // standalone clip (no game/practice parent)
     case photo(Photo)           // standalone photo (no game/practice parent)
     case photoGroup([Photo])    // 2+ standalone photos from the same calendar day
+    case coachFeedback(CoachFeedbackFeedItem)  // a coach left feedback on a local clip
 
     var id: String {
         switch self {
@@ -32,6 +33,9 @@ enum JournalEntry: Identifiable {
             // group shares a calendar day, so any member yields the same key.
             let day = photos.first?.createdAt ?? .distantPast
             return "photogroup-\(Int(Calendar.current.startOfDay(for: day).timeIntervalSince1970))"
+        case .coachFeedback(let item):
+            // One card per feedback notification — stable across rebuilds.
+            return "coachfb-\(item.notifID)"
         }
     }
 
@@ -46,6 +50,10 @@ enum JournalEntry: Identifiable {
         case .photoGroup(let photos):
             // Newest photo of the day anchors the group's feed position.
             return photos.map { $0.createdAt ?? .distantPast }.max() ?? .distantPast
+        case .coachFeedback(let item):
+            // Delivery time, NOT the clip's createdAt — so fresh feedback on an
+            // old clip rises to the top of the feed.
+            return item.deliveredAt
         }
     }
 
@@ -58,6 +66,7 @@ enum JournalEntry: Identifiable {
         // Orphan photos rarely carry a season; the first that does sets the
         // group's sport (nil passes the feed's seasonless sport gate through).
         case .photoGroup(let photos): return photos.compactMap { $0.season?.sport }.first
+        case .coachFeedback(let item): return item.clip.season?.sport
         }
     }
 
@@ -80,6 +89,7 @@ enum JournalEntry: Identifiable {
         case .clip(let c):     return [c]
         case .photo:           return []
         case .photoGroup:      return []
+        case .coachFeedback(let item): return [item.clip]
         }
     }
 
@@ -90,6 +100,7 @@ enum JournalEntry: Identifiable {
         case .clip:                  return []
         case .photo(let p):          return [p]
         case .photoGroup(let group): return group
+        case .coachFeedback:         return []
         }
     }
 
@@ -98,7 +109,12 @@ enum JournalEntry: Identifiable {
     /// row's type tag — the only media accessor the row still reads off the
     /// entry directly; counts + representatives come from `mediaSummary`.
     var containsHighlight: Bool {
-        clips.contains { $0.isHighlight }
+        // A coach-feedback card stands in for its orphan clip (the plain clip card
+        // is deduped out of the feed once feedback arrives), so it MUST still count
+        // as a highlight when that clip is starred — otherwise a coach comment would
+        // silently drop a starred clip out of the Highlights pill.
+        if case .coachFeedback(let item) = self { return item.clip.isHighlight }
+        return clips.contains { $0.isHighlight }
     }
 
     // MARK: - Per-row media summary
@@ -171,6 +187,10 @@ enum JournalEntry: Identifiable {
             // The count IS the headline for a day's set — the row suppresses the
             // redundant "N photos" counts footer so it isn't stated twice.
             return "\(photos.count) photos"
+        case .coachFeedback(let item):
+            // The coach's own words lead; fall back to a neutral label when the
+            // notification body is empty.
+            return item.summary.isEmpty ? "Coach feedback" : item.summary
         }
     }
 

@@ -93,7 +93,10 @@ struct AthleteManagementView: View {
     @State private var showDeleteError = false
     @State private var deleteErrorMessage = ""
     @State private var isDeletingAthlete = false
-    @State private var sortedAthletes: [Athlete] = []
+    /// Athletes collapsed into one entry per person (linked sport-variant
+    /// profiles share a `personGroupID`). A multi-sport person renders as a
+    /// named section with one row per sport; singletons stay a plain row.
+    @State private var athleteGroups: [AthletePersonGroup] = []
 
     private var canAddMoreAthletes: Bool {
         // Use the canonical slot count: linked sport-variant profiles
@@ -103,20 +106,47 @@ struct AthleteManagementView: View {
 
     var body: some View {
         List {
-            Section {
-                ForEach(sortedAthletes) { athlete in
-                    AthleteProfileRow(
-                        athlete: athlete,
-                        isSelected: athlete.id == selectedAthlete?.id
-                    ) {
-                        selectedAthlete = athlete
+            // Single-sport people stay one tight section (unchanged look for the
+            // common case). Delete maps the row offset back to this flat list.
+            if !singletonAthletes.isEmpty {
+                Section {
+                    ForEach(singletonAthletes) { athlete in
+                        AthleteProfileRow(
+                            athlete: athlete,
+                            isSelected: athlete.id == selectedAthlete?.id
+                        ) {
+                            selectedAthlete = athlete
+                        }
+                    }
+                    .onDelete { offsets in
+                        if let index = offsets.first, index < singletonAthletes.count {
+                            Haptics.warning()
+                            athletePendingDelete = singletonAthletes[index]
+                            showingDeleteAthleteAlert = true
+                        }
                     }
                 }
-                .onDelete { offsets in
-                    if let index = offsets.first, index < sortedAthletes.count {
-                        Haptics.warning()
-                        athletePendingDelete = sortedAthletes[index]
-                        showingDeleteAthleteAlert = true
+            }
+
+            // A dual-sport person gets a name-headed section with one row per
+            // sport — so the two linked profiles read as ONE person, not two.
+            ForEach(multiSportGroups) { group in
+                Section(header: Text(group.displayName)) {
+                    ForEach(group.profiles) { athlete in
+                        AthleteProfileRow(
+                            athlete: athlete,
+                            isSelected: athlete.id == selectedAthlete?.id,
+                            titleOverride: athlete.sportType.displayName
+                        ) {
+                            selectedAthlete = athlete
+                        }
+                    }
+                    .onDelete { offsets in
+                        if let index = offsets.first, index < group.profiles.count {
+                            Haptics.warning()
+                            athletePendingDelete = group.profiles[index]
+                            showingDeleteAthleteAlert = true
+                        }
                     }
                 }
             }
@@ -169,15 +199,27 @@ struct AthleteManagementView: View {
             ImprovedPaywallView(user: user)
         }
         .onAppear {
-            updateSortedAthletes()
+            updateAthleteGroups()
         }
         .onChange(of: user.athletes) { _, _ in
-            updateSortedAthletes()
+            updateAthleteGroups()
         }
     }
 
-    private func updateSortedAthletes() {
-        sortedAthletes = (user.athletes ?? []).sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    /// Single-sport people, flattened back to one row each for the tight section.
+    private var singletonAthletes: [Athlete] {
+        athleteGroups.filter { !$0.isMultiSport }.flatMap { $0.profiles }
+    }
+
+    /// People with 2+ linked sport profiles — each gets its own named section.
+    private var multiSportGroups: [AthletePersonGroup] {
+        athleteGroups.filter { $0.isMultiSport }
+    }
+
+    private func updateAthleteGroups() {
+        // groupedByPerson() already sorts groups by name (then by sport within a
+        // group), matching the prior name-sorted flat order for singletons.
+        athleteGroups = (user.athletes ?? []).groupedByPerson()
     }
 
     private func delete(athlete: Athlete) {

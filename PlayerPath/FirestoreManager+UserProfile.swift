@@ -492,7 +492,8 @@ extension FirestoreManager {
             stepErrors.append("photos: \(error.localizedDescription)")
         }
 
-        // MARK: Step 10 — Delete user subcollections (bottom-up: notes → practices → games → seasons → coaches → athletes)
+        // MARK: Step 10 — Delete user subcollections (bottom-up: shots → holes → notes → practices → games → seasons → coaches → athletes).
+        // Firestore does NOT cascade subcollection deletes, so golf holes/shots must be recursed explicitly or they orphan in the user tree.
         do {
             // Fetch and delete athlete documents for this user (paginated — deleted docs fall out of query)
             let athletesBaseQuery = db.collection(FC.users).document(userID).collection(FC.athletes)
@@ -533,18 +534,21 @@ extension FirestoreManager {
                         notesSnap.documents.forEach { batch.deleteDocument($0.reference) }
                         try await batch.commit()
                     }
+                    // Delete golf holes → shots subcollections (Firestore won't cascade)
+                    try await deleteHolesAndShots(under: practiceDoc.reference)
                     try await practiceDoc.reference.delete()
                 }
             }
 
-            // Delete games
+            // Delete games (with nested golf holes → shots subcollections, which Firestore won't cascade)
             let gamesQuery = db.collection(FC.users).document(userID).collection(FC.games)
             while true {
-                let snap = try await gamesQuery.limit(to: 400).getDocuments()
+                let snap = try await gamesQuery.order(by: "__name__").limit(to: 100).getDocuments()
                 guard !snap.documents.isEmpty else { break }
-                let batch = db.batch()
-                snap.documents.forEach { batch.deleteDocument($0.reference) }
-                try await batch.commit()
+                for gameDoc in snap.documents {
+                    try await deleteHolesAndShots(under: gameDoc.reference)
+                    try await gameDoc.reference.delete()
+                }
             }
 
             // Delete seasons
@@ -600,6 +604,35 @@ extension FirestoreManager {
         // Log any partial failures
         if !stepErrors.isEmpty {
             firestoreLog.error("GDPR deletion completed with partial failures for user \(userID): \(stepErrors.joined(separator: "; "))")
+        }
+    }
+
+    /// Recursively deletes the `holes` subcollection — and each hole's nested `shots`
+    /// subcollection — under a game or practice document. Firestore does not cascade
+    /// subcollection deletes, so account/data deletion must recurse explicitly or golf
+    /// hole/shot docs orphan under the user tree. Deletes bottom-up: shots → holes.
+    private func deleteHolesAndShots(under parentRef: DocumentReference) async throws {
+        let holesQuery = parentRef.collection(FC.holes)
+        while true {
+            let holesSnap = try await holesQuery.order(by: "__name__").limit(to: 100).getDocuments()
+            guard !holesSnap.documents.isEmpty else { break }
+
+            for holeDoc in holesSnap.documents {
+                // Delete this hole's shots subcollection first (deepest level)
+                let shotsQuery = holeDoc.reference.collection(FC.shots)
+                while true {
+                    let shotsSnap = try await shotsQuery.limit(to: 400).getDocuments()
+                    guard !shotsSnap.documents.isEmpty else { break }
+                    let batch = db.batch()
+                    shotsSnap.documents.forEach { batch.deleteDocument($0.reference) }
+                    try await batch.commit()
+                }
+            }
+
+            // Then delete this page of hole docs; deleted docs fall out of the next query
+            let batch = db.batch()
+            holesSnap.documents.forEach { batch.deleteDocument($0.reference) }
+            try await batch.commit()
         }
     }
 

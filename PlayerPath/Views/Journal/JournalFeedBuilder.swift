@@ -16,6 +16,7 @@ enum JournalFilter: String, CaseIterable, Identifiable {
     case practices
     case photos
     case highlights
+    case feedback
 
     var id: String { rawValue }
 
@@ -29,6 +30,7 @@ enum JournalFilter: String, CaseIterable, Identifiable {
         case .practices:  return "Practices"
         case .photos:     return "Photos"
         case .highlights: return "Highlights"
+        case .feedback:   return "Feedback"
         }
     }
 
@@ -55,6 +57,9 @@ enum JournalFilter: String, CaseIterable, Identifiable {
             return false
         case .highlights:
             return entry.containsHighlight
+        case .feedback:
+            if case .coachFeedback = entry { return true }
+            return false
         }
     }
 }
@@ -69,14 +74,16 @@ enum JournalFeedBuilder {
         practices: [Practice],
         orphanClips: [VideoClip],
         orphanPhotos: [Photo],
+        coachFeedback: [CoachFeedbackFeedItem] = [],
         filter: JournalFilter
     ) -> [JournalEntry] {
         var entries: [JournalEntry] = []
-        entries.reserveCapacity(games.count + practices.count + orphanClips.count + orphanPhotos.count)
+        entries.reserveCapacity(games.count + practices.count + orphanClips.count + orphanPhotos.count + coachFeedback.count)
         entries.append(contentsOf: games.map(JournalEntry.game))
         entries.append(contentsOf: practices.map(JournalEntry.practice))
         entries.append(contentsOf: orphanClips.map(JournalEntry.clip))
         entries.append(contentsOf: photoEntries(from: orphanPhotos))
+        entries.append(contentsOf: coachFeedback.map(JournalEntry.coachFeedback))
 
         return entries
             .filter { filter.matches($0) }

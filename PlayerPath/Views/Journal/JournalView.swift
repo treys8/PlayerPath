@@ -21,6 +21,10 @@ struct JournalView: View {
 
     @Environment(\.modelContext) private var modelContext
     @Environment(\.ppAccent) private var ppAccent
+    /// Drives the distinct "Coach Feedback" feed cards. Reading `recentNotifications`
+    /// here re-resolves the feedback items whenever a `.coachComment` arrives —
+    /// no schema/sync changes; the timestamp + videoID come from the notification.
+    @ObservedObject private var activityNotifService = ActivityNotificationService.shared
     private var activeSport: Season.SportType { athlete.sportType }
 
     @State private var filter: JournalFilter = .all
@@ -135,11 +139,24 @@ struct JournalView: View {
     /// strip, never as a duplicate feed row — so they never inflate the pills or
     /// the content check. Computed once per body.
     private func buildFeed() -> [JournalEntry] {
-        JournalFeedBuilder.build(
+        // Resolve coach-feedback notifications to local clips up front so we can
+        // both surface them as distinct cards AND suppress the plain orphan-clip
+        // card for the same clip (the feedback card is the richer surface). Runs
+        // once per body — keep it off the per-row path to preserve scroll perf.
+        let feedbackItems = CoachFeedbackFeedItem.resolve(
+            notifications: activityNotifService.recentNotifications,
+            clips: clips
+        )
+        let clipsWithFeedback = Set(feedbackItems.map { $0.clip.id })
+        let orphanClips = JournalFeedBuilder.orphans(from: clips)
+            .filter { !clipsWithFeedback.contains($0.id) }
+
+        return JournalFeedBuilder.build(
             games: games.filter { !$0.isLive },
             practices: practices.filter { !$0.isLive },
-            orphanClips: JournalFeedBuilder.orphans(from: clips),
+            orphanClips: orphanClips,
             orphanPhotos: orphanPhotos,
+            coachFeedback: feedbackItems,
             filter: .all
         )
         .filter { sportMatches($0.sport) }
@@ -240,6 +257,14 @@ struct JournalView: View {
                                 // single photo-heavy day stays one feed card.
                                 Button { openPhotoDay(photos) } label: { feedRow(entry, milestone: milestone) }
                                     .buttonStyle(.plain)
+                            case .coachFeedback(let item):
+                                // Opens the clip in the same full-screen player as a
+                                // regular clip card, and clears the unread dot.
+                                Button {
+                                    markFeedbackRead(item)
+                                    selectedClip = item.clip
+                                } label: { feedRow(entry, milestone: milestone) }
+                                    .buttonStyle(.plain)
                             default:
                                 NavigationLink { destination(for: entry) } label: { feedRow(entry, milestone: milestone) }
                                     .buttonStyle(.plain)
@@ -330,6 +355,17 @@ struct JournalView: View {
         } catch {
             ErrorHandlerService.shared.handle(error, context: "JournalView.refreshable", showAlert: false)
         }
+    }
+
+    // MARK: - Coach feedback
+
+    /// Clears the unread dot for a tapped coach-feedback card by marking its
+    /// source notification read. Fire-and-forget; the @Published change re-renders
+    /// the feed. Keyed by the notification's videoID (the coach video doc ID),
+    /// matching `ActivityNotificationService.markVideoRead`'s predicate.
+    private func markFeedbackRead(_ item: CoachFeedbackFeedItem) {
+        guard let uid = user.firebaseAuthUid, !uid.isEmpty else { return }
+        Task { await activityNotifService.markVideoRead(videoID: item.videoID, forUserID: uid) }
     }
 
     // MARK: - Photo group
@@ -482,6 +518,9 @@ struct JournalView: View {
                 PhotoPersistenceService().deletePhoto(p, context: modelContext)
                 Haptics.light()
             }
+        // Coach-feedback cards open the clip as a full-screen cover (see
+        // `selectedClip`), not a push, so they never route through here.
+        case .coachFeedback:   EmptyView()
         }
     }
 
@@ -577,6 +616,7 @@ struct JournalView: View {
         case .practices:  return "No practices logged yet."
         case .photos:     return "No photos yet."
         case .highlights: return "No highlights yet — star a clip to add one."
+        case .feedback:   return "No coach feedback yet."
         }
     }
 
@@ -587,6 +627,7 @@ struct JournalView: View {
         case .practices:  return "figure.run"
         case .photos:     return "photo"
         case .highlights: return "star"
+        case .feedback:   return "bubble.left.and.text.bubble.right"
         }
     }
 }

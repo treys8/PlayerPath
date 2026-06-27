@@ -486,32 +486,39 @@ class GameService {
             // Track completed game for review prompt eligibility
             ReviewPromptManager.shared.recordCompletedGame()
 
-            NotificationCenter.default.post(name: .gameEnded, object: game)
-
-            // Behavioral re-engagement nudges (local-only, opt-out). Snapshot
-            // model values to plain types BEFORE any await so a concurrent delete
-            // can't invalidate the model mid-flight. The stale-game reminder was
-            // already cancelled above, preserving cancel-before-nudge ordering.
-            // This is the shared "game completed" extension hook (Feature 6 reuses
-            // it) — keep each side-effect a small, well-ordered call.
-            let endedGameID = game.id
-            let isGolfRound = game.season?.sport == .golf
-            let untaggedClipCount = (game.videoClips ?? []).filter {
-                !$0.isTagged && !$0.isDeletedRemotely && $0.sourceCoachVideoID == nil
-            }.count
-            let endedSeason = game.season
-
-            // Milestone diff first: its only model read (milestones(for:)) runs
-            // synchronously at the top of processGameEnd, before any suspension.
-            await MilestoneReminderService.shared.processGameEnd(season: endedSeason)
-            await ClipTaggingReminderService.shared.scheduleIfNeeded(
-                eventID: endedGameID,
-                untaggedCount: untaggedClipCount,
-                eventNoun: isGolfRound ? "round" : "game"
-            )
+            // Shared post-completion side-effects (highlight banner, milestone
+            // celebration, clip-tagging reminder). The same hook runs from the
+            // manual Mark Complete path so both completion routes behave alike.
+            // The stale-game reminder was already cancelled above, preserving
+            // cancel-before-nudge ordering.
+            await runPostCompletionEffects(for: game)
         } catch {
             logger.error("Failed to save game end: \(error.localizedDescription)")
         }
+    }
+
+    /// Shared post-completion side-effects for a finished game (live End or
+    /// manual Mark Complete): announce the event for the highlight banner, fire
+    /// the milestone celebration nudge, and schedule the untagged-clip reminder.
+    /// All model-derived values are snapshotted synchronously before the first
+    /// await so a concurrent delete can't invalidate the model mid-flight.
+    private func runPostCompletionEffects(for game: Game) async {
+        NotificationCenter.default.post(name: .gameEnded, object: game)
+
+        let endedGameID = game.id
+        let isGolfRound = game.season?.sport == .golf
+        let untaggedClipCount = (game.videoClips ?? []).filter {
+            !$0.isTagged && !$0.isDeletedRemotely && $0.sourceCoachVideoID == nil
+        }.count
+
+        // Milestone diff first: its only model read (milestones(for:)) runs
+        // synchronously at the top of processGameEnd, before any suspension.
+        await MilestoneReminderService.shared.processGameEnd(game: game)
+        await ClipTaggingReminderService.shared.scheduleIfNeeded(
+            eventID: endedGameID,
+            untaggedCount: untaggedClipCount,
+            eventNoun: isGolfRound ? "round" : "game"
+        )
     }
 
     func restart(_ game: Game) async {
@@ -593,6 +600,12 @@ class GameService {
             }
 
             ReviewPromptManager.shared.recordCompletedGame()
+
+            // Same post-completion effects as the live End path so manually
+            // completed games (after-the-fact box scores, scanned scorecards)
+            // still celebrate milestones, prompt clip tagging, and surface the
+            // highlight banner.
+            await runPostCompletionEffects(for: game)
         } catch {
             logger.error("Failed to save game completion: \(error.localizedDescription)")
         }

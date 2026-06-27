@@ -33,6 +33,7 @@ Concise reference cards for common tasks.
 
 Pricing, positioning, and roadmap documents (in `docs/` root).
 
+- **[PRIORITIES.md](./PRIORITIES.md)** -- Ranked next-up roadmap (Tier 1–5) + the next needle mover; statuses verified against `main`
 - **[PRICING_MODEL_V2_PROPOSAL.md](./PRICING_MODEL_V2_PROPOSAL.md)** -- Pricing V2 rationale: coach pays the per-seat connection, any athlete tier can share
 - **[PRICING_MODEL_V2_IMPLEMENTATION_PLAN.md](./PRICING_MODEL_V2_IMPLEMENTATION_PLAN.md)** -- Phased implementation plan for the Pricing V2 pivot
 - **[MARKETING_BRIEF.md](./MARKETING_BRIEF.md)** -- Positioning, audience, and messaging brief

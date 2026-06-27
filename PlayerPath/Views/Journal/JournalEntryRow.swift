@@ -11,11 +11,25 @@
 import SwiftUI
 
 struct JournalEntryRow: View {
+    @Environment(\.ppAccent) private var ppAccent
     let entry: JournalEntry
     /// This row's already-resolved top milestone (for the auto-headline + the
     /// marker), or nil for non-game entries / games without one. The feed resolves
     /// it once from a `[UUID: Milestone]` index, so the row never scans an array.
     var milestone: Milestone? = nil
+
+    /// The coach-feedback payload when this is a feedback card, else nil.
+    private var coachFeedbackItem: CoachFeedbackFeedItem? {
+        if case .coachFeedback(let item) = entry { return item }
+        return nil
+    }
+
+    /// A coach-feedback card whose source notification is still unread — drives
+    /// the accent "new" dot in the date rail.
+    private var isUnreadFeedback: Bool {
+        if case .coachFeedback(let item) = entry { return !item.isRead }
+        return false
+    }
 
     var body: some View {
         // Resolve the entry's media ONCE per row render (one fault of each
@@ -48,6 +62,15 @@ struct JournalEntryRow: View {
                     .foregroundStyle(Theme.textSecondary)
             }
 
+            // Coach attribution for a feedback card: who left it. The headline
+            // above already carries the feedback gist (the notification body).
+            if let item = coachFeedbackItem, !item.coachName.isEmpty {
+                Label(item.coachName, systemImage: "person.crop.circle.badge.checkmark")
+                    .font(.ppSubheadline)
+                    .foregroundStyle(ppAccent)
+                    .lineLimit(1)
+            }
+
             media(summary)
 
             footer(summary)
@@ -77,6 +100,12 @@ struct JournalEntryRow: View {
             if let marker = milestone?.markerLabel {
                 PPMilestoneMarker(label: marker)
             } else {
+                // A coach-feedback card that hasn't been opened yet gets an accent
+                // "new" dot beside its tag — the one place accent earns its keep on
+                // this otherwise-calm rail.
+                if isUnreadFeedback {
+                    Circle().fill(ppAccent).frame(width: 6, height: 6)
+                }
                 Text(typeTag).smallCapsLabel(color: Theme.textTertiary)
             }
         }
@@ -92,6 +121,7 @@ struct JournalEntryRow: View {
         case .clip:       return entry.containsHighlight ? "Highlight" : "Clip"
         case .photo:      return "Photo"
         case .photoGroup: return "Photos"
+        case .coachFeedback: return "Feedback"
         }
     }
 
@@ -202,11 +232,15 @@ struct JournalEntryRow: View {
         }
     }
 
-    /// True only for a standalone clip entry — the one card type where tapping
-    /// plays the clip (orphan `.clip`, e.g. a Highlight). Drives whether the
-    /// media tile shows the ▶ / duration "tap to play" affordance.
+    /// True for a single-clip, play-on-tap card — a standalone `.clip` (e.g. a
+    /// Highlight) or a `.coachFeedback` card (also one clip, opened in the player
+    /// on tap). Drives whether the media tile shows the ▶ / duration affordance,
+    /// so a playable card doesn't look static.
     private var isSingleClipEntry: Bool {
-        if case .clip = entry { return true } else { return false }
+        switch entry {
+        case .clip, .coachFeedback: return true
+        default: return false
+        }
     }
 
     /// Small "this is a set" affordance pinned to the cover of a photo-group card,
@@ -266,7 +300,7 @@ struct JournalEntryRow: View {
         // only repeat what's already on screen.
         switch entry {
         case .game, .practice: break
-        case .clip, .photo, .photoGroup: return nil
+        case .clip, .photo, .photoGroup, .coachFeedback: return nil
         }
         var parts: [String] = []
         if summary.clipCount > 0 { parts.append("\(summary.clipCount) clip\(summary.clipCount == 1 ? "" : "s")") }

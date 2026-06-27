@@ -32,6 +32,10 @@ struct MainTabView: View {
     // Global paywall triggered by notification from any tab
     @State private var showingPaywall = false
 
+    // Universal search presented from the More tab (Button + sheet, not a push:
+    // AdvancedSearchView embeds its own NavigationStack, mirroring the Home entry).
+    @State private var showingMoreSearch = false
+
     // Per-tab athlete IDs. All four are updated together when the athlete
     // changes. Updating only the active tab (the prior approach) left zombie
     // ViewModels in hidden tabs that kept reacting to NotificationCenter
@@ -454,6 +458,13 @@ struct MainTabView: View {
 
                 // Features
                 Section("Features") {
+                    Button {
+                        Haptics.light()
+                        showingMoreSearch = true
+                    } label: {
+                        Label("Search", systemImage: "magnifyingglass")
+                            .foregroundColor(.primary)
+                    }
                     NavigationLink(value: MoreDestination.practice) {
                         Label("Practice", systemImage: "figure.run")
                             .foregroundColor(.primary)
@@ -557,6 +568,9 @@ struct MainTabView: View {
                 case .storageSettings:
                     StorageSettingsView()
                 }
+            }
+            .sheet(isPresented: $showingMoreSearch) {
+                AdvancedSearchView(athlete: selectedAthlete)
             }
         }
         .modifier(MoreTabBadgeModifier())

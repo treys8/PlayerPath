@@ -10,12 +10,9 @@ import Foundation
 enum AppStoreConstants {
     /// Numeric App Store ID for PlayerPath.
     ///
-    /// ⚠️ TODO: Set this to the app's numeric Apple ID before shipping the
-    /// Rate / Share rows. Find it in App Store Connect →
-    /// App → General → App Information → "Apple ID" (a ~10-digit number).
-    /// Until it is set, `isConfigured` is false and the Rate/Share rows stay
-    /// hidden so nothing broken ships.
-    static let appStoreID = "" // e.g. "1234567890"
+    /// Found in App Store Connect → App → General → App Information → "Apple ID".
+    /// Once set, `isConfigured` is true and the Rate/Share growth rows appear.
+    static let appStoreID = "6754497342"
 
     /// True once a real App Store ID has been filled in.
     static var isConfigured: Bool { !appStoreID.isEmpty }

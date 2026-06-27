@@ -24,8 +24,8 @@ enum HeadlineBuilder {
         switch entry {
         case .game(let game):
             return headline(for: game, milestone: milestone)
-        case .practice, .clip, .photo, .photoGroup:
-            // Practices/standalone clips/photos don't carry batting/scoring lines.
+        case .practice, .clip, .photo, .photoGroup, .coachFeedback:
+            // Practices/standalone clips/photos/feedback don't carry batting/scoring lines.
             return entry.fallbackHeadline
         }
     }
@@ -47,7 +47,7 @@ enum HeadlineBuilder {
         switch entry {
         case .game(let game):
             return headline(for: game, milestones: milestones)
-        case .practice, .clip, .photo, .photoGroup:
+        case .practice, .clip, .photo, .photoGroup, .coachFeedback:
             return entry.fallbackHeadline
         }
     }

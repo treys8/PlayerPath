@@ -31,26 +31,30 @@ struct AcceptInvitationAthletePickerSheet: View {
                 }
 
                 Section("Your Athletes") {
-                    ForEach(athletes) { athlete in
-                        Button {
-                            onChoose(athlete)
-                            dismiss()
-                        } label: {
-                            HStack {
-                                Image(systemName: "person.crop.circle.fill")
-                                    .font(.title2)
-                                    .foregroundColor(ppAccent)
-                                Text(athlete.name)
-                                    .font(.body)
-                                    .foregroundColor(Theme.textPrimary)
-                                Spacer()
-                                Image(systemName: "chevron.right")
-                                    .font(.caption)
-                                    .foregroundColor(Theme.textTertiary)
+                    // Collapse linked sport-variant profiles into one person. A
+                    // dual-sport person shows their name once, then a per-sport
+                    // choice (the coach works with a specific sport profile), so
+                    // the picker reads as one person rather than two strangers.
+                    ForEach(athletes.groupedByPerson()) { group in
+                        if group.isMultiSport {
+                            Text(group.displayName)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundColor(Theme.textSecondary)
+                                .listRowBackground(Theme.card)
+                            ForEach(group.profiles) { profile in
+                                athleteChoiceButton(
+                                    profile,
+                                    title: profile.sportType.displayName,
+                                    icon: profile.sportType.icon
+                                )
                             }
+                        } else if let profile = group.profiles.first {
+                            athleteChoiceButton(
+                                profile,
+                                title: profile.name,
+                                icon: "person.crop.circle.fill"
+                            )
                         }
-                        .buttonStyle(.plain)
-                        .listRowBackground(Theme.card)
                     }
                 }
             }
@@ -67,5 +71,29 @@ struct AcceptInvitationAthletePickerSheet: View {
                 }
             }
         }
+    }
+
+    /// One tappable athlete/sport choice row. `title` is the person's name for a
+    /// singleton or the sport name for a linked profile under a person header.
+    private func athleteChoiceButton(_ athlete: Athlete, title: String, icon: String) -> some View {
+        Button {
+            onChoose(athlete)
+            dismiss()
+        } label: {
+            HStack {
+                Image(systemName: icon)
+                    .font(.title2)
+                    .foregroundColor(ppAccent)
+                Text(title)
+                    .font(.body)
+                    .foregroundColor(Theme.textPrimary)
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundColor(Theme.textTertiary)
+            }
+        }
+        .buttonStyle(.plain)
+        .listRowBackground(Theme.card)
     }
 }

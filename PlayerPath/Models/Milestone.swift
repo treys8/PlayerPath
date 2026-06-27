@@ -49,8 +49,11 @@ struct Milestone: Identifiable, Hashable {
     let detail: String?
     /// When it happened — used for feed ordering and headline priority.
     let date: Date
-    /// The Game this milestone is linked to, when one exists (for the clip /
-    /// row star marker). Nil for season-spanning count milestones.
+    /// The Game this milestone is linked to — the triggering game (for the clip /
+    /// row star marker, and to scope which milestones a completion celebrates).
+    /// `MilestoneEngine` currently always sets this, including count milestones
+    /// (attributed to the threshold-crossing game). A nil value would still
+    /// surface in-app but, by design, would not fire a completion push.
     let gameID: UUID?
 
     var markerLabel: String { kind.markerLabel }
