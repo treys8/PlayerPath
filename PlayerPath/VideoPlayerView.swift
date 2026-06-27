@@ -168,8 +168,13 @@ struct VideoPlayerView: View {
     /// compute over existing data (MilestoneEngine); nil for clips with no game
     /// or no qualifying milestone — the detail view then falls back to the
     /// plain "Highlight" marker.
+    ///
+    /// The marker is game-level (every clip in a milestone game inherits it), so
+    /// it's suppressed on clips whose OWN play went badly — a strikeout/out
+    /// shouldn't read as a personal best just because its game set one.
     private var clipMilestoneLabel: String? {
         guard let game = clip.game, let season = game.season else { return nil }
+        if clip.playResult?.type.isNegativeOutcome == true { return nil }
         let linked = MilestoneEngine.milestones(for: season).filter { $0.gameID == game.id }
         let top = linked.max { milestoneRank($0.kind) < milestoneRank($1.kind) }
         return top?.markerLabel

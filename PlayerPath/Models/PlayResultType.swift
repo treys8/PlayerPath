@@ -92,6 +92,21 @@ enum PlayResultType: Int, CaseIterable, Codable {
         }
     }
 
+    /// True when the play visibly went badly for the athlete — a batter's out or
+    /// a pitcher's mistake. Used to suppress the game-level "personal best"
+    /// milestone badge on a clip whose own play failed (a strikeout shouldn't
+    /// read as a personal best just because its game set one). Hits, batter
+    /// walks (`.walk`), batter-HBP (reached base), strikes, and pitching
+    /// strikeouts stay positive;
+    /// untagged/golf clips have no type and keep the badge.
+    ///
+    /// Derived from `valence` (the single source of truth for outcome sentiment)
+    /// plus `.ball`: a ball is `.neutral` for feed chips but still counts as a
+    /// negative for milestone suppression. New negative cases belong in `valence`.
+    var isNegativeOutcome: Bool {
+        valence == .negative || self == .ball
+    }
+
     var bases: Int {
         switch self {
         case .single: return 1
