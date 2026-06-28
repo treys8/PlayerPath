@@ -114,6 +114,21 @@ final class AnalyticsService {
         ])
     }
 
+    // MARK: - Recruiting Profile Events
+
+    /// Fired when a recruiting profile is saved. `isFirstSave` distinguishes
+    /// creation from edits; `fieldsCompleted` feeds the fill-in-rate metric that
+    /// gates the Phase 2 (public web page) investment.
+    func trackRecruitingProfileSaved(athleteID: String, sport: String, isFirstSave: Bool,
+                                     hasHeadshot: Bool, fieldsCompleted: Int) {
+        logEvent(isFirstSave ? .recruitingProfileCreated : .recruitingProfileEdited, parameters: [
+            "athlete_id": athleteID,
+            "sport": sport,
+            "has_headshot": hasHeadshot,
+            "fields_completed": fieldsCompleted
+        ])
+    }
+
     // MARK: - Video Events
 
     func trackVideoRecorded(duration: TimeInterval, quality: String, isQuickRecord: Bool) {
@@ -501,6 +516,10 @@ enum AnalyticsEvent: String {
 
     // Navigation
     case screenView = "screen_view"
+
+    // Recruiting profile
+    case recruitingProfileCreated = "recruiting_profile_created"
+    case recruitingProfileEdited = "recruiting_profile_edited"
 }
 
 // MARK: - Bundle Extensions

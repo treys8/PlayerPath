@@ -40,9 +40,9 @@ Trust / revenue / legal. Mostly closing loops already opened — which is why th
 
 ## Tier 3 — Core UX that improves daily use / retention
 
-7. **Dual-sport Person Card UX** — the two-row model ships, but "two sports = one person" stays confusing until linked profiles visually become one card. Finishing the headline feature already built. (Coach session picker `StartSessionSheet` still keys by `athleteUUID` and needs a sport sub-picker — see notes.)
-8. **Coach-feedback-in-feed** — surface coach feedback in the athlete Home/Journal feed (the #1 deferred Journal item). Directly tied to the coach value prop you now charge for.
-9. **Promote universal search to top-level** — `AdvancedSearchView` is buried on the Videos tab. High utility, low effort; add notes/season/athlete-name search.
+7. **Dual-sport Person Card UX** — ✅ **athlete-side DONE (2026-06-27, committed `bea2d87`, build green).** `AthleteManagementView` + `AcceptInvitationAthletePickerSheet` now collapse `personGroupID`-linked profiles into one person via the existing `groupedByPerson()`/`AthletePersonGroup` (singletons stay one tight section; a dual-sport person gets a name-headed section with one row per sport via a new `AthleteProfileRow(titleOverride:)`; per-profile delete preserved). The picker surfaces (AthleteSelectionView + Dashboard switcher) were already grouped. **Deferred:** the coach session picker `StartSessionSheet`/`SessionAthletePickerOverlay` still keys by `athleteUUID` and needs a sport sub-picker — its own follow-up.
+8. **Coach-feedback-in-feed** — ✅ **DONE (2026-06-27, committed `bea2d87`, build green).** A distinct "Coach Feedback" Journal card (`JournalEntry.coachFeedback` + a `Feedback` filter pill), **notification-driven — no schema bump, no sync change.** `CoachFeedbackFeedItem.resolve()` maps `.coachComment` notifications to local clips (by `firestoreId`/`sourceCoachVideoID`), sorts by delivery time, dedups the plain orphan-clip card, and marks read on open. Bounded by the 50-notification listener window + local clips only (unsaved coach-folder feedback stays badged in the folder browser).
+9. **Promote universal search to top-level** — ✅ **DONE (2026-06-27, committed `bea2d87`, build green).** (`AdvancedSearchView` was already on the Home toolbar — the "buried on Videos tab" framing was stale.) Added a More-tab **Search** entry and extended search to clip / game / season **notes**. **Deferred:** cross-athlete "athlete-name" search (would change the single-athlete scope + the sport-scoped Home entry; candidate Plus/Pro perk).
 
 ## Tier 4 — Polish & platform (worth it, not ahead of the above)
 
@@ -58,6 +58,6 @@ Trust / revenue / legal. Mostly closing loops already opened — which is why th
 
 ---
 
-**If you only touch three things next:** close out V2 (#1), confirm the security deploy (#3), then start the recruiting profile (#6). Protect revenue, protect trust, then swing at growth.
+**If you only touch three things next:** Tier 1 is fully cleared and the athlete-facing core of Tier 3 shipped (2026-06-27, commit `bea2d87`), so the lens shifts from *protecting* to *growing*. (1) Start the **recruiting profile (#6)** — the needle mover and clear highest-value next code work, now unblocked by V2. (2) Pick up the deferred Tier-3 follow-ups when convenient — the coach session-picker sport sub-picker (#7) and cross-athlete search (#9). (3) Then Tier 4 polish (celebration animation #10). Trust + revenue are handled; swing at growth.
 
 The bias to watch in this ranking: it's *strategic importance*, not *what's fun*. Tier 1 is tedious; Tier 2 is exciting. Discipline is doing Tier 1 first anyway.

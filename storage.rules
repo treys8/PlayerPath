@@ -122,6 +122,30 @@ service firebase.storage {
     }
 
     // ========================================================================
+    // RECRUITING PROFILE HEADSHOTS
+    // ========================================================================
+    // Path uses Firebase Auth UID as the first segment for ownership enforcement.
+    // One object per athlete, keyed by athlete UUID, so replace overwrites in place.
+    // These rules gate the Storage API (upload/list/delete) to the owner. NOTE the
+    // tokenized download URL returned by getDownloadURL() grants read to anyone
+    // holding it regardless of this rule — fine in Phase 1 (the URL lives only in
+    // the owner's Firestore doc); Phase 2's public page should use CF-signed URLs.
+
+    match /recruiting_headshots/{userID}/{fileName} {
+      // Read: owner only
+      allow read: if isAuthenticated() && request.auth.uid == userID;
+
+      // Write: owner only; max 10MB; must be image (headshots are downscaled client-side)
+      allow write: if isAuthenticated() &&
+                      request.auth.uid == userID &&
+                      request.resource.size < 10 * 1024 * 1024 &&
+                      request.resource.contentType.matches('image/.*');
+
+      // Delete: owner only
+      allow delete: if isAuthenticated() && request.auth.uid == userID;
+    }
+
+    // ========================================================================
     // DENY ALL OTHER PATHS
     // ========================================================================
 

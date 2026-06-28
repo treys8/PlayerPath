@@ -92,6 +92,13 @@ final class Athlete {
     /// `id`, so nil-grouped athletes behave like singletons.
     var personGroupID: UUID?
 
+    /// Recruiting-profile bio, stored as a JSON-encoded `RecruitingInfo` blob
+    /// (mirrors `Game.scorecardData`). Read/write via the `recruiting` accessor.
+    /// One synced field instead of ~20 columns — see `RecruitingInfo.swift`.
+    /// Per-field opt-in PII (GPA, contact) is governed by booleans inside the blob;
+    /// nothing here is public until the Phase 2 publish flow ships.
+    var recruitingProfileJSON: String?
+
     /// The currently active season for this athlete (only one can be active at a time)
     var activeSeason: Season? {
         seasons?.first(where: { $0.isActive })
@@ -154,6 +161,18 @@ final class Athlete {
         let athleteId = id
         Task { @MainActor in
             UploadQueueManager.shared.cancelUploads(forAthleteId: athleteId)
+        }
+
+        // Best-effort: remove the recruiting headshot object from Storage so it
+        // doesn't orphan (keyed by athleteId, same as upload). Idempotent. There
+        // is NO server-side sweep for recruiting_headshots/ (the daily cleanup CF
+        // only covers the videos collection), so this delete + the editor's
+        // Remove button are the only reclaim paths. Uses the user's
+        // firebaseAuthUid — the same owner key the upload wrote under.
+        if recruiting.headshotCloudURL != nil, let ownerUID = user?.firebaseAuthUid {
+            Task { @MainActor in
+                try? await VideoCloudManager.shared.deleteRecruitingHeadshot(athleteId: athleteId, ownerUID: ownerUID)
+            }
         }
 
         // Track which clips are owned by a game or practice so we don't double-delete
@@ -236,7 +255,7 @@ final class Athlete {
 
     // MARK: - Firestore Conversion
     func toFirestoreData() -> [String: Any] {
-        return [
+        var data: [String: Any] = [
             "id": id.uuidString,
             "name": name,
             "userId": user?.id.uuidString ?? "",
@@ -249,5 +268,8 @@ final class Athlete {
             "version": version,
             "isDeleted": false
         ]
+        // Recruiting bio blob (SchemaV33). Optional — omitted when never set.
+        if let recruitingProfileJSON = recruitingProfileJSON { data["recruitingProfileJSON"] = recruitingProfileJSON }
+        return data
     }
 }

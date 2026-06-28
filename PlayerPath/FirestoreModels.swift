@@ -427,6 +427,10 @@ struct FirestoreAthlete: Codable, Identifiable {
     /// Links sport-variant profiles for the same human so they share one
     /// subscription slot. Optional — nil for pre-V24 docs and solo profiles.
     let personGroupID: String?
+    /// JSON-encoded RecruitingInfo bio blob (SchemaV33). Optional — nil for docs
+    /// written before the recruiting profile shipped; synthesized decode handles
+    /// the absent key via decodeIfPresent, so legacy docs decode cleanly.
+    let recruitingProfileJSON: String?
     let createdAt: Date?
     let updatedAt: Date?
     let version: Int
@@ -440,6 +444,7 @@ struct FirestoreAthlete: Codable, Identifiable {
         case userId
         case trackStatsEnabled
         case personGroupID
+        case recruitingProfileJSON
         case createdAt
         case updatedAt
         case version

@@ -15,6 +15,11 @@ extension View {
     func plusRequired() -> some View {
         modifier(TierGateModifier(requiredTier: .plus))
     }
+
+    /// Requires Pro tier (the top player tier). Used by the recruiting profile.
+    func proRequired() -> some View {
+        modifier(TierGateModifier(requiredTier: .pro))
+    }
 }
 
 // MARK: - Tier Gate Modifier
