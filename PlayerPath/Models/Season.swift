@@ -40,6 +40,11 @@ final class Season {
     /// readers fall back with `?? .baseball`.
     var sport: SportType? = SportType.baseball
 
+    /// Optional season category for organization + recruiting context (SchemaV33),
+    /// e.g. Spring / Travel / Tournament. Stored as `SeasonType` rawValue; nil
+    /// until the user picks one. Use `seasonTypeValue` for typed access.
+    var seasonType: String?
+
     // MARK: - Firestore Sync Metadata (Phase 2)
 
     /// Firestore document ID (maps to cloud storage)
@@ -68,10 +73,22 @@ final class Season {
     /// Prefers an active match over an archived match when ranges overlap.
     /// Returns nil if no season's range contains the date.
     static func season(containing date: Date, in seasons: [Season]) -> Season? {
+        let endOfToday = Calendar.current.date(bySettingHour: 23, minute: 59, second: 59, of: Date()) ?? Date()
         var bestMatch: Season?
         for season in seasons {
             guard let start = season.startDate, start <= date else { continue }
-            let end = season.endDate ?? Date.distantFuture
+            // Upper bound: an explicit endDate when present; otherwise end-of-today.
+            // A nil endDate means "open through today" — the season receives today's
+            // and earlier content but must NOT swallow future-dated / clock-skewed
+            // imports (those exceed end-of-today and fall through to the caller's
+            // `?? activeSeason`). This applies to the active season AND to an inactive
+            // season created without an end date (CreateSeasonView with the "Set End
+            // Date" toggle off leaves endDate nil). Bounding rather than skipping the
+            // latter keeps past-dated imports routing to it instead of leaking into the
+            // current season; the active-over-archived tiebreak below still wins any
+            // date both seasons overlap. (Replaces the old `?? Date.distantFuture`,
+            // which let any open-ended season catch-all every future date.)
+            let end = season.endDate ?? endOfToday
             guard date <= end else { continue }
             if bestMatch == nil || (season.isActive && bestMatch?.isActive == false) {
                 bestMatch = season
@@ -201,6 +218,43 @@ final class Season {
         }
     }
 
+    /// Optional season category for organization + recruiting context (SchemaV33).
+    /// Stored on `Season.seasonType` as the rawValue; access typed via
+    /// `seasonTypeValue`.
+    enum SeasonType: String, Codable, CaseIterable {
+        case spring = "Spring"
+        case summer = "Summer"
+        case fall = "Fall"
+        case winter = "Winter"
+        case school = "School"
+        case travel = "Travel"
+        case tournament = "Tournament"
+        case indoor = "Indoor"
+        case other = "Other"
+
+        var displayName: String { rawValue }
+
+        var icon: String {
+            switch self {
+            case .spring:     return "leaf.fill"
+            case .summer:     return "sun.max.fill"
+            case .fall:       return "wind"
+            case .winter:     return "snowflake"
+            case .school:     return "graduationcap.fill"
+            case .travel:     return "airplane"
+            case .tournament: return "trophy.fill"
+            case .indoor:     return "house.fill"
+            case .other:      return "tag.fill"
+            }
+        }
+    }
+
+    /// Typed accessor over the stored `seasonType` rawValue (non-persisted).
+    var seasonTypeValue: SeasonType? {
+        get { seasonType.flatMap(SeasonType.init(rawValue:)) }
+        set { seasonType = newValue?.rawValue }
+    }
+
     init(name: String, startDate: Date, sport: SportType = .baseball) {
         self.id = UUID()
         self.name = name
@@ -304,6 +358,7 @@ final class Season {
             "endDate": endDate as Any,
             "isActive": isActive,
             "sport": (sport ?? .baseball).rawValue,
+            "seasonType": seasonType as Any,
             "notes": notes,
             "createdAt": createdAt ?? Date(),
             "updatedAt": Date(),

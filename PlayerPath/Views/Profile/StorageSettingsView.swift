@@ -19,6 +19,21 @@ struct StorageSettingsView: View {
     @State private var isLoadingStorage = true
     @State private var isCleaningUp = false
     @State private var cleanupMessage: String?
+    @Query private var users: [User]
+
+    private var user: User? { users.first }
+    private var cloudUsedBytes: Int64 { user?.cloudStorageUsedBytes ?? 0 }
+    private var cloudLimitBytes: Int64 {
+        Int64(SubscriptionGate.effectiveAthleteTier.storageLimitGB) * StorageConstants.bytesPerGB
+    }
+    private var cloudFraction: Double {
+        cloudLimitBytes > 0 ? min(1.0, Double(cloudUsedBytes) / Double(cloudLimitBytes)) : 0
+    }
+    private var cloudBarColor: Color {
+        if cloudFraction >= 0.9 { return .red }
+        if cloudFraction >= 0.75 { return Theme.warning }
+        return ppAccent
+    }
 
     var body: some View {
         Form {
@@ -120,6 +135,55 @@ struct StorageSettingsView: View {
                             .font(.headingMedium)
                     }
                 }
+            }
+
+            // Cloud Storage Section — used vs the plan's limit, mirrors the
+            // device-storage bar. Cloud usage drives upload gating in
+            // SyncCoordinator, so surface it before the user hits the wall.
+            Section {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Image(systemName: cloudFraction >= 0.9 ? "exclamationmark.icloud.fill" : "icloud.fill")
+                            .foregroundColor(cloudBarColor)
+                        Text(cloudFraction >= 0.9 ? "Cloud Almost Full" : "Cloud Backup")
+                            .font(.headingMedium)
+                            .foregroundColor(cloudBarColor)
+                    }
+
+                    GeometryReader { geometry in
+                        ZStack(alignment: .leading) {
+                            Rectangle()
+                                .fill(Color.gray.opacity(0.2))
+                                .frame(height: 8)
+                                .cornerRadius(4)
+
+                            Rectangle()
+                                .fill(cloudBarColor)
+                                .frame(width: geometry.size.width * cloudFraction, height: 8)
+                                .cornerRadius(4)
+                        }
+                    }
+                    .frame(height: 8)
+
+                    HStack {
+                        Text("Used:")
+                        Spacer()
+                        Text("\(StorageManager.formatBytes(cloudUsedBytes)) of \(StorageManager.formatBytes(cloudLimitBytes))")
+                            .foregroundColor(.secondary)
+                    }
+                    .font(.bodySmall)
+
+                    if cloudFraction >= 0.9 {
+                        Text("You're near your plan's cloud limit — new videos and photos may stop uploading. Free up space or upgrade your plan.")
+                            .font(.bodySmall)
+                            .foregroundColor(Theme.warning)
+                    }
+                }
+            } header: {
+                Text("Cloud Storage")
+            } footer: {
+                Text("Cloud storage holds your uploaded videos and photos so they back up and sync across devices. Your limit is set by your plan.")
+                    .font(.bodySmall)
             }
 
             // Cleanup Section

@@ -126,6 +126,17 @@ struct PhotoDetailView: View {
         .toolbarBackground(.hidden, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    toggleHighlight()
+                } label: {
+                    Image(systemName: photo.isHighlight ? "star.fill" : "star")
+                        .symbolRenderingMode(.palette)
+                        .foregroundStyle(photo.isHighlight ? .yellow : .white, .white.opacity(0.3))
+                        .font(.title3)
+                }
+                .accessibilityLabel(photo.isHighlight ? "Remove favorite" : "Mark as favorite")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     if let fullImage {
                         ShareLink(item: Image(uiImage: fullImage), preview: SharePreview("Photo", image: Image(uiImage: fullImage)))
@@ -141,6 +152,16 @@ struct PhotoDetailView: View {
                         showingTagSheet = true
                     } label: {
                         Label(photo.athlete?.sport == .golf ? "Tag to Tournament/Practice" : "Tag to Game/Practice", systemImage: "tag")
+                    }
+
+                    if let athlete = photo.athlete {
+                        let isHeadshot = athlete.headshotPhotoId == photo.id
+                        Button {
+                            toggleHeadshot(for: athlete)
+                        } label: {
+                            Label(isHeadshot ? "Remove as Headshot" : "Set as Headshot",
+                                  systemImage: isHeadshot ? "person.crop.circle.badge.xmark" : "person.crop.circle.badge.checkmark")
+                        }
                     }
 
                     Button {
@@ -290,6 +311,24 @@ struct PhotoDetailView: View {
         await Task.detached(priority: .userInitiated) {
             UIImage(contentsOfFile: path)
         }.value
+    }
+
+    private func toggleHighlight() {
+        photo.isHighlight.toggle()
+        photo.needsSync = true
+        ErrorHandlerService.shared.saveContext(modelContext, caller: "PhotoDetail.toggleHighlight")
+        Haptics.light()
+    }
+
+    /// Set this photo as the athlete's headshot, or clear it if it already is.
+    /// Only the `headshotPhotoId` pointer syncs on the athlete; the image rides
+    /// the normal Photo path, so the id resolves to the already-synced Photo on
+    /// another device.
+    private func toggleHeadshot(for athlete: Athlete) {
+        athlete.headshotPhotoId = (athlete.headshotPhotoId == photo.id) ? nil : photo.id
+        athlete.needsSync = true
+        ErrorHandlerService.shared.saveContext(modelContext, caller: "PhotoDetail.toggleHeadshot")
+        Haptics.medium()
     }
 
     private func saveToCameraRoll(_ image: UIImage) {

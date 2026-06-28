@@ -195,6 +195,17 @@ struct SeasonRow: View {
                         .padding(.vertical, 2)
                         .background(seasonStatusColor)
                         .clipShape(Capsule())
+
+                    // Type badge — optional season category (Spring/Travel/…)
+                    if let type = season.seasonTypeValue {
+                        Label(type.displayName, systemImage: type.icon)
+                            .font(.ppCaptionBold)
+                            .foregroundStyle(Theme.textSecondary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 2)
+                            .background(Theme.textSecondary.opacity(0.12))
+                            .clipShape(Capsule())
+                    }
                 }
 
                 HStack(spacing: 12) {

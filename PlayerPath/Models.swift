@@ -394,6 +394,13 @@ final class Practice {
     /// unscanned.
     var scorecardData: String?
 
+    /// Comma-joined drill/focus rawValues for this practice (SchemaV33). Baseball
+    /// uses `DrillType` cases, golf uses `GolfDrillType`; a single session can
+    /// cover several. nil/empty = no focus logged. Use `drillFocuses` for typed,
+    /// sport-aware access. Self-logged by the athlete; forward-compatible with a
+    /// future coach drill-assignment surface.
+    var drillTypes: String?
+
     // MARK: - Firestore Sync Metadata (Phase 3)
 
     /// Firestore document ID (maps to cloud storage)
@@ -446,6 +453,13 @@ final class Practice {
         // Scorecard scan (SchemaV32) — round-level tee + confirmed card JSON.
         if let selectedTee = selectedTee { data["selectedTee"] = selectedTee }
         if let scorecardData = scorecardData { data["scorecardData"] = scorecardData }
+        // Drill/focus tags (SchemaV33). Always present (null when cleared) so
+        // deselecting every focus propagates on the merge update, not just create.
+        if let drillTypes, !drillTypes.isEmpty {
+            data["drillTypes"] = drillTypes
+        } else {
+            data["drillTypes"] = NSNull()
+        }
         return data
     }
 

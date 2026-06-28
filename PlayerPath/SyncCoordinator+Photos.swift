@@ -126,6 +126,47 @@ extension SyncCoordinator {
             )
             for r in remotePhotos { if let id = r.id { globalRemotePhotoIds.insert(id) } }
             let localPhotoIds = Set(photos.compactMap { $0.firestoreId })
+            let localPhotosByFirestoreId = Dictionary(
+                photos.compactMap { p in p.firestoreId.map { ($0, p) } },
+                uniquingKeysWith: { existing, _ in existing }
+            )
+
+            // Merge remote metadata changes onto an EXISTING-local photo (a re-tag,
+            // caption edit, or favorite toggle made on another device). The download
+            // loop below skips these (the `!localPhotoIds.contains` gate), so without
+            // this branch a re-tag on device A never relinks game/practice/season on
+            // device B. Mirrors the re-home branch's clean-wins rule: only apply when
+            // the local row has no pending edits — a dirty local edit wins and uploads
+            // on this same pass.
+            for remotePhoto in remotePhotos {
+                guard let rid = remotePhoto.id, let local = localPhotosByFirestoreId[rid], !local.needsSync else { continue }
+                local.caption = remotePhoto.caption
+                local.isScorecardPhoto = remotePhoto.isScorecardPhoto ?? false
+                local.isHighlight = remotePhoto.isHighlight ?? false
+                // Relink parents by id. Only OVERWRITE when the remote id RESOLVES
+                // locally: a non-nil id that doesn't resolve means the parent hasn't
+                // synced down yet (e.g. a partial sync where the Games/Practices/Seasons
+                // step threw and Photos still ran) — preserve the existing link and let
+                // a later pass relink, rather than clearing a correct tag (a subsequent
+                // local edit would otherwise make the untag permanent via
+                // updatableFirestoreData's `?? NSNull()`). A nil remote id is a real
+                // untag, so clear it.
+                if let gid = remotePhoto.gameId {
+                    if let g = (athlete.games ?? []).first(where: { $0.id.uuidString == gid || $0.firestoreId == gid }) { local.game = g }
+                } else {
+                    local.game = nil
+                }
+                if let pid = remotePhoto.practiceId {
+                    if let p = (athlete.practices ?? []).first(where: { $0.id.uuidString == pid || $0.firestoreId == pid }) { local.practice = p }
+                } else {
+                    local.practice = nil
+                }
+                if let sid = remotePhoto.seasonId {
+                    if let s = (athlete.seasons ?? []).first(where: { $0.id.uuidString == sid || $0.firestoreId == sid }) { local.season = s }
+                } else {
+                    local.season = nil
+                }
+            }
 
             for remotePhoto in remotePhotos where !localPhotoIds.contains(remotePhoto.id ?? "") {
                 // Re-home: this photo already exists locally under a DIFFERENT profile
@@ -136,6 +177,7 @@ extension SyncCoordinator {
                     if !existing.needsSync, existing.athlete?.id != athlete.id {
                         existing.athlete = athlete
                         existing.isScorecardPhoto = remotePhoto.isScorecardPhoto ?? false
+                        existing.isHighlight = remotePhoto.isHighlight ?? false
                         if let gameId = remotePhoto.gameId {
                             existing.game = (athlete.games ?? []).first { $0.id.uuidString == gameId || $0.firestoreId == gameId }
                         }
@@ -168,6 +210,7 @@ extension SyncCoordinator {
                 newPhoto.needsSync = false
                 newPhoto.athlete = athlete
                 newPhoto.isScorecardPhoto = remotePhoto.isScorecardPhoto ?? false
+                newPhoto.isHighlight = remotePhoto.isHighlight ?? false
 
                 // Link to game/practice/season by ID if available
                 if let gameId = remotePhoto.gameId {

@@ -86,6 +86,16 @@ struct PhotoThumbnailCell: View {
                         }
                     }
                 }
+
+                if photo.isHighlight {
+                    VStack {
+                        Spacer()
+                        HStack {
+                            highlightBadge
+                            Spacer()
+                        }
+                    }
+                }
             }
         }
         .aspectRatio(style == .card ? 3.0/4.0 : 1.0, contentMode: .fit)
@@ -105,6 +115,16 @@ struct PhotoThumbnailCell: View {
                     ) {
                         Label("Share Photo", systemImage: "square.and.arrow.up")
                     }
+                }
+
+                Button {
+                    photo.isHighlight.toggle()
+                    photo.needsSync = true
+                    ErrorHandlerService.shared.saveContext(modelContext, caller: "PhotoThumbnailCell.toggleHighlight")
+                    Haptics.light()
+                } label: {
+                    Label(photo.isHighlight ? "Remove Favorite" : "Favorite",
+                          systemImage: photo.isHighlight ? "star.slash" : "star")
                 }
 
                 Button {
@@ -167,6 +187,17 @@ struct PhotoThumbnailCell: View {
             .shadow(color: .black.opacity(0.35), radius: 3, x: 0, y: 1)
             .padding(8)
             .accessibilityLabel("Untagged — not linked to a game or practice")
+    }
+
+    private var highlightBadge: some View {
+        Image(systemName: "star.fill")
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundColor(.white)
+            .padding(5)
+            .background(Color.yellow, in: Circle())
+            .shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 1)
+            .padding(8)
+            .accessibilityLabel("Favorite")
     }
 
     private func syncBadge(icon: String, color: Color) -> some View {

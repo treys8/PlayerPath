@@ -36,6 +36,12 @@ final class Photo {
     /// two-device double-flag is resolved by the deterministic scorecard getter.
     var isScorecardPhoto: Bool = false
 
+    /// User-favorited / hero photo (SchemaV33). Mirrors `VideoClip.isHighlight` —
+    /// surfaces in the Photos "Highlights" filter and the Journal, and a game's
+    /// cover photo is its first highlighted photo. Synced on BOTH write paths
+    /// (`toFirestoreData` + `updatableFirestoreData`) since it toggles after upload.
+    var isHighlight: Bool = false
+
     init(fileName: String, filePath: String) {
         self.id = UUID()
         self.fileName = fileName
@@ -52,7 +58,8 @@ final class Photo {
             "createdAt": createdAt ?? Date(),
             "updatedAt": Date(),
             "isDeleted": false,
-            "isScorecardPhoto": isScorecardPhoto
+            "isScorecardPhoto": isScorecardPhoto,
+            "isHighlight": isHighlight
         ]
         if let caption = caption { data["caption"] = caption }
         if let gameId = game?.firestoreId ?? game?.id.uuidString { data["gameId"] = gameId }
@@ -69,7 +76,8 @@ final class Photo {
             // Photo has TWO write methods; the scorecard flag is set/cleared AFTER
             // the first upload, so it must ride this update path too (the create
             // path alone would silently drop a later flag).
-            "isScorecardPhoto": isScorecardPhoto
+            "isScorecardPhoto": isScorecardPhoto,
+            "isHighlight": isHighlight
         ]
         data["caption"] = caption ?? NSNull()
         data["gameId"] = (game?.firestoreId ?? game?.id.uuidString) ?? NSNull()

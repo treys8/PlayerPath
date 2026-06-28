@@ -35,6 +35,8 @@ struct AddPracticeView: View {
     /// Golf single-live confirmation — shown when this new practice would go
     /// live but another golf activity already is.
     @State private var showingSingleLiveConfirm = false
+    /// Selected drill/focus rawValues for this practice ("what did you work on").
+    @State private var selectedFocuses: Set<String> = []
 
     private var hasMultipleSeasons: Bool {
         (athlete.seasons?.count ?? 0) > 1
@@ -95,6 +97,14 @@ struct AddPracticeView: View {
                         TextField(courseFieldLabel, text: $course)
                             .textInputAutocapitalization(.words)
                     }
+                }
+
+                Section {
+                    PracticeFocusPicker(sport: athlete.sport ?? .baseball, selected: $selectedFocuses)
+                } header: {
+                    Text("Focus").smallCapsLabel()
+                } footer: {
+                    Text("Optional — tag what you worked on. Helps you find these clips later.")
                 }
 
                 if hasMultipleSeasons {
@@ -203,6 +213,7 @@ struct AddPracticeView: View {
         let trimmedCourse = course.trimmingCharacters(in: .whitespacesAndNewlines)
         practice.course = (isGolf && !trimmedCourse.isEmpty) ? trimmedCourse : nil
         practice.athlete = athlete
+        practice.drillFocusRawValues = Array(selectedFocuses)
         practice.needsSync = true
 
         // Go live inline (mirrors GameService.createGame). Ending any other

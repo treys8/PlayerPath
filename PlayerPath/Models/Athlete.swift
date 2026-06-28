@@ -92,6 +92,14 @@ final class Athlete {
     /// `id`, so nil-grouped athletes behave like singletons.
     var personGroupID: UUID?
 
+    /// Points to one of this athlete's `Photo`s chosen as the headshot/avatar
+    /// (SchemaV33). Reuses the photo sync/storage pipeline — only this pointer
+    /// syncs on the athlete; the image rides the normal Photo path, so on another
+    /// device the id resolves to the already-synced Photo. nil = no headshot
+    /// (fall back to initials / the account photo). Feeds the recruiting profile's
+    /// headshot at publish time.
+    var headshotPhotoId: UUID?
+
     /// The currently active season for this athlete (only one can be active at a time)
     var activeSeason: Season? {
         seasons?.first(where: { $0.isActive })
@@ -244,6 +252,7 @@ final class Athlete {
             "sport": (sport ?? .baseball).rawValue,
             "trackStatsEnabled": trackStatsEnabled,
             "personGroupID": personGroupID?.uuidString ?? NSNull(),
+            "headshotPhotoId": headshotPhotoId?.uuidString ?? NSNull(),
             "createdAt": createdAt ?? Date(),
             "updatedAt": Date(),
             "version": version,

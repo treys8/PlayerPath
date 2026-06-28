@@ -55,7 +55,7 @@ extension FirestoreManager {
     ///   - data: Updated athlete data dictionary
     func updateAthlete(userId: String, athleteId: String, data: [String: Any]) async throws {
 
-        let allowedFields: Set<String> = ["id", "name", "primaryRole", "sport", "userId", "version", "trackStatsEnabled", "personGroupID"]
+        let allowedFields: Set<String> = ["id", "name", "primaryRole", "sport", "userId", "version", "trackStatsEnabled", "personGroupID", "headshotPhotoId"]
         var updateData = data.filter { allowedFields.contains($0.key) }
         updateData["updatedAt"] = FieldValue.serverTimestamp()
 
@@ -182,7 +182,7 @@ extension FirestoreManager {
     ///   - data: Updated season data dictionary
     func updateSeason(userId: String, seasonId: String, data: [String: Any]) async throws {
 
-        let allowedFields: Set<String> = ["id", "name", "athleteId", "startDate", "endDate", "isActive", "sport", "notes", "version"]
+        let allowedFields: Set<String> = ["id", "name", "athleteId", "startDate", "endDate", "isActive", "sport", "notes", "seasonType", "version"]
         var updateData = data.filter { allowedFields.contains($0.key) }
         updateData["updatedAt"] = FieldValue.serverTimestamp()
 
@@ -471,7 +471,7 @@ extension FirestoreManager {
     ///   - data: Updated practice data dictionary
     func updatePractice(userId: String, practiceId: String, data: [String: Any]) async throws {
 
-        let allowedFields: Set<String> = ["id", "athleteId", "seasonId", "practiceType", "date", "version", "holes", "isLive", "liveStartDate", "course", "tracksShotByShot", "selectedTee", "scorecardData"]
+        let allowedFields: Set<String> = ["id", "athleteId", "seasonId", "practiceType", "date", "version", "holes", "isLive", "liveStartDate", "course", "tracksShotByShot", "selectedTee", "scorecardData", "drillTypes"]
         var updateData = data.filter { allowedFields.contains($0.key) }
         updateData["updatedAt"] = FieldValue.serverTimestamp()
 
@@ -652,7 +652,7 @@ extension FirestoreManager {
     func updatePhoto(photoId: String, data: [String: Any]) async throws {
         // Mirror the allowlist pattern used by updateAthlete/Season/Game/Practice
         // so callers can't accidentally write arbitrary fields to the photo doc.
-        let allowedFields: Set<String> = ["caption", "gameId", "practiceId", "seasonId", "isScorecardPhoto"]
+        let allowedFields: Set<String> = ["caption", "gameId", "practiceId", "seasonId", "isScorecardPhoto", "isHighlight"]
         var updateData = data.filter { allowedFields.contains($0.key) }
         updateData["updatedAt"] = FieldValue.serverTimestamp()
         try await db.collection(FC.photos).document(photoId).updateData(updateData)

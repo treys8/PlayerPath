@@ -19,6 +19,7 @@ struct CreateSeasonView: View {
     @State private var hasEndDate = false
     @State private var selectedSport: Season.SportType
     @State private var makeActive = true
+    @State private var selectedSeasonType: Season.SeasonType? = nil
     @State private var showingError = false
     @State private var errorMessage = ""
     @State private var isCreating = false
@@ -44,13 +45,22 @@ struct CreateSeasonView: View {
         let year = Calendar.current.component(.year, from: startDate)
         let month = Calendar.current.component(.month, from: startDate)
 
+        var base: [String]
         if month >= 2 && month <= 6 {
-            return ["Spring \(year)", "Spring Season", "\(year) Season"]
+            base = ["Spring \(year)", "Spring Season", "\(year) Season"]
         } else if month >= 7 && month <= 10 {
-            return ["Fall \(year)", "Fall Season", "\(year) Season"]
+            base = ["Fall \(year)", "Fall Season", "\(year) Season"]
         } else {
-            return ["Winter \(year)", "\(year) Season", "Off-Season"]
+            base = ["Winter \(year)", "\(year) Season", "Off-Season"]
         }
+        // Lead with a type-specific suggestion when a category is chosen
+        // (e.g. "Travel 2026"), de-duped against the season-based list.
+        if let type = selectedSeasonType {
+            let typed = "\(type.displayName) \(year)"
+            base.removeAll { $0 == typed }
+            base.insert(typed, at: 0)
+        }
+        return base
     }
 
     var body: some View {
@@ -127,6 +137,20 @@ struct CreateSeasonView: View {
                     Text("Seasons use this profile's sport. To track another sport, add a sport profile from the athlete's settings.")
                 }
 
+                Section {
+                    Picker("Type", selection: $selectedSeasonType) {
+                        Text("None").tag(Season.SeasonType?.none)
+                        ForEach(Season.SeasonType.allCases, id: \.self) { type in
+                            Label(type.displayName, systemImage: type.icon)
+                                .tag(Season.SeasonType?.some(type))
+                        }
+                    }
+                } header: {
+                    Text("Type (Optional)")
+                } footer: {
+                    Text("Categorize this season — helps organize seasons and adds context to a recruiting profile.")
+                }
+
                 if athlete.activeSeason != nil {
                     Section {
                         Toggle("Make this the active season", isOn: $makeActive)
@@ -191,13 +215,15 @@ struct CreateSeasonView: View {
         let newSeason = Season(name: seasonName.trimmingCharacters(in: .whitespacesAndNewlines),
                               startDate: startDate,
                               sport: selectedSport)
+        newSeason.seasonType = selectedSeasonType?.rawValue
 
         if makeActive {
             newSeason.activate()
         } else if hasEndDate {
-            // Past season: stamp an explicit end date so it's a closed interval.
-            // BulkVideoImportViewModel.season(containing:) treats nil endDate as
-            // distantFuture, which would let current-date videos leak in.
+            // Past season: stamp an explicit end date so the interval has a precise
+            // upper bound. (Without one, season(containing:) bounds the season at
+            // end-of-today — past-dated imports still route correctly — but an explicit
+            // end keeps the interval exact and prevents today's content from matching.)
             // Normalize to end-of-day so same-day games/videos aren't excluded.
             newSeason.endDate = Calendar.current.date(bySettingHour: 23, minute: 59, second: 59, of: endDate) ?? endDate
         }

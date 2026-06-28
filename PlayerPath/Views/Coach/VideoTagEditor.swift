@@ -206,31 +206,8 @@ struct FlowLayout: Layout {
 
 // MARK: - Constants
 
-enum DrillType: String, CaseIterable {
-    case battingPractice = "batting_practice"
-    case teeWork = "tee_work"
-    case softToss = "soft_toss"
-    case liveBP = "live_bp"
-    case bullpen = "bullpen"
-    case fieldingDrill = "fielding_drill"
-    case catchPlay = "catch_play"
-    case baseRunning = "base_running"
-    case situational = "situational"
-
-    var displayName: String {
-        switch self {
-        case .battingPractice: return "Batting Practice"
-        case .teeWork: return "Tee Work"
-        case .softToss: return "Soft Toss"
-        case .liveBP: return "Live BP"
-        case .bullpen: return "Bullpen"
-        case .fieldingDrill: return "Fielding Drill"
-        case .catchPlay: return "Catch & Play"
-        case .baseRunning: return "Base Running"
-        case .situational: return "Situational"
-        }
-    }
-}
+// `DrillType` / `GolfDrillType` moved to Models/DrillType.swift (shared with
+// athlete practice logging). Still referenced here by the same names.
 
 enum VideoTag {
     static let suggestions: [String] = [

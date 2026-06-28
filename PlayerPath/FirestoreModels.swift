@@ -427,6 +427,8 @@ struct FirestoreAthlete: Codable, Identifiable {
     /// Links sport-variant profiles for the same human so they share one
     /// subscription slot. Optional — nil for pre-V24 docs and solo profiles.
     let personGroupID: String?
+    /// Athlete headshot pointer (SchemaV33): the chosen Photo's SwiftData UUID.
+    let headshotPhotoId: String?
     let createdAt: Date?
     let updatedAt: Date?
     let version: Int
@@ -440,6 +442,7 @@ struct FirestoreAthlete: Codable, Identifiable {
         case userId
         case trackStatsEnabled
         case personGroupID
+        case headshotPhotoId
         case createdAt
         case updatedAt
         case version
@@ -458,6 +461,8 @@ struct FirestoreSeason: Codable, Identifiable {
     let isActive: Bool
     let sport: String
     var notes: String = ""
+    /// Optional season category rawValue (SchemaV33), e.g. "Spring"/"Travel".
+    let seasonType: String?
     let createdAt: Date?
     let updatedAt: Date?
     let version: Int
@@ -472,6 +477,7 @@ struct FirestoreSeason: Codable, Identifiable {
         case isActive
         case sport
         case notes
+        case seasonType
         case createdAt
         case updatedAt
         case version
@@ -495,6 +501,7 @@ extension FirestoreSeason {
         isActive = try c.decode(Bool.self, forKey: .isActive)
         sport = try c.decodeIfPresent(String.self, forKey: .sport) ?? Season.SportType.baseball.rawValue
         notes = try c.decodeIfPresent(String.self, forKey: .notes) ?? ""
+        seasonType = try c.decodeIfPresent(String.self, forKey: .seasonType)
         createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt)
         updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt)
         version = try c.decode(Int.self, forKey: .version)
@@ -693,6 +700,8 @@ struct FirestorePractice: Codable, Identifiable {
     /// Scorecard scan (SchemaV32). Optional so pre-V32 docs decode cleanly.
     let selectedTee: String?
     let scorecardData: String?
+    /// Comma-joined drill/focus rawValues (SchemaV33). Optional so pre-V33 docs decode cleanly.
+    let drillTypes: String?
 
     enum CodingKeys: String, CodingKey {
         case swiftDataId = "id"
@@ -711,6 +720,7 @@ struct FirestorePractice: Codable, Identifiable {
         case tracksShotByShot
         case selectedTee
         case scorecardData
+        case drillTypes
     }
 }
 
@@ -835,6 +845,8 @@ struct FirestorePhoto: Codable, Identifiable {
     // (decodeIfPresent). A bare non-optional Bool would throw keyNotFound on every
     // legacy doc and drop the whole row. Consumers read `?? false`.
     let isScorecardPhoto: Bool?
+    /// User-favorited / hero photo (SchemaV33). Optional so pre-V33 docs decode cleanly; read `?? false`.
+    let isHighlight: Bool?
 
     enum CodingKeys: String, CodingKey {
         case swiftDataId = "id"
@@ -850,6 +862,7 @@ struct FirestorePhoto: Codable, Identifiable {
         case updatedAt
         case isDeleted
         case isScorecardPhoto
+        case isHighlight
     }
 }
 

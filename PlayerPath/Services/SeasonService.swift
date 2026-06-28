@@ -127,6 +127,15 @@ struct SeasonService {
         season.practices = nil
         season.videoClips = nil
 
+        // Delete the season's own statistics object so a local-only delete doesn't
+        // leave a dangling AthleteStatistics (season == nil, athlete == nil). The
+        // online season-reconcile pass deletes it on the sync-down path too
+        // (SyncCoordinator+Seasons.swift:130–135), and recalculateAthleteStatistics
+        // sweeps orphans, but neither runs on an offline local delete.
+        if let stats = season.seasonStatistics {
+            modelContext.delete(stats)
+        }
+
         modelContext.delete(season)
 
         do {

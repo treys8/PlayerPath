@@ -71,6 +71,16 @@ struct SeasonDetailView: View {
                 .padding(.vertical, 8)
             }
 
+            // Season Recap — year-in-review summary (stats + top moments + reel).
+            Section {
+                NavigationLink {
+                    SeasonRecapView(season: season, athlete: athlete)
+                } label: {
+                    Label("Season Recap", systemImage: "sparkles.rectangle.stack")
+                }
+            }
+            .labelStyle(ActionRowLabelStyle())
+
             // Add Content — routes every upload to this season regardless of
             // whether it is active or archived, and regardless of the photo/
             // video capture dates in the library.
@@ -175,6 +185,12 @@ struct SeasonDetailView: View {
                         showingReactivateConfirmation = true
                     } label: {
                         Label("Reactivate Season", systemImage: "arrow.counterclockwise")
+                    }
+
+                    Button {
+                        recalculateStats()
+                    } label: {
+                        Label("Recalculate Stats", systemImage: "arrow.triangle.2.circlepath")
                     }
                 }
 
@@ -493,6 +509,23 @@ struct SeasonDetailView: View {
                 errorMessage = error.localizedDescription
                 showingError = true
             }
+        }
+    }
+
+    /// Backstop for the rare case where an archived season's aggregated stats drift
+    /// from its games — e.g. a game backfilled into it, or a stat edited through a
+    /// path that didn't recalc. `recalculateAthleteStatistics` re-aggregates every
+    /// season (archived included), so a single call refreshes this season's totals.
+    private func recalculateStats() {
+        do {
+            try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext)
+            Haptics.medium()
+            successTitle = "Stats Recalculated"
+            successMessage = "\(season.displayName)'s statistics were recalculated from its games."
+            showingSuccess = true
+        } catch {
+            errorMessage = error.localizedDescription
+            showingError = true
         }
     }
 

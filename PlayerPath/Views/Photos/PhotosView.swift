@@ -107,6 +107,7 @@ struct PhotosView: View {
         case all = "All"
         case games = "Games"
         case practice = "Practice"
+        case highlights = "Favorites"
     }
 
     enum LayoutMode: String, CaseIterable {
@@ -473,6 +474,8 @@ struct PhotosView: View {
             filtered = filtered.filter { $0.game != nil }
         case .practice:
             filtered = filtered.filter { $0.practice != nil }
+        case .highlights:
+            filtered = filtered.filter { $0.isHighlight }
         }
 
         // Sport filter — hide photos belonging to seasons of the other sport.

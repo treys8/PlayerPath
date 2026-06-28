@@ -119,14 +119,16 @@ struct PPAthleteSwitcher: View {
     }
 
     private var avatar: some View {
-        Circle()
-            .fill(ppAccent.opacity(0.15))
-            .frame(width: 26, height: 26)
-            .overlay(
-                Text(initials)
-                    .font(.labelMedium)
-                    .foregroundStyle(ppAccent)
-            )
+        AthleteHeadshotView(athlete: athlete, size: 26) {
+            Circle()
+                .fill(ppAccent.opacity(0.15))
+                .frame(width: 26, height: 26)
+                .overlay(
+                    Text(initials)
+                        .font(.labelMedium)
+                        .foregroundStyle(ppAccent)
+                )
+        }
     }
 
     private var initials: String {

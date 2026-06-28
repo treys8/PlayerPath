@@ -194,7 +194,7 @@ recruitingProfiles/{profileId}
   │          exitVeloMph, throwingVeloMph, pitchVeloMph,           // baseball/softball
   │          driverSwingSpeedMph, driverCarryYards }                // golf
   ├── stats: { ...sport-branched snapshot... }   // see §3 — denormalized at publish
-  ├── seasonStats: [ ...per-season rows... ]
+  ├── seasonStats: [ ...per-season rows, each tagged with its seasonType... ]
   ├── highlightVideoIds: [String]   // ≤ 8, from athlete's isHighlight clips
   ├── viewCount, lastViewedAt, createdAt, updatedAt
 ```
@@ -203,6 +203,13 @@ Top-level (not under `users/`) because it must be readable by **unauthenticated*
 college coaches. Rule: `allow read: if resource.data.isPublished == true;` plus
 owner read/write. Unpublish → page returns "Profile unavailable", token never
 rotates (a coach's bookmark stays valid).
+
+**Season type context (SchemaV33).** `Season.seasonType` (Spring / Fall / Travel /
+Tournament / …) is now available per season. A published profile may optionally
+scope or emphasize a season category — e.g. a showcase profile featuring only
+`tournament` seasons — and each `seasonStats` row can carry its `seasonType` so a
+coach reads "2026 Travel" instead of a bare date range. Off by default: the full
+season list publishes unless the athlete narrows it.
 
 ### 2B. `RecruitingProfileService.swift` (~160 lines)
 

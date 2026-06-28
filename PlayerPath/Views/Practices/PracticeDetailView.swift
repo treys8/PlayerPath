@@ -176,6 +176,22 @@ struct PracticeDetailView: View {
                 }
             }
 
+            // Focus / drills worked on this session. Editable inline; auto-saves
+            // each toggle (mirrors the Type menu's save-on-change behavior).
+            Section(header: Text("Focus").smallCapsLabel()) {
+                PracticeFocusPicker(
+                    sport: practice.athlete?.sport ?? .baseball,
+                    selected: Binding(
+                        get: { Set(practice.drillFocusRawValues) },
+                        set: { newValue in
+                            practice.drillFocusRawValues = Array(newValue)
+                            practice.needsSync = true
+                            ErrorHandlerService.shared.saveContext(modelContext, caller: "PracticeDetailView.editFocus")
+                        }
+                    )
+                )
+            }
+
             // Live practices are act-first: surface the contextual CTAs (Score
             // Hole / Record) right under the details. Non-live practices are
             // watch-first — their CTA block sits at the bottom (see below).

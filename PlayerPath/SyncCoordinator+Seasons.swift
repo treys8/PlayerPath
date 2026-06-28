@@ -175,6 +175,7 @@ extension SyncCoordinator {
                     if local.notes != remoteSeason.notes { local.notes = remoteSeason.notes; changed = true }
                     let remoteSport = Season.SportType(rawValue: remoteSeason.sport) ?? .baseball
                     if local.sport != remoteSport { local.sport = remoteSport; changed = true }
+                    if local.seasonType != remoteSeason.seasonType { local.seasonType = remoteSeason.seasonType; changed = true }
                     if local.version != remoteSeason.version { local.version = remoteSeason.version; changed = true }
                     // Re-home (legacy-split migration): a remote athleteId change must
                     // re-bind the local parent FK, not just scalar fields. Only when the
@@ -202,6 +203,7 @@ extension SyncCoordinator {
                 newSeason.endDate = remoteSeason.endDate
                 newSeason.isActive = remoteSeason.isActive
                 newSeason.notes = remoteSeason.notes
+                newSeason.seasonType = remoteSeason.seasonType
                 newSeason.createdAt = remoteSeason.createdAt
                 newSeason.lastSyncDate = Date()
                 newSeason.needsSync = false

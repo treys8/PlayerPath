@@ -11,29 +11,8 @@
 
 import Foundation
 
-enum GolfDrillType: String, CaseIterable {
-    case drivingRange = "driving_range"
-    case fullSwing = "full_swing"
-    case shortGame = "short_game"
-    case chipping = "chipping"
-    case pitching = "pitching_golf"
-    case bunker = "bunker"
-    case putting = "putting"
-    case coursePlay = "course_play"
-
-    var displayName: String {
-        switch self {
-        case .drivingRange: return "Driving Range"
-        case .fullSwing:    return "Full Swing"
-        case .shortGame:    return "Short Game"
-        case .chipping:     return "Chipping"
-        case .pitching:     return "Pitching"
-        case .bunker:       return "Bunker"
-        case .putting:      return "Putting"
-        case .coursePlay:   return "Course Play"
-        }
-    }
-}
+// `GolfDrillType` moved to Models/DrillType.swift (shared with athlete practice
+// logging). Still referenced here by the same name.
 
 extension VideoTag {
     static let golfSuggestions: [String] = [

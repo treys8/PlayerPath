@@ -32,21 +32,24 @@ struct AthleteCard: View {
     var body: some View {
         Button(action: action) {
             VStack(spacing: 16) {
-                // Profile icon with background
-                ZStack {
-                    Circle()
-                        .fill(
-                            LinearGradient(
-                                colors: [Theme.accent(for: sport).opacity(0.8), Theme.accent(for: sport)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
+                // Profile icon — the athlete's headshot when set, otherwise the
+                // gradient person placeholder.
+                AthleteHeadshotView(athlete: athlete, size: 60) {
+                    ZStack {
+                        Circle()
+                            .fill(
+                                LinearGradient(
+                                    colors: [Theme.accent(for: sport).opacity(0.8), Theme.accent(for: sport)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
                             )
-                        )
-                        .frame(width: 60, height: 60)
+                            .frame(width: 60, height: 60)
 
-                    Image(systemName: "person.crop.circle.fill")
-                        .font(.largeTitle)
-                        .foregroundColor(.white)
+                        Image(systemName: "person.crop.circle.fill")
+                            .font(.largeTitle)
+                            .foregroundColor(.white)
+                    }
                 }
 
                 VStack(spacing: 6) {
