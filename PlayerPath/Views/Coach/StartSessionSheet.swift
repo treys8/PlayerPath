@@ -40,8 +40,9 @@ struct StartSessionSheet: View {
         var athleteFolders: [String: SharedFolder] = [:]
         for folder in uploadableFolders {
             guard folder.id != nil else { continue }
-            // Prefer per-athlete UUID (one key per real athlete); fall back to account UID for legacy rows.
-            let key = folder.athleteUUID ?? folder.ownerAthleteID
+            // Person-group key first so a dual-sport person's two profiles collapse to ONE row,
+            // matching every other coach surface; fall back to per-athlete UUID, then account UID.
+            let key = folder.personGroupID ?? folder.athleteUUID ?? folder.ownerAthleteID
             if let existing = athleteFolders[key] {
                 if folder.folderType == "lessons" && existing.folderType != "lessons" {
                     athleteFolders[key] = folder

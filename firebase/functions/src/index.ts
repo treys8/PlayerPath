@@ -1017,6 +1017,10 @@ export const onCoachNoteUpdated = functions.firestore
     // Only fire on a non-empty note that changed.
     if (!afterNote || afterNote === beforeNote) return;
 
+    // Drafts must not page the athlete; the cohesive publish push covers them.
+    // Mirrors the guard onNewAnnotation / onNewDrillCard already enforce.
+    if (after.visibility === 'private') return;
+
     const authorId: string = after.coachNoteAuthorID || after.uploadedBy || '';
     const authorName: string = after.coachNoteAuthorName || after.uploadedByName || 'Your coach';
 

@@ -28,6 +28,8 @@ extension FirestoreManager {
             "coachID": coachID,
             "coachName": coachName,
             "templateType": templateType,
+            // Display name the notification CF (onNewDrillCard) reads for the activity-feed body.
+            "templateName": DrillCardTemplate(rawValue: templateType)?.displayName ?? "drill card",
             "categories": categories.map { [
                 "name": $0.name,
                 "rating": $0.rating,

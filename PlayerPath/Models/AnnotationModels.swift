@@ -86,9 +86,15 @@ struct DrillCardCategory: Codable {
 }
 
 enum DrillCardTemplate: String, Codable, CaseIterable {
+    // Baseball / softball
     case battingReview = "batting_review"
     case pitchingReview = "pitching_review"
     case fieldingReview = "fielding_review"
+    // Golf
+    case fullSwing = "full_swing"
+    case shortGame = "short_game"
+    case putting
+    case courseManagement = "course_management"
     case custom
 
     var displayName: String {
@@ -96,7 +102,19 @@ enum DrillCardTemplate: String, Codable, CaseIterable {
         case .battingReview: return "Batting Review"
         case .pitchingReview: return "Pitching Review"
         case .fieldingReview: return "Fielding Review"
+        case .fullSwing: return "Full Swing"
+        case .shortGame: return "Short Game"
+        case .putting: return "Putting"
+        case .courseManagement: return "Course Management"
         case .custom: return "Custom"
+        }
+    }
+
+    /// Whether this template belongs to the golf sport family (used to group the picker).
+    var isGolf: Bool {
+        switch self {
+        case .fullSwing, .shortGame, .putting, .courseManagement: return true
+        default: return false
         }
     }
 
@@ -108,6 +126,14 @@ enum DrillCardTemplate: String, Codable, CaseIterable {
             return ["Windup", "Arm Slot", "Release Point", "Follow Through", "Command"]
         case .fieldingReview:
             return ["Ready Position", "First Step", "Glove Work", "Throwing", "Footwork"]
+        case .fullSwing:
+            return ["Setup / Posture", "Takeaway", "Transition", "Impact", "Finish"]
+        case .shortGame:
+            return ["Setup", "Ball Position", "Contact", "Distance Control", "Trajectory"]
+        case .putting:
+            return ["Setup", "Stroke Path", "Face Control", "Speed / Distance", "Green Reading"]
+        case .courseManagement:
+            return ["Club Selection", "Shot Selection", "Tempo / Routine", "Decision Making", "Mental"]
         case .custom:
             return []
         }

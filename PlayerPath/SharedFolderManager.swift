@@ -313,10 +313,11 @@ class SharedFolderManager {
         isLoading = true
 
         let db = firestore.db
+        let pageLimit = 50
         coachFoldersListener = db.collection(FC.sharedFolders)
             .whereField("sharedWithCoachIDs", arrayContains: coachID)
             .order(by: "updatedAt", descending: true)
-            .limit(to: 50)
+            .limit(to: pageLimit)
             .addSnapshotListener { [weak self] snapshot, error in
                 guard let self else { return }
 
@@ -337,6 +338,12 @@ class SharedFolderManager {
                     return
                 }
 
+                // Only treat a missing folder as a real revocation when this snapshot
+                // is authoritative: a from-cache snapshot can omit folders that still
+                // exist, and a saturated page (== pageLimit docs) drops folders that
+                // merely fell out of the updatedAt window — neither is a revocation.
+                let isAuthoritative = !(snapshot?.metadata.isFromCache ?? true) && docs.count < pageLimit
+
                 let folders = docs.compactMap { doc -> SharedFolder? in
                     do {
                         var folder = try doc.data(as: SharedFolder.self)
@@ -351,6 +358,18 @@ class SharedFolderManager {
                     guard let self else { return }
                     self.isLoading = false
                     self.listenerError = nil
+                    // Folders that dropped out of an authoritative snapshot mean the
+                    // athlete revoked access (the array-contains query no longer
+                    // matches). Purge their cached video files so they can't be
+                    // replayed offline. `self.coachFolders` still holds the prior
+                    // list here. Voluntary leave is covered separately by leaveFolder.
+                    if isAuthoritative {
+                        let removedIDs = Set(self.coachFolders.compactMap { $0.id })
+                            .subtracting(folders.compactMap { $0.id })
+                        for folderID in removedIDs {
+                            CoachVideoCacheService.shared.clearCache(forFolderID: folderID)
+                        }
+                    }
                     self.coachFolders = folders
                 }
             }
@@ -489,6 +508,9 @@ class SharedFolderManager {
             }
         }
         coachFolders.removeAll { $0.id == folderID }
+        // Purge any cached video files for this folder so a coach who left can't
+        // replay clips offline (clearCache had no callers before this).
+        CoachVideoCacheService.shared.clearCache(forFolderID: folderID)
     }
 
     /// Returns true for errors that indicate the operation already completed

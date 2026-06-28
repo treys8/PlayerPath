@@ -598,7 +598,10 @@ service cloud.firestore {
                       && !coachDowngradeBlocked()
                       // Limit drawingData size to ~300KB to prevent abuse
                       && (!('drawingData' in request.resource.data)
-                          || request.resource.data.drawingData.size() < 300000);
+                          || request.resource.data.drawingData.size() < 300000)
+                      // Limit shapes JSON size to ~50KB (mirrors client maxShapesByteSize)
+                      && (!('shapes' in request.resource.data)
+                          || request.resource.data.shapes.size() < 50000);
 
         // Users can edit their own annotations, userID must remain unchanged
         allow update: if isAuthenticated()

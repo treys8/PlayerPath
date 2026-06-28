@@ -10,6 +10,7 @@ import SwiftUI
 import SwiftData
 import AVKit
 import PencilKit
+import UIKit
 
 struct CoachVideoPlayerView: View {
     let folder: SharedFolder
@@ -51,6 +52,11 @@ struct CoachVideoPlayerView: View {
     @State private var showingDraftDiscardConfirm = false
     @State private var draftActionError: String?
     @State private var showingTelestration = false
+    /// Paused video frame captured when telestration opens, drawn *inside* the
+    /// canvas so the coach marks up a WYSIWYG still instead of a dimmed live
+    /// player rect that doesn't match the canvas geometry. Nil → falls back to
+    /// the dim overlay.
+    @State private var telestrationFrame: UIImage?
 
     /// Presents the athlete-selection sheet when a downgrade-blocked coach taps a
     /// disabled feedback affordance or the in-review banner.
@@ -715,13 +721,16 @@ struct CoachVideoPlayerView: View {
                             )
                             if saveFailure == nil {
                                 showingTelestration = false
+                                telestrationFrame = nil
                                 markReviewedOnEngagement()
                             }
                             return saveFailure
                         },
                         onCancel: {
                             showingTelestration = false
-                        }
+                            telestrationFrame = nil
+                        },
+                        frameImage: telestrationFrame
                     )
                 }
 
@@ -828,6 +837,9 @@ struct CoachVideoPlayerView: View {
                             // Delete (removing feedback) stays on plain edit permission.
                             onEdit: canDeliverFeedback ? { card in editingDrillCard = card } : nil,
                             onDelete: canEditCoachNote ? { card in drillCardPendingDelete = card } : nil,
+                            // Edit/Delete surface only on cards THIS coach authored
+                            // (firestore.rules block updates/deletes by other coaches).
+                            currentCoachID: authManager.userID,
                             inline: inline
                         )
                     }
@@ -983,9 +995,16 @@ struct CoachVideoPlayerView: View {
         guard let userID = authManager.userID else { return }
         viewModel.player?.pause()
 
+        // Snapshot what we need for the freeze-frame before any await.
+        let asset = viewModel.player?.currentItem?.asset
+        let atTime = viewModel.currentPlaybackTime
+
         // Skip the network check for the folder owner (athlete) or pre-id folders.
         guard userID != folder.ownerAthleteID, let folderID = folder.id else {
-            showingTelestration = true
+            Task {
+                telestrationFrame = await captureFrame(asset: asset, atSeconds: atTime)
+                showingTelestration = true
+            }
             return
         }
 
@@ -998,11 +1017,26 @@ struct CoachVideoPlayerView: View {
                     viewModel.errorMessage = "You no longer have permission to draw on this folder."
                     return
                 }
+                telestrationFrame = await captureFrame(asset: asset, atSeconds: atTime)
                 showingTelestration = true
             } catch {
                 viewModel.errorMessage = "Unable to verify permissions. Please try again."
             }
         }
+    }
+
+    /// Best-effort single-frame capture at `seconds` for WYSIWYG telestration.
+    /// Uses the async image API (decodes off the main thread); returns nil on
+    /// any failure so the overlay falls back to its dimmed live-video backdrop.
+    private func captureFrame(asset: AVAsset?, atSeconds seconds: Double) async -> UIImage? {
+        guard let asset else { return nil }
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.requestedTimeToleranceBefore = .zero
+        generator.requestedTimeToleranceAfter = .zero
+        let time = CMTime(seconds: max(0, seconds), preferredTimescale: 600)
+        guard let result = try? await generator.image(at: time) else { return nil }
+        return UIImage(cgImage: result.image)
     }
 
     // MARK: - Coach review actions

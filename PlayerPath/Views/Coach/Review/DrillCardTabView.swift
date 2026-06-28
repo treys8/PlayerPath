@@ -19,6 +19,12 @@ struct DrillCardTabView: View {
     /// athlete (read-only) side leaves these nil so no overflow menu shows.
     var onEdit: ((DrillCard) -> Void)? = nil
     var onDelete: ((DrillCard) -> Void)? = nil
+    /// The signed-in user's id. Edit/Delete surface only on cards authored by
+    /// this user — firestore.rules permit update/delete only by the creating
+    /// coach, so showing them on another coach's card would dead-end in
+    /// permission-denied. For an athlete viewer this never matches a card's
+    /// coachID, so it stays hidden (and onEdit/onDelete are nil there anyway).
+    var currentCoachID: String? = nil
     /// Inline (portrait phone): natural-height empty state, no internal scroll —
     /// the page's outer ScrollView handles it. Sidebar (false): self-scrolls
     /// inside the fixed-height sidebar region.
@@ -64,10 +70,11 @@ struct DrillCardTabView: View {
     private var cardList: some View {
         LazyVStack(spacing: 12) {
             ForEach(drillCards) { card in
+                let isAuthor = currentCoachID != nil && card.coachID == currentCoachID
                 DrillCardSummaryView(
                     card: card,
-                    onEdit: onEdit.map { edit in { edit(card) } },
-                    onDelete: onDelete.map { del in { del(card) } }
+                    onEdit: isAuthor ? onEdit.map { edit in { edit(card) } } : nil,
+                    onDelete: isAuthor ? onDelete.map { del in { del(card) } } : nil
                 )
             }
         }

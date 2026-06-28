@@ -41,17 +41,33 @@ struct DrillCardView: View {
                 if existingCard == nil {
                     Section("Template") {
                         Menu {
-                            // Built-in templates
-                            ForEach(DrillCardTemplate.allCases, id: \.self) { template in
-                                Button(template.displayName) {
-                                    applyBuiltInTemplate(template)
+                            // Built-in templates, grouped by sport. (Sport isn't known in
+                            // this context, so both groups always show; the divider keeps it tidy.)
+                            Section("Baseball / Softball") {
+                                ForEach(DrillCardTemplate.allCases.filter { !$0.isGolf && $0 != .custom }, id: \.self) { template in
+                                    Button(template.displayName) {
+                                        applyBuiltInTemplate(template)
+                                    }
+                                }
+                            }
+                            Section("Golf") {
+                                ForEach(DrillCardTemplate.allCases.filter { $0.isGolf }, id: \.self) { template in
+                                    Button(template.displayName) {
+                                        applyBuiltInTemplate(template)
+                                    }
+                                }
+                            }
+                            Section {
+                                Button(DrillCardTemplate.custom.displayName) {
+                                    applyBuiltInTemplate(.custom)
                                 }
                             }
                             if !templateService.drillTemplates.isEmpty {
-                                Divider()
-                                ForEach(templateService.drillTemplates) { saved in
-                                    Button(saved.name) {
-                                        applySavedTemplate(saved)
+                                Section("Saved") {
+                                    ForEach(templateService.drillTemplates) { saved in
+                                        Button(saved.name) {
+                                            applySavedTemplate(saved)
+                                        }
                                     }
                                 }
                             }

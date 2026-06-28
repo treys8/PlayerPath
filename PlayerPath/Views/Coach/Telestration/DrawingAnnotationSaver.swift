@@ -55,6 +55,9 @@ enum DrawingAnnotationSaver {
 
         let base64 = raw.base64EncodedString()
         let shapesJSON = TelestrationShapesCodec.encode(shapes)
+        if let shapesJSON, shapesJSON.utf8.count > TelestrationConstants.maxShapesByteSize {
+            throw SaveError.tooComplex
+        }
 
         do {
             return try await FirestoreManager.shared.createAnnotation(

@@ -22,4 +22,8 @@ enum TelestrationConstants {
     /// Raw PKDrawing byte cap before base64 encoding. Server rule allows ~300KB
     /// base64 (firestore.rules), so this leaves comfortable headroom.
     static let maxDrawingByteSize = 200_000
+    /// Byte cap on the encoded `shapes` JSON payload. Mirrors the server rule
+    /// (firestore.rules annotation create) so a single drawing's geometric
+    /// shapes can't balloon the annotation doc toward Firestore's 1MB limit.
+    static let maxShapesByteSize = 50_000
 }
