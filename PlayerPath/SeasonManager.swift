@@ -61,6 +61,66 @@ struct SeasonManager {
         return newSeason
     }
 
+    /// Builds a suggested name and date bounds for a past season covering an
+    /// imported batch's capture dates. Name reuses `defaultSeasonName(for:)` on
+    /// the earliest date; bounds are start-of-day(earliest) … end-of-day(latest);
+    /// sport is the profile's pinned sport. Used by the post-import backfill prompt.
+    static func draftPastSeason(
+        from earliest: Date,
+        to latest: Date,
+        for athlete: Athlete
+    ) -> (name: String, start: Date, end: Date, sport: Season.SportType) {
+        let cal = Calendar.current
+        let start = cal.startOfDay(for: earliest)
+        let end = cal.date(bySettingHour: 23, minute: 59, second: 59, of: latest) ?? latest
+        return (defaultSeasonName(for: earliest), start, end, athlete.sportType)
+    }
+
+    /// Creates an ARCHIVED (non-active) season for backfilling past content,
+    /// mirroring CreateSeasonView's non-active branch. Deliberately does NOT call
+    /// `activate()`, so the athlete's current active season is untouched. `endDate`
+    /// is normalized to end-of-day so same-day content isn't excluded. Marks
+    /// `needsSync` and saves. Returns the new season, or nil if the save failed
+    /// (the partial insert is rolled back).
+    /// - Note: Caller should kick off `SyncCoordinator.syncSeasons` after this.
+    @discardableResult
+    static func createPastSeason(
+        name: String,
+        startDate: Date,
+        endDate: Date,
+        sport: Season.SportType,
+        for athlete: Athlete,
+        in modelContext: ModelContext
+    ) -> Season? {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let season = Season(
+            name: trimmed.isEmpty ? defaultSeasonName(for: startDate) : trimmed,
+            startDate: startDate,
+            sport: sport
+        )
+        season.endDate = Calendar.current.date(bySettingHour: 23, minute: 59, second: 59, of: endDate) ?? endDate
+        season.athlete = athlete
+        athlete.seasons = athlete.seasons ?? []
+        athlete.seasons?.append(season)
+        season.needsSync = true
+        modelContext.insert(season)
+
+        do {
+            try modelContext.save()
+            AnalyticsService.shared.trackSeasonCreated(
+                seasonID: season.id.uuidString,
+                sport: sport.rawValue,
+                isActive: false
+            )
+            return season
+        } catch {
+            log.error("Failed to create past season: \(error.localizedDescription)")
+            modelContext.delete(season)
+            athlete.seasons?.removeAll { $0.id == season.id }
+            return nil
+        }
+    }
+
     /// Default season name derived from the calendar month
     /// (Spring/Fall/Winter + year).
     static func defaultSeasonName(for date: Date) -> String {

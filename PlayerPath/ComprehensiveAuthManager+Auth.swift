@@ -400,9 +400,21 @@ extension ComprehensiveAuthManager {
         SyncCoordinator.shared.stopPeriodicSync()
         SharedFolderManager.shared.clearAllData()
 
-        SyncCoordinator.shared.clearLocalData(fallbackContext: modelContext)
         SecureURLManager.shared.clearCache()
-        UploadQueueManager.shared.clearAllQueues()
+
+        // Destroy local SwiftData + on-disk media on the NEXT main-runloop turn —
+        // AFTER SwiftUI has torn down the authenticated view hierarchy in response
+        // to isSignedIn=false set above. Deleting @Model objects (User/Athlete/
+        // Game/VideoClip…) while UserMainFlow and its @Query-backed children are
+        // still mounted makes a live view body read a now-deleted PersistentModel
+        // during the same SwiftUI transaction flush, which traps fatally inside
+        // SwiftData (the TestFlight sign-out crash, EXC_BREAKPOINT).
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated {
+                SyncCoordinator.shared.clearLocalData(fallbackContext: self?.modelContext)
+                UploadQueueManager.shared.clearAllQueues()
+            }
+        }
     }
 
     // MARK: - Email Verification

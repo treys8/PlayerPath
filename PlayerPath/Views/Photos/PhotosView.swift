@@ -148,9 +148,7 @@ struct PhotosView: View {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { exitSelectionMode() }
                 }
-            }
-            if isSelecting {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .topBarLeading) {
                     Button(selectedIDs.count == cachedPhotos.count ? "Deselect All" : "Select All") {
                         if selectedIDs.count == cachedPhotos.count {
                             selectedIDs.removeAll()
@@ -159,6 +157,8 @@ struct PhotosView: View {
                         }
                     }
                 }
+            }
+            if isSelecting {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         showingBatchTagSheet = true

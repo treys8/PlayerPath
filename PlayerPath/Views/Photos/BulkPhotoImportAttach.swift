@@ -45,6 +45,13 @@ struct BulkPhotoImportAttach: ViewModifier {
     @State private var toastKind: ToastKind = .success
     @State private var toastTask: Task<Void, Never>?
 
+    // Post-import backfill prompt: photos whose EXIF capture date matched no
+    // season (and fell back to the active season) on a non-pre-pinned import.
+    @State private var unmatchedPhotos: [Photo] = []
+    @State private var unmatchedEarliest: Date?
+    @State private var unmatchedLatest: Date?
+    @State private var showingBackfill = false
+
     func body(content: Content) -> some View {
         content
             .photosPicker(
@@ -109,6 +116,17 @@ struct BulkPhotoImportAttach: ViewModifier {
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
+            .sheet(isPresented: $showingBackfill) {
+                if let athlete {
+                    BackfillSeasonPromptView(
+                        athlete: athlete,
+                        unmatchedCount: unmatchedPhotos.count,
+                        dateRange: (unmatchedEarliest ?? Date())...(unmatchedLatest ?? Date()),
+                        currentSeasonName: athlete.activeSeason?.displayName ?? "your current season",
+                        onResolve: reroute
+                    )
+                }
+            }
     }
 
     private func startImport(_ items: [PhotosPickerItem], athlete: Athlete) {
@@ -123,8 +141,14 @@ struct BulkPhotoImportAttach: ViewModifier {
     private func importPhotos(_ items: [PhotosPickerItem], athlete: Athlete) async {
         let service = PhotoPersistenceService()
         let allSeasons = athlete.seasons ?? []
+        // Pre-pinned imports (a specific game/practice/season was supplied) never
+        // prompt — the caller already chose the target.
+        let prePinned = game != nil || practice != nil || season != nil
         var saved = 0
         var failed = 0
+        unmatchedPhotos = []
+        unmatchedEarliest = nil
+        unmatchedLatest = nil
 
         for (index, item) in items.enumerated() {
             if Task.isCancelled { break }
@@ -143,6 +167,9 @@ struct BulkPhotoImportAttach: ViewModifier {
                 // activeSeason.
                 let exifDate = service.extractCaptureDate(from: data)
                 let resolvedSeason: Season?
+                // Tracks the silent-misfile case: a non-pre-pinned photo whose
+                // EXIF date matched no season and fell back to the active one.
+                var dateUnmatched = false
                 if let game {
                     resolvedSeason = game.season ?? athlete.activeSeason
                 } else if let practice {
@@ -150,7 +177,14 @@ struct BulkPhotoImportAttach: ViewModifier {
                 } else if let season {
                     resolvedSeason = season
                 } else if let exifDate {
-                    resolvedSeason = Season.season(containing: exifDate, in: allSeasons) ?? athlete.activeSeason
+                    let dateMatch = Season.season(containing: exifDate, in: allSeasons)
+                    resolvedSeason = dateMatch ?? athlete.activeSeason
+                    // Only flag when genuinely OLDER than the current season (see
+                    // BulkVideoImportViewModel): newer-than-any/future-dated photos
+                    // stay on the active season.
+                    if let start = athlete.activeSeason?.startDate {
+                        dateUnmatched = (dateMatch == nil && exifDate < start)
+                    }
                 } else {
                     resolvedSeason = athlete.activeSeason
                 }
@@ -159,7 +193,7 @@ struct BulkPhotoImportAttach: ViewModifier {
                 // nudge by a microsecond per index so the list remains stable.
                 let nudgedDate = exifDate?.addingTimeInterval(Double(index) / 1_000_000.0)
 
-                _ = try await service.savePhotoFromData(
+                let photo = try await service.savePhotoFromData(
                     data,
                     context: modelContext,
                     athlete: athlete,
@@ -169,6 +203,12 @@ struct BulkPhotoImportAttach: ViewModifier {
                     captureDate: nudgedDate
                 )
                 saved += 1
+
+                if !prePinned, dateUnmatched, let exifDate {
+                    unmatchedPhotos.append(photo)
+                    unmatchedEarliest = min(unmatchedEarliest ?? exifDate, exifDate)
+                    unmatchedLatest = max(unmatchedLatest ?? exifDate, exifDate)
+                }
             } catch {
                 ErrorHandlerService.shared.handle(error, context: "BulkPhotoImportAttach.import", showAlert: false)
                 failed += 1
@@ -178,6 +218,34 @@ struct BulkPhotoImportAttach: ViewModifier {
         isImporting = false
         importTask = nil
         showResult(saved: saved, failed: failed)
+
+        // Offer to re-home photos that were filed on the current season only
+        // because their capture dates matched no season.
+        if !unmatchedPhotos.isEmpty, athlete.activeSeason != nil {
+            showingBackfill = true
+        }
+    }
+
+    /// Re-homes the date-unmatched photos to the chosen season (nil = keep on
+    /// current). Marks them dirty and kicks off a background metadata sync.
+    private func reroute(to season: Season?) {
+        defer { unmatchedPhotos = [] }
+        guard let season else { return }
+        for photo in unmatchedPhotos {
+            photo.season = season
+            photo.needsSync = true
+            photo.version += 1
+        }
+        ErrorHandlerService.shared.saveContext(modelContext, caller: "BulkPhotoImport.reroute")
+        if let user = athlete?.user {
+            Task {
+                do {
+                    try await SyncCoordinator.shared.syncPhotos(for: user)
+                } catch {
+                    ErrorHandlerService.shared.handle(error, context: "BulkPhotoImport.syncPhotos", showAlert: false)
+                }
+            }
+        }
     }
 
     private func showResult(saved: Int, failed: Int) {

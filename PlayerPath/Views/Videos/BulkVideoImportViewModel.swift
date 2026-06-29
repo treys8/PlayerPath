@@ -28,6 +28,14 @@ final class BulkVideoImportViewModel {
     var status: Status = .idle
     private(set) var isCancelled = false
 
+    /// Clips whose capture date matched no existing season and therefore fell
+    /// back to the active season — surfaced post-import by BulkVideoImportSheet
+    /// so the user can re-home them to a past season. Populated only for
+    /// non-pre-pinned imports (no game/practice/seasonOverride).
+    private(set) var unmatchedClips: [VideoClip] = []
+    private(set) var unmatchedEarliest: Date?
+    private(set) var unmatchedLatest: Date?
+
     private var reservedThisSession: Int64 = 0
 
     func cancel() {
@@ -53,6 +61,9 @@ final class BulkVideoImportViewModel {
         var failed = 0
         var stoppedForQuota = false
         reservedThisSession = 0
+        unmatchedClips = []
+        unmatchedEarliest = nil
+        unmatchedLatest = nil
 
         let tier = SubscriptionGate.effectiveAthleteTier
         let limitBytes = Int64(tier.storageLimitGB) * StorageConstants.bytesPerGB
@@ -126,14 +137,33 @@ final class BulkVideoImportViewModel {
             // Otherwise, an explicit seasonOverride wins over date-matching;
             // fall back to matching by capture date, then the active season.
             let matchedSeason: Season?
+            // Tracks the "silent misfile" case: a non-pre-pinned clip whose
+            // capture date matched no season and fell back to the active one.
+            // Collected after a successful save so the sheet can offer to
+            // re-home these to a past season.
+            let dateUnmatched: Bool
             if let game = game {
                 matchedSeason = game.season ?? activeSeason
+                dateUnmatched = false
             } else if let practice = practice {
                 matchedSeason = practice.season ?? activeSeason
+                dateUnmatched = false
             } else if let seasonOverride {
                 matchedSeason = seasonOverride
+                dateUnmatched = false
             } else {
-                matchedSeason = Season.season(containing: originalDate, in: allSeasons) ?? activeSeason
+                let dateMatch = Season.season(containing: originalDate, in: allSeasons)
+                matchedSeason = dateMatch ?? activeSeason
+                // Only flag for re-homing when the clip is genuinely OLDER than the
+                // current season (predates its start). A clip that matches no season
+                // because it's newer-than-any (e.g. a future / clock-skewed capture
+                // date) is left on the active season — the "past season" prompt
+                // wouldn't apply, and collecting it would seed a future-dated draft.
+                if let start = activeSeason?.startDate {
+                    dateUnmatched = (dateMatch == nil && originalDate < start)
+                } else {
+                    dateUnmatched = false
+                }
             }
 
             let clip = VideoClip(
@@ -185,6 +215,12 @@ final class BulkVideoImportViewModel {
 
                 succeeded += 1
                 reservedThisSession += fileSize
+
+                if dateUnmatched {
+                    unmatchedClips.append(clip)
+                    unmatchedEarliest = min(unmatchedEarliest ?? originalDate, originalDate)
+                    unmatchedLatest = max(unmatchedLatest ?? originalDate, originalDate)
+                }
             } catch {
                 modelContext.delete(clip)
                 VideoFileManager.cleanup(url: stableURL)

@@ -446,10 +446,10 @@ extension ComprehensiveAuthManager {
             authLog.warning("Post-auth-delete: error deleting Firestore profile: \(error.localizedDescription)")
         }
 
-        UploadQueueManager.shared.clearAllQueues()
-        SyncCoordinator.shared.clearLocalData(fallbackContext: modelContext)
-
-        // Step 4: Clear local state
+        // Step 4: Clear local in-memory/auth state FIRST so SwiftUI unmounts the
+        // authenticated view hierarchy before we delete the SwiftData models those
+        // views reference. Deleting @Model objects under a still-mounted UserMainFlow
+        // traps fatally inside SwiftData (same class of bug as the sign-out crash).
         currentFirebaseUser = nil
         isSignedIn = false
         userProfile = nil
@@ -462,6 +462,15 @@ extension ComprehensiveAuthManager {
         hasCompletedOnboarding = false
 
         clearPersistedUserDefaults()
+
+        // Wipe local SwiftData + upload queue on the next main-runloop turn, after
+        // the authenticated views are gone (see clearLocalSignedInState()).
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated {
+                UploadQueueManager.shared.clearAllQueues()
+                SyncCoordinator.shared.clearLocalData(fallbackContext: self?.modelContext)
+            }
+        }
 
         AnalyticsService.shared.trackAccountDeletionCompleted(userID: userID)
         AnalyticsService.shared.clearUserID()

@@ -1202,6 +1202,203 @@ export const backfillInvitationsOnSignup = functions.auth.user().onCreate(async 
 });
 
 /**
+ * Server-authoritative backstop for account-data deletion.
+ *
+ * The client (`ComprehensiveAuthManager.deleteAccount`) deletes the Firebase Auth
+ * user FIRST, then runs a best-effort Firestore/Storage purge. Once the Auth user
+ * is gone there is no authenticated session left to retry, so a crash/background/
+ * network drop mid-purge would orphan the user's data forever. This trigger fires
+ * on every Auth user deletion (client `user.delete()`, Console, or a single Admin
+ * `deleteUser()` — NOT bulk `deleteUsers()`) and finishes the cleanup.
+ *
+ * It mirrors `FirestoreManager.deleteUserProfile`, but collapses every owned
+ * document tree into a single `recursiveDelete` (Admin SDK), so only cross-user
+ * references and Storage prefixes are hand-written. Every step is idempotent, so
+ * running concurrently with the client purge — or firing more than once — is safe.
+ */
+export const cleanupUserDataOnDelete = functions.auth.user().onDelete(async (user) => {
+  const uid = user.uid;
+  const email = user.email ? user.email.toLowerCase().trim() : null;
+  const db = admin.firestore();
+  const bucket = admin.storage().bucket();
+  const errors: string[] = [];
+
+  // Run one cleanup step, capturing (never re-throwing) its error so a single
+  // failure can't abort the remaining steps.
+  const step = async (name: string, fn: () => Promise<void>): Promise<void> => {
+    try {
+      await fn();
+    } catch (err) {
+      errors.push(`${name}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  // Delete every doc matched by an equality query, paginating because deleted docs
+  // fall out of the result set on the next page.
+  const deleteByQuery = async (
+    query: FirebaseFirestore.Query
+  ): Promise<void> => {
+    while (true) {
+      const snap = await query.limit(400).get();
+      if (snap.empty) break;
+      const batch = db.batch();
+      snap.docs.forEach((d) => batch.delete(d.ref));
+      await batch.commit();
+      if (snap.size < 400) break;
+    }
+  };
+
+  // 1. Entire user document tree: profile + all subcollections at any depth
+  //    (athletes→coaches, seasons, games→holes→shots, practices→notes).
+  await step('user tree', () =>
+    db.recursiveDelete(db.collection('users').doc(uid))
+  );
+
+  // 2. Shared folders OWNED by this user, plus their videos (and each video's
+  //    annotations/comments/drillCards subcollections via recursiveDelete).
+  await step('owned folders', async () => {
+    while (true) {
+      const folders = await db.collection('sharedFolders')
+        .where('ownerAthleteID', '==', uid)
+        .limit(50)
+        .get();
+      if (folders.empty) break;
+      for (const folderDoc of folders.docs) {
+        const videos = await db.collection('videos')
+          .where('sharedFolderID', '==', folderDoc.id)
+          .get();
+        for (const v of videos.docs) {
+          await db.recursiveDelete(v.ref);
+        }
+        await db.recursiveDelete(folderDoc.ref);
+      }
+      if (folders.size < 50) break;
+    }
+  });
+
+  // 3. Remove this user as a shared coach from OTHER users' folders (removal only —
+  //    consistent with the sharedFolders rules invariant).
+  await step('coach membership', async () => {
+    while (true) {
+      const snap = await db.collection('sharedFolders')
+        .where('sharedWithCoachIDs', 'array-contains', uid)
+        .limit(50)
+        .get();
+      if (snap.empty) break;
+      for (const folderDoc of snap.docs) {
+        await folderDoc.ref.update({
+          sharedWithCoachIDs: admin.firestore.FieldValue.arrayRemove(uid),
+          [`sharedWithCoachNames.${uid}`]: admin.firestore.FieldValue.delete(),
+          [`permissions.${uid}`]: admin.firestore.FieldValue.delete(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }
+      if (snap.size < 50) break;
+    }
+  });
+
+  // 4. Content this user authored across ALL videos (collectionGroup sweeps).
+  await step('annotations', () =>
+    deleteByQuery(db.collectionGroup('annotations').where('userID', '==', uid))
+  );
+  await step('comments', () =>
+    deleteByQuery(db.collectionGroup('comments').where('authorId', '==', uid))
+  );
+  await step('drill cards', () =>
+    deleteByQuery(db.collectionGroup('drillCards').where('coachID', '==', uid))
+  );
+
+  // 5. Coach sessions created by this user.
+  await step('coach sessions', () =>
+    deleteByQuery(db.collection('coachSessions').where('coachID', '==', uid))
+  );
+
+  // 6. Coach templates (parent doc + quickCues subcollection).
+  await step('coach templates', () =>
+    db.recursiveDelete(db.collection('coachTemplates').doc(uid))
+  );
+
+  // 7. Notifications (parent doc + items subcollection).
+  await step('notifications', () =>
+    db.recursiveDelete(db.collection('notifications').doc(uid))
+  );
+
+  // 8. Invitations referencing this user by ID, and by email (GDPR right to erasure).
+  await step('athlete invitations', () =>
+    deleteByQuery(db.collection('invitations').where('athleteID', '==', uid))
+  );
+  await step('coach invitations', () =>
+    deleteByQuery(db.collection('invitations').where('coachID', '==', uid))
+  );
+  if (email) {
+    await step('coachEmail invitations', () =>
+      deleteByQuery(db.collection('invitations').where('coachEmail', '==', email))
+    );
+    await step('athleteEmail invitations', () =>
+      deleteByQuery(db.collection('invitations').where('athleteEmail', '==', email))
+    );
+  }
+
+  // 9. Coach access revocations referencing this user.
+  await step('access revocations (athlete)', () =>
+    deleteByQuery(db.collection('coach_access_revocations').where('athleteID', '==', uid))
+  );
+  await step('access revocations (coach)', () =>
+    deleteByQuery(db.collection('coach_access_revocations').where('coachID', '==', uid))
+  );
+
+  // 10. Videos this user uploaded into OTHER users' folders: mark orphaned, do NOT
+  //     delete (they belong to the folder owner). Cursor pagination because updated
+  //     docs still match the query.
+  await step('orphan videos', async () => {
+    let lastDoc: FirebaseFirestore.QueryDocumentSnapshot | undefined;
+    while (true) {
+      let q = db.collection('videos')
+        .where('uploadedBy', '==', uid)
+        .orderBy(admin.firestore.FieldPath.documentId())
+        .limit(400);
+      if (lastDoc) q = q.startAfter(lastDoc);
+      const snap = await q.get();
+      if (snap.empty) break;
+      lastDoc = snap.docs[snap.docs.length - 1];
+      const batch = db.batch();
+      for (const d of snap.docs) {
+        batch.update(d.ref, {
+          isOrphaned: true,
+          orphanedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }
+      await batch.commit();
+      if (snap.size < 400) break;
+    }
+  });
+
+  // 11. Photos uploaded by this user.
+  await step('photos', () =>
+    deleteByQuery(db.collection('photos').where('uploadedBy', '==', uid))
+  );
+
+  // 12. pendingDeletions records owned by this user.
+  await step('pending deletions', () =>
+    deleteByQuery(db.collection('pendingDeletions').where('ownerUID', '==', uid))
+  );
+
+  // 13. Storage: delete everything under the user's own namespaces (404-tolerant).
+  await step('storage videos', () =>
+    bucket.deleteFiles({ prefix: `athlete_videos/${uid}/` })
+  );
+  await step('storage photos', () =>
+    bucket.deleteFiles({ prefix: `athlete_photos/${uid}/` })
+  );
+
+  if (errors.length > 0) {
+    console.error(`cleanupUserDataOnDelete completed with partial failures for ${uid}: ${errors.join('; ')}`);
+  } else {
+    console.log(`✅ cleanupUserDataOnDelete purged all data for ${uid}`);
+  }
+});
+
+/**
  * Triggers when a new invitation is created in Firestore.
  * Routes to the appropriate email template based on invitation type:
  * - Athlete → Coach: sends coach a collaboration invite with folder/permissions

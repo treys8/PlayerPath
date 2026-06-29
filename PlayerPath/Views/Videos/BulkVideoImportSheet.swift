@@ -25,6 +25,8 @@ struct BulkVideoImportSheet: View {
     @State private var viewModel = BulkVideoImportViewModel()
     @State private var hasStarted = false
     @State private var seasonOverride: Season?
+    @State private var showingBackfill = false
+    @State private var pendingCompletion: (succeeded: Int, failed: Int, stoppedForQuota: Bool, wasCancelled: Bool)?
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Environment(\.ppAccent) private var ppAccent
@@ -51,6 +53,15 @@ struct BulkVideoImportSheet: View {
             .task {
                 guard !shouldConfirm else { return }
                 await startImport()
+            }
+            .sheet(isPresented: $showingBackfill, onDismiss: finishAfterBackfill) {
+                BackfillSeasonPromptView(
+                    athlete: athlete,
+                    unmatchedCount: viewModel.unmatchedClips.count,
+                    dateRange: (viewModel.unmatchedEarliest ?? Date())...(viewModel.unmatchedLatest ?? Date()),
+                    currentSeasonName: athlete.activeSeason?.displayName ?? "your current season",
+                    onResolve: reroute
+                )
             }
         }
     }
@@ -168,8 +179,46 @@ struct BulkVideoImportSheet: View {
             seasonOverride: seasonOverride ?? preselectedSeason
         )
         if case .completed(let succeeded, let failed, let quota, let cancelled) = viewModel.status {
-            onComplete(succeeded, failed, quota, cancelled)
-            dismiss()
+            // If any clips were filed on the current season only because their
+            // capture dates matched no season, offer to re-home them before
+            // finishing. Otherwise complete immediately (legacy behavior).
+            if !viewModel.unmatchedClips.isEmpty, athlete.activeSeason != nil {
+                pendingCompletion = (succeeded, failed, quota, cancelled)
+                showingBackfill = true
+            } else {
+                onComplete(succeeded, failed, quota, cancelled)
+                dismiss()
+            }
         }
+    }
+
+    /// Re-homes the date-unmatched clips to the chosen season (nil = keep on
+    /// current). Marks them dirty and kicks off a background metadata sync.
+    private func reroute(to season: Season?) {
+        guard let season else { return }
+        for clip in viewModel.unmatchedClips {
+            clip.season = season
+            clip.seasonName = season.displayName
+            clip.needsSync = true
+            clip.version += 1
+        }
+        ErrorHandlerService.shared.saveContext(modelContext, caller: "BulkVideoImport.reroute")
+        if let user = athlete.user {
+            Task {
+                do {
+                    try await SyncCoordinator.shared.syncVideos(for: user)
+                } catch {
+                    ErrorHandlerService.shared.handle(error, context: "BulkVideoImport.syncVideos", showAlert: false)
+                }
+            }
+        }
+    }
+
+    /// Fires once the backfill prompt is dismissed (after the user resolved it),
+    /// completing the import and closing the sheet.
+    private func finishAfterBackfill() {
+        let result = pendingCompletion ?? (0, 0, false, false)
+        onComplete(result.succeeded, result.failed, result.stoppedForQuota, result.wasCancelled)
+        dismiss()
     }
 }

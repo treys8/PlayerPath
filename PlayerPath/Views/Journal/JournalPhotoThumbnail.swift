@@ -26,10 +26,13 @@ struct JournalPhotoThumbnail: View {
                 // resizable image's intrinsic size leaks into layout and the
                 // enclosing PPMediaTile's .aspectRatio(.fill) grows unbounded
                 // instead of clamping to 16:9 (matches VideoThumbnailView).
+                // alignment: .top anchors the fill to the top so a portrait
+                // photo overflowing the wide 16:9 box is cropped from the
+                // bottom — preserving heads/subjects instead of center-slicing.
                 Image(uiImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
-                    .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
+                    .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .top)
                     .clipped()
             } else {
                 Image(systemName: fallbackGlyph)

@@ -92,7 +92,13 @@ struct VideoThumbnailView: View {
                             minWidth: fillsContainer ? 0 : safeSize.width,
                             maxWidth: fillsContainer ? .infinity : safeSize.width,
                             minHeight: fillsContainer ? 0 : safeSize.height,
-                            maxHeight: fillsContainer ? .infinity : safeSize.height
+                            maxHeight: fillsContainer ? .infinity : safeSize.height,
+                            // When embedded as a hero (fillsContainer), a portrait
+                            // clip thumbnail overflows the wide 16:9 tile — anchor
+                            // the fill to the top so it crops from the bottom and
+                            // keeps the subject's head. Fixed-size grid thumbnails
+                            // (fillsContainer == false) stay center-cropped.
+                            alignment: fillsContainer ? .top : .center
                         )
                         .clipped()
                         .transition(.opacity)
