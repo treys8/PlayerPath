@@ -34,6 +34,12 @@ protocol PlayResultAccumulator: AnyObject {
     var fastballSpeedTotal: Double { get set }
     var offspeedPitchCount: Int { get set }
     var offspeedSpeedTotal: Double { get set }
+    var outsRecorded: Int { get set }
+    var earnedRuns: Int { get set }
+    var runsAllowed: Int { get set }
+    var hitsAllowed: Int { get set }
+    var homeRunsAllowed: Int { get set }
+    var battersFaced: Int { get set }
 }
 
 extension PlayResultAccumulator {
@@ -49,7 +55,10 @@ extension PlayResultAccumulator {
     ///   - pitchSpeed: When provided alongside a pitchType, routed into the fastball or
     ///     off-speed velocity aggregates used by the Avg FB / Avg Off-Speed cards.
     func applyPlayResult(_ playResult: PlayResultType, pitchType: String? = nil, pitchSpeed: Double? = nil) {
-        if playResult.countsAsAtBat {
+        // At-bats are a batting stat. In pitcher mode (`pitchType != nil`) the shared
+        // `.groundOut`/`.flyOut` cases are pitcher-induced outs, not the athlete's own
+        // at-bats, so they must NOT inflate the batting line.
+        if playResult.countsAsAtBat && pitchType == nil {
             self.atBats += 1
         }
 
@@ -71,9 +80,11 @@ extension PlayResultAccumulator {
         case .strikeout:
             self.strikeouts += 1
         case .groundOut:
-            self.groundOuts += 1
+            // Batting out only — pitcher-induced outs are credited in the
+            // `pitchType != nil` block below (outs recorded / batters faced).
+            if pitchType == nil { self.groundOuts += 1 }
         case .flyOut:
-            self.flyOuts += 1
+            if pitchType == nil { self.flyOuts += 1 }
         case .ball:
             self.totalPitches += 1
             self.balls += 1
@@ -83,31 +94,45 @@ extension PlayResultAccumulator {
         case .hitByPitch:
             self.totalPitches += 1
             self.hitByPitches += 1
+            self.battersFaced += 1
         case .wildPitch:
             self.totalPitches += 1
             self.wildPitches += 1
         case .batterHitByPitch:
             self.hitByPitches += 1
         case .pitchingStrikeout:
+            // Inherently a pitching result (never a batting case), so it's always an
+            // out recorded — credited here, not in the pitchType-gated block below.
             self.totalPitches += 1
+            self.strikes += 1
             self.pitchingStrikeouts += 1
+            self.battersFaced += 1
+            self.outsRecorded += 1
         case .pitchingWalk:
             self.totalPitches += 1
             self.pitchingWalks += 1
-        case .pitchingSingleAllowed, .pitchingDoubleAllowed, .pitchingTripleAllowed, .pitchingHomeRunAllowed:
-            // Label-only tag. No counters — pitcher-side hits allowed aren't tracked as stats.
-            break
+            self.battersFaced += 1
+        case .pitchingSingleAllowed, .pitchingDoubleAllowed, .pitchingTripleAllowed:
+            // Pitcher-side hit allowed (a batter reached). Feeds WHIP / opponent AVG.
+            self.hitsAllowed += 1
+            self.battersFaced += 1
+        case .pitchingHomeRunAllowed:
+            self.hitsAllowed += 1
+            self.homeRunsAllowed += 1
+            self.battersFaced += 1
         }
 
-        // Pitcher-mode credit: strikeouts/groundouts/flyouts also count as a strike.
-        // Groundouts/flyouts additionally count as a pitch (they represent contact on a pitch).
+        // Pitcher-mode disambiguation for the SHARED out cases: a `.groundOut`/`.flyOut`
+        // recorded in pitcher mode is an induced out (out recorded, batter faced, a strike
+        // on a pitch), not the athlete's own at-bat. Inherently-pitching cases (strikeout/
+        // walk/HBP/hits-allowed) are fully handled in the switch above and don't need this.
         if pitchType != nil {
             switch playResult {
-            case .pitchingStrikeout:
-                self.strikes += 1
             case .groundOut, .flyOut:
                 self.strikes += 1
                 self.totalPitches += 1
+                self.outsRecorded += 1
+                self.battersFaced += 1
             default:
                 break
             }
@@ -181,6 +206,34 @@ extension PlayResultAccumulator {
         fastballSpeedTotal += other.fastballSpeedTotal
         offspeedPitchCount += other.offspeedPitchCount
         offspeedSpeedTotal += other.offspeedSpeedTotal
+        outsRecorded += other.outsRecorded
+        earnedRuns += other.earnedRuns
+        runsAllowed += other.runsAllowed
+        hitsAllowed += other.hitsAllowed
+        homeRunsAllowed += other.homeRunsAllowed
+        battersFaced += other.battersFaced
+    }
+
+    /// Applies a manual pitching box-score line (IP/H/R/ER/BB/K/etc.) to the counters.
+    /// IP is passed as `outsRecorded` (innings × 3 + leftover outs) so totals sum correctly.
+    /// Mirrors `applyManualStatistic`; the concrete types wrap this to stamp `updatedAt`.
+    func applyManualPitchingStatistic(outsRecorded: Int, hitsAllowed: Int, runsAllowed: Int,
+                                      earnedRuns: Int, homeRunsAllowed: Int, walks: Int,
+                                      strikeouts: Int, hitByPitches: Int, wildPitches: Int,
+                                      battersFaced: Int, pitches: Int, strikes: Int, balls: Int) {
+        self.outsRecorded += outsRecorded
+        self.hitsAllowed += hitsAllowed
+        self.runsAllowed += runsAllowed
+        self.earnedRuns += earnedRuns
+        self.homeRunsAllowed += homeRunsAllowed
+        self.pitchingWalks += walks
+        self.pitchingStrikeouts += strikeouts
+        self.hitByPitches += hitByPitches
+        self.wildPitches += wildPitches
+        self.battersFaced += battersFaced
+        self.totalPitches += pitches
+        self.strikes += strikes
+        self.balls += balls
     }
 
     // MARK: - Derived Statistics
@@ -232,5 +285,63 @@ extension PlayResultAccumulator {
     var strikePercentage: Double {
         guard totalPitches > 0 else { return 0.0 }
         return Double(strikes) / Double(totalPitches)
+    }
+
+    // MARK: - Derived Pitching Statistics
+
+    /// True when there's any pitching data worth surfacing — pitch-tagged clips or a
+    /// manual pitching line. Gates the pitching stat section / per-game pitching row.
+    var hasPitchingData: Bool {
+        totalPitches > 0 || outsRecorded > 0 || battersFaced > 0
+            || pitchingStrikeouts > 0 || pitchingWalks > 0 || hitsAllowed > 0
+    }
+
+    /// Innings pitched as a true decimal (outs ÷ 3) — used for ERA/WHIP math.
+    var inningsPitched: Double {
+        Double(outsRecorded) / 3.0
+    }
+
+    /// Innings pitched in baseball notation: whole innings, then leftover outs as .0/.1/.2.
+    /// e.g. 17 outs → "5.2" (5⅔). NOT a decimal — don't do arithmetic on this string.
+    var inningsPitchedDisplay: String {
+        "\(outsRecorded / 3).\(outsRecorded % 3)"
+    }
+
+    /// ERA = 9 × earned runs / IP = 27 × ER / outs. Zero when no outs recorded.
+    var era: Double {
+        guard outsRecorded > 0 else { return 0.0 }
+        return Double(earnedRuns) * 27.0 / Double(outsRecorded)
+    }
+
+    /// WHIP = (walks + hits allowed) / IP = 3 × (BB + H) / outs.
+    var whip: Double {
+        guard outsRecorded > 0 else { return 0.0 }
+        return Double(pitchingWalks + hitsAllowed) * 3.0 / Double(outsRecorded)
+    }
+
+    /// Strikeouts per 9 innings.
+    var strikeoutsPer9: Double {
+        guard outsRecorded > 0 else { return 0.0 }
+        return Double(pitchingStrikeouts) * 27.0 / Double(outsRecorded)
+    }
+
+    /// Walks per 9 innings.
+    var walksPer9: Double {
+        guard outsRecorded > 0 else { return 0.0 }
+        return Double(pitchingWalks) * 27.0 / Double(outsRecorded)
+    }
+
+    /// Strikeout-to-walk ratio. Nil when no walks (avoids a misleading ∞/0 display).
+    var strikeoutToWalkRatio: Double? {
+        guard pitchingWalks > 0 else { return nil }
+        return Double(pitchingStrikeouts) / Double(pitchingWalks)
+    }
+
+    /// Opponent batting average = hits allowed / official at-bats faced.
+    /// At-bats faced excludes walks and HBP. Nil when there's no usable denominator.
+    var opponentAverage: Double? {
+        let atBatsFaced = battersFaced - pitchingWalks - hitByPitches
+        guard atBatsFaced > 0 else { return nil }
+        return Double(hitsAllowed) / Double(atBatsFaced)
     }
 }

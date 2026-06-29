@@ -24,6 +24,11 @@ struct PlayResultEditorView: View {
         self.modelContext = modelContext
         _selectedResult = State(initialValue: clip.playResult?.type)
         let initialMode: AthleteRole = {
+            // pitchType is the authoritative role marker (set in pitcher mode at record
+            // time). Prefer it so a pitcher's induced groundout/flyout — which reuse the
+            // batting `.groundOut`/`.flyOut` cases (isPitchingResult == false) — still
+            // re-open in pitcher mode.
+            if clip.pitchType != nil { return .pitcher }
             if let existing = clip.playResult?.type {
                 return existing.isPitchingResult ? .pitcher : .batter
             }
@@ -277,6 +282,7 @@ struct PlayResultEditorView: View {
         let prevHighlight = clip.isHighlight
         let prevClub = clip.club
         let prevNeedsSync = clip.needsSync
+        let prevPitchType = clip.pitchType
 
         if let selected = selectedResult {
             if let existing = clip.playResult {
@@ -289,8 +295,21 @@ struct PlayResultEditorView: View {
             // Club, not both. Clear any stale golf tag when re-tagging as
             // a baseball/softball play.
             if clip.club != nil { clip.club = nil }
+
+            // Persist the role marker. `pitchType` is the sole signal the stat
+            // accumulator uses to tell a pitcher's induced out from a batter's, so a
+            // pitcher-mode tag MUST carry a non-nil pitchType (default fastball if the
+            // clip never had one), and a batter-mode tag MUST clear it (otherwise a
+            // re-tagged clip keeps stale pitching/velocity credit).
+            if mode == .pitcher {
+                if clip.pitchType == nil { clip.pitchType = "fastball" }
+            } else {
+                clip.pitchType = nil
+            }
         } else {
             clip.playResult = nil
+            // Removing the result also clears the pitcher role marker.
+            clip.pitchType = nil
         }
 
         // Re-evaluate auto-highlight rule against the new type+role so a clip
@@ -349,6 +368,7 @@ struct PlayResultEditorView: View {
             clip.club = prevClub
             clip.isHighlight = prevHighlight
             clip.needsSync = prevNeedsSync
+            clip.pitchType = prevPitchType
             Haptics.warning()
             errorMessage = "Could not save play result. Please try again."
             showingError = true

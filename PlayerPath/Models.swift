@@ -334,6 +334,12 @@ final class Game {
             data["stats_fastballSpeedTotal"] = gs.fastballSpeedTotal
             data["stats_offspeedPitchCount"] = gs.offspeedPitchCount
             data["stats_offspeedSpeedTotal"] = gs.offspeedSpeedTotal
+            data["stats_outsRecorded"] = gs.outsRecorded
+            data["stats_earnedRuns"] = gs.earnedRuns
+            data["stats_runsAllowed"] = gs.runsAllowed
+            data["stats_hitsAllowed"] = gs.hitsAllowed
+            data["stats_homeRunsAllowed"] = gs.homeRunsAllowed
+            data["stats_battersFaced"] = gs.battersFaced
         }
         return data
     }

@@ -12,6 +12,7 @@ import SwiftUI
 struct PitchingStatsSection: View {
     let statistics: AthleteStatistics
     let athlete: Athlete?
+    var label: String = "Pitching Line"
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var isVisible = false
@@ -40,13 +41,46 @@ struct PitchingStatsSection: View {
         return "\(count) off-speed"
     }
 
+    private var hasIP: Bool { statistics.outsRecorded > 0 }
+    private var eraText: String { hasIP ? String(format: "%.2f", statistics.era) : "—" }
+    private var whipText: String { hasIP ? String(format: "%.2f", statistics.whip) : "—" }
+    private var kPer9Text: String { hasIP ? String(format: "%.1f", statistics.strikeoutsPer9) : "—" }
+    private var bbPer9Text: String { hasIP ? String(format: "%.1f", statistics.walksPer9) : "—" }
+    private var kbbText: String {
+        guard let ratio = statistics.strikeoutToWalkRatio else { return "—" }
+        return String(format: "%.2f", ratio)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 15) {
+            // "The Numbers." hero — mirrors the batting StatsHeroCard so the
+            // Pitching tab opens with the same editorial slash line + grid.
+            PitchingHeroCard(statistics: statistics, label: label)
+
             SectionHeader(title: "Pitching Statistics", icon: "figure.baseball")
                 .opacity(isVisible ? 1 : 0)
                 .offset(y: isVisible ? 0 : 10)
 
             LazyVGrid(columns: topCardColumns, spacing: 15) {
+                StatCard(
+                    title: "ERA",
+                    value: eraText,
+                    color: .red,
+                    subtitle: hasIP ? "\(statistics.earnedRuns) ER" : "No innings yet"
+                )
+                StatCard(
+                    title: "WHIP",
+                    value: whipText,
+                    color: Theme.warning,
+                    subtitle: hasIP ? nil : "No innings yet"
+                )
+                StatCard(
+                    title: "Innings Pitched",
+                    value: statistics.inningsPitchedDisplay,
+                    color: .green,
+                    subtitle: "\(statistics.battersFaced) batters faced"
+                )
+
                 StatCard(
                     title: "Total Pitches",
                     value: "\(statistics.totalPitches)",
@@ -130,6 +164,43 @@ struct PitchingStatsSection: View {
                     value: StatisticsService.shared.formatPercentage(statistics.strikePercentage),
                     color: .purple
                 ))
+                CompactStatChip(data: CompactStatData(
+                    label: "Hits Allowed",
+                    value: "\(statistics.hitsAllowed)",
+                    color: .red
+                ))
+                CompactStatChip(data: CompactStatData(
+                    label: "HR Allowed",
+                    value: "\(statistics.homeRunsAllowed)",
+                    color: .red
+                ))
+                CompactStatChip(data: CompactStatData(
+                    label: "Earned Runs",
+                    value: "\(statistics.earnedRuns)",
+                    color: Theme.warning
+                ))
+                CompactStatChip(data: CompactStatData(
+                    label: "K / 9",
+                    value: kPer9Text,
+                    color: .green
+                ))
+                CompactStatChip(data: CompactStatData(
+                    label: "BB / 9",
+                    value: bbPer9Text,
+                    color: .cyan
+                ))
+                CompactStatChip(data: CompactStatData(
+                    label: "K / BB",
+                    value: kbbText,
+                    color: .brandNavy
+                ))
+                if let oppAvg = statistics.opponentAverage {
+                    CompactStatChip(data: CompactStatData(
+                        label: "Opp AVG",
+                        value: StatisticsService.shared.formatBattingAverage(oppAvg),
+                        color: .pink
+                    ))
+                }
             }
             .opacity(isVisible ? 1 : 0)
             .offset(y: isVisible ? 0 : 20)

@@ -49,6 +49,8 @@ final class StatisticsService {
         let oldStrikeouts = stats.strikeouts
         let oldWalks = stats.walks
         let oldTotalPitches = stats.totalPitches
+        let oldOutsRecorded = stats.outsRecorded
+        let oldBattersFaced = stats.battersFaced
 
         stats.resetAllCounts()
 
@@ -86,6 +88,8 @@ final class StatisticsService {
             || stats.strikeouts != oldStrikeouts
             || stats.walks != oldWalks
             || stats.totalPitches != oldTotalPitches
+            || stats.outsRecorded != oldOutsRecorded
+            || stats.battersFaced != oldBattersFaced
 
         if statsChanged {
             stats.updatedAt = Date()

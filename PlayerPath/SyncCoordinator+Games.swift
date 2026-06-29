@@ -408,5 +408,11 @@ extension SyncCoordinator {
         stats.fastballSpeedTotal = remote.statsFastballSpeedTotal ?? stats.fastballSpeedTotal
         stats.offspeedPitchCount = remote.statsOffspeedPitchCount ?? stats.offspeedPitchCount
         stats.offspeedSpeedTotal = remote.statsOffspeedSpeedTotal ?? stats.offspeedSpeedTotal
+        stats.outsRecorded = remote.statsOutsRecorded ?? stats.outsRecorded
+        stats.earnedRuns = remote.statsEarnedRuns ?? stats.earnedRuns
+        stats.runsAllowed = remote.statsRunsAllowed ?? stats.runsAllowed
+        stats.hitsAllowed = remote.statsHitsAllowed ?? stats.hitsAllowed
+        stats.homeRunsAllowed = remote.statsHomeRunsAllowed ?? stats.homeRunsAllowed
+        stats.battersFaced = remote.statsBattersFaced ?? stats.battersFaced
     }
 }

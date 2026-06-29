@@ -41,6 +41,15 @@ final class AthleteStatistics: PlayResultAccumulator {
     var fastballSpeedTotal: Double = 0
     var offspeedPitchCount: Int = 0
     var offspeedSpeedTotal: Double = 0
+    // Pitching box-score statistics (SchemaV34). IP is stored as `outsRecorded`
+    // (not a Double) so it sums correctly — "5.2 IP" means 5⅔ innings, and
+    // decimal innings don't add up (5.2 + 5.2 ≠ 11.1). IP = outsRecorded / 3.
+    var outsRecorded: Int = 0
+    var earnedRuns: Int = 0
+    var runsAllowed: Int = 0
+    var hitsAllowed: Int = 0
+    var homeRunsAllowed: Int = 0
+    var battersFaced: Int = 0
     var updatedAt: Date?
 
     func resetAllCounts() {
@@ -51,10 +60,8 @@ final class AthleteStatistics: PlayResultAccumulator {
         pitchingStrikeouts = 0; pitchingWalks = 0
         fastballPitchCount = 0; fastballSpeedTotal = 0
         offspeedPitchCount = 0; offspeedSpeedTotal = 0
-    }
-
-    var hasPitchingData: Bool {
-        totalPitches > 0
+        outsRecorded = 0; earnedRuns = 0; runsAllowed = 0
+        hitsAllowed = 0; homeRunsAllowed = 0; battersFaced = 0
     }
 
     init() {
@@ -78,6 +85,17 @@ final class AthleteStatistics: PlayResultAccumulator {
         applyManualStatistic(singles: singles, doubles: doubles, triples: triples, homeRuns: homeRuns,
                              runs: runs, rbis: rbis, strikeouts: strikeouts, walks: walks,
                              groundOuts: groundOuts, flyOuts: flyOuts, hitByPitches: hitByPitches)
+        self.updatedAt = Date()
+    }
+
+    func addManualPitchingStatistic(outsRecorded: Int = 0, hitsAllowed: Int = 0, runsAllowed: Int = 0,
+                                    earnedRuns: Int = 0, homeRunsAllowed: Int = 0, walks: Int = 0,
+                                    strikeouts: Int = 0, hitByPitches: Int = 0, wildPitches: Int = 0,
+                                    battersFaced: Int = 0, pitches: Int = 0, strikes: Int = 0, balls: Int = 0) {
+        applyManualPitchingStatistic(outsRecorded: outsRecorded, hitsAllowed: hitsAllowed, runsAllowed: runsAllowed,
+                                     earnedRuns: earnedRuns, homeRunsAllowed: homeRunsAllowed, walks: walks,
+                                     strikeouts: strikeouts, hitByPitches: hitByPitches, wildPitches: wildPitches,
+                                     battersFaced: battersFaced, pitches: pitches, strikes: strikes, balls: balls)
         self.updatedAt = Date()
     }
 }
@@ -110,6 +128,14 @@ final class GameStatistics: PlayResultAccumulator {
     var fastballSpeedTotal: Double = 0
     var offspeedPitchCount: Int = 0
     var offspeedSpeedTotal: Double = 0
+    // Pitching box-score statistics (SchemaV34) — see AthleteStatistics for the
+    // outs-vs-decimal-IP rationale.
+    var outsRecorded: Int = 0
+    var earnedRuns: Int = 0
+    var runsAllowed: Int = 0
+    var hitsAllowed: Int = 0
+    var homeRunsAllowed: Int = 0
+    var battersFaced: Int = 0
     var createdAt: Date?
 
     /// Sticky flag: true when any counter value on this object came from
@@ -130,6 +156,8 @@ final class GameStatistics: PlayResultAccumulator {
         pitchingStrikeouts = 0; pitchingWalks = 0
         fastballPitchCount = 0; fastballSpeedTotal = 0
         offspeedPitchCount = 0; offspeedSpeedTotal = 0
+        outsRecorded = 0; earnedRuns = 0; runsAllowed = 0
+        hitsAllowed = 0; homeRunsAllowed = 0; battersFaced = 0
     }
 
     init() {
@@ -147,5 +175,15 @@ final class GameStatistics: PlayResultAccumulator {
         applyManualStatistic(singles: singles, doubles: doubles, triples: triples, homeRuns: homeRuns,
                              runs: runs, rbis: rbis, strikeouts: strikeouts, walks: walks,
                              groundOuts: groundOuts, flyOuts: flyOuts, hitByPitches: hitByPitches)
+    }
+
+    func addManualPitchingStatistic(outsRecorded: Int = 0, hitsAllowed: Int = 0, runsAllowed: Int = 0,
+                                    earnedRuns: Int = 0, homeRunsAllowed: Int = 0, walks: Int = 0,
+                                    strikeouts: Int = 0, hitByPitches: Int = 0, wildPitches: Int = 0,
+                                    battersFaced: Int = 0, pitches: Int = 0, strikes: Int = 0, balls: Int = 0) {
+        applyManualPitchingStatistic(outsRecorded: outsRecorded, hitsAllowed: hitsAllowed, runsAllowed: runsAllowed,
+                                     earnedRuns: earnedRuns, homeRunsAllowed: homeRunsAllowed, walks: walks,
+                                     strikeouts: strikeouts, hitByPitches: hitByPitches, wildPitches: wildPitches,
+                                     battersFaced: battersFaced, pitches: pitches, strikes: strikes, balls: balls)
     }
 }

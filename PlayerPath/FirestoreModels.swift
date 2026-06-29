@@ -621,6 +621,12 @@ struct FirestoreGame: Codable, Identifiable {
     let statsFastballSpeedTotal: Double?
     let statsOffspeedPitchCount: Int?
     let statsOffspeedSpeedTotal: Double?
+    let statsOutsRecorded: Int?
+    let statsEarnedRuns: Int?
+    let statsRunsAllowed: Int?
+    let statsHitsAllowed: Int?
+    let statsHomeRunsAllowed: Int?
+    let statsBattersFaced: Int?
 
     enum CodingKeys: String, CodingKey {
         case swiftDataId = "id"  // Maps to "id" field in Firestore document
@@ -669,6 +675,12 @@ struct FirestoreGame: Codable, Identifiable {
         case statsFastballSpeedTotal = "stats_fastballSpeedTotal"
         case statsOffspeedPitchCount = "stats_offspeedPitchCount"
         case statsOffspeedSpeedTotal = "stats_offspeedSpeedTotal"
+        case statsOutsRecorded = "stats_outsRecorded"
+        case statsEarnedRuns = "stats_earnedRuns"
+        case statsRunsAllowed = "stats_runsAllowed"
+        case statsHitsAllowed = "stats_hitsAllowed"
+        case statsHomeRunsAllowed = "stats_homeRunsAllowed"
+        case statsBattersFaced = "stats_battersFaced"
     }
 }
 

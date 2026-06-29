@@ -66,6 +66,7 @@ final class CSVExportService {
             csv += "On-Base Percentage,\(StatisticsService.shared.formatPercentage(stats.onBasePercentage))\n"
             csv += "Slugging Percentage,\(StatisticsService.shared.formatPercentage(stats.sluggingPercentage))\n"
             csv += "OPS,\(StatisticsService.shared.formatOPS(stats.ops))\n"
+            csv += pitchingCSVRows(stats)
             csv += "\n"
         }
 
@@ -265,6 +266,7 @@ final class CSVExportService {
             csv += "On-Base Percentage,\(StatisticsService.shared.formatPercentage(stats.onBasePercentage))\n"
             csv += "Slugging Percentage,\(StatisticsService.shared.formatPercentage(stats.sluggingPercentage))\n"
             csv += "OPS,\(StatisticsService.shared.formatOPS(stats.ops))\n"
+            csv += pitchingCSVRows(stats)
             csv += "\n"
         }
 
@@ -403,6 +405,26 @@ final class CSVExportService {
             return "\"\(value.replacingOccurrences(of: "\"", with: "\"\""))\""
         }
         return value
+    }
+
+    /// Pitching box-score rows, appended to a stats block only when the athlete/season
+    /// has pitching data. Returns "" otherwise so batting-only exports are unchanged.
+    private func pitchingCSVRows(_ stats: AthleteStatistics) -> String {
+        guard stats.hasPitchingData else { return "" }
+        var rows = ""
+        rows += "Innings Pitched,\(stats.inningsPitchedDisplay)\n"
+        rows += "ERA,\(String(format: "%.2f", stats.era))\n"
+        rows += "WHIP,\(String(format: "%.2f", stats.whip))\n"
+        rows += "Pitching Strikeouts,\(stats.pitchingStrikeouts)\n"
+        rows += "Pitching Walks,\(stats.pitchingWalks)\n"
+        rows += "Hits Allowed,\(stats.hitsAllowed)\n"
+        rows += "Home Runs Allowed,\(stats.homeRunsAllowed)\n"
+        rows += "Runs Allowed,\(stats.runsAllowed)\n"
+        rows += "Earned Runs,\(stats.earnedRuns)\n"
+        rows += "Batters Faced,\(stats.battersFaced)\n"
+        rows += "Total Pitches,\(stats.totalPitches)\n"
+        rows += "Strike %,\(StatisticsService.shared.formatPercentage(stats.strikePercentage))\n"
+        return rows
     }
 
     /// Save CSV string to temporary file and return URL

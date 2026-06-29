@@ -90,6 +90,20 @@ struct GameRow: View {
                         .monospacedDigit()
                         .foregroundStyle(Theme.textSecondary)
                 }
+            } else if !isGolf, let stats = game.gameStats, stats.hasPitchingData {
+                // Pitcher-only game (no at-bats): show a pitching line so the row
+                // isn't bare. IP headline + "ER · K" — mirrors the batting line's
+                // two-line shape. Full pitching suite lives in the game detail.
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text("\(stats.inningsPitchedDisplay) IP")
+                        .font(.ppStatSmall)
+                        .monospacedDigit()
+                        .foregroundStyle(Theme.textPrimary)
+                    Text("\(stats.earnedRuns) ER · \(stats.pitchingStrikeouts) K")
+                        .font(.labelSmall)
+                        .monospacedDigit()
+                        .foregroundStyle(Theme.textSecondary)
+                }
             }
         }
     }

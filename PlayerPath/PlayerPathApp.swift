@@ -49,7 +49,7 @@ struct PlayerPathApp: App {
     /// inside each VersionedSchema enum per Apple's WWDC pattern.
     static let sharedModelContainer: ModelContainer = {
         do {
-            return try ModelContainer(for: Schema(SchemaV33.models))
+            return try ModelContainer(for: Schema(SchemaV34.models))
         } catch {
             // Last resort: try an in-memory container so the app can launch and show
             // an error instead of crash-looping. If even that fails, we have no choice

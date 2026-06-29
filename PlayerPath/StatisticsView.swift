@@ -32,6 +32,12 @@ struct StatisticsView: View {
     @State private var activeSheet: ActiveSheet?
     @State private var selectedSeasonFilter: String? = nil // nil = All Seasons (Career)
 
+    /// Batting vs Pitching view for two-way players. Persists across season/Career
+    /// switches; ignored (and the toggle hidden) when the selection has only one
+    /// discipline. See the baseball branch of `mainContent`.
+    private enum StatMode { case batting, pitching }
+    @State private var statMode: StatMode = .batting
+
     private var isGolf: Bool {
         // When a specific season is filtered, prefer its sport; otherwise the
         // tab-bar's active sport context wins.
@@ -456,53 +462,78 @@ struct StatisticsView: View {
             }
             .background(Theme.surface)
         } else if let stats = statistics, stats.atBats > 0 || stats.hasPitchingData {
+            // The outer `if` guarantees at least one discipline exists.
+            let hasBatting = stats.atBats > 0
+            let hasPitching = stats.hasPitchingData
             ScrollView {
                 LazyVStack(spacing: 20) {
-                    // "The Numbers." hero — slash line + metric grid.
-                    StatsHeroCard(
-                        statistics: stats,
-                        label: selectedSeasonFilter
-                            .flatMap { id in availableSeasons.first(where: { $0.id.uuidString == id }) }?
-                            .displayName ?? "Batting Line"
-                    )
-
-                    // Show different stats based on filter
-                    if selectedSeasonFilter == nil {
-                        // Career view - show comparison if active season exists
-                        if let activeSeason = athlete?.activeSeason,
-                           let seasonStats = activeSeason.seasonStatistics,
-                           let careerStats = athlete?.statistics {
-                            CareerSeasonComparisonSection(
-                                careerStats: careerStats,
-                                seasonStats: seasonStats,
-                                seasonName: activeSeason.displayName
-                            )
-                        } else {
-                            // Just show career stats
-                            KeyStatsSection(statistics: stats)
+                    // Two-way player: let them pick a discipline so the page isn't
+                    // the full batting suite stacked above the full pitching suite.
+                    if hasBatting && hasPitching {
+                        Picker("", selection: $statMode) {
+                            Text("Batting").tag(StatMode.batting)
+                            Text("Pitching").tag(StatMode.pitching)
                         }
-                    } else {
-                        // Specific season view - show season stats only
-                        let seasonName = selectedSeasonFilter
-                            .flatMap { id in availableSeasons.first(where: { $0.id.uuidString == id }) }?
-                            .displayName
-                        KeyStatsSection(statistics: stats, seasonLabel: seasonName)
+                        .pickerStyle(.segmented)
                     }
 
-                    // Batting Chart
-                    BattingChartSection(statistics: stats)
+                    // Batting suite — shown when batting is the only discipline or
+                    // it's the selected mode.
+                    if !hasPitching || statMode == .batting {
+                        // "The Numbers." hero — slash line + metric grid.
+                        StatsHeroCard(
+                            statistics: stats,
+                            label: selectedSeasonFilter
+                                .flatMap { id in availableSeasons.first(where: { $0.id.uuidString == id }) }?
+                                .displayName ?? "Batting Line"
+                        )
 
-                    // Detailed Statistics
-                    DetailedStatsSection(statistics: stats)
+                        // Show different stats based on filter
+                        if selectedSeasonFilter == nil {
+                            // Career view - show comparison if active season exists
+                            if let activeSeason = athlete?.activeSeason,
+                               let seasonStats = activeSeason.seasonStatistics,
+                               let careerStats = athlete?.statistics {
+                                CareerSeasonComparisonSection(
+                                    careerStats: careerStats,
+                                    seasonStats: seasonStats,
+                                    seasonName: activeSeason.displayName
+                                )
+                            } else {
+                                // Just show career stats
+                                KeyStatsSection(statistics: stats)
+                            }
+                        } else {
+                            // Specific season view - show season stats only
+                            let seasonName = selectedSeasonFilter
+                                .flatMap { id in availableSeasons.first(where: { $0.id.uuidString == id }) }?
+                                .displayName
+                            KeyStatsSection(statistics: stats, seasonLabel: seasonName)
+                        }
 
-                    // Play Results Breakdown
-                    PlayResultsSection(statistics: stats)
+                        // Batting Chart
+                        BattingChartSection(statistics: stats)
 
-                    // Pitching Statistics (only if athlete has pitching data)
-                    if stats.hasPitchingData {
-                        PitchingStatsSection(statistics: stats, athlete: athlete)
+                        // Detailed Statistics
+                        DetailedStatsSection(statistics: stats)
+
+                        // Play Results Breakdown
+                        PlayResultsSection(statistics: stats)
                     }
 
+                    // Pitching Statistics — shown when pitching is the only discipline
+                    // or it's the selected mode.
+                    if hasPitching && (!hasBatting || statMode == .pitching) {
+                        PitchingStatsSection(
+                            statistics: stats,
+                            athlete: athlete,
+                            label: selectedSeasonFilter
+                                .flatMap { id in availableSeasons.first(where: { $0.id.uuidString == id }) }?
+                                .displayName ?? "Pitching Line"
+                        )
+                    }
+
+                    // Milestones span both disciplines — always shown.
                     MilestonesListSection(milestones: milestonesForSelection)
                 }
                 .padding(horizontalSizeClass == .regular ? 32 : 18)

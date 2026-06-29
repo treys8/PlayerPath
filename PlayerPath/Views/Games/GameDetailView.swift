@@ -17,6 +17,7 @@ struct GameDetailView: View {
     @State private var showingVideoRecorder = false
     @State private var showingDeleteConfirmation = false
     @State private var showingManualStats = false
+    @State private var showingPitchingStats = false
     @State private var showingEditGame = false
     @State private var showingPhotoCamera = false
     @State private var showingScoreEntry = false
@@ -405,6 +406,63 @@ struct GameDetailView: View {
                 }
             }
 
+            // Per-game pitching line — shown only when this game has pitching data.
+            if !isGolf, let stats = game.gameStats, stats.hasPitchingData {
+                Section(header: Text("Pitching").smallCapsLabel()) {
+                    HStack {
+                        Text("Innings Pitched")
+                        Spacer()
+                        Text(stats.inningsPitchedDisplay)
+                            .font(.headingMedium)
+                            .foregroundColor(.green)
+                    }
+                    if stats.outsRecorded > 0 {
+                        HStack {
+                            Text("ERA")
+                            Spacer()
+                            Text(String(format: "%.2f", stats.era))
+                                .font(.headingMedium)
+                                .foregroundColor(.red)
+                        }
+                        HStack {
+                            Text("WHIP")
+                            Spacer()
+                            Text(String(format: "%.2f", stats.whip))
+                                .font(.headingMedium)
+                                .foregroundColor(Theme.warning)
+                        }
+                    }
+                    HStack {
+                        Text("Strikeouts")
+                        Spacer()
+                        Text("\(stats.pitchingStrikeouts)")
+                            .font(.headingMedium)
+                            .foregroundColor(.green)
+                    }
+                    HStack {
+                        Text("Walks")
+                        Spacer()
+                        Text("\(stats.pitchingWalks)")
+                            .font(.headingMedium)
+                            .foregroundColor(.cyan)
+                    }
+                    HStack {
+                        Text("Hits Allowed")
+                        Spacer()
+                        Text("\(stats.hitsAllowed)")
+                            .font(.headingMedium)
+                            .foregroundColor(.red)
+                    }
+                    HStack {
+                        Text("Earned Runs")
+                        Spacer()
+                        Text("\(stats.earnedRuns)")
+                            .font(.headingMedium)
+                            .foregroundColor(.red)
+                    }
+                }
+            }
+
             // Completed games are watch-first: the content greets you and the
             // additive CTAs (Upload / Add Photos) sit at the bottom as the floor.
             if game.displayStatus == .completed {
@@ -481,6 +539,9 @@ struct GameDetailView: View {
         .bulkPhotoImportAttach(athlete: game.athlete, game: game, trigger: $photoImportTrigger)
         .sheet(isPresented: $showingManualStats) {
             ManualStatisticsEntryView(game: game)
+        }
+        .sheet(isPresented: $showingPitchingStats) {
+            ManualPitchingEntryView(game: game)
         }
         .sheet(isPresented: $showingEditGame) {
             EditGameSheet(game: game)
@@ -560,7 +621,10 @@ struct GameDetailView: View {
 
                 if !isGolf {
                     Button(action: { showingManualStats = true }) {
-                        Label("Enter Statistics", systemImage: "chart.bar.doc.horizontal")
+                        Label("Enter Batting Stats", systemImage: "chart.bar.doc.horizontal")
+                    }
+                    Button(action: { showingPitchingStats = true }) {
+                        Label("Enter Pitching Stats", systemImage: "figure.baseball")
                     }
                 } else {
                     Button(action: { showingScorecard = true }) {
