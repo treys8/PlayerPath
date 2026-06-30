@@ -187,7 +187,8 @@ struct GolfScorecardView: View {
                         .foregroundColor(.secondary)
                 }
             }
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 46), spacing: .spacingSmall)], spacing: .spacingSmall) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: .spacingSmall), count: 3),
+                      spacing: .spacingSmall) {
                 ForEach(Array(range), id: \.self) { holeCell($0) }
             }
         }
@@ -199,7 +200,13 @@ struct GolfScorecardView: View {
         // A shot-owned hole shows no inline selection — tapping opens the
         // shot-entry card rather than selecting it for inline editing.
         let isSelected = !locked && n == selectedHole
-        let scoreColor: Color = entry?.score == nil ? .secondary : .parRelative((entry!.score! ) - entry!.par)
+        // Cell wash: selection wins; else a scored hole gets its par-relative
+        // wash (par stays neutral); else the plain unscored fill.
+        let cellFill: Color = isSelected
+            ? Color.brandNavy.opacity(0.12)
+            : (entry?.score == nil
+               ? Color(.secondarySystemBackground)
+               : ScoreNotation(diff: entry!.score! - entry!.par).wash)
         return Button {
             Haptics.light()
             if locked {
@@ -212,10 +219,15 @@ struct GolfScorecardView: View {
                 Text("\(n)")
                     .font(.labelSmall)
                     .foregroundColor(.secondary)
-                Text(entry?.score.map(String.init) ?? "·")
-                    .font(.headingMedium)
-                    .monospacedDigit()
-                    .foregroundColor(scoreColor)
+                if let score = entry?.score {
+                    ScoreToParBadge(score: score, par: entry?.par ?? 4)
+                } else {
+                    Text("·")
+                        .font(.headingMedium)
+                        .monospacedDigit()
+                        .foregroundColor(.secondary)
+                        .frame(height: 30)
+                }
                 Text("P\(entry?.par ?? 4)")
                     .font(.labelSmall)
                     .foregroundColor(.secondary)
@@ -225,7 +237,7 @@ struct GolfScorecardView: View {
             .frame(maxWidth: .infinity)
             .background(
                 RoundedRectangle(cornerRadius: .cornerMedium)
-                    .fill(isSelected ? Color.brandNavy.opacity(0.12) : Color(.secondarySystemBackground))
+                    .fill(cellFill)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: .cornerMedium)

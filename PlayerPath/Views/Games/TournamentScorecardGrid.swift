@@ -103,7 +103,7 @@ struct TournamentScorecardGrid: View {
                     Text(diff == 0 ? "E" : (diff > 0 ? "+\(diff)" : "\(diff)"))
                         .font(.labelSmall)
                         .monospacedDigit()
-                        .foregroundColor(diff < 0 ? .green : (diff > 0 ? .red : .secondary))
+                        .foregroundColor(.parRelative(diff))
                 }
             } else {
                 Text("—")

@@ -26,19 +26,32 @@ struct QuickScoreContent: View {
     }
     private let parent: Parent
     let holeNumber: Int
+    /// Total holes in the round — drives the nav bar label and the
+    /// "Save & Next" → "Save & Finish" switch on the last hole.
+    let holeCount: Int
+    /// Save the current hole, then step back / advance (the host owns `currentHole`).
+    let onPrev: () -> Void
+    let onAdvance: () -> Void
 
-    init(game: Game, holeNumber: Int) {
+    init(game: Game, holeNumber: Int, holeCount: Int,
+         onPrev: @escaping () -> Void, onAdvance: @escaping () -> Void) {
         self.parent = .game(game)
         self.holeNumber = holeNumber
+        self.holeCount = holeCount
+        self.onPrev = onPrev
+        self.onAdvance = onAdvance
     }
 
-    init(practice: Practice, holeNumber: Int) {
+    init(practice: Practice, holeNumber: Int, holeCount: Int,
+         onPrev: @escaping () -> Void, onAdvance: @escaping () -> Void) {
         self.parent = .practice(practice)
         self.holeNumber = holeNumber
+        self.holeCount = holeCount
+        self.onPrev = onPrev
+        self.onAdvance = onAdvance
     }
 
     @Environment(\.modelContext) private var modelContext
-    @Environment(\.dismiss) private var dismiss
 
     @State private var par: Int = 4
     @State private var score: Int = 4
@@ -185,16 +198,18 @@ struct QuickScoreContent: View {
             .padding(.spacingLarge)
         }
         .ppDetailBackground()
-        .toolbar {
-            ToolbarItem(placement: .confirmationAction) {
-                Button("Save") { save() }
-                    .disabled(score < 1 || isSaving)
-            }
+        .safeAreaInset(edge: .bottom) {
+            HoleNavBar(currentHole: holeNumber, holeCount: holeCount,
+                       primaryTitle: holeNumber == holeCount ? "Save & Finish" : "Save & Next",
+                       primaryDisabled: score < 1 || isSaving,
+                       onPrev: { save(then: onPrev) },
+                       onPrimary: { save(then: onAdvance) })
         }
         .onAppear { loadIfNeeded() }
         .sheet(isPresented: $showingYardagePicker) {
             YardagePickerSheet(distance: $holeYardage,
-                               defaultCenter: holeYardage ?? (par == 3 ? 165 : par >= 5 ? 530 : 400))
+                               defaultCenter: holeYardage ?? (par == 3 ? 165 : par >= 5 ? 530 : 400),
+                               maxYardage: 650)   // hole length — covers the longest par 5s
         }
     }
 
@@ -248,7 +263,10 @@ struct QuickScoreContent: View {
         GolfScoreWriter.priorRoundPar(forHole: hole, in: roundRef)
     }
 
-    private func save() {
+    /// Persist the hole, then run `completion` (advance / go back / finish). On a
+    /// save failure `completion` is NOT called, so navigation never skips past an
+    /// unsaved hole.
+    private func save(then completion: () -> Void) {
         guard !isSaving else { return }
         isSaving = true
 
@@ -284,6 +302,6 @@ struct QuickScoreContent: View {
         }
 
         Haptics.success()
-        dismiss()
+        completion()
     }
 }

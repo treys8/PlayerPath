@@ -102,7 +102,12 @@ enum PhotoThumbnailLoader {
                    let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
                    let pw = props[kCGImagePropertyPixelWidth] as? Int,
                    let ph = props[kCGImagePropertyPixelHeight] as? Int,
-                   abs(Double(pw) / Double(max(ph, 1)) - 1.0) > 0.05 { // not square → new-style
+                   abs(Double(pw) / Double(max(ph, 1)) - 1.0) > 0.05, // not square → new-style
+                   max(pw, ph) >= maxPixelSize { // thumb is big enough for this request
+                    // The cached thumb (~600px longest side) satisfies grid/headshot
+                    // requests but NOT the hero's 1200px ask — ImageIO won't upscale,
+                    // so a larger request must fall through to the full-size file below
+                    // to render crisp instead of a 600px image stretched to fill.
                     if let cgImage = makeThumbnail(source: source, maxPixelSize: maxPixelSize) {
                         return UIImage(cgImage: cgImage)
                     }

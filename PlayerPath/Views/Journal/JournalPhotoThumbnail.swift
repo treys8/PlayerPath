@@ -15,6 +15,10 @@ import SwiftUI
 
 struct JournalPhotoThumbnail: View {
     let photo: Photo
+    /// Reports the photo's raw display aspect ratio (width / height) once the
+    /// image loads. The parent feed clamps it to its allowed range and sizes the
+    /// card to it, so the whole photo shows uncropped within range.
+    var onAspectResolved: ((CGFloat) -> Void)? = nil
 
     @State private var image: UIImage?
     @State private var loadFailed = false
@@ -45,6 +49,9 @@ struct JournalPhotoThumbnail: View {
             loadFailed = false
             if let loaded = await PhotoThumbnailLoader.load(for: photo) {
                 image = loaded
+                if loaded.size.height > 0 {
+                    onAspectResolved?(loaded.size.width / loaded.size.height)
+                }
             } else {
                 loadFailed = true
             }

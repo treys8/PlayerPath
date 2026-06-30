@@ -43,30 +43,23 @@ struct HoleScoreGrid: View {
 private struct HoleScoreCell: View {
     let hole: HoleScore
 
-    private var diffColor: Color { .parRelative(hole.diff) }
-
     var body: some View {
-        VStack(spacing: 2) {
+        VStack(spacing: .spacingSmall) {
             Text("\(hole.holeNumber)")
                 .font(.labelSmall)
                 .foregroundColor(.secondary)
-            Text("\(hole.score)")
-                .font(.headingMedium)
-                .monospacedDigit()
-                .foregroundColor(diffColor)
+            ScoreToParBadge(score: hole.score, par: hole.par)
             Text("Par \(hole.par)")
                 .font(.labelSmall)
                 .foregroundColor(.secondary)
         }
         .frame(minWidth: 56, minHeight: 56)
-        .padding(8)
+        .padding(.spacingSmall)
         .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(Color(.secondarySystemBackground))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(hole.isBirdieOrBetter ? Color.green.opacity(0.5) : Color.clear, lineWidth: 1.5)
+            // Par-relative wash so bogeys/doubles read at a glance too — not just
+            // the old birdie-or-better ring.
+            RoundedRectangle(cornerRadius: .cornerMedium)
+                .fill(ScoreNotation(diff: hole.diff).wash)
         )
     }
 }

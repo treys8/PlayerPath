@@ -213,49 +213,63 @@ struct GameDetailView: View {
             // Score Section (golf only)
             if isGolf {
                 Section(header: Text("Score").smallCapsLabel()) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack {
-                            Text("Holes")
-                                .font(.headingMedium)
-                            Spacer()
-                            Text("\(game.holes ?? 18)")
-                                .monospacedDigit()
-                                .foregroundColor(.secondary)
-                        }
-                        if let par = game.effectivePar {
-                            HStack {
-                                Text("Par")
-                                    .font(.headingMedium)
-                                Spacer()
-                                Text("\(par)")
-                                    .monospacedDigit()
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                        if let score = game.effectiveTotalScore {
-                            HStack {
-                                Text("Total Score")
-                                    .font(.headingMedium)
-                                Spacer()
+                    if let score = game.effectiveTotalScore {
+                        // Hero readout: score + colored to-par anchored left, a
+                        // compact secondary stat (holes played mid-round, or par
+                        // once the round is complete) anchored right so the row
+                        // uses the full width instead of trailing into dead space.
+                        let total = game.holes ?? 18
+                        let scored = holeScores.count
+                        let inProgress = scored > 0 && scored < total
+                        HStack(alignment: .firstTextBaseline) {
+                            VStack(alignment: .leading, spacing: 2) {
                                 Text("\(score)")
+                                    .font(.ppStatLarge)
                                     .monospacedDigit()
                                     .foregroundColor(.primary)
                                 if let par = game.effectivePar {
                                     let diff = score - par
-                                    Text(diff == 0 ? "E" : (diff > 0 ? "+\(diff)" : "\(diff)"))
-                                        .font(.labelSmall)
+                                    Text(diff == 0 ? "Even par"
+                                         : (diff > 0 ? "\(diff) over par" : "\(-diff) under par"))
+                                        .font(.headingSmall)
+                                        .fontWeight(.semibold)
+                                        .foregroundColor(.parRelative(diff))
+                                }
+                            }
+                            Spacer()
+                            VStack(alignment: .trailing, spacing: 2) {
+                                if inProgress {
+                                    Text("\(scored)/\(total)")
+                                        .font(.headingMedium)
                                         .monospacedDigit()
+                                    Text("THRU")
+                                        .font(.labelSmall)
+                                        .foregroundColor(.secondary)
+                                } else if let par = game.effectivePar {
+                                    Text("\(par)")
+                                        .font(.headingMedium)
+                                        .monospacedDigit()
+                                    Text("PAR")
+                                        .font(.labelSmall)
+                                        .foregroundColor(.secondary)
+                                } else {
+                                    Text("\(total)")
+                                        .font(.headingMedium)
+                                        .monospacedDigit()
+                                    Text("HOLES")
+                                        .font(.labelSmall)
                                         .foregroundColor(.secondary)
                                 }
                             }
-                        } else {
-                            Button(action: { showingScoreEntry = true }) {
-                                Label("Enter Score", systemImage: "pencil.line")
-                            }
-                            .labelStyle(ActionRowLabelStyle())
                         }
+                        .padding(.vertical, 5)
+                    } else {
+                        Button(action: { showingScoreEntry = true }) {
+                            Label("Enter Score", systemImage: "pencil.line")
+                        }
+                        .labelStyle(ActionRowLabelStyle())
+                        .padding(.vertical, 5)
                     }
-                    .padding(.vertical, 5)
 
                     // Score the whole round on one screen (per-hole). The
                     // quick-total path stays available via "Enter Score" above.

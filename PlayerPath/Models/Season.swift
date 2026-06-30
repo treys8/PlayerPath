@@ -97,6 +97,24 @@ final class Season {
         return bestMatch
     }
 
+    /// Returns the first of `others` whose date range overlaps the candidate `start...end`,
+    /// for warn-but-allow overlap messaging in the date editor. Pass the athlete's other seasons
+    /// (the caller excludes `self`). A nil candidate `end` (or a sibling's nil `endDate`) is
+    /// treated as open-ended (`.distantFuture`) so an open range overlaps anything after its start.
+    /// Display-only — never blocks a save.
+    static func firstOverlapping(start: Date, end: Date?, in others: [Season]) -> Season? {
+        let candidateEnd = end ?? .distantFuture
+        for season in others {
+            guard let otherStart = season.startDate else { continue }
+            let otherEnd = season.endDate ?? .distantFuture
+            // Two intervals overlap when each starts on/before the other ends.
+            if start <= otherEnd && otherStart <= candidateEnd {
+                return season
+            }
+        }
+        return nil
+    }
+
     /// Computed display name with year range
     var displayName: String {
         // If name already contains a year (4 digits), just return it

@@ -20,6 +20,11 @@ struct VideoThumbnailView: View {
     let showDuration: Bool
     let showOutcomeWithDuration: Bool
     let fillsContainer: Bool
+    /// Reports the clip thumbnail's raw aspect ratio (width / height) once it
+    /// loads. Optional — only the Journal feed uses it (to size its tile to a
+    /// portrait clip instead of top-cropping it into a 16:9 box); every other
+    /// call site leaves it nil and is unaffected.
+    var onAspectResolved: ((CGFloat) -> Void)? = nil
 
     @State private var thumbnailImage: UIImage?
     @State private var isLoadingThumbnail = false
@@ -48,7 +53,8 @@ struct VideoThumbnailView: View {
         showContext: Bool = true,
         showDuration: Bool = false,
         showOutcomeWithDuration: Bool = false,
-        fillsContainer: Bool = false
+        fillsContainer: Bool = false,
+        onAspectResolved: ((CGFloat) -> Void)? = nil
     ) {
         self.clip = clip
         self.size = size
@@ -61,6 +67,7 @@ struct VideoThumbnailView: View {
         self.showDuration = showDuration
         self.showOutcomeWithDuration = showOutcomeWithDuration
         self.fillsContainer = fillsContainer
+        self.onAspectResolved = onAspectResolved
     }
 
     // Convenience initializers for common landscape sizes (16:9)
@@ -405,6 +412,7 @@ struct VideoThumbnailView: View {
             guard !Task.isCancelled else { isLoadingThumbnail = false; return }
             thumbnailImage = image
             isLoadingThumbnail = false
+            if image.size.height > 0 { onAspectResolved?(image.size.width / image.size.height) }
         } catch {
             guard !Task.isCancelled else { isLoadingThumbnail = false; return }
             Self.logger.warning("Failed to load thumbnail: \(error.localizedDescription, privacy: .public)")
@@ -480,6 +488,7 @@ struct VideoThumbnailView: View {
                 let image = try await ThumbnailCache.shared.loadThumbnail(at: thumbnailPath)
                 thumbnailImage = image
                 isLoadingThumbnail = false
+                if image.size.height > 0 { onAspectResolved?(image.size.width / image.size.height) }
             } catch {
                 Self.logger.error("Failed to load generated thumbnail: \(error.localizedDescription, privacy: .public)")
                 loadError = error

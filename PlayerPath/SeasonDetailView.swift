@@ -29,6 +29,10 @@ struct SeasonDetailView: View {
     @State private var showingEndSeasonConfirmation = false
     @State private var showingRenameSheet = false
     @State private var editedSeasonName = ""
+    @State private var showingDatesSheet = false
+    @State private var editedStartDate = Date()
+    @State private var editedEndDate = Date()
+    @State private var editingEndDate = false
     @State private var isProcessing = false
     @State private var showingError = false
     @State private var errorMessage = ""
@@ -173,6 +177,15 @@ struct SeasonDetailView: View {
                     Label("Edit Season Name", systemImage: "pencil")
                 }
 
+                Button {
+                    editedStartDate = season.startDate ?? Date()
+                    editedEndDate = season.endDate ?? Date()
+                    editingEndDate = season.endDate != nil
+                    showingDatesSheet = true
+                } label: {
+                    Label("Edit Season Dates", systemImage: "calendar")
+                }
+
                 if season.isActive {
                     Button {
                         Haptics.warning()
@@ -284,6 +297,60 @@ struct SeasonDetailView: View {
                             renameSeason(to: editedSeasonName)
                         }
                         .disabled(editedSeasonName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                }
+            }
+            .presentationDetents([.medium, .large])
+        }
+        .sheet(isPresented: $showingDatesSheet) {
+            NavigationStack {
+                Form {
+                    Section {
+                        DatePicker("Start Date", selection: $editedStartDate, displayedComponents: .date)
+
+                        if season.isActive {
+                            Text("The end date is set automatically when you end this season.")
+                                .font(.ppCaption)
+                                .foregroundStyle(Theme.textSecondary)
+                        } else {
+                            Toggle("Set End Date", isOn: $editingEndDate.animation())
+                            if editingEndDate {
+                                DatePicker("End Date", selection: $editedEndDate, in: editedStartDate..., displayedComponents: .date)
+                            }
+                        }
+                    } header: {
+                        Text("Season Dates").smallCapsLabel()
+                    } footer: {
+                        Text("Changing dates won't move games or videos already in this season.")
+                    }
+
+                    if let overlap = overlappingSeason {
+                        Section {
+                            Label {
+                                Text("These dates overlap \(overlap.displayName).")
+                            } icon: {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(Theme.warning)
+                            }
+                            .font(.ppCaption)
+                        }
+                    }
+                }
+                .ppDetailBackground()
+                .navigationTitle("Edit Season Dates")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") {
+                            showingDatesSheet = false
+                        }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Save") {
+                            showingDatesSheet = false
+                            updateSeasonDates()
+                        }
+                        .disabled(editingEndDate && editedEndDate < editedStartDate)
                     }
                 }
             }
@@ -503,6 +570,42 @@ struct SeasonDetailView: View {
                 Haptics.medium()
                 successTitle = "Season Renamed"
                 successMessage = "Season renamed to \"\(trimmed)\"."
+                showingSuccess = true
+            } catch {
+                isProcessing = false
+                errorMessage = error.localizedDescription
+                showingError = true
+            }
+        }
+    }
+
+    /// Sibling season (if any) whose date range overlaps the candidate dates in the editor.
+    /// Drives the warn-but-allow overlap note; never blocks the save.
+    private var overlappingSeason: Season? {
+        let others = (athlete.seasons ?? []).filter { $0.id != season.id }
+        return Season.firstOverlapping(
+            start: editedStartDate,
+            end: editingEndDate ? editedEndDate : nil,
+            in: others
+        )
+    }
+
+    private func updateSeasonDates() {
+        isProcessing = true
+        Task {
+            do {
+                try await SeasonService.updateSeasonDates(
+                    season,
+                    startDate: editedStartDate,
+                    endDate: editingEndDate ? editedEndDate : nil,
+                    modelContext: modelContext
+                )
+                withAnimation {
+                    isProcessing = false
+                }
+                Haptics.medium()
+                successTitle = "Season Dates Updated"
+                successMessage = "\(season.displayName)'s dates were updated."
                 showingSuccess = true
             } catch {
                 isProcessing = false

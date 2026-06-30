@@ -18,6 +18,30 @@ struct JournalEntryRow: View {
     /// it once from a `[UUID: Milestone]` index, so the row never scans an array.
     var milestone: Milestone? = nil
 
+    /// The displayed media's clamped aspect ratio, resolved once its photo/clip
+    /// thumbnail loads (nil until then → a default). Drives the media tile's height
+    /// so a card sizes to the media's own shape instead of forcing every photo or
+    /// clip into a 16:9 box that top-crops portraits.
+    @State private var mediaAspect: CGFloat?
+
+    /// Neutral shapes shown for the brief moment before the true aspect resolves,
+    /// so the card doesn't pop. Photos default to 4:3, clips to 16:9 (their common
+    /// landscape case) — minimizing the settle.
+    private static let defaultPhotoAspect: CGFloat = 4.0 / 3.0
+    private static let defaultClipAspect: CGFloat = 16.0 / 9.0
+
+    /// The feed's allowed aspect range: photos/clips show at their true shape
+    /// between these, and only more-extreme media gets a minimal top/center crop.
+    /// 1.91:1 (landscape) … 3:4 (portrait) — Instagram-style, portraits a touch
+    /// shorter than 4:5 to keep the feed's vertical rhythm tighter.
+    private static let maxMediaAspect: CGFloat = 1.91
+    private static let minMediaAspect: CGFloat = 3.0 / 4.0
+
+    /// Clamp a raw width/height ratio into the feed's allowed range.
+    private static func clampedAspect(_ raw: CGFloat) -> CGFloat {
+        min(max(raw, minMediaAspect), maxMediaAspect)
+    }
+
     /// The coach-feedback payload when this is a feedback card, else nil.
     private var coachFeedbackItem: CoachFeedbackFeedItem? {
         if case .coachFeedback(let item) = entry { return item }
@@ -180,18 +204,13 @@ struct JournalEntryRow: View {
             // A standalone-photo entry shows the photo itself. JournalPhotoThumbnail
             // owns its own loading/failed glyph (incl. an iCloud-download hint),
             // so the tile passes no glyph of its own.
-            PPMediaTile(tileColor: Theme.tile(forKey: entry.id)) {
-                JournalPhotoThumbnail(photo: photo)
-            }
+            photoTile(photo)
         } else if case .photoGroup = entry, let photo = summary.representativePhoto {
             // A multi-photo day collapses to one card: the most recent photo as
             // the cover, with a stack glyph marking it as a set (the headline
             // carries the exact count). Tapping opens the day-scoped grid sheet
             // (see JournalView). JournalPhotoThumbnail owns its own loading glyph.
-            PPMediaTile(tileColor: Theme.tile(forKey: entry.id)) {
-                JournalPhotoThumbnail(photo: photo)
-            }
-            .overlay(alignment: .bottomTrailing) { photoStackBadge }
+            photoTile(photo, stacked: true)
         } else if let clip = summary.representativeClip {
             // Only a single orphan clip card promises inline playback — its ▶
             // and duration are honest because there's exactly one clip to play.
@@ -200,6 +219,10 @@ struct JournalEntryRow: View {
             // which clip it would play).
             let chip = outcomeChip(for: clip)
             PPMediaTile(
+                // Size to the clip's own shape (e.g. a portrait clip → 3:4) instead
+                // of forcing a 16:9 box that top-crops it; clips default to 16:9
+                // until the thumbnail resolves the true aspect.
+                aspectRatio: mediaAspect ?? Self.defaultClipAspect,
                 tileColor: Theme.tile(forKey: entry.id),
                 outcome: chip,
                 // The star is the SOLE highlight signal. Drop it when an accent
@@ -219,16 +242,37 @@ struct JournalEntryRow: View {
                     showNote: false,
                     showContext: false,
                     showDuration: false,
-                    fillsContainer: true
+                    fillsContainer: true,
+                    onAspectResolved: { resolved in
+                        withAnimation(.easeOut(duration: 0.2)) { mediaAspect = Self.clampedAspect(resolved) }
+                    }
                 )
             }
         } else if let photo = summary.representativePhoto {
             // No clip, but the event has photos — show an actual tagged photo.
             // JournalPhotoThumbnail owns its own loading/failed glyph (incl. the
             // iCloud-download hint), so the tile passes no glyph of its own.
-            PPMediaTile(tileColor: Theme.tile(forKey: entry.id)) {
-                JournalPhotoThumbnail(photo: photo)
+            photoTile(photo)
+        }
+    }
+
+    /// A media tile that sizes to the photo's own (clamped) aspect ratio instead
+    /// of a fixed 16:9 box — so portraits show in full rather than top-cropped to a
+    /// sliver. `JournalPhotoThumbnail` reports the resolved aspect once its image
+    /// loads; until then the tile uses `defaultPhotoAspect`. `stacked` adds the
+    /// multi-photo-day badge.
+    @ViewBuilder
+    private func photoTile(_ photo: Photo, stacked: Bool = false) -> some View {
+        PPMediaTile(
+            aspectRatio: mediaAspect ?? Self.defaultPhotoAspect,
+            tileColor: Theme.tile(forKey: entry.id)
+        ) {
+            JournalPhotoThumbnail(photo: photo) { resolved in
+                withAnimation(.easeOut(duration: 0.2)) { mediaAspect = Self.clampedAspect(resolved) }
             }
+        }
+        .overlay(alignment: .bottomTrailing) {
+            if stacked { photoStackBadge }
         }
     }
 

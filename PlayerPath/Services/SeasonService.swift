@@ -178,6 +178,62 @@ struct SeasonService {
         }
     }
 
+    /// Updates a season's start (and optionally end) date. Re-stamps every attached VideoClip's
+    /// denormalized `seasonName`, since `Season.displayName` derives its year label from the dates.
+    /// Membership is a stored relationship, so already-attached content is never re-homed — the
+    /// effects are forward-looking (future-import matching) and cosmetic (sort order + year label).
+    /// Rolls back local mutations if the save fails.
+    static func updateSeasonDates(_ season: Season,
+                                  startDate: Date,
+                                  endDate: Date?,
+                                  modelContext: ModelContext) async throws {
+        // Normalize a present endDate to end-of-day so same-day games/videos still fall inside the
+        // range — matches Season.archive()'s 23:59:59 stamping.
+        let normalizedEnd = endDate.map {
+            Calendar.current.date(bySettingHour: 23, minute: 59, second: 59, of: $0) ?? $0
+        }
+
+        guard startDate != season.startDate || normalizedEnd != season.endDate else { return }
+
+        season.startDate = startDate
+        season.endDate = normalizedEnd
+        season.needsSync = true
+        // Bump version so the edit beats a stale remote on the next sync download — the same
+        // invariant archive()/activate() protect.
+        season.version += 1
+
+        // displayName may have changed (its year is derived from the dates), so re-stamp the
+        // denormalized label on attached clips exactly like renameSeason does.
+        for clip in season.videoClips ?? [] {
+            clip.seasonName = season.displayName
+            if clip.firestoreId != nil {
+                clip.needsSync = true
+            }
+        }
+
+        do {
+            try modelContext.save()
+        } catch {
+            // Roll back the whole context: restores startDate/endDate and each clip.seasonName to its
+            // true prior value, including nil (a field-by-field rollback turned nil into "").
+            modelContext.rollback()
+            throw SeasonServiceError.saveFailed(underlying: error)
+        }
+
+        if let user = season.athlete?.user {
+            do {
+                try await SyncCoordinator.shared.syncSeasons(for: user)
+            } catch {
+                ErrorHandlerService.shared.handle(error, context: "SeasonService.updateSeasonDates.syncSeasons", showAlert: false)
+            }
+            do {
+                try await SyncCoordinator.shared.syncVideos(for: user)
+            } catch {
+                ErrorHandlerService.shared.handle(error, context: "SeasonService.updateSeasonDates.syncVideos", showAlert: false)
+            }
+        }
+    }
+
     /// Renames the season and propagates the new display name onto every attached VideoClip.
     /// Rolls back local mutations if the save fails.
     static func renameSeason(_ season: Season, to newName: String, modelContext: ModelContext) async throws {

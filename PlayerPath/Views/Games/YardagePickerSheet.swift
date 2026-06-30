@@ -21,18 +21,19 @@ struct YardagePickerSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var value: Int
-    /// Wheel ceiling, fixed when the sheet opens. At least 400 (the legacy
-    /// stepper's old upper bound) but widened to include an out-of-range seed, so
-    /// editing a large pre-existing `distanceBefore` round-trips instead of being
-    /// silently truncated on Done. `distanceBefore` is an unbounded Int.
+    /// Wheel ceiling, fixed when the sheet opens. Defaults to 400 — plenty for a
+    /// shot's yards-to-pin — but callers entering a HOLE length pass a higher
+    /// `maxYardage`, since holes run well past 400 (long par 5s/6s). Always
+    /// widened to include an out-of-range seed, so editing a large pre-existing
+    /// value round-trips instead of being silently truncated on Done.
     private let upperBound: Int
 
-    init(distance: Binding<Int?>, defaultCenter: Int) {
+    init(distance: Binding<Int?>, defaultCenter: Int, maxYardage: Int = 400) {
         self._distance = distance
         self.defaultCenter = defaultCenter
         let seed = max(distance.wrappedValue ?? defaultCenter, 1)
         self._value = State(initialValue: seed)
-        self.upperBound = max(400, seed)
+        self.upperBound = max(maxYardage, seed)
     }
 
     var body: some View {

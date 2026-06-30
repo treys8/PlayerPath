@@ -25,13 +25,17 @@ struct HoleScoringSheet: View {
         case practice(Practice)
     }
     private let parent: Parent
-    let holeNumber: Int
+
+    /// The hole currently being scored. Seeded from the `holeNumber` the caller
+    /// opened on, then advanced/rewound in place by the bottom nav bar so a round
+    /// flows hole → hole without dismissing and re-tapping "Score Hole N".
+    @State private var currentHole: Int
 
     enum ScoringMode: Hashable { case quick, shotByShot }
 
     init(game: Game, holeNumber: Int) {
         self.parent = .game(game)
-        self.holeNumber = holeNumber
+        _currentHole = State(initialValue: holeNumber)
         let holes = game.holeScores ?? []
         _mode = State(initialValue: Self.initialMode(holeScores: holes,
                                                       holeNumber: holeNumber,
@@ -41,13 +45,24 @@ struct HoleScoringSheet: View {
 
     init(practice: Practice, holeNumber: Int) {
         self.parent = .practice(practice)
-        self.holeNumber = holeNumber
+        _currentHole = State(initialValue: holeNumber)
         let holes = practice.holeScores ?? []
         _mode = State(initialValue: Self.initialMode(holeScores: holes,
                                                       holeNumber: holeNumber,
                                                       tracksShotByShot: practice.tracksShotByShot))
         _holeHasLiveShots = State(initialValue: Self.hasLiveShots(holeScores: holes, holeNumber: holeNumber))
     }
+
+    /// Bridges the private `Parent` to the shared `GolfRoundRef` so the host can
+    /// read `holeCount` / `holeScores` for navigation + per-hole mode recompute.
+    private var roundRef: GolfRoundRef {
+        switch parent {
+        case .game(let g):     return .game(g)
+        case .practice(let p): return .practice(p)
+        }
+    }
+
+    private var holeCount: Int { roundRef.holeCount }
 
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
@@ -86,7 +101,18 @@ struct HoleScoringSheet: View {
         NavigationStack {
             VStack(spacing: 0) {
                 if !holeIsShotLocked {
-                    Picker("Scoring mode", selection: $mode) {
+                    // Persist ONLY on a real user tap of the switch — navigation
+                    // recomputes `mode` per hole (below) and must not write the
+                    // round's shot-by-shot default. A plain `.onChange(of: mode)`
+                    // can't tell the two apart, so route persistence through the
+                    // binding setter instead.
+                    Picker("Scoring mode", selection: Binding(
+                        get: { mode },
+                        set: { newMode in
+                            mode = newMode
+                            persistModeChange(newMode)
+                        }
+                    )) {
                         Text("Quick").tag(ScoringMode.quick)
                         Text("Shot-by-shot").tag(ScoringMode.shotByShot)
                     }
@@ -109,8 +135,9 @@ struct HoleScoringSheet: View {
                 }
 
                 content
+                    .id(currentHole)   // fresh child per hole → re-seeds par/score/shots
             }
-            .navigationTitle("Hole \(holeNumber)")
+            .navigationTitle("Hole \(currentHole)")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -120,7 +147,22 @@ struct HoleScoringSheet: View {
             .presentationDetents([.medium, .large], selection: $detent)
             .presentationDragIndicator(.visible)
         }
-        .onChange(of: mode) { _, newMode in persistModeChange(newMode) }
+        // Recompute the per-hole mode/lock when navigating. This deliberately does
+        // NOT persist anything (see the Picker binding) — stepping between holes
+        // must never flip the round's remembered shot-by-shot default.
+        .onChange(of: currentHole) { _, hole in
+            let holes = roundRef.holeScores
+            holeHasLiveShots = Self.hasLiveShots(holeScores: holes, holeNumber: hole)
+            mode = Self.initialMode(holeScores: holes, holeNumber: hole,
+                                    tracksShotByShot: roundRef.tracksShotByShot)
+        }
+    }
+
+    /// Save-and-go-back / advance for the bottom nav bar (strict sequential).
+    /// On the last hole the primary action dismisses instead of advancing.
+    private func goPrev()  { if currentHole > 1 { withAnimation(.none) { currentHole -= 1 } } }
+    private func advance() {
+        if currentHole < holeCount { withAnimation(.none) { currentHole += 1 } } else { dismiss() }
     }
 
     @ViewBuilder private var content: some View {
@@ -130,18 +172,24 @@ struct HoleScoringSheet: View {
         if holeIsShotLocked || mode == .shotByShot {
             switch parent {
             case .game(let g):
-                ShotByShotContent(game: g, holeNumber: holeNumber,
+                ShotByShotContent(game: g, holeNumber: currentHole, holeCount: holeCount,
+                                  onPrev: goPrev, onAdvance: advance,
                                   onLiveShotsChanged: { holeHasLiveShots = $0 },
-                                  onRevertToQuick: { mode = .quick })
+                                  onRevertToQuick: { mode = .quick; persistModeChange(.quick) })
             case .practice(let p):
-                ShotByShotContent(practice: p, holeNumber: holeNumber,
+                ShotByShotContent(practice: p, holeNumber: currentHole, holeCount: holeCount,
+                                  onPrev: goPrev, onAdvance: advance,
                                   onLiveShotsChanged: { holeHasLiveShots = $0 },
-                                  onRevertToQuick: { mode = .quick })
+                                  onRevertToQuick: { mode = .quick; persistModeChange(.quick) })
             }
         } else {
             switch parent {
-            case .game(let g):     QuickScoreContent(game: g, holeNumber: holeNumber)
-            case .practice(let p): QuickScoreContent(practice: p, holeNumber: holeNumber)
+            case .game(let g):
+                QuickScoreContent(game: g, holeNumber: currentHole, holeCount: holeCount,
+                                  onPrev: goPrev, onAdvance: advance)
+            case .practice(let p):
+                QuickScoreContent(practice: p, holeNumber: currentHole, holeCount: holeCount,
+                                  onPrev: goPrev, onAdvance: advance)
             }
         }
     }

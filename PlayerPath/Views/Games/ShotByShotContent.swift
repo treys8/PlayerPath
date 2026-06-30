@@ -26,6 +26,13 @@ struct ShotByShotContent: View {
     }
     private let parent: Parent
     let holeNumber: Int
+    /// Total holes in the round — drives the nav bar label and the
+    /// "Next ›" → "Done" switch on the last hole.
+    let holeCount: Int
+    /// Navigate (the host owns `currentHole`). Shots persist live, so unlike
+    /// QuickScoreContent there's nothing to flush before moving.
+    let onPrev: () -> Void
+    let onAdvance: () -> Void
 
     /// Reports `!shots.isEmpty` to the host (`HoleScoringSheet`) whenever the
     /// live-shot count crosses 0, so the host can lock/unlock the Quick switch
@@ -36,26 +43,33 @@ struct ShotByShotContent: View {
     /// back to Quick entry (the host owns the mode state).
     private let onRevertToQuick: (() -> Void)?
 
-    init(game: Game, holeNumber: Int,
+    init(game: Game, holeNumber: Int, holeCount: Int,
+         onPrev: @escaping () -> Void, onAdvance: @escaping () -> Void,
          onLiveShotsChanged: ((Bool) -> Void)? = nil,
          onRevertToQuick: (() -> Void)? = nil) {
         self.parent = .game(game)
         self.holeNumber = holeNumber
+        self.holeCount = holeCount
+        self.onPrev = onPrev
+        self.onAdvance = onAdvance
         self.onLiveShotsChanged = onLiveShotsChanged
         self.onRevertToQuick = onRevertToQuick
     }
 
-    init(practice: Practice, holeNumber: Int,
+    init(practice: Practice, holeNumber: Int, holeCount: Int,
+         onPrev: @escaping () -> Void, onAdvance: @escaping () -> Void,
          onLiveShotsChanged: ((Bool) -> Void)? = nil,
          onRevertToQuick: (() -> Void)? = nil) {
         self.parent = .practice(practice)
         self.holeNumber = holeNumber
+        self.holeCount = holeCount
+        self.onPrev = onPrev
+        self.onAdvance = onAdvance
         self.onLiveShotsChanged = onLiveShotsChanged
         self.onRevertToQuick = onRevertToQuick
     }
 
     @Environment(\.modelContext) private var modelContext
-    @Environment(\.dismiss) private var dismiss
 
     /// Most-recently-used clubs (CSV of raw values) for the quick-access row.
     @AppStorage(GolfPrefs.recentlyUsedClubs) private var recentClubsRaw = ""
@@ -192,10 +206,13 @@ struct ShotByShotContent: View {
             .padding(.spacingLarge)
         }
         .ppDetailBackground()
-        .toolbar {
-            ToolbarItem(placement: .confirmationAction) {
-                Button("Done") { dismiss() }
-            }
+        .safeAreaInset(edge: .bottom) {
+            // Shots persist live, so the bar just navigates — no save flush. The
+            // primary becomes "Done" on the last hole (advance() dismisses there).
+            HoleNavBar(currentHole: holeNumber, holeCount: holeCount,
+                       primaryTitle: holeNumber == holeCount ? "Done" : "Next ›",
+                       primaryDisabled: false,
+                       onPrev: onPrev, onPrimary: onAdvance)
         }
         .confirmationDialog("Clear all shots on this hole?",
                             isPresented: $showRevertConfirm, titleVisibility: .visible) {
@@ -207,7 +224,8 @@ struct ShotByShotContent: View {
         .onAppear { loadIfNeeded() }
         .sheet(isPresented: $showingHoleYardagePicker, onDismiss: { persistIfDirty() }) {
             YardagePickerSheet(distance: $holeYardage,
-                               defaultCenter: holeYardage ?? defaultHoleYardageCenter)
+                               defaultCenter: holeYardage ?? defaultHoleYardageCenter,
+                               maxYardage: 650)   // hole length — covers the longest par 5s
         }
     }
 
@@ -409,8 +427,13 @@ struct ShotByShotContent: View {
                 .stroke(Theme.golfAccent.opacity(editingShot != nil ? 0.9 : 0.4), lineWidth: 1.5)
         )
         .sheet(isPresented: $showingYardagePicker) {
+            // Seed the wheel near the picked club's typical distance so it's a
+            // short flick, not a long scroll (a wedge opens ~90, a long iron
+            // ~190). Falls back to the last yardage logged this round, then 150,
+            // when no club is selected yet.
             YardagePickerSheet(distance: $pendingDistance,
-                               defaultCenter: lastApproachDistance ?? 150)
+                               defaultCenter: selectedClub.map { ShotClubRecommender.typicalYardage(for: $0) }
+                                   ?? lastApproachDistance ?? 150)
         }
     }
 
@@ -464,7 +487,7 @@ struct ShotByShotContent: View {
     private func doneButton(title: String) -> some View {
         Button {
             Haptics.success()
-            dismiss()
+            onAdvance()   // shots already persisted live → advance (or dismiss on the last hole)
         } label: {
             Text(title)
                 .font(.bodyLarge)
