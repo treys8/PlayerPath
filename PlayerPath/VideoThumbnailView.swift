@@ -40,6 +40,15 @@ struct VideoThumbnailView: View {
     @MainActor private static var activeGenerations = 0
     @MainActor private static let maxConcurrentGenerations = 4
 
+    /// Clip ids we've already checked for a stale (low-res) thumbnail this session.
+    /// A one-time-per-clip guard so scrolling doesn't re-probe/re-regenerate, and so a
+    /// genuinely low-res source video (which can't be improved) is attempted at most once.
+    @MainActor private static var upscaleAttempted = Set<UUID>()
+    /// Legacy thumbnails were capped at 480px longest side; current generation reaches
+    /// ≥1080px (portrait) / 1920px (landscape). Anything below this is a stale thumbnail
+    /// worth regenerating when the source video is still available locally.
+    private static let staleThumbnailLongestSide = 640
+
     // MARK: - Initializers
 
     init(
@@ -390,6 +399,15 @@ struct VideoThumbnailView: View {
 
     // MARK: - Thumbnail Loading
 
+    /// Pixel target for downsampling at display time. `ThumbnailCache.downsampleImage`
+    /// re-multiplies this by the device display scale internally, so 2× the point size is a
+    /// comfortable ceiling that keeps heroes crisp without over-allocating for row thumbnails.
+    /// Shared by the initial load and the post-regeneration reload so neither caches a
+    /// full-resolution source image.
+    private var displayTargetSize: CGSize {
+        CGSize(width: size.width * 2, height: size.height * 2)
+    }
+
     @MainActor
     private func loadThumbnail() async {
         guard !isLoadingThumbnail, thumbnailImage == nil else { return }
@@ -407,12 +425,14 @@ struct VideoThumbnailView: View {
         guard !Task.isCancelled else { isLoadingThumbnail = false; return }
 
         do {
-            let targetSize = CGSize(width: size.width * 2, height: size.height * 2)
-            let image = try await ThumbnailCache.shared.loadThumbnail(at: thumbnailPath, targetSize: targetSize)
+            let image = try await ThumbnailCache.shared.loadThumbnail(at: thumbnailPath, targetSize: displayTargetSize)
             guard !Task.isCancelled else { isLoadingThumbnail = false; return }
             thumbnailImage = image
             isLoadingThumbnail = false
             if image.size.height > 0 { onAspectResolved?(image.size.width / image.size.height) }
+            // Existing clips carry legacy low-res thumbnails; upgrade them once when the
+            // source video is still local so the feed sharpens without a manual re-import.
+            await regenerateStaleThumbnailIfNeeded(currentPath: thumbnailPath)
         } catch {
             guard !Task.isCancelled else { isLoadingThumbnail = false; return }
             Self.logger.warning("Failed to load thumbnail: \(error.localizedDescription, privacy: .public)")
@@ -473,6 +493,9 @@ struct VideoThumbnailView: View {
 
         let result = await VideoFileManager.generateThumbnail(from: videoURL)
         guard !Task.isCancelled else { isLoadingThumbnail = false; return }
+        // The clip may have been deleted during the multi-second generate await; touching a
+        // deleted @Model's attributes traps and bypasses the do/catch below. Bail if it's gone.
+        guard !clip.isDeleted, clip.modelContext != nil else { isLoadingThumbnail = false; return }
 
         switch result {
         case .success(let thumbnailPath):
@@ -485,19 +508,78 @@ struct VideoThumbnailView: View {
                 ThumbnailSaveDebouncer.shared.scheduleSave(modelContext)
             }
             do {
-                let image = try await ThumbnailCache.shared.loadThumbnail(at: thumbnailPath)
+                // Pass a display target so the freshly generated 1080p source is downsampled,
+                // not cached at full resolution.
+                let image = try await ThumbnailCache.shared.loadThumbnail(at: thumbnailPath, targetSize: displayTargetSize)
                 thumbnailImage = image
                 isLoadingThumbnail = false
                 if image.size.height > 0 { onAspectResolved?(image.size.width / image.size.height) }
             } catch {
                 Self.logger.error("Failed to load generated thumbnail: \(error.localizedDescription, privacy: .public)")
-                loadError = error
+                // Don't clobber a thumbnail that's already on screen (stale-heal reload): a
+                // failure here would make accessibilityDescription falsely announce "failed".
+                if thumbnailImage == nil { loadError = error }
                 isLoadingThumbnail = false
             }
         case .failure(let error):
             Self.logger.error("Failed to generate thumbnail: \(error.localizedDescription, privacy: .public)")
-            loadError = error
+            if thumbnailImage == nil { loadError = error }
             isLoadingThumbnail = false
+        }
+    }
+
+    /// Upgrades a legacy low-resolution thumbnail in place. Runs at most once per clip per
+    /// session (`upscaleAttempted` guard) so scrolling doesn't re-probe and a genuinely
+    /// low-res source video isn't regenerated repeatedly. Only fires when the on-disk
+    /// thumbnail's longest side is below `staleThumbnailLongestSide` AND the source video is
+    /// still local — cloud-only clips are left untouched (regenerating would need a full
+    /// video download). Reuses `generateThumbnailFromURL`, which rewrites `clip.thumbnailPath`
+    /// and reloads the image; the superseded thumbnail file is then cleaned up.
+    @MainActor
+    private func regenerateStaleThumbnailIfNeeded(currentPath: String) async {
+        // `isDeleted` is safe to read on an invalidated model; check it before any other
+        // attribute (e.g. `clip.id`), since this runs right after the load await resumed.
+        guard !clip.isDeleted, clip.modelContext != nil else { return }
+        guard !Self.upscaleAttempted.contains(clip.id) else { return }
+        let clipID = clip.id
+        Self.upscaleAttempted.insert(clipID)
+
+        // Read the thumbnail's pixel dimensions off-main without decoding it.
+        let longestSide = await Task.detached(priority: .utility) {
+            ThumbnailCache.sourceLongestSide(at: currentPath)
+        }.value
+        // Crisp (current-generation) or unreadable: leave marked so we don't re-probe this
+        // clip on every scroll — neither outcome changes within the session.
+        guard let longestSide, longestSide < Self.staleThumbnailLongestSide else { return }
+
+        // The probe await could outlive the clip; bail if it was deleted meanwhile.
+        guard !clip.isDeleted, clip.modelContext != nil else { return }
+        // Cloud-only clips can't be regenerated locally (would need a full video download) —
+        // leave marked; the source won't become local within this session.
+        guard let videoURL = await resolveLocalVideoURL() else { return }
+        guard !clip.isDeleted, clip.modelContext != nil else { return }
+
+        // These are *transient* skips — unmark so a later appearance retries once a slot frees
+        // up. Without this, in a feed full of legacy clips only the first few would ever heal.
+        guard !Task.isCancelled else { Self.upscaleAttempted.remove(clipID); return }
+        guard Self.activeGenerations < Self.maxConcurrentGenerations else {
+            Self.upscaleAttempted.remove(clipID)
+            return
+        }
+        Self.activeGenerations += 1
+        defer { Self.activeGenerations -= 1 }
+
+        Self.logger.info("Upgrading legacy thumbnail (\(longestSide)px) for \(self.clip.fileName, privacy: .public)")
+
+        let oldResolvedPath = ThumbnailCache.resolveLocalPath(currentPath)
+        await generateThumbnailFromURL(videoURL)
+
+        // If the path actually changed, delete the superseded file and drop it from cache.
+        // Re-guard: the regeneration await above could have outlived a concurrent delete.
+        guard !clip.isDeleted, clip.modelContext != nil else { return }
+        if clip.thumbnailPath != currentPath {
+            ThumbnailCache.shared.removeThumbnail(at: currentPath)
+            VideoFileManager.cleanup(url: URL(fileURLWithPath: oldResolvedPath))
         }
     }
 

@@ -48,12 +48,28 @@ import UIKit
     /// Normalize a stored thumbnail path to an absolute filesystem path.
     /// Accepts both legacy absolute paths and new paths stored relative to Documents.
     /// Callers may pass either form — this resolver makes the cache transparent to the storage convention.
-    static func resolveLocalPath(_ path: String) -> String {
+    nonisolated static func resolveLocalPath(_ path: String) -> String {
         if path.hasPrefix("/") { return path }
         guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
             return path
         }
         return docs.appendingPathComponent(path).path
+    }
+
+    /// Reads an image file's pixel dimensions WITHOUT decoding the pixels (ImageIO metadata
+    /// only) and returns the longest side in pixels. Used to detect low-resolution legacy
+    /// thumbnails (≤480px) that should be regenerated at the current resolution. Cheap enough
+    /// to call off the main actor per stale clip; returns nil if the file is missing/unreadable.
+    nonisolated static func sourceLongestSide(at rawPath: String) -> Int? {
+        let path = resolveLocalPath(rawPath)
+        let url = URL(fileURLWithPath: path) as CFURL
+        guard let source = CGImageSourceCreateWithURL(url, nil),
+              let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let pixelWidth = props[kCGImagePropertyPixelWidth] as? Int,
+              let pixelHeight = props[kCGImagePropertyPixelHeight] as? Int else {
+            return nil
+        }
+        return max(pixelWidth, pixelHeight)
     }
 
     /// Load a thumbnail from cache or disk (deduplicates concurrent requests)

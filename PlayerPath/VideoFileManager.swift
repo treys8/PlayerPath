@@ -83,10 +83,18 @@ class VideoFileManager {
         static let minFileSizeBytes: Int64 = 1024 // 1KB
         static let maxDurationSeconds: TimeInterval = 600 // 10 minutes
         static let minDurationSeconds: TimeInterval = 1 // 1 second
-        /// Cloud thumbnails generated at 3x base size (480x270) so they look crisp on all
-        /// Retina displays. Matches the effective quality of athlete local thumbnails, which
-        /// are stored at full resolution and downsampled at display time by ThumbnailCache.
-        static let thumbnailSize: CGSize = CGSize(width: 480, height: 270)
+        /// Full-resolution (1080p) source so full-width hero thumbnails (Journal/Home feed,
+        /// Videos grid) stay crisp on all Retina displays — a hero fills the card width
+        /// (~1170px on a 3x phone), so a smaller source would be visibly upscaled.
+        /// This is an aspect-preserving bounding box (AVAssetImageGenerator.maximumSize), so
+        /// portrait clips fit by height (~1080 tall). In-memory NSCache pressure is unaffected:
+        /// ThumbnailCache downsamples to the display target at load time and caches that, not the
+        /// source file. This is the default for EVERY generateThumbnail caller, so the ~300–500KB
+        /// JPEG now applies both on disk (athlete-local thumbnails) AND to cloud thumbnails
+        /// uploaded for coach shared folders / sync (SharedFolderManager, SyncCoordinator,
+        /// CoachVideoProcessingService) — intentional: it also de-blurs the coach-side previews.
+        /// Thumbnails remain tiny next to the video files themselves, so the storage cost is minor.
+        static let thumbnailSize: CGSize = CGSize(width: 1920, height: 1080)
         static let thumbnailCompressionQuality: CGFloat = 0.8
     }
     

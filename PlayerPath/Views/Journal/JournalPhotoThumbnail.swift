@@ -47,7 +47,10 @@ struct JournalPhotoThumbnail: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task(id: photo.id) {
             loadFailed = false
-            if let loaded = await PhotoThumbnailLoader.load(for: photo) {
+            // Full-width feed hero — request the 1200px hero size (matches PhotoHeroCell)
+            // so the loader re-decodes from the full-size photo instead of stretching the
+            // ~600px cached grid thumb. See PhotoThumbnailLoader.decode's hero note.
+            if let loaded = await PhotoThumbnailLoader.load(for: photo, maxPixelSize: 1200) {
                 image = loaded
                 if loaded.size.height > 0 {
                     onAspectResolved?(loaded.size.width / loaded.size.height)
