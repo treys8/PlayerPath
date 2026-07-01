@@ -227,6 +227,15 @@ struct ManualStatisticsEntryView: View {
                 hitByPitches: newHitByPitches
             )
 
+            // A past-dated, non-live game keeps isComplete == false (it shows a
+            // "PAST" badge). Saving a box score for it is effectively completing
+            // it — flip the flag so it reads "COMPLETED" and the recalc below
+            // includes it (covers the zero-at-bat case, e.g. runs/RBIs only).
+            // Silent: completion side effects belong to GameService.complete.
+            if !game.isLive && !game.isComplete && game.displayStatus == .completed {
+                game.isComplete = true
+            }
+
             // Recalculate career + season statistics from scratch so they
             // stay consistent with game stats (also repairs any prior corruption).
             if let athlete = game.athlete {

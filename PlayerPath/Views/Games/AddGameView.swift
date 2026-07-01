@@ -21,6 +21,7 @@ struct AddGameView: View {
     @State private var startAsLive = false
     @State private var selectedSeason: Season?
     @State private var didInitSeason = false
+    @State private var showingSeasonDecision = false
     @State private var showingError = false
     @State private var errorMessage = ""
     @State private var isSeasonError = false
@@ -136,6 +137,16 @@ struct AddGameView: View {
         } message: {
             Text(duplicateConfirmMessage)
         }
+        .seasonStartDecision(
+            isPresented: $showingSeasonDecision,
+            athlete: athlete,
+            sport: athlete?.sportType ?? .baseball,
+            modelContext: modelContext,
+            onResolved: { season in
+                selectedSeason = season
+                saveGame()
+            }
+        )
         .onDisappear {
             if shouldPresentSeasonsOnDismiss {
                 NotificationCenter.default.post(name: Notification.Name.presentSeasons, object: athlete)
@@ -153,6 +164,14 @@ struct AddGameView: View {
         guard isValidOpponent else {
             errorMessage = "Please enter a valid opponent name (2-50 characters)"
             showingError = true
+            return
+        }
+
+        // No season to file into (the season was ended) — ask whether to
+        // reactivate the last ended season or start a new one before creating
+        // anything, rather than silently minting a phantom "today" season.
+        if selectedSeason == nil, athlete.activeSeason == nil {
+            showingSeasonDecision = true
             return
         }
 

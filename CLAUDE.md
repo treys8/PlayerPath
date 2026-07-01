@@ -12,11 +12,15 @@ This is an Xcode project — there is no SPM Package.swift or Podfile. Open `Pla
 
 ```bash
 # Build from command line
-xcodebuild -project PlayerPath.xcodeproj -scheme PlayerPath -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+  xcodebuild -project PlayerPath.xcodeproj -scheme PlayerPath -sdk iphonesimulator \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
 
-# Increment build number before archive
-./increment_build_number.sh
+# Nuclear clean when the build cache is stale (deletes DerivedData/build/SwiftPM caches)
+./CLEAN_BUILD.sh
 ```
+
+CLI `xcodebuild` needs the `DEVELOPER_DIR` prefix; transient SourceKit errors in the output are safe to ignore — trust the final build result. Version/build numbers are bumped in Xcode target settings (there is no increment script).
 
 There are **no automated tests** — no test targets exist in the project.
 
@@ -39,7 +43,7 @@ Athlete navigation uses `NavigationCoordinator` (Observable class) with deep lin
 
 ### Data Layer
 
-- **SwiftData** for local persistence. Schema is versioned (V1–V30; currently `SchemaV30`) in `PlayerPathSchema.swift` with lightweight migrations only. The live container binds `Schema(SchemaV30.models)` in `PlayerPathApp.swift` — bump the **bound schema**, not the `MigrationPlan` (which is documentation only).
+- **SwiftData** for local persistence. Schema is versioned (V1–V34; currently `SchemaV34`) in `PlayerPathSchema.swift` with lightweight migrations only. The live container binds `Schema(SchemaV34.models)` in `PlayerPathApp.swift` — bump the **bound schema**, not the `MigrationPlan` (which is documentation only).
 - **Firebase Firestore** for cloud sync and shared data (coach folders, invitations, clip metadata).
 - **Local-first architecture**: `SyncCoordinator` handles bidirectional sync between SwiftData and Firestore using dirty flags and version numbers for conflict resolution.
 

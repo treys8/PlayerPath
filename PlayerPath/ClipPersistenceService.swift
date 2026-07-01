@@ -445,9 +445,15 @@ final class ClipPersistenceService {
             }
         }
 
-        // Ensure athlete has an active season (creates default if missing),
-        // then link the video to it so clips are never orphaned without a season.
-        let activeSeason = athlete.activeSeason ?? SeasonManager.ensureActiveSeason(for: athlete, in: context)
+        // Inherit the event's own season so a clip recorded into a past-season
+        // game/practice stays on that season — parity with PhotoPersistenceService
+        // ("Inherit the game's actual season, not just activeSeason"). Only true
+        // orphans (no game, no practice) fall back to the active season, creating
+        // a default one if missing so clips are never seasonless. Resolving the
+        // event season first also avoids spawning a phantom current season via
+        // ensureActiveSeason when recording into a game whose season has ended.
+        let resolvedSeason = game?.season ?? practice?.season
+            ?? athlete.activeSeason ?? SeasonManager.ensureActiveSeason(for: athlete, in: context)
 
         // Orphan golf clips (no game, no practice) would each surface as their
         // own journal entry — a 100-swing range session = 100 cards. Group them
@@ -464,7 +470,7 @@ final class ClipPersistenceService {
             resolvedPractice = GolfCaptureSession.todaysSession(
                 type: sessionType,
                 for: athlete,
-                season: activeSeason,
+                season: resolvedSeason,
                 in: context
             )
         }
@@ -473,7 +479,7 @@ final class ClipPersistenceService {
         videoClip.athlete = athlete
         if let game = game { videoClip.game = game }
         if let resolvedPractice { videoClip.practice = resolvedPractice }
-        if let season = activeSeason {
+        if let season = resolvedSeason {
             videoClip.season = season
         }
 
@@ -482,7 +488,7 @@ final class ClipPersistenceService {
         videoClip.gameOpponent = game?.opponent
         videoClip.gameDate = game?.date
         videoClip.practiceDate = resolvedPractice?.date
-        videoClip.seasonName = activeSeason?.displayName
+        videoClip.seasonName = resolvedSeason?.displayName
 
         // Insert and save — clean up copied file if save fails to prevent orphans
         context.insert(videoClip)

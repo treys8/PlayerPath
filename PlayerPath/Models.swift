@@ -238,12 +238,16 @@ final class Game {
     ///
     /// Activity checks every counter that can move independently: plate
     /// appearances cover batter-side entries (including walks and HBP which
-    /// don't increment atBats), and totalPitches covers pitcher-side entries.
+    /// don't increment atBats), and hasPitchingData covers pitcher-side entries.
+    /// (A normal pitching line — outs/K/BB/hits — sets none of the plate-appearance
+    /// counters and usually leaves the optional totalPitches at 0, so we key off
+    /// the same pitching signal the display gate uses to avoid a recorded line
+    /// showing on the game yet missing from season/career totals.)
     var countsTowardStats: Bool {
         if isComplete { return true }
         guard let gs = gameStats else { return false }
         let plateAppearances = gs.atBats + gs.walks + gs.hitByPitches
-        return plateAppearances > 0 || gs.totalPitches > 0
+        return plateAppearances > 0 || gs.hasPitchingData
     }
 
     enum DisplayStatus {

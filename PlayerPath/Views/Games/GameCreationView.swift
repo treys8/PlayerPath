@@ -26,6 +26,7 @@ struct GolfRoundDetails: Equatable {
 
 struct GameCreationView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
     let athlete: Athlete?
     /// When set, this round is being added from a tournament's detail screen —
     /// the tournament link is fixed and shown read-only (no picker). SchemaV27.
@@ -38,6 +39,7 @@ struct GameCreationView: View {
     @State private var makeGameLive = false
     @State private var selectedSeason: Season?
     @State private var didInitSeason = false
+    @State private var showingSeasonDecision = false
     @State private var showingValidationError = false
     @State private var validationMessage = ""
     @State private var isSaving = false
@@ -361,6 +363,16 @@ struct GameCreationView: View {
         } message: {
             Text("You already have a live \(athlete.flatMap { LiveActivityGuard.currentLiveGolfLabel(for: $0) } ?? "activity") going. Starting a new one will end it.")
         }
+        .seasonStartDecision(
+            isPresented: $showingSeasonDecision,
+            athlete: athlete,
+            sport: activeSport,
+            modelContext: modelContext,
+            onResolved: { season in
+                selectedSeason = season
+                saveGame()
+            }
+        )
         .fullScreenCover(isPresented: $showingScanScorecard) {
             if let athlete {
                 // Creation: the round doesn't exist yet, so we only STASH the
@@ -395,6 +407,15 @@ struct GameCreationView: View {
             let maxLen = isGolf ? 80 : 50
             validationMessage = "Please enter a valid \(validationSubject.lowercased()) name (2-\(maxLen) characters)"
             showingValidationError = true
+            return
+        }
+
+        // No season to file into (the season was ended) — ask whether to
+        // reactivate the last ended season or start a new one before creating
+        // anything, rather than silently minting a phantom "today" season.
+        // onResolved sets selectedSeason and re-enters saveGame with it.
+        if selectedSeason == nil, athlete?.activeSeason == nil {
+            showingSeasonDecision = true
             return
         }
 

@@ -241,6 +241,15 @@ struct ManualPitchingEntryView: View {
                 balls: newBalls
             )
 
+            // A past-dated, non-live game keeps isComplete == false (it shows a
+            // "PAST" badge). Saving a box score for it is effectively completing
+            // it — flip the flag so it reads "COMPLETED" and the recalc below
+            // includes it. Silent: completion side effects belong to
+            // GameService.complete / "Mark Complete".
+            if !game.isLive && !game.isComplete && game.displayStatus == .completed {
+                game.isComplete = true
+            }
+
             if let athlete = game.athlete {
                 do {
                     try StatisticsService.shared.recalculateAthleteStatistics(
