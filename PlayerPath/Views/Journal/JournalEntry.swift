@@ -28,11 +28,14 @@ enum JournalEntry: Identifiable {
         case .clip(let c):     return "clip-\(c.id.uuidString)"
         case .photo(let p):    return "photo-\(p.id.uuidString)"
         case .photoGroup(let photos):
-            // Day-keyed (not membership-keyed) so adding/removing a photo to the
-            // same day keeps the row's SwiftUI identity stable. Every photo in the
-            // group shares a calendar day, so any member yields the same key.
+            // Day+sport-keyed (not membership-keyed) so adding/removing a photo to
+            // the same day keeps the row's SwiftUI identity stable. Every photo in
+            // the group shares a calendar day AND a season sport (grouping keys on
+            // both), so any member yields the same key — and a seasonless group
+            // can't collide with a same-day sport group.
             let day = photos.first?.createdAt ?? .distantPast
-            return "photogroup-\(Int(Calendar.current.startOfDay(for: day).timeIntervalSince1970))"
+            let sportKey = photos.compactMap { $0.season?.sport }.first?.rawValue ?? "none"
+            return "photogroup-\(Int(Calendar.current.startOfDay(for: day).timeIntervalSince1970))-\(sportKey)"
         case .coachFeedback(let item):
             // One card per feedback notification — stable across rebuilds.
             return "coachfb-\(item.notifID)"

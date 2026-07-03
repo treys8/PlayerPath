@@ -305,7 +305,7 @@ struct GolfScorecardView: View {
                 .frame(maxWidth: 200)
             }
 
-            NumberChipGrid(range: 1...12, selected: entry.score ?? 0, par: entry.par) { value in
+            NumberChipGrid(range: 1...15, selected: entry.score ?? 0, par: entry.par) { value in
                 setScore(value)
             }
 
@@ -437,7 +437,8 @@ struct GolfScorecardView: View {
     /// derived score / putts show without reopening the scorecard.
     private func seedEntries() {
         var seeded: [Int: HoleEntry] = [:]
-        for hole in round.holeScores {
+        // Tombstoned (reverted) holes seed as unscored, not as a 0-vs-par cell.
+        for hole in round.holeScores where !hole.isDeletedRemotely {
             seeded[hole.holeNumber] = HoleEntry(
                 par: hole.par, score: hole.score, putts: hole.putts,
                 fairwayHit: hole.fairwayHit, greenInRegulation: hole.greenInRegulation,
@@ -449,6 +450,15 @@ struct GolfScorecardView: View {
             let prior = GolfScoreWriter.priorRoundPar(forHole: n, in: round)
             let inRoundPar = (1..<n).compactMap { seeded[$0]?.par }.last
             seeded[n] = HoleEntry(par: prior ?? inRoundPar ?? 4, score: nil, putts: nil)
+        }
+        // Keep unsaved in-flight edits: re-seeding after a shot sheet dismisses
+        // must not wipe holes the user has typed but not yet saved. Dirty holes
+        // are never shot-locked, so the freshly derived shot hole still refreshes.
+        // A hole can become shot-locked while the sheet is open (logged shots
+        // via in-sheet navigation) — the derived value must win over the stale
+        // in-flight entry then.
+        for n in dirtyHoles where !isHoleShotLocked(n) {
+            if let inFlight = entries[n] { seeded[n] = inFlight }
         }
         entries = seeded
     }

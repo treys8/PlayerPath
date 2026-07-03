@@ -219,14 +219,19 @@ struct GenerateReelView: View {
 
     /// Options to seed the sheet with. When nothing custom is applied yet, pre-fill the
     /// name (athlete) + caption (reel title) so the common case is one tap; once the user
-    /// has applied a real variant, reopen with their current choices.
+    /// has applied a real variant, reopen with their current choices. Watermark seeds ON
+    /// (removable in the sheet); the title card is opt-in but arrives pre-filled.
     private var seededOptions: ReelExportOptions {
         guard options.isVisuallyDefault else { return options }
         return ReelExportOptions(
             nameText: resolvedAthleteName,
             captionText: title,
             aspect: options.aspect,
-            cropMode: options.cropMode
+            cropMode: options.cropMode,
+            watermarkEnabled: true,
+            titleCardEnabled: false,
+            titleCardTitle: resolvedAthleteName,
+            titleCardSubtitle: title
         )
     }
 

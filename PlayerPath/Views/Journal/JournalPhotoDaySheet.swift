@@ -13,16 +13,22 @@
 import SwiftUI
 import SwiftData
 
-/// Sheet selection token for a day-scoped photo grid, identified by the day so
-/// re-tapping the same group is idempotent.
+/// Sheet selection token for a day-scoped photo grid, identified by the day +
+/// the group's season sport so re-tapping the same group is idempotent. Sport
+/// is part of the key because the feed groups photos by (day, sport) — two
+/// same-day cards (seasonless + active-sport) must open two distinct grids.
 struct JournalPhotoDay: Identifiable {
-    let id: Date          // start of day
-    var day: Date { id }
+    let day: Date          // start of day
+    let sport: Season.SportType?
+    var id: String { "\(Int(day.timeIntervalSince1970))-\(sport?.rawValue ?? "none")" }
 }
 
 struct JournalPhotoDaySheet: View {
     let athlete: Athlete
     let day: Date
+    /// The tapped group's season sport — the grid shows exactly this group's
+    /// photos (nil = seasonless only), mirroring JournalFeedBuilder.PhotoDayKey.
+    let sport: Season.SportType?
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
@@ -30,9 +36,10 @@ struct JournalPhotoDaySheet: View {
 
     private let columns = [GridItem(.adaptive(minimum: 104), spacing: 4)]
 
-    init(athlete: Athlete, day: Date) {
+    init(athlete: Athlete, day: Date, sport: Season.SportType?) {
         self.athlete = athlete
         self.day = day
+        self.sport = sport
         let id = athlete.id
         // Query is per-athlete only; orphan + same-day filtering happens in Swift
         // below (relationship `== nil` and date transforms are unsafe inside a
@@ -44,10 +51,14 @@ struct JournalPhotoDaySheet: View {
     }
 
     /// This day's standalone photos, newest first (the @Query is already sorted).
+    /// Exact-sport gated to mirror the feed's (day, sport) grouping: the grid
+    /// shows precisely the tapped group's photos, so a same-day seasonless group
+    /// and active-sport group open two distinct grids with matching counts.
     private var dayPhotos: [Photo] {
         let calendar = Calendar.current
         return allPhotos.filter {
             $0.game == nil && $0.practice == nil &&
+            $0.season?.sport == sport &&
             calendar.isDate($0.createdAt ?? .distantPast, inSameDayAs: day)
         }
     }

@@ -175,12 +175,63 @@ struct JournalView: View {
         }
     }
 
+    /// Memoization box for the milestone index. A plain class held in @State (not
+    /// a @State value) because it's written DURING body: mutating a reference
+    /// type's property there is legal and — deliberately — triggers no re-render.
+    /// That's safe: the cached index only changes when its inputs changed, and
+    /// that input change is what caused this very render.
+    private final class MilestoneCache {
+        var token: Int?
+        var index: [UUID: Milestone] = [:]
+    }
+    @State private var milestoneCache = MilestoneCache()
+
     /// Highest-significance milestone per game across every season in the feed,
     /// resolved ONCE per body so each row does an O(1) lookup instead of scanning
     /// (and re-ranking) the full milestone list twice — once for the marker, once
     /// for the headline. Season-spanning milestones (nil `gameID`) are skipped:
     /// they don't anchor a single row. Pure compute (no Firestore).
+    ///
+    /// Memoized on a hash of exactly the inputs MilestoneEngine reads, so the
+    /// full engine run (stats walk + sorting + string building per season) fires
+    /// only when a milestone-relevant value actually changed — not on every
+    /// filter tap / notification publish / @Query invalidation. The token pass
+    /// is one cheap O(games) walk with no allocation.
     private func milestoneIndex() -> [UUID: Milestone] {
+        var hasher = Hasher()
+        for game in games {
+            hasher.combine(game.id)
+            // Season membership matters: the engine walks season.games, so
+            // re-homing a game changes BOTH seasons' streaks/firsts/counts even
+            // when the game's own fields are untouched.
+            hasher.combine(game.season?.id)
+            hasher.combine(game.date)
+            hasher.combine(game.countsTowardStats)
+            hasher.combine(game.opponent)
+            // Presence sentinel: a skipped field-group would otherwise make
+            // adjacent games' values ambiguous in the hash sequence.
+            hasher.combine(game.gameStats != nil)
+            if let gs = game.gameStats {
+                hasher.combine(gs.hits); hasher.combine(gs.atBats)
+                hasher.combine(gs.homeRuns); hasher.combine(gs.doubles)
+                hasher.combine(gs.walks); hasher.combine(gs.hitByPitches)
+            }
+            if game.season?.sport == .golf {
+                // `holes` gates isGolfRoundScored — editing 18→9 can flip a
+                // round in/out of milestone eligibility with identical hole rows.
+                hasher.combine(game.holes)
+                for hole in game.holeScores ?? [] {
+                    hasher.combine(hole.holeNumber); hasher.combine(hole.score); hasher.combine(hole.par)
+                }
+                // Covers the manual-total path too: effectiveTotalScore/Par fall
+                // back to the round's entered totals when no holes are scored.
+                hasher.combine(game.effectiveTotalScore)
+                hasher.combine(game.effectivePar)
+            }
+        }
+        let token = hasher.finalize()
+        if milestoneCache.token == token { return milestoneCache.index }
+
         var seenSeasonIDs = Set<UUID>()
         var index: [UUID: Milestone] = [:]
         for game in games {
@@ -193,6 +244,8 @@ struct JournalView: View {
                 index[gameID] = milestone
             }
         }
+        milestoneCache.token = token
+        milestoneCache.index = index
         return index
     }
 
@@ -304,7 +357,7 @@ struct JournalView: View {
             VideoPlayerView(clip: clip)
         }
         .sheet(item: $selectedPhotoDay) { selection in
-            JournalPhotoDaySheet(athlete: athlete, day: selection.day)
+            JournalPhotoDaySheet(athlete: athlete, day: selection.day, sport: selection.sport)
         }
         .fullScreenCover(item: $recordingGame) { game in
             DirectCameraRecorderView(athlete: athlete, game: game)
@@ -330,6 +383,18 @@ struct JournalView: View {
                     Image(systemName: "magnifyingglass")
                 }
                 .accessibilityLabel("Search")
+            }
+            // The add dialog + import pickers are wired on this view regardless
+            // of feed state; without this button they were reachable only from
+            // the empty state, leaving no add affordance once content exists.
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    Haptics.medium()
+                    showingAddSheet = true
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .accessibilityLabel("Add to your journal")
             }
         }
     }
@@ -371,15 +436,19 @@ struct JournalView: View {
     // MARK: - Photo group
 
     /// Open the day-scoped photo grid for a tapped photo-group row. Keyed by the
-    /// group's calendar day (every photo in the group shares it), so the sheet can
-    /// re-query that day's photos and stay live as they're deleted.
+    /// group's calendar day + season sport (every photo in the group shares both),
+    /// so the sheet can re-query exactly that group's photos and stay live as
+    /// they're deleted.
     private func openPhotoDay(_ photos: [Photo]) {
         Haptics.light()
         // `.distantPast` fallback (not `.now`) must match the grouping key in
         // JournalFeedBuilder.photoEntries / JournalEntry.id, so a photo with no
         // createdAt resolves to the same day the sheet then filters on.
         let day = photos.first?.createdAt ?? .distantPast
-        selectedPhotoDay = JournalPhotoDay(id: Calendar.current.startOfDay(for: day))
+        selectedPhotoDay = JournalPhotoDay(
+            day: Calendar.current.startOfDay(for: day),
+            sport: photos.compactMap { $0.season?.sport }.first
+        )
     }
 
     // MARK: - Log-event flow

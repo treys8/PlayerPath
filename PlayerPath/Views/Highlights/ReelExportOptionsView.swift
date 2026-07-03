@@ -3,8 +3,9 @@
 //  PlayerPath
 //
 //  Compact "Customize for social" sheet for a reel: toggle the name overlay, edit the
-//  caption, pick aspect (Original / 9:16), and (for 9:16) Fit vs Fill. Hands a built
-//  ReelExportOptions back to GenerateReelView on Apply, which re-stitches a variant.
+//  caption, add an intro title card, toggle the corner watermark, pick aspect
+//  (Original / 9:16), and (for 9:16) Fit vs Fill. Hands a built ReelExportOptions
+//  back to GenerateReelView on Apply, which re-stitches a variant.
 //  Standalone sheet — owns its own NavigationStack for the toolbar buttons.
 //
 
@@ -24,6 +25,9 @@ struct ReelExportOptionsView: View {
     @State private var caption: String
     @State private var aspect: ReelExportOptions.Aspect
     @State private var cropMode: ReelExportOptions.CropMode
+    @State private var titleCardEnabled: Bool
+    @State private var cardSubtitle: String
+    @State private var watermarkEnabled: Bool
 
     init(athleteName: String?, initial: ReelExportOptions, onApply: @escaping (ReelExportOptions) -> Void) {
         self.athleteName = athleteName
@@ -33,6 +37,9 @@ struct ReelExportOptionsView: View {
         _caption = State(initialValue: initial.captionText ?? "")
         _aspect = State(initialValue: initial.aspect)
         _cropMode = State(initialValue: initial.cropMode)
+        _titleCardEnabled = State(initialValue: initial.titleCardEnabled)
+        _cardSubtitle = State(initialValue: initial.titleCardSubtitle ?? "")
+        _watermarkEnabled = State(initialValue: initial.watermarkEnabled)
     }
 
     /// The options the controls currently describe.
@@ -41,7 +48,12 @@ struct ReelExportOptionsView: View {
             nameText: (includeName ? athleteName : nil),
             captionText: caption,
             aspect: aspect,
-            cropMode: cropMode
+            cropMode: cropMode,
+            watermarkEnabled: watermarkEnabled,
+            titleCardEnabled: titleCardEnabled,
+            // Card hero line is the athlete name (fixed); the event line is editable.
+            titleCardTitle: athleteName,
+            titleCardSubtitle: cardSubtitle
         )
     }
 
@@ -62,7 +74,30 @@ struct ReelExportOptionsView: View {
                 } header: {
                     Text("Overlay")
                 } footer: {
-                    Text("Baked into the video. No PlayerPath logo is added.")
+                    if titleCardEnabled {
+                        Text("Hidden while the title card is on — the card shows the name and event line instead.")
+                    } else {
+                        Text("Baked into the video.")
+                    }
+                }
+
+                Section {
+                    Toggle("Add title card", isOn: $titleCardEnabled)
+                    if titleCardEnabled {
+                        TextField("Event line (e.g. vs Tigers · Jun 8)", text: $cardSubtitle)
+                    }
+                } header: {
+                    Text("Title Card")
+                } footer: {
+                    if titleCardEnabled {
+                        Text("A short intro before the first clip\(athleteName.map { " — \($0)" } ?? "") with the event line above.")
+                    }
+                }
+
+                Section {
+                    Toggle("PlayerPath watermark", isOn: $watermarkEnabled)
+                } footer: {
+                    Text("A small \(ReelWatermarkStyle.text) mark in the corner — turn it off anytime.")
                 }
 
                 Section("Format") {

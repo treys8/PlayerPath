@@ -351,15 +351,7 @@ struct GameDetailView: View {
                     addPhotoMenu
                         .labelStyle(ActionRowLabelStyle())
                 } else {
-                    ForEach(gamePhotos) { photo in
-                        NavigationLink {
-                            PhotoDetailView(photo: photo) {
-                                deleteGamePhoto(photo)
-                            }
-                        } label: {
-                            EventPhotoRow(photo: photo)
-                        }
-                    }
+                    EventPhotoGrid(photos: gamePhotos) { deleteGamePhoto($0) }
                 }
             }
 

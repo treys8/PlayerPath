@@ -61,6 +61,12 @@ struct JournalEntryRow: View {
         // instead of re-walking clips/photos through several computed
         // properties as the card scrolls into view.
         let summary = entry.mediaSummary
+        // Identity of the media actually displayed. When it changes (a new
+        // highlight clip arrives, or the representative flips clip→photo), the
+        // resolved aspect belongs to the OLD media — reset it so the tile falls
+        // back to the default shape until the new thumbnail reports its own.
+        let mediaKey = summary.representativeClip?.id.uuidString
+            ?? summary.representativePhoto?.id.uuidString
         return VStack(alignment: .leading, spacing: .spacingMedium) {
             dateRail
 
@@ -102,6 +108,7 @@ struct JournalEntryRow: View {
         .padding(.spacingLarge)
         .frame(maxWidth: .infinity, alignment: .leading)
         .ppCard()
+        .onChange(of: mediaKey) { _, _ in mediaAspect = nil }
     }
 
     // MARK: - Date rail
@@ -151,12 +158,20 @@ struct JournalEntryRow: View {
 
     // MARK: - Stat / subline
 
-    /// Game batting/golf line for the footer (left), incl. the milestone
-    /// opponent append ("1-for-2 · vs Mag"). Game-only.
+    /// Stat line for the footer (left). Games: batting/pitching/golf, incl. the
+    /// milestone opponent append ("1-for-2 · vs Mag"). Practices: a golf
+    /// practice round's running score (range sessions and baseball practices
+    /// have no stat line).
     private var footerStat: String? {
-        guard case .game(let g) = entry else { return nil }
-        let base = entry.isGolf ? golfSubline(g) : baseballSubline(g)
-        return appendingOpponent(to: base, game: g)
+        switch entry {
+        case .game(let g):
+            let base = entry.isGolf ? golfSubline(g) : baseballSubline(g)
+            return appendingOpponent(to: base, game: g)
+        case .practice(let p):
+            return practiceGolfSubline(p)
+        default:
+            return nil
+        }
     }
 
     /// Practice course/location, shown ABOVE the media as context (not a stat).
@@ -180,20 +195,72 @@ struct JournalEntryRow: View {
     }
 
     /// Hits-for-at-bats plus home runs. Never RBI or runs (no game context).
+    /// Pitcher-only games (no at-bats) fall back to a pitching line — mirrors
+    /// GameRow's precedence: batting wins when both exist, IP/ER/K fills in so
+    /// a pitcher's game card isn't bare.
     private func baseballSubline(_ game: Game) -> String? {
-        guard let gs = game.gameStats, gs.atBats > 0 else { return nil }
-        var line = "\(gs.hits)-for-\(gs.atBats)"
-        if gs.homeRuns > 0 { line += " · \(gs.homeRuns) HR" }
-        return line
+        guard let gs = game.gameStats else { return nil }
+        if gs.atBats > 0 {
+            var line = "\(gs.hits)-for-\(gs.atBats)"
+            if gs.homeRuns > 0 { line += " · \(gs.homeRuns) HR" }
+            return line
+        }
+        if gs.hasPitchingData {
+            return "\(gs.inningsPitchedDisplay) IP · \(gs.earnedRuns) ER · \(gs.pitchingStrikeouts) K"
+        }
+        return nil
     }
 
     /// Round score with to-par. The athlete's own score — safe to surface.
     private func golfSubline(_ game: Game) -> String? {
-        guard let score = game.effectiveTotalScore else { return nil }
-        guard let par = game.effectivePar else { return "\(score)" }
-        let diff = score - par
-        let toPar = diff == 0 ? "E" : (diff > 0 ? "+\(diff)" : "\(diff)")
-        return "\(score) · \(toPar)"
+        golfScoreLine(
+            score: game.effectiveTotalScore,
+            par: game.effectivePar,
+            scoredHoles: (game.holeScores ?? []).filter { !$0.isDeletedRemotely },
+            totalHoles: game.holes ?? 18
+        )
+    }
+
+    /// A golf practice round's running score with to-par, derived from its
+    /// scored holes (practice rounds have no quick-entry total). Nil for range
+    /// sessions and baseball practices — their holeScores are empty/nil.
+    private func practiceGolfSubline(_ practice: Practice) -> String? {
+        golfScoreLine(
+            score: practice.holeScoreSum,
+            par: practice.holeParSum,
+            scoredHoles: (practice.holeScores ?? []).filter { !$0.isDeletedRemotely },
+            totalHoles: practice.holes ?? 18
+        )
+    }
+
+    /// Shared golf footer line for games and practice rounds:
+    /// "76 · +4", partial rounds "17 · -5 thru 4", plus gem counts when earned
+    /// ("39 · +3 · 1 eagle · 2 birdies"). Par-less scores show bare; to-par
+    /// compares only the holes actually scored (score/par derive from the same
+    /// hole set upstream). "thru N" appears only for per-hole-scored partials —
+    /// a quick-entry total has no hole rows and always represents the full
+    /// round. Eagles-or-better collapse into one "eagle" bucket (albatross/ace
+    /// are too rare to earn their own segment); most rounds add no gem text at
+    /// all, keeping the common card calm.
+    private func golfScoreLine(score: Int?, par: Int?, scoredHoles: [HoleScore], totalHoles: Int) -> String? {
+        guard let score else { return nil }
+        var line: String
+        if let par {
+            let diff = score - par
+            let toPar = diff == 0 ? "E" : (diff > 0 ? "+\(diff)" : "\(diff)")
+            line = "\(score) · \(toPar)"
+        } else {
+            line = "\(score)"
+        }
+        let played = scoredHoles.filter { $0.score > 0 }.count
+        if played > 0 && played < totalHoles {
+            line += " thru \(played)"
+        }
+        let eagles = scoredHoles.filter { $0.score > 0 && $0.diff <= -2 }.count
+        let birdies = scoredHoles.filter { $0.score > 0 && $0.diff == -1 }.count
+        if eagles > 0 { line += " · \(eagles) eagle\(eagles == 1 ? "" : "s")" }
+        if birdies > 0 { line += " · \(birdies) birdie\(birdies == 1 ? "" : "s")" }
+        return line
     }
 
     // MARK: - Media

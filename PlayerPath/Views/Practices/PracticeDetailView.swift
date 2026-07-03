@@ -259,15 +259,7 @@ struct PracticeDetailView: View {
                     }
                     .labelStyle(ActionRowLabelStyle())
                 } else {
-                    ForEach(practicePhotos) { photo in
-                        NavigationLink {
-                            PhotoDetailView(photo: photo) {
-                                deletePracticePhoto(photo)
-                            }
-                        } label: {
-                            EventPhotoRow(photo: photo)
-                        }
-                    }
+                    EventPhotoGrid(photos: practicePhotos) { deletePracticePhoto($0) }
                 }
             }
 

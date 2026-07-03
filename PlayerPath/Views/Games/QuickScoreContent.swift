@@ -69,6 +69,11 @@ struct QuickScoreContent: View {
     /// par. Once set, par changes only recolor the hero — they don't move score.
     @State private var scoreManuallySet: Bool = false
 
+    /// True once the hole is worth saving: it already had a HoleScore row, or
+    /// the user touched any input. A fresh hole is seeded to par, so navigating
+    /// past it untouched must NOT write that seed — Prev/Next just move.
+    @State private var userTouched: Bool = false
+
     /// Re-entrancy guard. A rapid double-tap of Save would otherwise re-enter
     /// before dismiss propagates and insert a second HoleScore (and reel) for
     /// the same hole, corrupting totals.
@@ -81,7 +86,19 @@ struct QuickScoreContent: View {
     @State private var penalties: Int? = nil
 
     private var penaltyBinding: Binding<Int> {
-        Binding(get: { penalties ?? 0 }, set: { penalties = $0 > 0 ? $0 : nil })
+        Binding(get: { penalties ?? 0 }, set: { penalties = $0 > 0 ? $0 : nil; userTouched = true })
+    }
+
+    // Touch-marking wrappers for the detailed controls — only user input flows
+    // through these (seeding assigns the @State directly in loadIfNeeded).
+    private var firBinding: Binding<Bool?> {
+        Binding(get: { fairwayHit }, set: { fairwayHit = $0; userTouched = true })
+    }
+    private var girBinding: Binding<Bool?> {
+        Binding(get: { greenInRegulation }, set: { greenInRegulation = $0; userTouched = true })
+    }
+    private var yardageBinding: Binding<Int?> {
+        Binding(get: { holeYardage }, set: { holeYardage = $0; userTouched = true })
     }
 
     // MARK: - Parent accessors
@@ -133,13 +150,20 @@ struct QuickScoreContent: View {
                         .accessibilityValue(holeYardage.map { "\($0) yards" } ?? "Not set")
                         .accessibilityHint("Opens a yardage picker")
                     }
-                    Picker("Par", selection: $par) {
+                    // Custom binding so only a real user tap marks the hole
+                    // touched — programmatic seeding in loadIfNeeded must not
+                    // (an untouched fresh hole is skipped on Prev/Next).
+                    Picker("Par", selection: Binding(
+                        get: { par },
+                        set: { newPar in
+                            par = newPar
+                            if !scoreManuallySet { score = newPar }
+                            userTouched = true
+                        }
+                    )) {
                         ForEach(3...6, id: \.self) { Text("\($0)").tag($0) }
                     }
                     .pickerStyle(.segmented)
-                    .onChange(of: par) { _, newPar in
-                        if !scoreManuallySet { score = newPar }
-                    }
                 }
 
                 // Score — tap the number you shot.
@@ -150,6 +174,7 @@ struct QuickScoreContent: View {
                     NumberChipGrid(range: 1...15, selected: score, par: par) { value in
                         score = value
                         scoreManuallySet = true
+                        userTouched = true
                     }
                 }
 
@@ -162,12 +187,17 @@ struct QuickScoreContent: View {
                             // what save() will persist (save writes nil if
                             // putts is still nil, even with the toggle on).
                             if on, putts == nil { putts = 2 }
+                            // Seeding can also land here (existing hole with
+                            // putts), but such holes are already marked touched
+                            // in loadIfNeeded — only fresh-hole user flips matter.
+                            userTouched = true
                         }
                     if includePutts {
                         // Putts can never exceed total strokes — cap the grid
                         // at the score so an impossible round can't be entered.
                         NumberChipGrid(range: 0...min(10, score), selected: min(putts ?? 2, score), par: nil) { value in
                             putts = value
+                            userTouched = true
                         }
                     } else {
                         Text("Putts are optional.")
@@ -180,9 +210,9 @@ struct QuickScoreContent: View {
                 if trackDetailed {
                     VStack(alignment: .leading, spacing: .spacingSmall) {
                         if par >= 4 {
-                            HitMissControl(label: "Fairway", systemImage: "arrow.up.forward", value: $fairwayHit)
+                            HitMissControl(label: "Fairway", systemImage: "arrow.up.forward", value: firBinding)
                         }
-                        HitMissControl(label: "Green in Reg.", systemImage: "flag.fill", value: $greenInRegulation)
+                        HitMissControl(label: "Green in Reg.", systemImage: "flag.fill", value: girBinding)
                         Stepper(value: penaltyBinding, in: 0...10) {
                             HStack {
                                 Text("Penalties").font(.bodyLarge)
@@ -199,15 +229,20 @@ struct QuickScoreContent: View {
         }
         .ppDetailBackground()
         .safeAreaInset(edge: .bottom) {
+            // While a fresh hole is untouched the primary just navigates (no
+            // write), so label it as plain navigation until the user enters
+            // something.
             HoleNavBar(currentHole: holeNumber, holeCount: holeCount,
-                       primaryTitle: holeNumber == holeCount ? "Save & Finish" : "Save & Next",
+                       primaryTitle: holeNumber == holeCount
+                           ? (userTouched ? "Save & Finish" : "Finish")
+                           : (userTouched ? "Save & Next" : "Next ›"),
                        primaryDisabled: score < 1 || isSaving,
                        onPrev: { save(then: onPrev) },
                        onPrimary: { save(then: onAdvance) })
         }
         .onAppear { loadIfNeeded() }
         .sheet(isPresented: $showingYardagePicker) {
-            YardagePickerSheet(distance: $holeYardage,
+            YardagePickerSheet(distance: yardageBinding,
                                defaultCenter: holeYardage ?? (par == 3 ? 165 : par >= 5 ? 530 : 400),
                                maxYardage: 650)   // hole length — covers the longest par 5s
         }
@@ -218,11 +253,16 @@ struct QuickScoreContent: View {
         didLoad = true
 
         let holes = parentHoles
-        if let existing = holes.first(where: { $0.holeNumber == holeNumber }) {
+        // Skip tombstoned rows: a just-reverted hole must seed as FRESH
+        // (userTouched stays false), or Prev would save its score-0 shell and
+        // upsertHole's revive would resurrect it as a live phantom.
+        if let existing = holes.first(where: { $0.holeNumber == holeNumber && !$0.isDeletedRemotely }) {
             par = existing.par
             score = existing.score
             // Already a real score — par tweaks shouldn't drag it along.
             scoreManuallySet = true
+            // An existing hole is always worth (re)saving on Prev/Next.
+            userTouched = true
             if let p = existing.putts {
                 putts = p
                 includePutts = true
@@ -268,6 +308,14 @@ struct QuickScoreContent: View {
     /// unsaved hole.
     private func save(then completion: () -> Void) {
         guard !isSaving else { return }
+
+        // Fresh hole the user never touched: the seeded par score is a display
+        // default, not an entry. Writing it would insert a phantom par row just
+        // for navigating past — so skip all writes and only move.
+        guard userTouched else {
+            completion()
+            return
+        }
         isSaving = true
 
         // Putts can never exceed strokes; clamp defensively in case state was

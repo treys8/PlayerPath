@@ -40,12 +40,17 @@ nonisolated enum StitchedReelCache {
         return digest.prefix(8).map { String(format: "%02x", $0) }.joined()
     }
 
+    /// Bump when the stitched output format changes (codec/resolution/canvas) so
+    /// pre-change cached reels are treated as misses, not served stale. v2 = the
+    /// 1080p-cap change; pre-cap 4K reels re-stitch once and age out via cleanup.
+    private static let formatVersion = "v2"
+
     /// Destination URL for a reel of `clips` under `scopeKey`. Same scope + same
     /// clip set always maps to the same path (cache hit); any change maps elsewhere.
     static func url(scopeKey: String, clips: [VideoClip]) -> URL {
         let folder = folderURL ?? FileManager.default.temporaryDirectory
         let safeScope = scopeKey.replacingOccurrences(of: "/", with: "_")
-        return folder.appendingPathComponent("\(safeScope)_\(contentHash(for: clips)).mp4")
+        return folder.appendingPathComponent("\(safeScope)_\(formatVersion)_\(contentHash(for: clips)).mp4")
     }
 
     /// The cached reel URL if a usable (non-empty) file for this exact (scope, clip

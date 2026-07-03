@@ -85,9 +85,23 @@ enum JournalFeedBuilder {
         entries.append(contentsOf: photoEntries(from: orphanPhotos))
         entries.append(contentsOf: coachFeedback.map(JournalEntry.coachFeedback))
 
+        // Tie-break equal dates on the stable entry id: Swift's sort is not
+        // stable, so date-only ordering lets same-date rows shuffle between
+        // rebuilds (which happen on every body render, including mid-scroll
+        // @Query invalidations).
         return entries
             .filter { filter.matches($0) }
-            .sorted { $0.date > $1.date }
+            .sorted { $0.date == $1.date ? $0.id > $1.id : $0.date > $1.date }
+    }
+
+    /// Grouping key for standalone photos: calendar day + season sport. Keying on
+    /// sport too keeps a mixed-sport day from collapsing into one group whose
+    /// sport is whichever photo comes first — which would leak (or hide) an
+    /// off-sport photo through the feed's sport gate. Seasonless photos (nil
+    /// sport) group together and pass the gate, as before.
+    private struct PhotoDayKey: Hashable {
+        let day: Date
+        let sport: Season.SportType?
     }
 
     /// Collapse standalone photos into per-calendar-day entries: a lone photo stays
@@ -97,7 +111,10 @@ enum JournalFeedBuilder {
     static func photoEntries(from orphanPhotos: [Photo]) -> [JournalEntry] {
         let calendar = Calendar.current
         let byDay = Dictionary(grouping: orphanPhotos) { photo in
-            calendar.startOfDay(for: photo.createdAt ?? .distantPast)
+            PhotoDayKey(
+                day: calendar.startOfDay(for: photo.createdAt ?? .distantPast),
+                sport: photo.season?.sport
+            )
         }
         return byDay.values.map { dayPhotos in
             let sorted = dayPhotos.sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }

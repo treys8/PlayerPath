@@ -298,3 +298,61 @@ enum ReelOverlayTextStyle {
     static let horizontalInsetFraction: CGFloat = 0.06
     static let bottomInsetFraction: CGFloat = 0.08
 }
+
+/// UIKit-facing style for the reel intro title card (see `ReelCardRenderer`). The card is
+/// rasterized into the video, so colors are FIXED (video has no light/dark context) —
+/// always the original navy, never the trait-reactive `Color.brandNavy`.
+enum ReelCardStyle {
+    /// Card duration prepended ahead of the first clip.
+    static let durationSeconds: Double = 2.5
+
+    /// #003373 — original brand navy, fixed (not trait-reactive).
+    static let backgroundColor = UIColor(red: 0.0, green: 0.20, blue: 0.45, alpha: 1)
+
+    /// Athlete-name hero line — the brand serif, system fallback.
+    static func titleFont(canvasHeight: CGFloat) -> UIFont {
+        let size = max(40, min(110, canvasHeight * 0.055))
+        return UIFont(name: "Fraunces72pt-SemiBold", size: size) ?? .systemFont(ofSize: size, weight: .semibold)
+    }
+
+    /// Event line (e.g. "vs Tigers · Jun 8").
+    static func subtitleFont(canvasHeight: CGFloat) -> UIFont {
+        let size = max(24, min(56, canvasHeight * 0.030))
+        return UIFont(name: "Inter18pt-Medium", size: size) ?? .systemFont(ofSize: size, weight: .medium)
+    }
+
+    /// Small "▶ PlayerPath" wordmark near the bottom of the card.
+    static func wordmarkFont(canvasHeight: CGFloat) -> UIFont {
+        let size = max(18, min(40, canvasHeight * 0.020))
+        return UIFont(name: "Inter18pt-SemiBold", size: size) ?? .systemFont(ofSize: size, weight: .semibold)
+    }
+
+    static let titleColor = UIColor.white
+    static let subtitleColor = UIColor.white.withAlphaComponent(0.85)
+    static let wordmarkColor = UIColor.white.withAlphaComponent(0.6)
+
+    /// Vertical gap between the title and subtitle, as a fraction of canvas height.
+    static let lineGapFraction: CGFloat = 0.02
+    /// Wordmark distance from the bottom edge, as a fraction of canvas height.
+    static let wordmarkBottomInsetFraction: CGFloat = 0.07
+    static let horizontalInsetFraction: CGFloat = 0.08
+}
+
+/// UIKit-facing style for the corner "▶ PlayerPath" watermark baked in by
+/// `ReelOverlayRenderer.makeWatermarkLayer` (bottom-right; name/caption own bottom-left).
+enum ReelWatermarkStyle {
+    static let text = "▶ PlayerPath"
+
+    static func font(canvasHeight: CGFloat) -> UIFont {
+        let size = max(16, min(36, canvasHeight * 0.018))
+        return UIFont(name: "Inter18pt-SemiBold", size: size) ?? .systemFont(ofSize: size, weight: .semibold)
+    }
+
+    /// Subtle but legible over footage (paired with the shared shadow recipe).
+    static let opacity: Float = 0.8
+
+    static let horizontalInsetFraction: CGFloat = 0.04
+    static let bottomInsetFraction: CGFloat = 0.035
+    /// Extra bottom clearance on 9:16 exports (home-indicator / caption-safe zone).
+    static let bottomInsetFraction9x16: CGFloat = 0.06
+}

@@ -48,9 +48,7 @@ final class ReelStitchCoordinator {
         if case .generating = state { return }
 
         // Drop cloud-only clips — the stitcher can't read them. Preserve order.
-        let localClips = clips.filter { FileManager.default.fileExists(atPath: $0.resolvedFilePath) }
-        requestedCount = clips.count
-        usableCount = localClips.count
+        let localClips = localClipsUpdatingCounts(clips)
 
         guard !localClips.isEmpty else {
             state = .failed("These clips aren't downloaded to this device yet. Try again once they finish syncing.")
@@ -106,10 +104,48 @@ final class ReelStitchCoordinator {
         }
     }
 
+    /// Surfaces a prior stitch of `clips` under `scopeKey` if its file is already on
+    /// disk, WITHOUT starting a new stitch — used to pre-fill a "ready" surface on
+    /// appear while leaving `.idle` (so the user still taps Generate) when nothing is
+    /// cached. Keys on the same local-clip subset as `generate()`, so the two agree.
+    /// No-op if already generating.
+    func loadCachedIfAvailable(clips: [VideoClip], scopeKey: String, options: ReelExportOptions = .default) {
+        if case .generating = state { return }
+
+        let localClips = localClipsUpdatingCounts(clips)
+        guard !localClips.isEmpty else { return }
+
+        let effectiveScope = scopeKey + options.cacheSuffix
+        if let cached = StitchedReelCache.cachedURLIfPresent(scopeKey: effectiveScope, clips: localClips) {
+            state = .ready(cached)
+        }
+    }
+
     /// Cancels any in-flight stitch. Call on view disappear.
     func cancel() {
         task?.cancel()
         task = nil
         if case .generating = state { state = .idle }
+    }
+
+    /// Cancels any in-flight stitch and returns unconditionally to `.idle` (unlike
+    /// `cancel()`, which only resets from `.generating`). Call when the source clip set
+    /// changes so a previously-`ready` reel for the old set can't linger.
+    func reset() {
+        task?.cancel()
+        task = nil
+        requestedCount = 0
+        usableCount = 0
+        state = .idle
+    }
+
+    /// Filters `clips` to those present locally (the stitcher can't read cloud-only
+    /// files) and records the requested/usable counts. Returns the local subset in
+    /// the original order.
+    private func localClipsUpdatingCounts(_ clips: [VideoClip]) -> [VideoClip] {
+        let localClips = clips.filter { FileManager.default.fileExists(atPath: $0.resolvedFilePath) }
+        requestedCount = clips.count
+        usableCount = localClips.count
+        return localClips
     }
 }

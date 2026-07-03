@@ -35,7 +35,10 @@ struct EnterScoreSheet: View {
     /// When the round has per-hole scores, the total is derived from them and
     /// this sheet must not let the user type a conflicting value. We show the
     /// derived total read-only and only allow editing holes/par.
-    private var hasPerHoleScores: Bool { !(game.holeScores ?? []).isEmpty }
+    private var hasPerHoleScores: Bool {
+        // Ignore tombstoned rows so a fully-reverted round regains quick entry.
+        (game.holeScores ?? []).contains { !$0.isDeletedRemotely }
+    }
 
     private var isValid: Bool {
         // Per-hole rounds: total is derived, so only par needs to be sane.

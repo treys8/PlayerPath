@@ -30,6 +30,21 @@ enum VideoStitchingService {
         }
     }
 
+    /// Longest permitted reel dimension (1080p-class in either orientation).
+    private static let maxReelLongSide: CGFloat = 1920
+
+    /// Downscales `size` so its longer side is ≤ `maxReelLongSide`, preserving aspect
+    /// and forcing even dimensions (H.264 rejects odd width/height). Returns `size`
+    /// unchanged when already within the cap, so sub-4K reels stay byte-for-byte
+    /// identical to today's output.
+    private static func cappedRenderSize(_ size: CGSize) -> CGSize {
+        let longSide = max(size.width, size.height)
+        guard longSide > maxReelLongSide, longSide > 0 else { return size }
+        let scale = maxReelLongSide / longSide
+        func toEven(_ v: CGFloat) -> CGFloat { max(2, (v * scale / 2).rounded() * 2) }
+        return CGSize(width: toEven(size.width), height: toEven(size.height))
+    }
+
     /// Stitches the given source files end-to-end into one MP4 at `outputURL`.
     /// Skips files that don't exist (logs a warning); throws `noClips` if zero
     /// usable files remain. `progress` fires on the MainActor at ~10 Hz.
@@ -125,8 +140,65 @@ enum VideoStitchingService {
         // render at exactly the same size as before.
         renderSize = options.renderSize(sourceCanvas: renderSize)
 
-        let fps = Int32(maxFrameRate.rounded())
+        // Cap the reel canvas to 1080p-class. A 4K-source reel is visually
+        // indistinguishable from 1080p on a phone but ~4× the bytes — too large for
+        // Messages/AirDrop/Photos when a season reel runs minutes long. Downscale
+        // ONLY (never upscale); reels already ≤ 1920 on the long side (the common
+        // iPhone-1080p case and the 9:16 export at 1080×1920) are returned unchanged,
+        // so only oversized 4K+ reels change bytes. Codec stays H.264 (HighestQuality)
+        // for universal playback on any recipient.
+        renderSize = cappedRenderSize(renderSize)
+
+        // Cap at 60fps: a single 120/240fps slow-mo highlight would otherwise force the
+        // whole composition to that rate (much slower export, much larger file) for no
+        // visual gain — the slow-motion effect rides on clip timing, not the frame rate.
+        let fps = Int32(min(maxFrameRate, 60).rounded())
         let frameDuration = CMTime(value: 1, timescale: CMTimeScale(max(fps, 1)))
+
+        // Prepend the intro title card (social variants only — needsCardSegment forces
+        // !isVisuallyDefault, so the default dual codepath below never sees a card).
+        // The card is generated at the FINAL renderSize (post-cap, post-9:16 override),
+        // so its placement transform is identity and it fills the canvas exactly.
+        var cardCleanupURL: URL?
+        defer { if let cardCleanupURL { try? FileManager.default.removeItem(at: cardCleanupURL) } }
+
+        if options.needsCardSegment {
+            let cardDuration = CMTime(seconds: ReelCardStyle.durationSeconds, preferredTimescale: 600)
+            let cardImage = ReelCardRenderer.makeCardImage(
+                size: renderSize,
+                title: options.resolvedCardTitle,
+                subtitle: options.resolvedCardSubtitle
+            )
+            let cardURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("reelcard-\(UUID().uuidString).mp4")
+            cardCleanupURL = cardURL
+            _ = try await ReelCardRenderer.encodeStillMP4(
+                image: cardImage, size: renderSize,
+                duration: cardDuration, outputURL: cardURL
+            )
+
+            let cardAsset = AVURLAsset(url: cardURL)
+            // Throw rather than silently skip: the output lands at the card-suffixed
+            // cache path, so a card-less reel written there would be served as a
+            // "cache hit" for this variant forever.
+            guard let cardTrack = try await cardAsset.loadTracks(withMediaType: .video).first else {
+                throw StitchError.exportFailed("Title card encode produced no video track.")
+            }
+            let cardRange = CMTimeRange(start: .zero, duration: cardDuration)
+            try compVideoTrack.insertTimeRange(cardRange, of: cardTrack, at: .zero)
+            // Keep A/V in sync: push the audio by the same amount with silence,
+            // or the sound would play `cardDuration` ahead of its footage.
+            compAudioTrack?.insertEmptyTimeRange(cardRange)
+            // Shift every footage segment down the timeline, then lead with the card.
+            segments = segments.map {
+                (timeRange: CMTimeRange(start: CMTimeAdd($0.timeRange.start, cardDuration),
+                                        duration: $0.timeRange.duration),
+                 transform: $0.transform,
+                 sourceSize: $0.sourceSize)
+            }
+            // sourceSize == renderSize ⇒ placedTransform is identity (fills the canvas).
+            segments.insert((timeRange: cardRange, transform: .identity, sourceSize: renderSize), at: 0)
+        }
 
         // Build the video composition. iOS 26 introduced a new Configuration-based API;
         // the older mutable types still work but emit deprecation warnings on iOS 26+.
@@ -180,10 +252,10 @@ enum VideoStitchingService {
                 if needsBlackBars { instruction.backgroundColor = CGColor(red: 0, green: 0, blue: 0, alpha: 1) }
                 return instruction
             }
-            // Bake the name/caption overlay into the frames. Layers MUST be built on
-            // the main thread (this stitch is main-actor-isolated by default), or the
-            // Core Animation tool renders black frames.
-            if options.showsOverlay {
+            // Bake the name/caption overlay and/or corner watermark into the frames.
+            // Layers MUST be built on the main thread (this stitch is main-actor-
+            // isolated by default), or the Core Animation tool renders black frames.
+            if options.needsAnimationTool {
                 videoComposition.animationTool = ReelOverlayRenderer.makeAnimationTool(renderSize: renderSize, options: options)
             }
             session.videoComposition = videoComposition
@@ -221,29 +293,42 @@ enum VideoStitchingService {
 
         let box = AVExportSessionBox(session)
 
-        // Drive periodic progress updates on the MainActor while the export runs.
-        let progressTask = Task { @MainActor in
-            while !Task.isCancelled {
-                let p = box.session.progress
-                progress(p)
-                if p >= 1.0 { return }
-                try? await Task.sleep(for: .milliseconds(100))
-            }
-        }
-        defer { progressTask.cancel() }
-
         return try await withTaskCancellationHandler {
             if #available(iOS 18.0, *) {
+                // The modern `export(to:as:)` no longer drives the (deprecated)
+                // `session.progress` KVO property — polling it leaves the UI stuck at
+                // 0% until completion. Observe the `states(updateInterval:)` async
+                // sequence concurrently instead; it terminates when the export ends.
+                let progressTask = Task { @MainActor in
+                    for await exportState in box.session.states(updateInterval: 0.1) {
+                        if case .exporting(let p) = exportState {
+                            progress(Float(p.fractionCompleted))
+                        }
+                    }
+                }
                 do {
                     try await session.export(to: outputURL, as: .mp4)
+                    progressTask.cancel()
                     await MainActor.run { progress(1.0) }
                     return outputURL
                 } catch {
+                    progressTask.cancel()
                     try? FileManager.default.removeItem(at: outputURL)
                     if Task.isCancelled { throw StitchError.cancelled }
                     throw StitchError.exportFailed(error.localizedDescription)
                 }
             } else {
+                // iOS 17: the legacy `export()` still updates `session.progress`, so
+                // poll it on the MainActor for the duration of the export.
+                let progressTask = Task { @MainActor in
+                    while !Task.isCancelled {
+                        let p = box.session.progress
+                        progress(p)
+                        if p >= 1.0 { return }
+                        try? await Task.sleep(for: .milliseconds(100))
+                    }
+                }
+                defer { progressTask.cancel() }
                 await session.export()
                 switch session.status {
                 case .completed:

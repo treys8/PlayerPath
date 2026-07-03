@@ -49,7 +49,12 @@ enum GolfScoreWriter {
     /// Mirrors ScoreHoleSheet's original save branch exactly (version bump +
     /// needsSync so the row re-syncs). Does NOT save the context.
     static func upsertHole(_ input: HoleInput, in ref: GolfRoundRef, context: ModelContext) {
-        if let existing = ref.holeScores.first(where: { $0.holeNumber == input.holeNumber }) {
+        // Prefer a live row: if a sync-applied live row coexists with a local
+        // tombstone for the same hole, updating the tombstone would revive a
+        // duplicate. Fall back to the tombstone (real re-score revives it).
+        let match = ref.holeScores.first { $0.holeNumber == input.holeNumber && !$0.isDeletedRemotely }
+            ?? ref.holeScores.first { $0.holeNumber == input.holeNumber }
+        if let existing = match {
             existing.par = input.par
             existing.score = input.score
             existing.putts = input.putts
@@ -59,6 +64,10 @@ enum GolfScoreWriter {
             // Opt-in: only touch yardage when the caller provided one (.some);
             // score-only writers leave `.none` and preserve any set yardage.
             if case let .some(yardage) = input.yardage { existing.yardage = yardage }
+            // Revive a tombstoned row: re-scoring a hole the user just reverted
+            // (synced tombstone still local, pre-reconcile) must clear the flag,
+            // or sync pushes the new score with isDeleted=true and it vanishes.
+            existing.isDeletedRemotely = false
             existing.updatedAt = Date()
             existing.version += 1
             existing.needsSync = true
@@ -92,7 +101,9 @@ enum GolfScoreWriter {
     static func mirrorTotalScore(in ref: GolfRoundRef, justWrote inputs: [HoleInput]) {
         guard case .game(let g) = ref else { return }
         var scoreByHole: [Int: Int] = [:]
-        for h in (g.holeScores ?? []) { scoreByHole[h.holeNumber] = h.score }
+        // Skip tombstoned rows — a soft-deleted hole must not count toward the
+        // total while it waits for sync to drop it.
+        for h in (g.holeScores ?? []) where !h.isDeletedRemotely { scoreByHole[h.holeNumber] = h.score }
         for input in inputs { scoreByHole[input.holeNumber] = input.score }
         let sum = scoreByHole.values.reduce(0, +)
         if g.totalScore != sum {
@@ -134,11 +145,16 @@ enum GolfScoreWriter {
         }
 
         // Lookup existing reel for this (parent, hole) — alive or soft-deleted.
-        // SwiftData #Predicate can't equate optional UUIDs cleanly, so fetch
-        // flat and filter in memory (see feedback_swiftdata_predicate_no_transforms).
+        // SwiftData #Predicate can't equate optional UUIDs cleanly, so match the
+        // parent in memory (see feedback_swiftdata_predicate_no_transforms) —
+        // but holeNumber is a non-optional Int, so it can narrow the fetch.
         let existing: HighlightReel?
         do {
-            let all = try context.fetch(FetchDescriptor<HighlightReel>())
+            let hole = holeNumber
+            let descriptor = FetchDescriptor<HighlightReel>(
+                predicate: #Predicate { $0.holeNumber == hole }
+            )
+            let all = try context.fetch(descriptor)
             existing = all.first { reel in
                 reel.holeNumber == holeNumber &&
                     (parentGameID.map { reel.gameID == $0 } ?? false ||
@@ -163,6 +179,7 @@ enum GolfScoreWriter {
                     || existing.par != par
                     || existing.displayName != displayName
                     || existing.courseOrOpponent != course
+                    || existing.date != roundDate(ref)   // heals legacy edit-time dates
                     || existing.isDeletedRemotely
                 if differs {
                     existing.clipIDs = clipIDStrings
@@ -170,7 +187,7 @@ enum GolfScoreWriter {
                     existing.par = par
                     existing.displayName = displayName
                     existing.courseOrOpponent = course
-                    existing.date = Date()
+                    existing.date = roundDate(ref)
                     existing.isDeletedRemotely = false
                     existing.version += 1
                     existing.needsSync = true
@@ -187,6 +204,7 @@ enum GolfScoreWriter {
                     displayName: displayName,
                     courseOrOpponent: course
                 )
+                reel.date = roundDate(ref)   // init defaults to now; use the round's date
                 context.insert(reel)
             }
         } else {
@@ -335,6 +353,15 @@ enum GolfScoreWriter {
         switch ref {
         case .game(let g):     return g.athlete
         case .practice(let p): return p.athlete
+        }
+    }
+
+    /// The round's date — what a reel should carry, so editing an old hole
+    /// weeks later doesn't re-date its reel to today and reorder Highlights.
+    private static func roundDate(_ ref: GolfRoundRef) -> Date {
+        switch ref {
+        case .game(let g):     return g.date ?? Date()
+        case .practice(let p): return p.date ?? Date()
         }
     }
 

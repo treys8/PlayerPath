@@ -18,16 +18,8 @@ struct TodaysReelHeroCard: View {
     let clips: [VideoClip]
     let onPlay: (URL) -> Void
 
-    @State private var state: ReelState = .idle
-    @State private var stitchTask: Task<Void, Never>?
+    @State private var coordinator = ReelStitchCoordinator()
     @State private var thumbnail: UIImage?
-
-    enum ReelState: Equatable {
-        case idle
-        case generating(progress: Float)
-        case ready(URL)
-        case failed(String)
-    }
 
     var body: some View {
         cardContent
@@ -37,29 +29,30 @@ struct TodaysReelHeroCard: View {
             .shadow(color: Color.brandGold.opacity(0.15), radius: 8, x: 0, y: 4)
             .shadow(color: .black.opacity(0.05), radius: 2, x: 0, y: 1)
             .onAppear {
-                if case .ready = state { return }
-                if let cached = StitchedReelCache.cachedURLIfPresent(scopeKey: todayScopeKey, clips: clips) {
-                    state = .ready(cached)
-                    loadThumbnail(for: cached)
-                }
+                // Surface an already-cached reel without auto-stitching; stay idle
+                // (Generate button) otherwise. Keying goes through the coordinator so
+                // cloud-only clips are excluded exactly as a real Generate would.
+                if case .ready = coordinator.state { return }
+                coordinator.loadCachedIfAvailable(clips: clips, scopeKey: todayScopeKey)
             }
             .onDisappear {
-                stitchTask?.cancel()
-                stitchTask = nil
+                coordinator.cancel()
             }
             .onChange(of: clips.map(\.id)) { _, _ in
                 // Today's set changed (new highlight added or rolled past midnight).
-                // Drop any in-flight stitch so the next Generate uses the new clips.
-                stitchTask?.cancel()
-                stitchTask = nil
-                if case .ready = state { state = .idle }
+                // Reset to idle, then re-peek the cache for the new set.
+                coordinator.reset()
                 thumbnail = nil
+                coordinator.loadCachedIfAvailable(clips: clips, scopeKey: todayScopeKey)
+            }
+            .onChange(of: coordinator.state) { _, newState in
+                if case .ready(let url) = newState { loadThumbnail(for: url) }
             }
     }
 
     @ViewBuilder
     private var cardContent: some View {
-        switch state {
+        switch coordinator.state {
         case .idle:
             idleContent
         case .generating(let progress):
@@ -124,9 +117,7 @@ struct TodaysReelHeroCard: View {
             }
             Spacer()
             Button {
-                stitchTask?.cancel()
-                stitchTask = nil
-                state = .idle
+                coordinator.cancel()
             } label: {
                 Image(systemName: "xmark.circle.fill")
                     .font(.title3)
@@ -251,40 +242,12 @@ struct TodaysReelHeroCard: View {
 
     private var todayScopeKey: String { "today_\(athleteId.uuidString)" }
 
+    /// Delegates to the shared coordinator: it filters cloud-only clips, keys the cache
+    /// on that local subset, drives progress, and treats cancellation as a quiet return
+    /// to idle. The `.onChange(of: coordinator.state)` handler loads the poster frame
+    /// once a reel is ready.
     private func generate() {
-        let cacheURL = StitchedReelCache.url(scopeKey: todayScopeKey, clips: clips)
-        if let existing = StitchedReelCache.cachedURLIfPresent(scopeKey: todayScopeKey, clips: clips) {
-            state = .ready(existing)
-            loadThumbnail(for: existing)
-            return
-        }
-
-        state = .generating(progress: 0)
-        let capturedURLs = clips.map { $0.resolvedFileURL }
-        stitchTask = Task { @MainActor in
-            do {
-                let url = try await VideoStitchingService.stitch(
-                    sourceURLs: capturedURLs,
-                    outputURL: cacheURL
-                ) { p in
-                    if case .generating = state {
-                        state = .generating(progress: p)
-                    }
-                }
-                guard !Task.isCancelled else { return }
-                state = .ready(url)
-                loadThumbnail(for: url)
-                Haptics.success()
-            } catch is CancellationError {
-                if case .generating = state { state = .idle }
-            } catch let error as VideoStitchingService.StitchError {
-                reelLog.error("Stitch failed: \(error.localizedDescription)")
-                state = .failed(error.localizedDescription)
-            } catch {
-                reelLog.error("Stitch failed: \(error.localizedDescription)")
-                state = .failed(error.localizedDescription)
-            }
-        }
+        coordinator.generate(clips: clips, scopeKey: todayScopeKey)
     }
 
     private func loadThumbnail(for url: URL) {

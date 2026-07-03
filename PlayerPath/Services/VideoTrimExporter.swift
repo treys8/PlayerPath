@@ -149,27 +149,29 @@ enum VideoTrimExporter {
         // CPU/battery don't keep churning until the export finishes on its own.
         let box = AVExportSessionBox(session)
 
-        // Drive periodic progress updates on the MainActor while the export runs,
-        // mirroring VideoStitchingService. nil progress (existing callers) = no-op.
-        let progressTask: Task<Void, Never>? = progress.map { report in
-            Task { @MainActor in
-                while !Task.isCancelled {
-                    let p = box.session.progress
-                    report(p)
-                    if p >= 1.0 { return }
-                    try? await Task.sleep(for: .milliseconds(100))
-                }
-            }
-        }
-        defer { progressTask?.cancel() }
-
+        // Progress is optional (nil for existing callers = no-op). iOS 18+ and iOS 17
+        // report it differently, so each branch drives its own updater below.
         return try await withTaskCancellationHandler {
             if #available(iOS 18.0, *) {
+                // `export(to:as:)` no longer updates the deprecated `session.progress`
+                // property — observe the `states(updateInterval:)` async sequence instead
+                // (mirrors VideoStitchingService). It ends when the export finishes.
+                let progressTask: Task<Void, Never>? = progress.map { report in
+                    Task { @MainActor in
+                        for await exportState in box.session.states(updateInterval: 0.1) {
+                            if case .exporting(let p) = exportState {
+                                report(Float(p.fractionCompleted))
+                            }
+                        }
+                    }
+                }
                 do {
                     try await session.export(to: outputURL, as: .mp4)
+                    progressTask?.cancel()
                     if let progress { await MainActor.run { progress(1.0) } }
                     return outputURL
                 } catch {
+                    progressTask?.cancel()
                     try? FileManager.default.removeItem(at: outputURL)
                     if Task.isCancelled {
                         throw ExportError.cancelled
@@ -177,6 +179,18 @@ enum VideoTrimExporter {
                     throw ExportError.exportFailed(error.localizedDescription)
                 }
             } else {
+                // iOS 17: the legacy `export()` still updates `session.progress`; poll it.
+                let progressTask: Task<Void, Never>? = progress.map { report in
+                    Task { @MainActor in
+                        while !Task.isCancelled {
+                            let p = box.session.progress
+                            report(p)
+                            if p >= 1.0 { return }
+                            try? await Task.sleep(for: .milliseconds(100))
+                        }
+                    }
+                }
+                defer { progressTask?.cancel() }
                 await session.export()
                 switch session.status {
                 case .completed:

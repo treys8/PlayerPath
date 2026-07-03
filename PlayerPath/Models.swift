@@ -188,7 +188,10 @@ final class Game {
     /// Sum of per-hole scores, or nil when no holes have been scored. The live
     /// source of truth for a per-hole-scored round.
     var holeScoreSum: Int? {
-        let holes = holeScores ?? []
+        // Tombstoned rows (reverted holes awaiting sync) don't count — an
+        // all-tombstoned round must read nil, not 0, so the quick-entry
+        // scalar can take over.
+        let holes = (holeScores ?? []).filter { !$0.isDeletedRemotely }
         return holes.isEmpty ? nil : holes.reduce(0) { $0 + $1.score }
     }
 
@@ -203,7 +206,9 @@ final class Game {
     /// par counterpart to `holeScoreSum` — pair them so a round's to-par counts
     /// only holes that have been entered.
     var holeParSum: Int? {
-        let holes = holeScores ?? []
+        // Same tombstone filter as holeScoreSum — the pair must cover the
+        // same hole set or to-par skews.
+        let holes = (holeScores ?? []).filter { !$0.isDeletedRemotely }
         return holes.isEmpty ? nil : holes.reduce(0) { $0 + $1.par }
     }
 
@@ -410,6 +415,24 @@ final class Practice {
     /// sport-aware access. Self-logged by the athlete; forward-compatible with a
     /// future coach drill-assignment surface.
     var drillTypes: String?
+
+    /// Sum of per-hole scores for a golf practice round, or nil when no holes
+    /// have been scored. Mirrors `Game.holeScoreSum` — including the tombstone
+    /// filter — but has no quick-entry scalar to fall back to: practice rounds
+    /// are scored per hole only.
+    var holeScoreSum: Int? {
+        let holes = (holeScores ?? []).filter { !$0.isDeletedRemotely }
+        return holes.isEmpty ? nil : holes.reduce(0) { $0 + $1.score }
+    }
+
+    /// Sum of the pars of the holes actually scored, or nil when none are.
+    /// Pair with `holeScoreSum` (same tombstone filter, same hole set) so a
+    /// partial round's to-par compares strokes only against the pars of the
+    /// holes entered — mirrors `Game.holeParSum`.
+    var holeParSum: Int? {
+        let holes = (holeScores ?? []).filter { !$0.isDeletedRemotely }
+        return holes.isEmpty ? nil : holes.reduce(0) { $0 + $1.par }
+    }
 
     // MARK: - Firestore Sync Metadata (Phase 3)
 
