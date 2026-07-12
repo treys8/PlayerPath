@@ -2,7 +2,16 @@
 //  PhotoDetailView.swift
 //  PlayerPath
 //
-//  Full-screen photo detail with pinch-to-zoom, caption editing, and metadata.
+//  Full-screen, swipeable photo viewer. Pages through a set of photos (pinch
+//  zoom + double-tap fit/fill per page live in ZoomablePhotoPage) while this
+//  container owns the chrome — close button, "N of M" counter, favorite, the
+//  options menu, and the metadata overlay — so it renders once no matter how
+//  many pages are loaded.
+//
+//  Present it full-screen via the `.photoViewer(_:in:onDelete:)` modifier below,
+//  which wraps it in a NavigationStack inside a `.fullScreenCover`. A stray
+//  NavigationLink push (e.g. from a LazyVGrid inside a List) is unreliable here:
+//  it can double-push and strand the user with no working way out.
 //
 
 import SwiftUI
@@ -10,139 +19,160 @@ import SwiftData
 import Photos
 
 struct PhotoDetailView: View {
-    @Bindable var photo: Photo
+    let photos: [Photo]
+    let onDelete: (Photo) -> Void
+
+    @State private var selectionID: Photo.ID
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
 
-    @State private var fullImage: UIImage?
-    @State private var loadFailed = false
     @State private var showingDeleteConfirmation = false
     @State private var showingTagSheet = false
     @State private var isEditingCaption = false
     @State private var captionText: String = ""
-    @State private var scale: CGFloat = 1.0
-    @State private var lastScale: CGFloat = 1.0
-    /// Separate from `scale`: `.fill` = photo crops to fill the screen (no
-    /// letterbox), `.fit` = photo letterboxes to show every pixel. Double-tap
-    /// toggles between these two — pinch only adjusts zoom on top.
-    @State private var photoContentMode: ContentMode = .fill
-    /// Pan offset when the photo is zoomed in. Reset to `.zero` any time
-    /// scale returns to 1× so the next zoom-in starts centered.
-    @State private var offset: CGSize = .zero
-    @State private var lastOffset: CGSize = .zero
     @State private var showingSavedToast = false
     @State private var saveError: String?
+    /// Whether the currently visible page is zoomed in — drives hiding the
+    /// metadata overlay. Only the on-screen page emits zoom changes.
+    @State private var isCurrentPageZoomed = false
+    /// Live swipe-to-dismiss translation (`.zero` when idle). The pager follows
+    /// the drag, the backdrop fades, and chrome hides while it's in flight.
+    @State private var dragTranslation: CGSize = .zero
+    /// Immersive mode — a single tap hides the toolbar + metadata + status bar.
+    @State private var chromeHidden = false
 
-    let onDelete: () -> Void
+    /// Paged viewer over `photos`, opening on `initialPhotoID`.
+    init(photos: [Photo], initialPhotoID: Photo.ID, onDelete: @escaping (Photo) -> Void) {
+        self.photos = photos
+        self._selectionID = State(initialValue: initialPhotoID)
+        self.onDelete = onDelete
+    }
+
+    /// Single-photo convenience (no swiping) for callers that show one photo.
+    init(photo: Photo, onDelete: @escaping () -> Void) {
+        self.init(photos: [photo], initialPhotoID: photo.id) { _ in onDelete() }
+    }
+
+    /// The photo the chrome (toolbar, metadata, sheets) currently acts on.
+    /// `photos` is always non-empty (the viewer is only presented over a set
+    /// that contains the tapped photo), so `first!` is the safe fallback.
+    private var currentPhoto: Photo {
+        photos.first { $0.id == selectionID } ?? photos.first!
+    }
+
+    private var currentIndex: Int? {
+        photos.firstIndex { $0.id == selectionID }
+    }
+
+    /// 0 → 1 as the dismiss drag grows; fades the backdrop and shrinks the pager.
+    private var dismissProgress: CGFloat {
+        min(1, abs(dragTranslation.height) / 240)
+    }
+
+    /// Chrome shows only in normal mode with no dismiss drag in flight.
+    private var showChrome: Bool {
+        !chromeHidden && dragTranslation == .zero
+    }
 
     var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
+            // Backdrop fades out as the dismiss drag progresses so the content
+            // behind the cover shows through.
+            Color.black.opacity(1 - dismissProgress).ignoresSafeArea()
 
-            if let fullImage {
-                // Fill the screen by default (no letterbox). Double-tap toggles
-                // fit (see the whole photo, letterboxed) vs fill (cropped). Pinch
-                // adjusts zoom from 1× to 5× on top of whichever mode is active.
-                // Drag pans when zoomed in.
-                GeometryReader { geometry in
-                    Image(uiImage: fullImage)
-                        .resizable()
-                        .aspectRatio(contentMode: photoContentMode)
-                        .scaleEffect(scale)
-                        .offset(offset)
-                        .frame(width: geometry.size.width, height: geometry.size.height)
-                        .clipped()
-                        .contentShape(Rectangle())
-                        .gesture(
-                            MagnificationGesture()
-                                .onChanged { value in
-                                    scale = min(5.0, max(1.0, lastScale * value))
-                                }
-                                .onEnded { _ in
-                                    lastScale = scale
-                                    if scale == 1.0 {
-                                        // Zoomed back to default — drop any pan
-                                        // so the next zoom starts centered.
-                                        withAnimation(.spring(response: 0.3)) {
-                                            offset = .zero
-                                            lastOffset = .zero
-                                        }
-                                    }
-                                }
-                        )
-                        .simultaneousGesture(
-                            DragGesture()
-                                .onChanged { value in
-                                    // Pan only when zoomed in; at 1× a drag
-                                    // would uselessly shove a screen-filling
-                                    // image around empty canvas.
-                                    guard scale > 1.0 else { return }
-                                    let proposed = CGSize(
-                                        width: lastOffset.width + value.translation.width,
-                                        height: lastOffset.height + value.translation.height
-                                    )
-                                    offset = clampOffset(proposed, scale: scale, in: geometry.size)
-                                }
-                                .onEnded { _ in
-                                    lastOffset = offset
-                                }
-                        )
-                        .onTapGesture(count: 2) {
-                            withAnimation(.spring(response: 0.3)) {
-                                if scale > 1.0 {
-                                    // Zoomed in → reset to default zoom + pan.
-                                    scale = 1.0
-                                    lastScale = 1.0
-                                    offset = .zero
-                                    lastOffset = .zero
-                                } else {
-                                    // At default zoom → toggle fit/fill.
-                                    photoContentMode = photoContentMode == .fill ? .fit : .fill
-                                }
+            TabView(selection: $selectionID) {
+                ForEach(photos) { photo in
+                    ZoomablePhotoPage(
+                        photo: photo,
+                        onZoomChanged: { zoomed in
+                            // Ignore stray reports from off-screen pages.
+                            if photo.id == selectionID { isCurrentPageZoomed = zoomed }
+                        },
+                        onSingleTap: {
+                            withAnimation(.easeInOut(duration: 0.2)) { chromeHidden.toggle() }
+                        },
+                        onDismissDrag: { translation in
+                            // Follow the finger 1:1 (no animation).
+                            dragTranslation = translation
+                        },
+                        onDismissCommit: { committed in
+                            if committed {
+                                dismiss()
+                            } else {
+                                withAnimation(.spring(response: 0.3)) { dragTranslation = .zero }
                             }
                         }
+                    )
+                    .tag(photo.id)
                 }
-            } else if loadFailed {
-                VStack(spacing: 8) {
-                    Image(systemName: photo.cloudURL != nil ? "icloud.and.arrow.down" : "photo")
-                        .font(.largeTitle)
-                        .foregroundColor(.white.opacity(0.5))
-                    Text(photo.cloudURL != nil ? "Photo not yet downloaded" : "Photo unavailable")
-                        .font(.bodyMedium)
-                        .foregroundColor(.white.opacity(0.5))
-                }
-            } else {
-                ProgressView()
-                    .tint(.white)
             }
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            .ignoresSafeArea()
+            .scaleEffect(1 - dismissProgress * 0.1)
+            .offset(y: dragTranslation.height)
         }
+        .statusBarHidden(chromeHidden)
         .overlay(alignment: .bottom) {
-            if scale <= 1.0 {
+            if showChrome && !isCurrentPageZoomed {
                 metadataOverlay
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
+        .onChange(of: selectionID) {
+            // New page starts fresh: un-zoomed, chrome shown, no residual
+            // dismiss offset (a cancelled drag mustn't carry over to the next page).
+            isCurrentPageZoomed = false
+            chromeHidden = false
+            dragTranslation = .zero
+        }
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
+        .toolbar(showChrome ? .visible : .hidden, for: .navigationBar)
+        // Own the exit control explicitly. The default back button is unreliable
+        // here (this is presented full-screen with the bar background hidden), so
+        // provide an unmistakable close affordance.
+        .navigationBarBackButtonHidden(true)
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .symbolRenderingMode(.palette)
+                        .foregroundStyle(.white, .white.opacity(0.3))
+                        .font(.title3)
+                }
+                .accessibilityLabel("Close")
+            }
+
+            ToolbarItem(placement: .principal) {
+                if photos.count > 1, let index = currentIndex {
+                    Text("\(index + 1) of \(photos.count)")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
+                }
+            }
+
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     toggleHighlight()
                 } label: {
-                    Image(systemName: photo.isHighlight ? "star.fill" : "star")
+                    Image(systemName: currentPhoto.isHighlight ? "star.fill" : "star")
                         .symbolRenderingMode(.palette)
-                        .foregroundStyle(photo.isHighlight ? .yellow : .white, .white.opacity(0.3))
+                        .foregroundStyle(currentPhoto.isHighlight ? .yellow : .white, .white.opacity(0.3))
                         .font(.title3)
                 }
-                .accessibilityLabel(photo.isHighlight ? "Remove favorite" : "Mark as favorite")
+                .accessibilityLabel(currentPhoto.isHighlight ? "Remove favorite" : "Mark as favorite")
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
-                    if let fullImage {
-                        ShareLink(item: Image(uiImage: fullImage), preview: SharePreview("Photo", image: Image(uiImage: fullImage)))
+                    if currentPhoto.isAvailableOffline, let url = currentPhoto.fileURL {
+                        ShareLink(item: url, preview: SharePreview(currentPhoto.caption ?? "Photo")) {
+                            Label("Share Photo", systemImage: "square.and.arrow.up")
+                        }
 
                         Button {
-                            saveToCameraRoll(fullImage)
+                            saveCurrentToCameraRoll()
                         } label: {
                             Label("Save to Camera Roll", systemImage: "square.and.arrow.down")
                         }
@@ -151,11 +181,11 @@ struct PhotoDetailView: View {
                     Button {
                         showingTagSheet = true
                     } label: {
-                        Label(photo.athlete?.sport == .golf ? "Tag to Tournament/Practice" : "Tag to Game/Practice", systemImage: "tag")
+                        Label(currentPhoto.athlete?.sport == .golf ? "Tag to Tournament/Practice" : "Tag to Game/Practice", systemImage: "tag")
                     }
 
-                    if let athlete = photo.athlete {
-                        let isHeadshot = athlete.headshotPhotoId == photo.id
+                    if let athlete = currentPhoto.athlete {
+                        let isHeadshot = athlete.headshotPhotoId == currentPhoto.id
                         Button {
                             toggleHeadshot(for: athlete)
                         } label: {
@@ -166,9 +196,9 @@ struct PhotoDetailView: View {
 
                     Button {
                         isEditingCaption = true
-                        captionText = photo.caption ?? ""
+                        captionText = currentPhoto.caption ?? ""
                     } label: {
-                        Label(photo.caption != nil ? "Edit Caption" : "Add Caption", systemImage: "text.bubble")
+                        Label(currentPhoto.caption != nil ? "Edit Caption" : "Add Caption", systemImage: "text.bubble")
                     }
 
                     Divider()
@@ -191,8 +221,15 @@ struct PhotoDetailView: View {
         .alert("Delete Photo?", isPresented: $showingDeleteConfirmation) {
             Button("Delete", role: .destructive) {
                 Haptics.heavy()
-                onDelete()
+                // Tear the pager down BEFORE deleting the model. The TabView's
+                // ForEach(photos) still references this Photo; deleting it while
+                // the pager is live would trap on the invalidated @Model as the
+                // body re-renders. Dismiss first, delete on the next runloop.
+                let photo = currentPhoto
                 dismiss()
+                DispatchQueue.main.async {
+                    onDelete(photo)
+                }
             }
             Button("Cancel", role: .cancel) { }
         } message: {
@@ -200,6 +237,7 @@ struct PhotoDetailView: View {
         }
         .sheet(isPresented: $isEditingCaption) {
             CaptionEditSheet(captionText: $captionText) {
+                let photo = currentPhoto
                 photo.caption = captionText.isEmpty ? nil : captionText
                 photo.needsSync = true
                 ErrorHandlerService.shared.saveContext(modelContext, caller: "PhotoDetail.saveCaption")
@@ -207,7 +245,7 @@ struct PhotoDetailView: View {
             .presentationDetents([.medium])
         }
         .sheet(isPresented: $showingTagSheet) {
-            PhotoTagSheet(photo: photo)
+            PhotoTagSheet(photo: currentPhoto)
         }
         .toast(isPresenting: $showingSavedToast, message: "Saved to Camera Roll")
         .alert("Cannot Save Photo", isPresented: Binding(
@@ -218,21 +256,13 @@ struct PhotoDetailView: View {
         } message: {
             Text(saveError ?? "")
         }
-        .task {
-            await loadFullImage()
-        }
-        .onAppear {
-            captionText = photo.caption ?? ""
-        }
-        .onDisappear {
-            fullImage = nil
-        }
     }
 
     // MARK: - Metadata Overlay
 
     @ViewBuilder
     private var metadataOverlay: some View {
+        let photo = currentPhoto
         // Modifier order is intentional: padding → frame(maxWidth: .infinity)
         // → background. Putting padding AFTER the infinity frame expands the
         // view past the container by 2×padding.horizontal, which clips content
@@ -266,54 +296,10 @@ struct PhotoDetailView: View {
         .environment(\.colorScheme, .dark)
     }
 
-    /// Clamps a proposed pan offset so the zoomed image's edges can't be
-    /// dragged past the corresponding screen edges. The extra-per-side is
-    /// `(scale - 1) * viewport / 2` in each dimension, assuming the image's
-    /// base size at scale 1× is at least the viewport (true for `.fill`; for
-    /// `.fit` the bound is tighter but this cap is safe and intuitive).
-    private func clampOffset(_ proposed: CGSize, scale: CGFloat, in viewport: CGSize) -> CGSize {
-        let maxX = max(0, (scale - 1) * viewport.width / 2)
-        let maxY = max(0, (scale - 1) * viewport.height / 2)
-        return CGSize(
-            width: min(maxX, max(-maxX, proposed.width)),
-            height: min(maxY, max(-maxY, proposed.height))
-        )
-    }
-
-    private func loadFullImage() async {
-        // `Photo` is a non-Sendable @Model — snapshot the paths on the main actor,
-        // then decode the (potentially 12MP) image off-main via `Task.detached`.
-        let filePath = photo.resolvedFilePath
-        let cloudURL = photo.cloudURL
-
-        if let image = await Self.decodeImage(atPath: filePath) {
-            fullImage = image
-            return
-        }
-        // If local file is missing but we have a cloud URL, try downloading
-        if let cloudURL, !cloudURL.isEmpty {
-            do {
-                try await VideoCloudManager.shared.downloadPhoto(from: cloudURL, to: filePath)
-                if let image = await Self.decodeImage(atPath: filePath) {
-                    fullImage = image
-                    return
-                }
-            } catch {
-                ErrorHandlerService.shared.handle(error, context: "PhotoDetail.downloadPhoto", showAlert: false)
-            }
-        }
-        loadFailed = true
-    }
-
-    /// Full-resolution decode off the main thread via `Task.detached` (the codebase's
-    /// established off-main convention), keeping the `fullImage` assignment on the main actor.
-    private static func decodeImage(atPath path: String) async -> UIImage? {
-        await Task.detached(priority: .userInitiated) {
-            UIImage(contentsOfFile: path)
-        }.value
-    }
+    // MARK: - Actions
 
     private func toggleHighlight() {
+        let photo = currentPhoto
         photo.isHighlight.toggle()
         photo.needsSync = true
         ErrorHandlerService.shared.saveContext(modelContext, caller: "PhotoDetail.toggleHighlight")
@@ -325,10 +311,25 @@ struct PhotoDetailView: View {
     /// the normal Photo path, so the id resolves to the already-synced Photo on
     /// another device.
     private func toggleHeadshot(for athlete: Athlete) {
+        let photo = currentPhoto
         athlete.headshotPhotoId = (athlete.headshotPhotoId == photo.id) ? nil : photo.id
         athlete.needsSync = true
         ErrorHandlerService.shared.saveContext(modelContext, caller: "PhotoDetail.toggleHeadshot")
         Haptics.medium()
+    }
+
+    /// Decode the current photo's file and save it to the camera roll. The
+    /// container doesn't hold a decoded image (each page owns its own), so
+    /// decode on demand from the resolved file path.
+    private func saveCurrentToCameraRoll() {
+        let path = currentPhoto.resolvedFilePath
+        Task {
+            guard let image = await UIImage.decodedFullRes(atPath: path) else {
+                saveError = "Photo unavailable."
+                return
+            }
+            saveToCameraRoll(image)
+        }
     }
 
     private func saveToCameraRoll(_ image: UIImage) {
@@ -350,6 +351,49 @@ struct PhotoDetailView: View {
                     }
                 }
             }
+        }
+    }
+}
+
+// MARK: - Presentation
+
+extension View {
+    /// Presents a full-screen, swipeable photo viewer over `photos`, opening on
+    /// the bound photo. Prefer this over a NavigationLink push: it reliably
+    /// dismisses and covers the tab bar. `selection` doubles as the trigger
+    /// (non-nil → presented) and the initial page. Pass `namespace` (paired with
+    /// `.photoTransitionSource` on the tapped cell) for the iOS 18 zoom transition.
+    func photoViewer(_ selection: Binding<Photo?>,
+                     in photos: [Photo],
+                     namespace: Namespace.ID? = nil,
+                     onDelete: @escaping (Photo) -> Void) -> some View {
+        fullScreenCover(item: selection) { photo in
+            NavigationStack {
+                PhotoDetailView(photos: photos, initialPhotoID: photo.id, onDelete: onDelete)
+            }
+            .photoZoomTransition(sourceID: photo.id, in: namespace)
+        }
+    }
+
+    /// Marks this view as the zoom-transition source for `id`, paired with the
+    /// `namespace` passed to `photoViewer`. iOS 18+ only; a no-op on iOS 17,
+    /// which keeps the default cover presentation.
+    @ViewBuilder
+    func photoTransitionSource(_ id: Photo.ID, in namespace: Namespace.ID) -> some View {
+        if #available(iOS 18.0, *) {
+            matchedTransitionSource(id: id, in: namespace)
+        } else {
+            self
+        }
+    }
+
+    /// Applies the paired zoom transition to the presented viewer (iOS 18+).
+    @ViewBuilder
+    fileprivate func photoZoomTransition(sourceID: Photo.ID, in namespace: Namespace.ID?) -> some View {
+        if #available(iOS 18.0, *), let namespace {
+            navigationTransition(.zoom(sourceID: sourceID, in: namespace))
+        } else {
+            self
         }
     }
 }

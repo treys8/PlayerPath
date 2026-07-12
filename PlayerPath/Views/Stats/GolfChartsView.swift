@@ -48,6 +48,10 @@ struct GolfChartsView: View {
     @State private var metric: Metric = .score
     @State private var scope: Scope = .tournament
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Draw-in progress (0→1): the trend line rises from the baseline into place
+    /// on appear. Reduce Motion pins it to 1 (fully drawn, no animation).
+    @State private var drawProgress: Double = 0
 
     // MARK: - Round pool (newest-first rows from the shared export source)
 
@@ -75,6 +79,10 @@ struct GolfChartsView: View {
         let id = UUID()
         let date: Date
         let value: Double
+
+        /// Stable identity across rebuilds (unlike `id`, a fresh UUID each init) so
+        /// the draw-in can interpolate each point's y rather than insert/remove.
+        var stableKey: String { "\(date.timeIntervalSince1970)-\(value)" }
     }
 
     private func metricValue(_ row: GolfRoundRow) -> Double? {
@@ -140,6 +148,22 @@ struct GolfChartsView: View {
         }
         .navigationTitle("Golf Charts")
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            // Draw the trend in once per presentation. Reduce Motion → fully drawn.
+            if reduceMotion {
+                drawProgress = 1
+            } else {
+                drawProgress = 0
+                withAnimation(.easeOut(duration: 0.6)) { drawProgress = 1 }
+            }
+        }
+        // Switching metrics swaps the whole series; re-run the draw-in so the new
+        // trend grows from the baseline instead of snapping into place.
+        .onChange(of: metric) { _, _ in
+            guard !reduceMotion else { return }
+            drawProgress = 0
+            withAnimation(.easeOut(duration: 0.5)) { drawProgress = 1 }
+        }
     }
 
     private var scopePicker: some View {
@@ -183,17 +207,17 @@ struct GolfChartsView: View {
                     .cornerRadius(12)
             } else {
                 Chart {
-                    ForEach(roundPoints) { point in
+                    ForEach(roundPoints, id: \.stableKey) { point in
                         LineMark(
                             x: .value("Date", point.date),
-                            y: .value(metric.rawValue, point.value)
+                            y: .value(metric.rawValue, point.value * drawProgress)
                         )
                         .foregroundStyle(Color.brandNavy)
                         .interpolationMethod(.catmullRom)
 
                         PointMark(
                             x: .value("Date", point.date),
-                            y: .value(metric.rawValue, point.value)
+                            y: .value(metric.rawValue, point.value * drawProgress)
                         )
                         .foregroundStyle(Color.brandNavy)
                     }

@@ -12,6 +12,7 @@ struct BattingChartSection: View {
     let statistics: AthleteStatistics
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isVisible = false
 
     private var chartData: [PlayTypeData] {
@@ -84,8 +85,12 @@ struct BattingChartSection: View {
             }
         }
         .onAppear {
-            withAnimation(.easeOut(duration: 0.4).delay(0.1)) {
+            if reduceMotion {
                 isVisible = true
+            } else {
+                withAnimation(.easeOut(duration: 0.4).delay(0.1)) {
+                    isVisible = true
+                }
             }
         }
     }

@@ -15,6 +15,12 @@ import SwiftUI
 struct ScoreHeroCard: View {
     let score: Int
     let par: Int
+    /// Changes each time a birdie-or-better score is committed; drives a one-shot
+    /// scale pop on the big number. The parent leaves it constant under Reduce
+    /// Motion so the pop never fires there. Defaults to 0 for non-scoring callers.
+    var celebrateTrigger: Int = 0
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var diff: Int { score - par }
     private var tint: Color { .parRelative(diff) }
@@ -37,7 +43,16 @@ struct ScoreHeroCard: View {
             Text("\(score)")
                 .font(.system(size: 64, weight: .bold, design: .rounded))
                 .monospacedDigit()
+                .contentTransition(.numericText())
                 .foregroundColor(tint)
+                .keyframeAnimator(initialValue: 1.0, trigger: celebrateTrigger) { view, scale in
+                    view.scaleEffect(scale)
+                } keyframes: { _ in
+                    KeyframeTrack {
+                        CubicKeyframe(1.16, duration: 0.16)
+                        CubicKeyframe(1.0, duration: 0.30)
+                    }
+                }
 
             Text(relativeLine)
                 .font(.bodySmall)
@@ -49,8 +64,8 @@ struct ScoreHeroCard: View {
             RoundedRectangle(cornerRadius: .cornerXLarge)
                 .fill(tint.opacity(0.10))
         )
-        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: score)
-        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: par)
+        .animation(reduceMotion ? nil : .selection, value: score)
+        .animation(reduceMotion ? nil : .selection, value: par)
     }
 }
 

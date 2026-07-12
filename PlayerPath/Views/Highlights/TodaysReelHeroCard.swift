@@ -20,6 +20,9 @@ struct TodaysReelHeroCard: View {
 
     @State private var coordinator = ReelStitchCoordinator()
     @State private var thumbnail: UIImage?
+    @State private var iconBounce = false
+    @State private var readyPop = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         cardContent
@@ -29,6 +32,10 @@ struct TodaysReelHeroCard: View {
             .shadow(color: Color.brandGold.opacity(0.15), radius: 8, x: 0, y: 4)
             .shadow(color: .black.opacity(0.05), radius: 2, x: 0, y: 1)
             .onAppear {
+                // A single icon bounce greets the reel prompt (skipped under Reduce
+                // Motion). Harmless if the card is already .ready — the idle icon
+                // just isn't on screen to bounce.
+                if !reduceMotion { iconBounce = true }
                 // Surface an already-cached reel without auto-stitching; stay idle
                 // (Generate button) otherwise. Keying goes through the coordinator so
                 // cloud-only clips are excluded exactly as a real Generate would.
@@ -45,8 +52,15 @@ struct TodaysReelHeroCard: View {
                 thumbnail = nil
                 coordinator.loadCachedIfAvailable(clips: clips, scopeKey: todayScopeKey)
             }
-            .onChange(of: coordinator.state) { _, newState in
-                if case .ready(let url) = newState { loadThumbnail(for: url) }
+            .onChange(of: coordinator.state) { oldState, newState in
+                if case .ready(let url) = newState {
+                    loadThumbnail(for: url)
+                    // Celebrate only a fresh stitch (generating → ready), not a
+                    // cache-restore on appear — that path goes idle/nil → ready and
+                    // should stay quiet. Haptic already fires in the coordinator;
+                    // this adds the missing visual beat.
+                    if case .generating = oldState, !reduceMotion { readyPop = true }
+                }
             }
     }
 
@@ -72,6 +86,7 @@ struct TodaysReelHeroCard: View {
                 .font(.system(size: 28, weight: .semibold))
                 .foregroundColor(.brandGold)
                 .symbolRenderingMode(.hierarchical)
+                .symbolEffect(.bounce, value: iconBounce)
                 .frame(width: 44)
             VStack(alignment: .leading, spacing: 4) {
                 Text("Today's Reel")
@@ -143,9 +158,17 @@ struct TodaysReelHeroCard: View {
                     .font(.system(size: 22))
                     .foregroundColor(.white)
                     .shadow(radius: 2)
+                    .symbolEffect(.bounce, value: readyPop)
             }
             .frame(width: 70, height: 70)
             .clipped()
+            // One-shot pop when a fresh reel lands (see .onChange gating). Held at
+            // rest (1.0) under Reduce Motion, where `readyPop` never flips.
+            .phaseAnimator([1.0, 1.12, 1.0], trigger: readyPop) { view, scale in
+                view.scaleEffect(scale)
+            } animation: { scale in
+                scale == 1.12 ? Animation.celebrate : Animation.selection
+            }
             VStack(alignment: .leading, spacing: 4) {
                 Text("Today's Reel")
                     .font(.headingMedium)

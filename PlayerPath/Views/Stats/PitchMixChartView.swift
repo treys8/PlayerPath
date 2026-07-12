@@ -15,6 +15,7 @@ struct PitchMixChartView: View {
     let offspeedCount: Int
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isVisible = false
 
     private var hasData: Bool {
@@ -100,8 +101,12 @@ struct PitchMixChartView: View {
             .offset(y: isVisible ? 0 : 20)
         }
         .onAppear {
-            withAnimation(.easeOut(duration: 0.4).delay(0.35)) {
+            if reduceMotion {
                 isVisible = true
+            } else {
+                withAnimation(.easeOut(duration: 0.4).delay(0.35)) {
+                    isVisible = true
+                }
             }
         }
     }

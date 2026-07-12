@@ -225,6 +225,27 @@ struct UserMainFlow: View {
                     .transition(.move(edge: .top).combined(with: .opacity))
                     .animation(.spring(response: 0.4, dampingFraction: 0.8), value: HighlightReelBannerService.shared.pending?.id)
                 }
+                // Record stamp — the second Tier-4 celebration surface. Held back
+                // until the reel banner clears so the two never stack: the reel
+                // banner (tap-to-watch) shows first, this record coda follows once
+                // it auto-dismisses (~5s). Keyed to both services' ids so the
+                // entrance animates the moment the reel banner's pending clears.
+                if HighlightReelBannerService.shared.pending == nil,
+                   let stamp = MilestoneCelebrationService.shared.pending {
+                    MilestoneCelebrationBanner(
+                        stamp: stamp,
+                        onDismiss: { MilestoneCelebrationService.shared.dismiss() }
+                    )
+                    .padding(.top, (showCreationToast || activityNotifService.incomingBanner != nil) ? 0 : 12)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .animation(
+                        .spring(response: 0.4, dampingFraction: 0.8),
+                        // Combine the stamp id with a reel-cleared flag (no raw
+                        // UUID) so the entrance animates both when a stamp arrives
+                        // and the moment the reel banner ahead of it dismisses.
+                        value: "\(MilestoneCelebrationService.shared.pending?.id ?? "none")-\(HighlightReelBannerService.shared.pending == nil)"
+                    )
+                }
             }
         }
         .onChange(of: athletesForUser) { _, newValue in

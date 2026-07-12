@@ -52,6 +52,11 @@ struct QuickScoreContent: View {
     }
 
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// Bumped when a birdie-or-better score is committed, so ScoreHeroCard fires
+    /// its one-shot pop. Held constant under Reduce Motion (haptic still fires).
+    @State private var celebrateTrigger: Int = 0
 
     @State private var par: Int = 4
     @State private var score: Int = 4
@@ -122,7 +127,7 @@ struct QuickScoreContent: View {
     var body: some View {
         ScrollView {
             VStack(spacing: .spacingLarge) {
-                ScoreHeroCard(score: score, par: par)
+                ScoreHeroCard(score: score, par: par, celebrateTrigger: celebrateTrigger)
 
                 // Par — one-tap segmented control, seeds the score default.
                 VStack(alignment: .leading, spacing: .spacingSmall) {
@@ -172,9 +177,18 @@ struct QuickScoreContent: View {
                         .font(.labelMedium)
                         .foregroundColor(.secondary)
                     NumberChipGrid(range: 1...15, selected: score, par: par) { value in
+                        // Celebrate only on a real move INTO birdie-or-better (incl.
+                        // birdie→eagle), not on re-tapping the same value. The base
+                        // NumberChip selection tick still fires for every tap.
+                        let isBirdieOrBetter = value > 0 && (value - par) <= -1
+                        let changedToBetter = value != score
                         score = value
                         scoreManuallySet = true
                         userTouched = true
+                        if isBirdieOrBetter && changedToBetter {
+                            Haptics.success()
+                            if !reduceMotion { celebrateTrigger += 1 }
+                        }
                     }
                 }
 
@@ -219,7 +233,9 @@ struct QuickScoreContent: View {
                                 Spacer()
                                 Text("\(penalties ?? 0)")
                                     .monospacedDigit()
+                                    .contentTransition(.numericText(value: Double(penalties ?? 0)))
                                     .foregroundColor(.secondary)
+                                    .animation(reduceMotion ? nil : .selection, value: penalties)
                             }
                         }
                     }

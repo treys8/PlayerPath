@@ -15,6 +15,7 @@ struct HighlightsView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject private var autoHighlightSettings = AutoHighlightSettings.shared
     @State private var selectedClip: VideoClip?
     @State private var selectedReel: HighlightReel?
@@ -284,23 +285,30 @@ struct HighlightsView: View {
 
     private var highlightGridView: some View {
         ScrollView {
-            if currentTier >= .plus,
-               let athlete = athlete,
-               athlete.sport != .golf,
-               viewModel.todaysHighlightClips.count >= 2 {
-                // Golf relies on its per-hole reels + per-round/per-season reels
-                // instead of the baseball "Today's Reel" hero, so the two reel
-                // models don't double-surface on the same screen.
-                TodaysReelHeroCard(
-                    athleteId: athlete.id,
-                    clips: viewModel.todaysHighlightClips,
-                    onPlay: { url in
-                        stitchedReel = IdentifiableURL(url)
-                    }
-                )
-                .padding(.horizontal, horizontalSizeClass == .regular ? 32 : 16)
-                .padding(.top, 12)
+            // Grouped so the hero card's insertion/removal animates locally when
+            // today's highlight set crosses the ≥2 threshold — a gentle slide-in
+            // for the celebratory prompt (skipped under Reduce Motion).
+            Group {
+                if currentTier >= .plus,
+                   let athlete = athlete,
+                   athlete.sport != .golf,
+                   viewModel.todaysHighlightClips.count >= 2 {
+                    // Golf relies on its per-hole reels + per-round/per-season reels
+                    // instead of the baseball "Today's Reel" hero, so the two reel
+                    // models don't double-surface on the same screen.
+                    TodaysReelHeroCard(
+                        athleteId: athlete.id,
+                        clips: viewModel.todaysHighlightClips,
+                        onPlay: { url in
+                            stitchedReel = IdentifiableURL(url)
+                        }
+                    )
+                    .padding(.horizontal, horizontalSizeClass == .regular ? 32 : 16)
+                    .padding(.top, 12)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                }
             }
+            .animation(reduceMotion ? nil : .selection, value: viewModel.todaysHighlightClips.count >= 2)
             LazyVGrid(
                 columns: [
                     GridItem(.adaptive(minimum: horizontalSizeClass == .regular ? 200 : 160, maximum: horizontalSizeClass == .regular ? 280 : 220), spacing: 16, alignment: .top)

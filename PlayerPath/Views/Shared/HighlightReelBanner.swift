@@ -16,6 +16,9 @@ struct HighlightReelBanner: View {
     var onTap: () -> Void
     let onDismiss: () -> Void
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var iconPop = false
+
     private var headline: String {
         "PlayerPath found \(summary.count) highlight\(summary.count == 1 ? "" : "s")"
     }
@@ -35,9 +38,19 @@ struct HighlightReelBanner: View {
                     Image(systemName: "film.stack")
                         .font(.title3)
                         .foregroundColor(.brandGold)
+                        .symbolEffect(.bounce, value: iconPop)
                         .frame(width: 36, height: 36)
                         .background(Color.brandGold.opacity(0.15))
                         .clipShape(Circle())
+                        // One-shot entrance pop: the gold badge overshoots then settles.
+                        // `iconPop` only flips true under !reduceMotion (see .onAppear),
+                        // so Reduce Motion holds the badge at the resting first phase (1.0).
+                        .phaseAnimator([1.0, 1.25, 0.92, 1.0], trigger: iconPop) { badge, scale in
+                            badge.scaleEffect(scale)
+                        } animation: { scale in
+                            scale == 1.25 ? .spring(response: 0.22, dampingFraction: 0.5)
+                                          : .spring(response: 0.35, dampingFraction: 0.7)
+                        }
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(headline)
@@ -77,6 +90,13 @@ struct HighlightReelBanner: View {
         .accessibilityLabel("\(headline). \(subtitle)")
         .accessibilityHint("Double-tap to watch, or activate the dismiss button to close")
         .accessibilityAddTraits(.isButton)
+        .onAppear {
+            // The banner is only created the moment PlayerPath finds highlights,
+            // so appearing IS the celebratory beat: one success buzz + a single
+            // icon bounce. Movement is dropped under Reduce Motion; the haptic stays.
+            Haptics.success()
+            if !reduceMotion { iconPop = true }
+        }
         .task {
             // Auto-dismiss after a timeout; extend under VoiceOver. Cancelled on disappear.
             let seconds: TimeInterval = UIAccessibility.isVoiceOverRunning ? 10 : 5

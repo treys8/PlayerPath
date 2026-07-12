@@ -247,6 +247,13 @@ extension Animation {
     static let quick = Animation.easeInOut(duration: 0.2)
     static let standard = Animation.easeInOut(duration: 0.3)
     static let slow = Animation.easeInOut(duration: 0.5)
+
+    /// Entrance / selection spring — quick settle, minimal overshoot.
+    /// Named `.selection` (not `.snappy`) so it doesn't shadow iOS 17's built-in
+    /// `Animation.snappy`, which has different timing.
+    static let selection = Animation.spring(response: 0.35, dampingFraction: 0.8)
+    /// Reward pop — bouncier, for celebratory one-shot moments (birdie, highlight found).
+    static let celebrate = Animation.spring(response: 0.45, dampingFraction: 0.6)
 }
 
 // MARK: - Badges
@@ -341,7 +348,10 @@ enum ReelCardStyle {
 /// UIKit-facing style for the corner "▶ PlayerPath" watermark baked in by
 /// `ReelOverlayRenderer.makeWatermarkLayer` (bottom-right; name/caption own bottom-left).
 enum ReelWatermarkStyle {
-    static let text = "▶ PlayerPath"
+    /// U+FE0E (text-presentation selector) pins the ▶ to a monochrome text glyph. Without
+    /// it, the fallback font (Inter lacks ▶) can render it as a colored emoji triangle that
+    /// ignores `foregroundColor` — off-brand over both the navy card and the footage.
+    static let text = "\u{25B6}\u{FE0E} PlayerPath"
 
     static func font(canvasHeight: CGFloat) -> UIFont {
         let size = max(16, min(36, canvasHeight * 0.018))

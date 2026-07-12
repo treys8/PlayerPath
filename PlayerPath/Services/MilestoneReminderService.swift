@@ -4,11 +4,19 @@
 //
 //  Behavioral nudge #3: after a game is finished (live End or manual Mark
 //  Complete) and stats recalc, diff the season's `MilestoneEngine.milestones(for:)`
-//  against a persisted "already seen" set and fire a local celebration nudge for
-//  the milestones that game earned. Fully local — a
-//  `Milestone` is a derived struct, never persisted, so there is no schema/sync
-//  surface. The seen-set (UserDefaults) is the dedup ledger Feature 5's Badge
-//  wall can later reuse.
+//  against a persisted "already seen" set and celebrate the milestones that game
+//  earned. Fully local — a `Milestone` is a derived struct, never persisted, so
+//  there is no schema/sync surface. The seen-set (UserDefaults) is the dedup
+//  ledger Feature 5's Badge wall can later reuse.
+//
+//  Two celebration surfaces, split by the notification pref:
+//   • In-app record stamp (MilestoneCelebrationService → MilestoneCelebration
+//     banner in the UserMainFlow overlay) — the single top-ranked new milestone.
+//     Always shown, because it is an in-app surface the user is looking at
+//     (matches the "seen the moment it is surfaced in-app" semantics below).
+//   • Optional Lock-Screen push nudge — gated on `NotificationPrefKeys
+//     .milestoneReminder`. The pref narrows to this push only; the diff and
+//     seen-set write always run so the ledger can't drift while the toggle is off.
 //
 //  Two guards keep this from flooding on a fresh install / reinstall:
 //   1. A launch baseline seed records every existing milestone as "seen".
@@ -75,8 +83,6 @@ final class MilestoneReminderService {
     /// Pass the game synchronously — the `milestones(for:)` read runs before the
     /// first `await`, then only plain values cross the suspension.
     func processGameEnd(game: Game?) async {
-        let enabled = UserDefaults.standard.object(forKey: NotificationPrefKeys.milestoneReminder) as? Bool ?? true
-        guard enabled else { return }
         guard let game, !game.isDeleted, game.modelContext != nil,
               let season = game.season, !season.isDeleted else { return }
 
@@ -86,6 +92,7 @@ final class MilestoneReminderService {
         let gameID = game.id
         let seasonID = season.id.uuidString
         let athleteID = season.athlete?.id.uuidString
+        let isGolf = season.sport == .golf
 
         // Pure read — no await yet.
         let current = MilestoneEngine.milestones(for: season)
@@ -109,6 +116,32 @@ final class MilestoneReminderService {
         UserDefaults.standard.set(Array(seenSet.union(currentIDs)), forKey: Self.seenKey)
 
         guard !fresh.isEmpty else { return }
+
+        // In-app celebration: present the single most-significant record this game
+        // earned (highest Kind.sortRank, first-wins on ties — matches the Journal
+        // feed's milestoneIndex pick). This is an in-app surface, so it shows
+        // regardless of the push preference — the toggle below gates only the push.
+        // Keep the earlier element on ties (fresh is engine-ordered) so the pick
+        // is first-wins regardless of sort stability, exactly like milestoneIndex.
+        let top = fresh.reduce(Milestone?.none) { best, m in
+            guard let best else { return m }
+            return m.kind.sortRank > best.kind.sortRank ? m : best
+        }
+        if let top {
+            MilestoneCelebrationService.shared.present(
+                .init(
+                    id: top.id,
+                    kindLabel: top.markerLabel,
+                    title: top.title,
+                    detail: top.detail,
+                    isGolf: isGolf
+                )
+            )
+        }
+
+        // Optional push nudge on top of the in-app stamp, gated on the pref.
+        let enabled = UserDefaults.standard.object(forKey: NotificationPrefKeys.milestoneReminder) as? Bool ?? true
+        guard enabled else { return }
 
         // Snapshot to plain strings — no model access past here.
         let titles = fresh.map(\.title)

@@ -33,6 +33,9 @@ struct JournalPhotoDaySheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Query private var allPhotos: [Photo]
+    /// Photo tapped to open the full-screen swipeable viewer (over this day's photos).
+    @State private var viewerPhoto: Photo?
+    @Namespace private var photoNS
 
     private let columns = [GridItem(.adaptive(minimum: 104), spacing: 4)]
 
@@ -68,16 +71,18 @@ struct JournalPhotoDaySheet: View {
             ScrollView {
                 LazyVGrid(columns: columns, spacing: 4) {
                     ForEach(dayPhotos) { photo in
-                        NavigationLink {
-                            PhotoDetailView(photo: photo) { delete(photo) }
+                        Button {
+                            viewerPhoto = photo
                         } label: {
                             PhotoThumbnailCell(photo: photo, style: .dense) { delete(photo) }
+                                .photoTransitionSource(photo.id, in: photoNS)
                         }
                         .buttonStyle(.plain)
                     }
                 }
                 .padding(4)
             }
+            .photoViewer($viewerPhoto, in: dayPhotos, namespace: photoNS, onDelete: delete)
             .background(Theme.surface)
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)

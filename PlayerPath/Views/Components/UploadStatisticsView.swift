@@ -11,6 +11,7 @@ import SwiftData
 struct UploadStatisticsView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private let uploadManager = UploadQueueManager.shared
     private let networkMonitor = ConnectivityMonitor.shared
@@ -74,6 +75,9 @@ struct UploadStatisticsView: View {
                     VStack(spacing: 4) {
                         Text("\(uploadedCount)")
                             .font(.ppStat(32))
+                            .monospacedDigit()
+                            .contentTransition(.numericText(value: Double(uploadedCount)))
+                            .animation(reduceMotion ? nil : .default, value: uploadedCount)
                         Text("uploaded")
                             .font(.bodySmall)
                             .foregroundColor(.secondary)
@@ -411,6 +415,8 @@ struct ActivityRow: View {
     let color: Color
     var isAnimated: Bool = false
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
         HStack {
             Image(systemName: icon)
@@ -425,7 +431,9 @@ struct ActivityRow: View {
             Text("\(count)")
                 .font(.ppStatSmall)
                 .monospacedDigit()
+                .contentTransition(.numericText(value: Double(count)))
                 .foregroundColor(color)
+                .animation(reduceMotion ? nil : .default, value: count)
         }
     }
 }

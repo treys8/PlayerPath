@@ -29,6 +29,13 @@ struct JournalView: View {
 
     @State private var filter: JournalFilter = .all
 
+    /// Windowing cap for the feed — grows one page at a time as the user scrolls
+    /// near the bottom (infinite scroll, mirrors VideoClipsViewModel.displayLimit).
+    /// Resets on filter change; an athlete switch resets it for free because
+    /// MainTabView applies `.id(...)` to JournalView, recreating all @State.
+    @State private var displayLimit = pageSize
+    private static let pageSize = 50
+
     /// Drives the Home search sheet — the app's single advanced-search surface
     /// (`AdvancedSearchView`), previously reachable only from the Videos tab.
     /// Promoting it here makes search discoverable from the landing screen;
@@ -265,6 +272,15 @@ struct JournalView: View {
         let filters = availableFilters(from: feed)
         let milestonesByGame = milestoneIndex()
 
+        // Windowing: render only the first `displayLimit` rows and grow on scroll.
+        // Filters/pills/empty-state above stay on the FULL feed; only the rendered
+        // slice is capped. Sections are computed from the slice, so a partially
+        // loaded month simply grows as more pages load.
+        let windowedEntries = Array(visibleEntries.prefix(displayLimit))
+        let hasMore = visibleEntries.count > displayLimit
+        let loadMoreTriggerIDs: Set<String> = hasMore ? Set(windowedEntries.suffix(10).map(\.id)) : []
+        let sections = JournalFeedSections.build(from: windowedEntries)
+
         return ScrollView {
             LazyVStack(spacing: .spacingLarge) {
                 // Pending coach invitations — self-hides when none. Ported from
@@ -293,35 +309,23 @@ struct JournalView: View {
                     if visibleEntries.isEmpty {
                         filteredEmptyState
                     } else {
-                        ForEach(visibleEntries) { entry in
-                            // O(1) lookup of this row's milestone — no per-row scan.
-                            let milestone = entry.gameID.flatMap { milestonesByGame[$0] }
-                            switch entry {
-                            case .clip(let clip):
-                                // Clips open in the immersive full-screen player as
-                                // a cover — matching every other entry point in the
-                                // app — so the player's own ✕ is the single dismiss
-                                // control, with no stacked nav back chevron.
-                                Button { selectedClip = clip } label: { feedRow(entry, milestone: milestone) }
-                                    .buttonStyle(.plain)
-                            case .photoGroup(let photos):
-                                // A day's set of photos opens a day-scoped grid
-                                // sheet (no multi-photo push surface exists), so a
-                                // single photo-heavy day stays one feed card.
-                                Button { openPhotoDay(photos) } label: { feedRow(entry, milestone: milestone) }
-                                    .buttonStyle(.plain)
-                            case .coachFeedback(let item):
-                                // Opens the clip in the same full-screen player as a
-                                // regular clip card, and clears the unread dot.
-                                Button {
-                                    markFeedbackRead(item)
-                                    selectedClip = item.clip
-                                } label: { feedRow(entry, milestone: milestone) }
-                                    .buttonStyle(.plain)
-                            default:
-                                NavigationLink { destination(for: entry) } label: { feedRow(entry, milestone: milestone) }
-                                    .buttonStyle(.plain)
+                        ForEach(sections) { section in
+                            sectionHeader(section.title)
+                            ForEach(section.entries) { entry in
+                                // O(1) lookup of this row's milestone — no per-row scan.
+                                entryCell(entry, milestone: entry.gameID.flatMap { milestonesByGame[$0] })
+                                    .onAppear {
+                                        // Infinite scroll: grow the window when one of
+                                        // the last ~10 loaded rows appears.
+                                        if loadMoreTriggerIDs.contains(entry.id) {
+                                            displayLimit += Self.pageSize
+                                        }
+                                    }
                             }
+                        }
+                        if hasMore {
+                            ProgressView()
+                                .padding(.vertical, .spacingMedium)
                         }
                     }
                 } else {
@@ -370,6 +374,11 @@ struct JournalView: View {
             // last highlight was un-starred), fall back to All so the feed
             // doesn't strand on an empty filter whose pill has disappeared.
             if !newValue.contains(filter) { filter = .all }
+        }
+        .onChange(of: filter) { _, _ in
+            // A new filter is a fresh, shorter list — page it from the top so we
+            // don't render an inflated window of an unrelated filter's rows.
+            displayLimit = Self.pageSize
         }
         .toolbar {
             ToolbarItem(placement: .principal) {
@@ -567,6 +576,47 @@ struct JournalView: View {
         JournalEntryRow(entry: entry, milestone: milestone)
             .padding(.horizontal, 18)
             .contentShape(Rectangle())
+    }
+
+    /// The tappable feed row + its per-type tap surface. Extracted verbatim from
+    /// the body so the sectioned, nested ForEach stays type-checkable.
+    @ViewBuilder
+    private func entryCell(_ entry: JournalEntry, milestone: Milestone?) -> some View {
+        switch entry {
+        case .clip(let clip):
+            // Clips open in the immersive full-screen player as a cover — matching
+            // every other entry point in the app — so the player's own ✕ is the
+            // single dismiss control, with no stacked nav back chevron.
+            Button { selectedClip = clip } label: { feedRow(entry, milestone: milestone) }
+                .buttonStyle(.plain)
+        case .photoGroup(let photos):
+            // A day's set of photos opens a day-scoped grid sheet (no multi-photo
+            // push surface exists), so a single photo-heavy day stays one feed card.
+            Button { openPhotoDay(photos) } label: { feedRow(entry, milestone: milestone) }
+                .buttonStyle(.plain)
+        case .coachFeedback(let item):
+            // Opens the clip in the same full-screen player as a regular clip card,
+            // and clears the unread dot.
+            Button {
+                markFeedbackRead(item)
+                selectedClip = item.clip
+            } label: { feedRow(entry, milestone: milestone) }
+                .buttonStyle(.plain)
+        default:
+            NavigationLink { destination(for: entry) } label: { feedRow(entry, milestone: milestone) }
+                .buttonStyle(.plain)
+        }
+    }
+
+    /// A lightweight date-section header ("This Week", "June 2026", …). Reuses the
+    /// "Live Now" small-caps label idiom for visual consistency with the feed.
+    private func sectionHeader(_ title: String) -> some View {
+        HStack {
+            Text(title).smallCapsLabel()
+            Spacer()
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, .spacingSmall)
     }
 
     // MARK: - Destinations

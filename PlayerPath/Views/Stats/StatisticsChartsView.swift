@@ -14,9 +14,13 @@ struct StatisticsChartsView: View {
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.ppAccent) private var ppAccent
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var selectedMetric: StatMetric = .battingAverage
     @State private var selectedTimeframe: Timeframe = .game
     @State private var selectedSeason: Season?
+    /// Draw-in progress (0→1) for the charts: mark y-values are scaled by this so
+    /// bars grow from the baseline and the trend line rises into place on appear.
+    @State private var drawProgress: Double = 0
 
     var body: some View {
         ScrollView {
@@ -49,7 +53,26 @@ struct StatisticsChartsView: View {
             if selectedSeason == nil {
                 selectedSeason = initialSeason
             }
+            // Draw the charts in once per presentation. Reduce Motion → fully drawn.
+            if reduceMotion {
+                drawProgress = 1
+            } else {
+                drawProgress = 0
+                withAnimation(.easeOut(duration: 0.6)) { drawProgress = 1 }
+            }
         }
+        // Switching metric or timeframe swaps the plotted series; re-run the draw-in
+        // so marks grow from the baseline instead of jumping to the new values.
+        .onChange(of: selectedMetric) { _, _ in redrawCharts() }
+        .onChange(of: selectedTimeframe) { _, _ in redrawCharts() }
+    }
+
+    /// Re-trigger the baseline-grow draw-in after a data-changing picker tap.
+    /// No-op under Reduce Motion (charts stay fully drawn).
+    private func redrawCharts() {
+        guard !reduceMotion else { return }
+        drawProgress = 0
+        withAnimation(.easeOut(duration: 0.5)) { drawProgress = 1 }
     }
 
     // MARK: - Metric Selector
@@ -139,18 +162,18 @@ struct StatisticsChartsView: View {
                 emptyChartView
             } else {
                 Chart {
-                    ForEach(chartData) { dataPoint in
+                    ForEach(chartData, id: \.stableKey) { dataPoint in
                         if isGameLevelData {
                             LineMark(
                                 x: .value("Game", dataPoint.index),
-                                y: .value(selectedMetric.displayName, dataPoint.value)
+                                y: .value(selectedMetric.displayName, dataPoint.value * drawProgress)
                             )
                             .foregroundStyle(selectedMetric.color)
                             .interpolationMethod(.catmullRom)
 
                             AreaMark(
                                 x: .value("Game", dataPoint.index),
-                                y: .value(selectedMetric.displayName, dataPoint.value)
+                                y: .value(selectedMetric.displayName, dataPoint.value * drawProgress)
                             )
                             .foregroundStyle(
                                 LinearGradient(
@@ -163,21 +186,21 @@ struct StatisticsChartsView: View {
 
                             PointMark(
                                 x: .value("Game", dataPoint.index),
-                                y: .value(selectedMetric.displayName, dataPoint.value)
+                                y: .value(selectedMetric.displayName, dataPoint.value * drawProgress)
                             )
                             .foregroundStyle(selectedMetric.color)
                             .symbolSize(50)
                         } else {
                             LineMark(
                                 x: .value("Time", dataPoint.date),
-                                y: .value(selectedMetric.displayName, dataPoint.value)
+                                y: .value(selectedMetric.displayName, dataPoint.value * drawProgress)
                             )
                             .foregroundStyle(selectedMetric.color)
                             .interpolationMethod(.catmullRom)
 
                             AreaMark(
                                 x: .value("Time", dataPoint.date),
-                                y: .value(selectedMetric.displayName, dataPoint.value)
+                                y: .value(selectedMetric.displayName, dataPoint.value * drawProgress)
                             )
                             .foregroundStyle(
                                 LinearGradient(
@@ -190,7 +213,7 @@ struct StatisticsChartsView: View {
 
                             PointMark(
                                 x: .value("Time", dataPoint.date),
-                                y: .value(selectedMetric.displayName, dataPoint.value)
+                                y: .value(selectedMetric.displayName, dataPoint.value * drawProgress)
                             )
                             .foregroundStyle(selectedMetric.color)
                             .symbolSize(50)
@@ -342,13 +365,13 @@ struct StatisticsChartsView: View {
         return Group {
             if hasData {
                 Chart {
-                    BarMark(x: .value("Type", "1B"), y: .value("Count", hits.singles))
+                    BarMark(x: .value("Type", "1B"), y: .value("Count", Double(hits.singles) * drawProgress))
                         .foregroundStyle(by: .value("Hit Type", "Single"))
-                    BarMark(x: .value("Type", "2B"), y: .value("Count", hits.doubles))
+                    BarMark(x: .value("Type", "2B"), y: .value("Count", Double(hits.doubles) * drawProgress))
                         .foregroundStyle(by: .value("Hit Type", "Double"))
-                    BarMark(x: .value("Type", "3B"), y: .value("Count", hits.triples))
+                    BarMark(x: .value("Type", "3B"), y: .value("Count", Double(hits.triples) * drawProgress))
                         .foregroundStyle(by: .value("Hit Type", "Triple"))
-                    BarMark(x: .value("Type", "HR"), y: .value("Count", hits.homeRuns))
+                    BarMark(x: .value("Type", "HR"), y: .value("Count", Double(hits.homeRuns) * drawProgress))
                         .foregroundStyle(by: .value("Hit Type", "Home Run"))
                 }
                 .chartForegroundStyleScale([
@@ -741,6 +764,11 @@ struct ChartDataPoint: Identifiable {
     let value: Double
     let label: String
     let index: Int
+
+    /// Stable identity across body rebuilds — unlike `id`, which mints a fresh
+    /// UUID each init. The chart's ForEach keys on this so the draw-in animation
+    /// interpolates each mark's y (grow/rise) instead of insert-new/remove-old.
+    var stableKey: String { "\(index)-\(date.timeIntervalSince1970)" }
 
     init(date: Date, value: Double, label: String, index: Int = 0) {
         self.id = UUID()

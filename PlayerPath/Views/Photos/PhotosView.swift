@@ -62,6 +62,9 @@ struct PhotosView: View {
     @State private var selectedIDs: Set<UUID> = []
     @State private var showingBulkDeleteConfirm = false
     @State private var showingBatchTagSheet = false
+    /// Photo tapped to open the full-screen swipeable viewer (over cachedPhotos).
+    @State private var viewerPhoto: Photo?
+    @Namespace private var photoNS
     @AppStorage("photos.layoutMode") private var layoutModeRaw: String = LayoutMode.card.rawValue
     private let photoOptionsTip = PhotoOptionsTip()
     private let layoutModeTip = LayoutModeTip()
@@ -319,10 +322,8 @@ struct PhotosView: View {
         ScrollView {
             VStack(spacing: 16) {
                 if shouldShowHero, let hero = cachedPhotos.first {
-                    NavigationLink {
-                        PhotoDetailView(photo: hero) {
-                            deletePhoto(hero)
-                        }
+                    Button {
+                        viewerPhoto = hero
                     } label: {
                         PhotoHeroCell(
                             photo: hero,
@@ -331,6 +332,7 @@ struct PhotosView: View {
                                 photoOptionsTip.invalidate(reason: .actionPerformed)
                             }
                         )
+                        .photoTransitionSource(hero.id, in: photoNS)
                     }
                     .buttonStyle(.plain)
                     .padding(.horizontal, 10)
@@ -355,10 +357,8 @@ struct PhotosView: View {
                                 }
                                 .buttonStyle(.plain)
                             } else {
-                                NavigationLink {
-                                    PhotoDetailView(photo: photo) {
-                                        deletePhoto(photo)
-                                    }
+                                Button {
+                                    viewerPhoto = photo
                                 } label: {
                                     PhotoThumbnailCell(
                                         photo: photo,
@@ -368,6 +368,7 @@ struct PhotosView: View {
                                             photoOptionsTip.invalidate(reason: .actionPerformed)
                                         }
                                     )
+                                    .photoTransitionSource(photo.id, in: photoNS)
                                 }
                                 .buttonStyle(.plain)
                                 .onboardingTip(photoOptionsTip, arrowEdge: .top, also: !shouldShowHero && photo.id == cachedPhotos.first?.id)
@@ -379,6 +380,9 @@ struct PhotosView: View {
             }
         }
         .refreshable { await refreshPhotos() }
+        // Swipe spans the full ordered set (hero is cachedPhotos.first, grid is
+        // the rest), so present the viewer over cachedPhotos for both entry points.
+        .photoViewer($viewerPhoto, in: cachedPhotos, namespace: photoNS, onDelete: deletePhoto)
     }
 
     private var cellStyle: PhotoThumbnailCell.Style {
