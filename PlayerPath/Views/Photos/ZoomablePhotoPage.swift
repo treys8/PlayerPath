@@ -18,12 +18,6 @@ struct ZoomablePhotoPage: View {
     var onZoomChanged: (Bool) -> Void = { _ in }
     /// Single tap (not a zoom double-tap) — container toggles chrome visibility.
     var onSingleTap: () -> Void = { }
-    /// Live vertical swipe-to-dismiss translation while at 1×. Container moves
-    /// the whole viewer + fades the backdrop.
-    var onDismissDrag: (CGSize) -> Void = { _ in }
-    /// Swipe-to-dismiss ended: `true` = past threshold (commit dismiss),
-    /// `false` = cancelled (spring back).
-    var onDismissCommit: (Bool) -> Void = { _ in }
 
     @State private var fullImage: UIImage?
     @State private var loadFailed = false
@@ -37,13 +31,6 @@ struct ZoomablePhotoPage: View {
     /// so the next zoom-in starts centered.
     @State private var offset: CGSize = .zero
     @State private var lastOffset: CGSize = .zero
-    /// True once a downward dismiss drag has engaged. Latching it means a drag
-    /// that curves sideways (or reverses) at release still resolves cleanly
-    /// instead of stranding the viewer offset with the chrome hidden.
-    @State private var isDismissDragging = false
-
-    /// Past this vertical drag distance a release commits the dismiss.
-    private let dismissThreshold: CGFloat = 120
 
     private var isZoomed: Bool { scale > 1.0 }
 
@@ -83,10 +70,14 @@ struct ZoomablePhotoPage: View {
                                     onZoomChanged(isZoomed)
                                 }
                         )
-                        // When zoomed, this gesture takes priority over the pager
-                        // (a subview) so a horizontal drag pans the photo instead
-                        // of flipping pages. At 1× it yields to subviews so the
-                        // TabView pages AND the swipe-to-dismiss below can run.
+                        // When zoomed, this drag pans the photo instead of flipping
+                        // pages. The `including:` mask must fully disable it at 1×:
+                        // ANY drag recognizer attached here — even a .simultaneousGesture
+                        // that ignores the touch — starves the TabView pager of
+                        // horizontal drags (and the zoom transition of its dismiss
+                        // pan), which is exactly the "can't swipe to next photo" bug.
+                        // Swipe-down-to-dismiss is NOT reimplemented here for the
+                        // same reason; the iOS 18 zoom transition provides it.
                         .highPriorityGesture(
                             DragGesture()
                                 .onChanged { value in
@@ -101,31 +92,6 @@ struct ZoomablePhotoPage: View {
                                     lastOffset = offset
                                 },
                             including: isZoomed ? .gesture : .subviews
-                        )
-                        // Swipe-to-dismiss: only at 1×. Engages on a DOWNWARD,
-                        // vertical-dominant drag (so horizontal swipes still page
-                        // and zoomed drags still pan); once engaged it latches, so
-                        // a release in any direction resolves via onEnded rather
-                        // than leaving the viewer stuck offset.
-                        .simultaneousGesture(
-                            DragGesture(minimumDistance: 10)
-                                .onChanged { value in
-                                    guard !isZoomed else { return }
-                                    if !isDismissDragging {
-                                        guard value.translation.height > 0,
-                                              value.translation.height > abs(value.translation.width)
-                                        else { return }
-                                        isDismissDragging = true
-                                    }
-                                    onDismissDrag(value.translation)
-                                }
-                                .onEnded { value in
-                                    guard isDismissDragging else { return }
-                                    isDismissDragging = false
-                                    let committed = value.translation.height > dismissThreshold
-                                        || value.predictedEndTranslation.height > dismissThreshold * 2.5
-                                    onDismissCommit(committed)
-                                }
                         )
                         .onTapGesture(count: 2) {
                             withAnimation(.spring(response: 0.3)) {

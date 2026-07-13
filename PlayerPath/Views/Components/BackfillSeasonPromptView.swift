@@ -14,6 +14,7 @@
 //
 
 import SwiftUI
+import SwiftData
 
 struct BackfillSeasonPromptView: View {
     let athlete: Athlete

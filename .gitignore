@@ -2,3 +2,8 @@
 .claude/worktrees/
 .claude/projects/
 .superpowers/
+
+# Xcode build output
+build/
+DerivedData/
+*.xcuserstate

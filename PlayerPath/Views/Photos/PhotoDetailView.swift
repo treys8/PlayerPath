@@ -13,6 +13,11 @@
 //  NavigationLink push (e.g. from a LazyVGrid inside a List) is unreliable here:
 //  it can double-push and strand the user with no working way out.
 //
+//  Dismissal is the ✕ button plus, on iOS 18+, the zoom transition's built-in
+//  swipe-down. Do NOT add a custom swipe-to-dismiss DragGesture to the pages:
+//  any drag recognizer attached to page content starves the TabView pager of
+//  horizontal drags, killing photo-to-photo swiping (verified on iOS 26).
+//
 
 import SwiftUI
 import SwiftData
@@ -35,9 +40,6 @@ struct PhotoDetailView: View {
     /// Whether the currently visible page is zoomed in — drives hiding the
     /// metadata overlay. Only the on-screen page emits zoom changes.
     @State private var isCurrentPageZoomed = false
-    /// Live swipe-to-dismiss translation (`.zero` when idle). The pager follows
-    /// the drag, the backdrop fades, and chrome hides while it's in flight.
-    @State private var dragTranslation: CGSize = .zero
     /// Immersive mode — a single tap hides the toolbar + metadata + status bar.
     @State private var chromeHidden = false
 
@@ -64,21 +66,13 @@ struct PhotoDetailView: View {
         photos.firstIndex { $0.id == selectionID }
     }
 
-    /// 0 → 1 as the dismiss drag grows; fades the backdrop and shrinks the pager.
-    private var dismissProgress: CGFloat {
-        min(1, abs(dragTranslation.height) / 240)
-    }
-
-    /// Chrome shows only in normal mode with no dismiss drag in flight.
     private var showChrome: Bool {
-        !chromeHidden && dragTranslation == .zero
+        !chromeHidden
     }
 
     var body: some View {
         ZStack {
-            // Backdrop fades out as the dismiss drag progresses so the content
-            // behind the cover shows through.
-            Color.black.opacity(1 - dismissProgress).ignoresSafeArea()
+            Color.black.ignoresSafeArea()
 
             TabView(selection: $selectionID) {
                 ForEach(photos) { photo in
@@ -90,17 +84,6 @@ struct PhotoDetailView: View {
                         },
                         onSingleTap: {
                             withAnimation(.easeInOut(duration: 0.2)) { chromeHidden.toggle() }
-                        },
-                        onDismissDrag: { translation in
-                            // Follow the finger 1:1 (no animation).
-                            dragTranslation = translation
-                        },
-                        onDismissCommit: { committed in
-                            if committed {
-                                dismiss()
-                            } else {
-                                withAnimation(.spring(response: 0.3)) { dragTranslation = .zero }
-                            }
                         }
                     )
                     .tag(photo.id)
@@ -108,8 +91,6 @@ struct PhotoDetailView: View {
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
             .ignoresSafeArea()
-            .scaleEffect(1 - dismissProgress * 0.1)
-            .offset(y: dragTranslation.height)
         }
         .statusBarHidden(chromeHidden)
         .overlay(alignment: .bottom) {
@@ -119,11 +100,9 @@ struct PhotoDetailView: View {
             }
         }
         .onChange(of: selectionID) {
-            // New page starts fresh: un-zoomed, chrome shown, no residual
-            // dismiss offset (a cancelled drag mustn't carry over to the next page).
+            // New page starts fresh: un-zoomed, chrome shown.
             isCurrentPageZoomed = false
             chromeHidden = false
-            dragTranslation = .zero
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
