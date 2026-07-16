@@ -265,6 +265,18 @@ extension SyncCoordinator {
                     continue
                 }
 
+                // Snapshot the fields that feed derived statistics BEFORE merging, so
+                // we can tell whether this update actually shifts stats (play result,
+                // game membership, pitch data, practice link). A modified clip that
+                // changes any of these must trigger the same recalc that NEW clips do —
+                // otherwise a modified-only sync (guarded out at `newRemoteVideos`
+                // below) leaves game/athlete stats diverging across devices.
+                let preGameID = localClip.game?.id
+                let prePracticeID = localClip.practice?.persistentModelID
+                let prePlayResultType = localClip.playResult?.type
+                let prePitchSpeed = localClip.pitchSpeed
+                let prePitchType = localClip.pitchType
+
                 localClip.isHighlight = remoteVideo.isHighlight
                 localClip.note = remoteVideo.note
                 // Either/or invariant: a clip is tagged with EITHER a PlayResult
@@ -338,6 +350,21 @@ extension SyncCoordinator {
                 // later third-device write with a slightly older updatedAt look stale
                 // and get skipped. See uploadLocalAthletes.
                 localClip.lastSyncDate = remoteVideo.updatedAt
+
+                // If any stats-relevant field actually changed, enqueue the clip's
+                // old AND new game plus its athlete for recalc (mirrors the re-home
+                // logic above). recalculate*Statistics is idempotent + save-gated, so
+                // a conservative enqueue only costs a recompute, never a spurious write.
+                let statsChanged = localClip.game?.id != preGameID
+                    || localClip.practice?.persistentModelID != prePracticeID
+                    || localClip.playResult?.type != prePlayResultType
+                    || localClip.pitchSpeed != prePitchSpeed
+                    || localClip.pitchType != prePitchType
+                if statsChanged {
+                    if let preGameID { gamesWithNewClips.insert(preGameID) }
+                    if let newGameID = localClip.game?.id { gamesWithNewClips.insert(newGameID) }
+                    athletesWithNewClips.append(athlete)
+                }
             }
 
             // Find videos that exist remotely but not locally — skip deleted ones

@@ -95,6 +95,17 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.email;
     }
 
+    // Returns the requester's verified auth-token email, lowercased, or '' if the
+    // token carries no email. Used to BIND users/{uid}.email to the auth token at
+    // write time so a client cannot set their profile email to another user's
+    // address. Without this, getUserEmail() (a client-mutable profile field) could
+    // be spoofed to read/decline someone else's invitations — a PII leak.
+    function authEmailLower() {
+      // .get() so a token WITHOUT an email claim (some providers) returns '' rather
+      // than erroring on a missing key; ''.lower() is ''.
+      return request.auth.token.get('email', '').lower();
+    }
+
     function isInvitationNotExpired(expiresAt) {
       return request.time < expiresAt;
     }
@@ -172,7 +183,14 @@ service cloud.firestore {
                     && !('athleteTierSource' in request.resource.data)
                     && !('coachAthleteLimit' in request.resource.data)
                     && !('downgradeUnresolved' in request.resource.data)
-                    && !('coachDowngradeGraceStartedAt' in request.resource.data);
+                    && !('coachDowngradeGraceStartedAt' in request.resource.data)
+                    // Bind the profile email to the verified auth token so it can't be
+                    // created pointing at another user's address. Tolerate a token with
+                    // no email claim (rare auth edge) — such a user can't pass the
+                    // email_verified gate on invitation reads anyway, so the spoof stays
+                    // closed there.
+                    && (request.auth.token.get('email', '') == ''
+                        || request.resource.data.get('email', '') == authEmailLower());
 
       // Users can update their own profile, but cannot change their role,
       // subscription tiers, tier source, coach athlete count, or the coach
@@ -194,7 +212,12 @@ service cloud.firestore {
                         || request.resource.data.coachAthleteLimit == resource.data.coachAthleteLimit)
                     && !request.resource.data.diff(resource.data).affectedKeys()
                         .hasAny(['athleteTierSource', 'coachAthleteLimit',
-                                 'downgradeUnresolved', 'coachDowngradeGraceStartedAt']);
+                                 'downgradeUnresolved', 'coachDowngradeGraceStartedAt'])
+                    // If this update CHANGES the email, it must match the verified auth
+                    // token (lowercased). Unchanged-email writes pass untouched so
+                    // partial updates and legacy mixed-case profiles keep working.
+                    && (request.resource.data.get('email', '') == resource.data.get('email', '')
+                        || request.resource.data.get('email', '') == authEmailLower());
 
       // Profiles are deleted via Firebase Auth / Cloud Functions, not directly
       allow delete: if false;
@@ -676,13 +699,22 @@ service cloud.firestore {
                         && request.resource.data.senderID == ''
                         && request.resource.data.targetType == 'folder')
                       ||
-                      // Tier-change notifications (still client-authored).
-                      // Sender must be the auth user and the target folder exists.
-                      (request.resource.data.type in ['access_revoked', 'access_lapsed']
+                      // Coach downgrade → "Coach Access Ended" notification to the
+                      // affected athlete (postCoachAccessLostNotification). Proven
+                      // legitimate by the deterministic revocation doc the same
+                      // downgrade batch wrote (<folderID>_<coachID>) — its athleteID
+                      // also pins the recipient to the folder's owning athlete, so a
+                      // client can't write this notification into an arbitrary feed.
+                      // access_lapsed is intentionally NOT client-writable (no live
+                      // writer; a future lapse→coach path must go through a CF).
+                      (request.resource.data.type == 'access_revoked'
                         && request.resource.data.senderID == request.auth.uid
                         && request.resource.data.targetType == 'folder'
                         && 'targetID' in request.resource.data
-                        && exists(/databases/$(database)/documents/sharedFolders/$(request.resource.data.targetID)))
+                        && request.resource.data.targetID is string
+                        && request.resource.data.targetID != ''
+                        && exists(/databases/$(database)/documents/coach_access_revocations/$(request.resource.data.targetID + '_' + request.auth.uid))
+                        && get(/databases/$(database)/documents/coach_access_revocations/$(request.resource.data.targetID + '_' + request.auth.uid)).data.athleteID == userID)
                     );
 
       // Only the recipient can update, and only to mark as read.
@@ -716,9 +748,14 @@ service cloud.firestore {
                         && isFolderOwner(request.resource.data.folderID))
                       ||
                       // Coach self-removing during downgrade: must currently be in folder
-                      // (batch write evaluates rules against pre-commit state)
+                      // (batch write evaluates rules against pre-commit state). athleteID
+                      // must be the folder's actual owner — otherwise a coach could stamp
+                      // an arbitrary victim UID here and later use this doc to post a
+                      // spoofed "Coach Access Ended" notification into that victim's feed.
                       (request.resource.data.coachID == request.auth.uid
-                        && canAccessFolder(request.resource.data.folderID))
+                        && canAccessFolder(request.resource.data.folderID)
+                        && request.resource.data.athleteID
+                           == get(/databases/$(database)/documents/sharedFolders/$(request.resource.data.folderID)).data.ownerAthleteID)
                     );
 
       // Original parties may refresh their own revocation (idempotent re-revoke
