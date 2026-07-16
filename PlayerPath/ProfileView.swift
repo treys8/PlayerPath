@@ -215,6 +215,20 @@ struct ProfileView: View {
                     }
                 )
             ))
+
+            items.append(SearchResult(
+                title: "Recruiting Profile",
+                icon: "graduationcap.fill",
+                keywords: ["recruiting", "profile", "college", "coach", "bio", "highlight", "commit", "scout"],
+                link: AnyView(
+                    NavigationLink {
+                        RecruitingProfileEditorView(athlete: selectedAthlete)
+                            .proRequired()
+                    } label: {
+                        Label("Recruiting Profile", systemImage: "graduationcap.fill")
+                    }
+                )
+            ))
         }
 
         // Settings Section
@@ -530,6 +544,20 @@ struct ProfileView: View {
                 Label("Manage Seasons", systemImage: "calendar")
                     .foregroundColor(.secondary)
                     .accessibilityLabel("Manage Seasons — select an athlete first")
+            }
+
+            if let selectedAthlete = selectedAthlete {
+                NavigationLink {
+                    RecruitingProfileEditorView(athlete: selectedAthlete)
+                        .proRequired()
+                } label: {
+                    Label("Recruiting Profile", systemImage: "graduationcap.fill")
+                }
+                .accessibilityHint("Edit \(selectedAthlete.name)'s recruiting profile")
+            } else {
+                Label("Recruiting Profile", systemImage: "graduationcap.fill")
+                    .foregroundColor(.secondary)
+                    .accessibilityLabel("Recruiting Profile — select an athlete first")
             }
 
             ForEach(sortedAthletes) { athlete in

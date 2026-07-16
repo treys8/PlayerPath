@@ -429,6 +429,10 @@ struct FirestoreAthlete: Codable, Identifiable {
     let personGroupID: String?
     /// Athlete headshot pointer (SchemaV33): the chosen Photo's SwiftData UUID.
     let headshotPhotoId: String?
+    /// JSON-encoded RecruitingInfo bio blob (SchemaV35). Optional — nil for docs
+    /// written before the recruiting profile shipped; synthesized decode handles
+    /// the absent key via decodeIfPresent, so legacy docs decode cleanly.
+    let recruitingProfileJSON: String?
     let createdAt: Date?
     let updatedAt: Date?
     let version: Int
@@ -443,6 +447,7 @@ struct FirestoreAthlete: Codable, Identifiable {
         case trackStatsEnabled
         case personGroupID
         case headshotPhotoId
+        case recruitingProfileJSON
         case createdAt
         case updatedAt
         case version

@@ -50,6 +50,66 @@ extension VideoCloudManager {
         }
     }
 
+    /// Uploads a recruiting-profile headshot to Firebase Storage and returns its
+    /// download URL string. Keyed by `athleteId` so replacing a headshot
+    /// overwrites in place — no orphan accumulation across re-uploads. The
+    /// returned URL goes into `RecruitingInfo.headshotCloudURL` and renders on
+    /// the athlete's other devices once the bio blob syncs. Image bytes only —
+    /// the caller downscales to a small JPEG before passing `imageData`.
+    func uploadRecruitingHeadshot(imageData: Data, athleteId: UUID, ownerUID: String) async throws -> String {
+        let storage = Storage.storage()
+        let ref = storage.reference().child("recruiting_headshots/\(ownerUID)/\(athleteId.uuidString).jpg")
+        let metadata = StorageMetadata()
+        metadata.contentType = "image/jpeg"
+
+        return try await withCheckedThrowingContinuation { continuation in
+            let hasResumed = OSAllocatedUnfairLock(initialState: false)
+            ref.putData(imageData, metadata: metadata) { _, error in
+                if let error = error {
+                    let alreadyResumed = hasResumed.withLock { val -> Bool in
+                        if val { return true }; val = true; return false
+                    }
+                    if !alreadyResumed { continuation.resume(throwing: error) }
+                    return
+                }
+                ref.downloadURL { url, error in
+                    let alreadyResumed = hasResumed.withLock { val -> Bool in
+                        if val { return true }; val = true; return false
+                    }
+                    guard !alreadyResumed else { return }
+                    if let error = error {
+                        continuation.resume(throwing: error)
+                    } else if let url = url {
+                        continuation.resume(returning: url.absoluteString)
+                    } else {
+                        continuation.resume(throwing: VideoCloudError.invalidURL)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Deletes a recruiting headshot from Firebase Storage. Idempotent —
+    /// `objectNotFound` is treated as success so cleanup on replace/athlete-delete
+    /// never throws when the object is already gone.
+    func deleteRecruitingHeadshot(athleteId: UUID, ownerUID: String) async throws {
+        let ref = Storage.storage().reference().child("recruiting_headshots/\(ownerUID)/\(athleteId.uuidString).jpg")
+        return try await withCheckedThrowingContinuation { continuation in
+            ref.delete { error in
+                if let error = error {
+                    let nsError = error as NSError
+                    if nsError.domain == "FIRStorageErrorDomain" && nsError.code == StorageErrorCode.objectNotFound.rawValue {
+                        continuation.resume()
+                    } else {
+                        continuation.resume(throwing: error)
+                    }
+                } else {
+                    continuation.resume()
+                }
+            }
+        }
+    }
+
     /// Deletes an athlete's photo from Firebase Storage.
     func deleteAthletePhoto(fileName: String) async throws {
         guard let ownerUID = Auth.auth().currentUser?.uid else {
