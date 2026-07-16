@@ -66,6 +66,16 @@ nonisolated struct RecruitingInfo: Codable, Equatable {
     var contactPhone: String?
     var includeContactPhone: Bool = false
 
+    // MARK: - Publish consent (Phase 2)
+
+    /// When the account owner confirmed they're the athlete's parent/guardian (or
+    /// are 13+) before the FIRST publish. Publishing makes a minor's photo — and
+    /// any opted-in contact info — world-readable, and the app has no age gate, so
+    /// this is the one place that confirmation is taken. Nil = never published.
+    /// Lives in the blob (not a new `Athlete` column) so it syncs across the
+    /// owner's devices with no new sync sites.
+    var publishConsentAt: Date?
+
     init() {}
 
     enum CodingKeys: String, CodingKey {
@@ -74,6 +84,7 @@ nonisolated struct RecruitingInfo: Codable, Equatable {
         case primaryPosition, secondaryPosition, bats, throwsHand, showMeasurables
         case sixtyYardDash, exitVelo, throwingVelo, pitchVelo
         case gpa, includeGPA, contactEmail, includeContactEmail, contactPhone, includeContactPhone
+        case publishConsentAt
     }
 
     // Custom decoder: every key via `decodeIfPresent` so a blob written by an
@@ -106,12 +117,81 @@ nonisolated struct RecruitingInfo: Codable, Equatable {
         includeContactEmail = try c.decodeIfPresent(Bool.self, forKey: .includeContactEmail) ?? false
         contactPhone = try c.decodeIfPresent(String.self, forKey: .contactPhone)
         includeContactPhone = try c.decodeIfPresent(Bool.self, forKey: .includeContactPhone) ?? false
+        publishConsentAt = try c.decodeIfPresent(Date.self, forKey: .publishConsentAt)
     }
 }
 
-// MARK: - Display helpers (shared by editor + preview)
+// MARK: - Display helpers (shared by editor, preview, and publish snapshot)
+//
+// These build every string the profile renders. The in-app preview
+// (RecruitingProfileView) and the published web page (via
+// RecruitingProfileService) both read them, so a coach's page can never word
+// something differently from what the athlete previewed.
 
 extension RecruitingInfo {
+    /// "Class of 2027 · SS" — position is baseball/softball only.
+    func subline(isGolf: Bool) -> String? {
+        var parts: [String] = []
+        if let gradYear { parts.append("Class of \(gradYear)") }
+        if !isGolf, let primaryPosition, !primaryPosition.isEmpty { parts.append(primaryPosition) }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// "6'1\" · 180 lbs · B/T R/R · Austin, TX"
+    func physicalLine(isGolf: Bool) -> String? {
+        var parts: [String] = []
+        if let heightFormatted { parts.append(heightFormatted) }
+        if let weightLbs { parts.append("\(weightLbs) lbs") }
+        if !isGolf, let bats, let throwsHand, !bats.isEmpty, !throwsHand.isEmpty {
+            parts.append("B/T \(bats)/\(throwsHand)")
+        }
+        if let locationLine { parts.append(locationLine) }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// "Austin High · Texas Thunder 16U"
+    var schoolLine: String? {
+        let parts = [highSchool, clubTeam].compactMap { $0 }.filter { !$0.isEmpty }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// Self-entered measurables, in display order. Empty unless `showMeasurables`
+    /// is on — the opt-in is enforced here so no caller can leak the row.
+    var measurableItems: [RecruitingStatItem] {
+        guard showMeasurables else { return [] }
+        var items: [RecruitingStatItem] = []
+        if let sixtyYardDash {
+            items.append(.init(kind: .sixty, label: "60 Yard", value: String(format: "%.2f", sixtyYardDash) + "s"))
+        }
+        if let exitVelo {
+            items.append(.init(kind: .exitVelo, label: "Exit Velo", value: "\(Int(exitVelo.rounded())) mph"))
+        }
+        if let throwingVelo {
+            items.append(.init(kind: .throwVelo, label: "Throw Velo", value: "\(Int(throwingVelo.rounded())) mph"))
+        }
+        if let pitchVelo {
+            items.append(.init(kind: .pitchVelo, label: "Pitch Velo", value: "\(Int(pitchVelo.rounded())) mph"))
+        }
+        return items
+    }
+
+    /// Contact/academic rows the athlete opted into publishing. A value that was
+    /// entered but left private must never appear here — presence alone is not
+    /// consent, which is why each field carries an explicit `include*` flag.
+    var visibleContactItems: [RecruitingStatItem] {
+        var items: [RecruitingStatItem] = []
+        if includeGPA, let gpa {
+            items.append(.init(kind: .gpa, label: "GPA", value: String(format: "%.2f", gpa)))
+        }
+        if includeContactEmail, let contactEmail, !contactEmail.isEmpty {
+            items.append(.init(kind: .email, label: "Email", value: contactEmail))
+        }
+        if includeContactPhone, let contactPhone, !contactPhone.isEmpty {
+            items.append(.init(kind: .phone, label: "Phone", value: contactPhone))
+        }
+        return items
+    }
+
     /// "Austin, TX" — nil when neither city nor state is set.
     var locationLine: String? {
         let parts = [city, state].compactMap { value -> String? in

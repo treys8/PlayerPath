@@ -579,6 +579,26 @@ extension FirestoreManager {
             stepErrors.append("pending deletions: \(error.localizedDescription)")
         }
 
+        // MARK: Step 11b — Delete published recruiting profiles
+        // These back PUBLIC web pages, so they must go before we lose the ability
+        // to authenticate. Hard delete, not soft: an isDeleted flag wouldn't stop
+        // serveRecruitingProfile from rendering the page. The
+        // cleanupUserDataOnDelete CF re-runs this sweep with the Admin SDK as a
+        // backstop for the case where the client dies mid-deletion.
+        do {
+            let profilesQuery = db.collection(FC.recruitingProfiles)
+                .whereField("userId", isEqualTo: userID)
+            while true {
+                let snap = try await profilesQuery.order(by: "__name__").limit(to: 400).getDocuments()
+                guard !snap.documents.isEmpty else { break }
+                let batch = db.batch()
+                snap.documents.forEach { batch.deleteDocument($0.reference) }
+                try await batch.commit()
+            }
+        } catch {
+            stepErrors.append("recruiting profiles: \(error.localizedDescription)")
+        }
+
         // MARK: Step 12 — Delete Firebase Storage files (best-effort)
         do {
             try await VideoCloudManager.shared.deleteAllUserVideos(userID: userID)

@@ -1,0 +1,11 @@
+# Node modules
+node_modules/
+
+# Emulator artifacts
+.firebase/
+firebase-debug.log*
+firestore-debug.log*
+ui-debug.log*
+
+# OS
+.DS_Store

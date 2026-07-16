@@ -22,6 +22,7 @@ struct RecruitingProfileEditorView: View {
     @State private var headshotItem: PhotosPickerItem?
     @State private var isUploadingHeadshot = false
     @State private var headshotError: String?
+    @State private var showingPublish = false
 
     init(athlete: Athlete) {
         self.athlete = athlete
@@ -55,6 +56,15 @@ struct RecruitingProfileEditorView: View {
                 } label: {
                     Label("Preview Profile", systemImage: "eye")
                 }
+                // Persist before pushing rather than relying on this view's
+                // .onDisappear firing first — the publish snapshot reads the
+                // saved blob, so an unsaved edit would publish stale bio text.
+                Button {
+                    persistIfChanged()
+                    showingPublish = true
+                } label: {
+                    Label("Share Profile", systemImage: "square.and.arrow.up")
+                }
             } footer: {
                 Text("This is what a college coach will see. Your changes save automatically.")
             }
@@ -63,6 +73,9 @@ struct RecruitingProfileEditorView: View {
         .navigationTitle("Recruiting Profile")
         .navigationBarTitleDisplayMode(.inline)
         .ppAccent(for: athlete.sport)
+        .navigationDestination(isPresented: $showingPublish) {
+            RecruitingPublishView(athlete: athlete)
+        }
         .onChange(of: headshotItem) { _, newItem in
             guard let newItem else { return }
             Task { await uploadHeadshot(newItem) }
@@ -214,6 +227,14 @@ struct RecruitingProfileEditorView: View {
     /// Single exit path: persist + sync only when the bio actually changed.
     /// `version` is bumped later in uploadLocalAthletes, not here.
     private func persistIfChanged() {
+        // `working` was snapshotted in init, so it can't know about fields written
+        // by screens pushed from here. RecruitingPublishView stamps
+        // publishConsentAt on first publish; without carrying it forward, this
+        // autosave would erase it on the way out and re-show the guardian gate to
+        // someone who already consented.
+        var working = self.working
+        working.publishConsentAt = athlete.recruiting.publishConsentAt ?? working.publishConsentAt
+
         guard working != athlete.recruiting else { return }
         let isFirstSave = !athlete.hasRecruitingProfile
         athlete.recruiting = working   // sets needsSync = true

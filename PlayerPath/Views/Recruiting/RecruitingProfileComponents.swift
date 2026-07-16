@@ -10,6 +10,26 @@
 import SwiftUI
 import UIKit
 
+// MARK: - Stat chip color
+
+extension RecruitingStatItem.Kind {
+    /// Chip color for a stat item. Lives here (not on the model) so
+    /// `RecruitingStatItem` stays SwiftUI-free, and is defined once so the golf
+    /// band and the measurables grid can't tint the same kind differently.
+    /// Deliberately exhaustive — a new kind must choose a color, not inherit one.
+    var chipColor: Color {
+        switch self {
+        case .handicap: return Theme.golfAccent
+        case .roundAvg, .fairways, .putts: return .brandNavy
+        case .best, .gir: return .green
+        case .rounds: return .secondary
+        case .scrambling: return .mint
+        case .sixty, .exitVelo, .throwVelo, .pitchVelo: return .brandNavy
+        case .gpa, .email, .phone: return .secondary
+        }
+    }
+}
+
 // MARK: - Headshot image
 
 /// Circular headshot loaded from a Firebase Storage download URL (tokenized, so

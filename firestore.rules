@@ -19,12 +19,37 @@ service cloud.firestore {
     }
 
     // Checks if the requesting user has a Pro (or higher) athlete subscription tier.
-    // Pricing Model V2: coach sharing is no longer Pro-gated, so this currently has
-    // no callers — kept for future athlete-tier-gated rules.
+    // Pricing Model V2: coach sharing is no longer Pro-gated. Sole caller is the
+    // recruitingProfiles rule, where publishing (but never unpublishing) needs Pro.
     // Uses list check so future tiers above Pro are automatically included.
     function hasProTier() {
       let user = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
       return user != null && user.subscriptionTier in ["pro"];
+    }
+
+    // True when the caller holds the atomic claim on this share token for this
+    // athlete (see the recruitingTokens rule). This is what stops one account
+    // publishing a profile under another athlete's live share link.
+    // exists() first: get() on a missing doc returns null, and reading .data off
+    // null errors out. An errored rule denies, so the outcome would be right by
+    // accident — but only the explicit check says so on purpose.
+    function ownsShareToken(shareToken, athleteID) {
+      return exists(/databases/$(database)/documents/recruitingTokens/$(shareToken))
+             && get(/databases/$(database)/documents/recruitingTokens/$(shareToken)).data.userId == request.auth.uid
+             && get(/databases/$(database)/documents/recruitingTokens/$(shareToken)).data.athleteId == athleteID;
+    }
+
+    // A recruiting profile may only carry a headshot from the caller's own
+    // Storage namespace. serveRecruitingProfile signs this path with the Admin
+    // SDK, which bypasses storage.rules, so an unconstrained value would return a
+    // signed URL to someone else's private object. The trailing segment forbids
+    // '/' and a leading '.', so `<uid>/../../athlete_videos/<victim>/x` can't
+    // match. (The CF's ownedPath() rejects '..' too — this is defence in depth,
+    // and it's the only path a rule can check: rules can't iterate highlights[].)
+    function isOwnHeadshotPath() {
+      return !('headshotPath' in request.resource.data)
+             || request.resource.data.headshotPath.matches(
+                  'recruiting_headshots/' + request.auth.uid + '/[^/.][^/]*');
     }
 
     // Checks if the requesting user is a coach with a valid subscription tier.
@@ -1001,6 +1026,91 @@ service cloud.firestore {
       allow read, delete: if isAuthenticated()
                           && resource.data.ownerUID == request.auth.uid;
       allow update: if false;
+    }
+
+    // ========================================================================
+    // RECRUITING SHARE TOKENS
+    // ========================================================================
+
+    // One doc per share token, keyed BY the token — this is what makes a token
+    // unique, and Firestore's create semantics are the atomic claim.
+    //
+    // Without it, `recruitingProfiles.shareToken` would be an unconstrained
+    // client-written string: any Pro account could publish a profile carrying a
+    // token it had merely received in an email, and serveRecruitingProfile's
+    // `where('shareToken','==',t).limit(1)` would then arbitrarily serve the
+    // impostor's page at the victim's URL.
+    //
+    // Never updatable or deletable, even by the owner: releasing a token while a
+    // published profile still points at it would let an attacker re-claim and
+    // hijack that live link. cleanupUserDataOnDelete sweeps them with the Admin
+    // SDK on account deletion.
+    match /recruitingTokens/{shareToken} {
+      allow create: if isAuthenticated()
+                    && request.resource.data.keys().hasAll(['userId', 'athleteId'])
+                    && request.resource.data.userId == request.auth.uid;
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // ========================================================================
+    // RECRUITING PROFILES
+    // ========================================================================
+
+    // An athlete's published recruiting profile — the snapshot behind the public
+    // web page at profiles.playerpath.net/p/{shareToken}. Doc ID is the athlete's
+    // canonical UUID, so publish is an idempotent upsert.
+    //
+    // NOTE: there is deliberately NO public read rule. College coaches never touch
+    // Firestore — the serveRecruitingProfile Cloud Function reads with the Admin
+    // SDK (bypassing rules) and renders HTML. Adding a public read here would
+    // expose every field, including the PII the publish path is careful to omit.
+    match /recruitingProfiles/{athleteID} {
+      allow read, delete: if isAuthenticated()
+                          && resource.data.userId == request.auth.uid;
+
+      // Publishing is the athlete-Pro hook, so creation requires Pro.
+      //
+      // headshotPath is constrained to the caller's own Storage namespace: the
+      // serveRecruitingProfile CF signs these paths with the Admin SDK, which
+      // bypasses storage.rules, so an unconstrained path would let a user publish
+      // someone else's private object and read back a signed URL for it. Firebase
+      // UIDs are alphanumeric, so the uid is safe to interpolate; matches() is a
+      // full-string match. The paths inside highlights[] can't be checked here
+      // (rules can't iterate a list) — the CF re-derives those against
+      // resource.data.userId, and this rule is defence in depth for the one path
+      // that *can* be checked.
+      allow create: if isAuthenticated()
+                    && request.resource.data.keys().hasAll(
+                         ['userId', 'athleteId', 'shareToken', 'isPublished', 'sport', 'name'])
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.athleteId == athleteID
+                    && hasProTier()
+                    && ownsShareToken(request.resource.data.shareToken, athleteID)
+                    && request.resource.data.highlights is list
+                    && request.resource.data.highlights.size() <= 8
+                    && isOwnHeadshotPath();
+
+      // userId and shareToken are frozen: reparenting a doc would hand a profile to
+      // another account, and rotating the token would break every coach's bookmark.
+      //
+      // The tier check is on the RESULT, not the action: a user whose Pro lapsed must
+      // always be able to UNPUBLISH (isPublished == false) — the kill switch can never
+      // be paywalled — but may not publish or re-publish without Pro. The client UI
+      // mirrors this: RecruitingPublishView gates only publish, never unpublish.
+      //
+      // These rules gate WRITES only; they cannot expire an at-rest doc, so a
+      // cancelled subscription would otherwise leave isPublished:true live forever.
+      // serveRecruitingProfile re-checks the owner's tier on every render and is
+      // what actually takes a lapsed account's page down.
+      allow update: if isAuthenticated()
+                    && resource.data.userId == request.auth.uid
+                    && request.resource.data.userId == resource.data.userId
+                    && request.resource.data.shareToken == resource.data.shareToken
+                    && request.resource.data.highlights is list
+                    && request.resource.data.highlights.size() <= 8
+                    && isOwnHeadshotPath()
+                    && (request.resource.data.isPublished == false || hasProTier());
     }
 
     // ========================================================================

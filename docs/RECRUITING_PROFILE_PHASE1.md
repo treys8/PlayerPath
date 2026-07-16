@@ -87,6 +87,12 @@ Accepted as-is (not bugs):
 2. On-device migration test (above).
 3. Smoke test (above).
 
+> **Phase 2 shipped** — see `docs/RECRUITING_PROFILE_PHASE2.md`. The section below
+> is the pre-build decision record; where it disagrees with the Phase 2 doc, the
+> Phase 2 doc wins. One decision changed in the build: PII filtering ended up
+> client-side (publish is client-direct), not server-side as line 75 asks —
+> rationale in the Phase 2 doc's "Known deviations".
+
 ## Out of scope here — Phase 2 (next branch), decisions pre-made
 Public page: top-level `recruitingProfiles/{profileId}` collection (read iff `isPublished`), a `serveRecruitingProfile` `onRequest` CF rendering server-side HTML with **Open Graph tags**, CF-signed highlight + headshot URLs (reuse `getSignedVideoURL`), view-count via `FieldValue.increment` (rate-limited), publish/share service (snapshot golf stats at publish), share UI (`ShareLink`, ≤8-clip curation). **Hosting (decided):** `profiles.playerpath.net` → Firebase Hosting rewrite to the CF (needs DNS access). **Consent gate (decided):** account-owner/parent consent before first publish + the per-field opt-ins; minor contact gated, server-side filtered.
 

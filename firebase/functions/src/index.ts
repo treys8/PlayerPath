@@ -8,6 +8,12 @@ import * as path from 'path';
 // Initialize Firebase Admin
 admin.initializeApp();
 
+// The public recruiting-profile page lives in its own module (it carries an HTML
+// renderer, which has no business in this file). It must be re-exported AFTER
+// initializeApp() above — it touches admin.* only inside its handler, so the
+// ordering is safe either way, but keep it here rather than at the top.
+export { serveRecruitingProfile } from './recruitingProfile';
+
 // Lazy-initialize Resend so deploy analysis doesn't crash when env var is absent
 let _resend: Resend | null = null;
 function getResend(): Resend {
@@ -1395,6 +1401,21 @@ export const cleanupUserDataOnDelete = functions.auth.user().onDelete(async (use
   // requires request.auth.uid == userID) — the Admin SDK bypasses rules.
   await step('storage recruiting headshots', () =>
     bucket.deleteFiles({ prefix: `recruiting_headshots/${uid}/` })
+  );
+
+  // 14. Published recruiting profiles. These back PUBLIC web pages, so an
+  // orphaned doc doesn't just waste a row — it leaves a deleted user's athlete
+  // live on the internet at a URL that may already be in coaches' inboxes. The
+  // client sweeps these too (deleteUserProfile Step 11b); this is the backstop
+  // for a client that died mid-deletion.
+  await step('recruiting profiles', () =>
+    deleteByQuery(db.collection('recruitingProfiles').where('userId', '==', uid))
+  );
+  // Share-token claims are create-only and undeletable by clients (releasing one
+  // while a profile still pointed at it would let someone hijack a live link), so
+  // the Admin SDK is the only thing that can reclaim them for a deleted account.
+  await step('recruiting tokens', () =>
+    deleteByQuery(db.collection('recruitingTokens').where('userId', '==', uid))
   );
 
   if (errors.length > 0) {

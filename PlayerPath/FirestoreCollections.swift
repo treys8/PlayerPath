@@ -19,6 +19,8 @@ enum FC {
     static let pendingDeletions = "pendingDeletions"
     static let coachAccessRevocations = "coach_access_revocations"
     static let appConfig = "appConfig"
+    static let recruitingProfiles = "recruitingProfiles"
+    static let recruitingTokens = "recruitingTokens"
 
     // Subcollections
     static let athletes = "athletes"

@@ -2,10 +2,14 @@
 //  RecruitingProfileView.swift
 //  PlayerPath
 //
-//  In-app preview of the recruiting profile — mirrors what a college coach will
-//  see on the eventual public web page (Phase 2). Video-first: highlights lead;
-//  golf gets the full derived stat band, baseball/softball get opt-in
-//  measurables. PII shows only when its per-field toggle is on.
+//  In-app preview of the recruiting profile — mirrors what a college coach sees
+//  on the public web page. Video-first: highlights lead; golf gets the full
+//  derived stat band, baseball/softball get opt-in measurables. PII shows only
+//  when its per-field toggle is on.
+//
+//  Every string here comes from RecruitingInfo's display helpers or
+//  RecruitingGolfStats — the same sources RecruitingProfileService serializes at
+//  publish — so this preview and the published page can't disagree.
 //
 //  `info` carries the bio (so the editor can preview unsaved edits); `athlete`
 //  supplies the highlight clips and live golf stats.
@@ -27,11 +31,11 @@ struct RecruitingProfileView: View {
 
                 if isGolf {
                     card { RecruitingGolfStatBand(athlete: athlete) }
-                } else if info.showMeasurables && !measurableChips.isEmpty {
+                } else if !info.measurableItems.isEmpty {
                     card { measurablesBand }
                 }
 
-                if hasVisibleContact {
+                if !info.visibleContactItems.isEmpty {
                     card { contactBand }
                 }
 
@@ -58,18 +62,18 @@ struct RecruitingProfileView: View {
             Text(athlete.name)
                 .font(.displayMedium)
                 .multilineTextAlignment(.center)
-            if let subline {
+            if let subline = info.subline(isGolf: isGolf) {
                 Text(subline)
                     .font(.headingMedium)
                     .foregroundColor(.secondary)
             }
-            if let physicalLine {
+            if let physicalLine = info.physicalLine(isGolf: isGolf) {
                 Text(physicalLine)
                     .font(.bodySmall)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
             }
-            if let schoolLine {
+            if let schoolLine = info.schoolLine {
                 Text(schoolLine)
                     .font(.bodySmall)
                     .foregroundColor(.secondary)
@@ -86,8 +90,8 @@ struct RecruitingProfileView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Measurables").font(.headingMedium)
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                ForEach(Array(measurableChips.enumerated()), id: \.offset) { _, chip in
-                    CompactStatChip(data: chip)
+                ForEach(info.measurableItems, id: \.kind) { item in
+                    CompactStatChip(data: .init(label: item.label, value: item.value, color: .brandNavy))
                 }
             }
             Text("Self-reported by the athlete.")
@@ -99,76 +103,15 @@ struct RecruitingProfileView: View {
     private var contactBand: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Contact & Academics").font(.headingMedium)
-            if info.includeGPA, let gpa = info.gpa {
-                infoRow("GPA", String(format: "%.2f", gpa))
+            ForEach(info.visibleContactItems, id: \.kind) { item in
+                HStack {
+                    Text(item.label).font(.labelMedium).foregroundColor(.secondary)
+                    Spacer()
+                    Text(item.value).font(.bodyMedium).foregroundColor(.primary)
+                        .multilineTextAlignment(.trailing)
+                }
             }
-            if info.includeContactEmail, let email = info.contactEmail, !email.isEmpty {
-                infoRow("Email", email)
-            }
-            if info.includeContactPhone, let phone = info.contactPhone, !phone.isEmpty {
-                infoRow("Phone", phone)
-            }
         }
-    }
-
-    private func infoRow(_ label: String, _ value: String) -> some View {
-        HStack {
-            Text(label).font(.labelMedium).foregroundColor(.secondary)
-            Spacer()
-            Text(value).font(.bodyMedium).foregroundColor(.primary)
-                .multilineTextAlignment(.trailing)
-        }
-    }
-
-    // MARK: - Derived lines
-
-    private var subline: String? {
-        var parts: [String] = []
-        if let g = info.gradYear { parts.append("Class of \(g)") }
-        if !isGolf, let pos = info.primaryPosition, !pos.isEmpty { parts.append(pos) }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ")
-    }
-
-    private var physicalLine: String? {
-        var parts: [String] = []
-        if let h = info.heightFormatted { parts.append(h) }
-        if let w = info.weightLbs { parts.append("\(w) lbs") }
-        if !isGolf, let bats = info.bats, let throwsHand = info.throwsHand,
-           !bats.isEmpty, !throwsHand.isEmpty {
-            parts.append("B/T \(bats)/\(throwsHand)")
-        }
-        if let loc = info.locationLine { parts.append(loc) }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ")
-    }
-
-    private var schoolLine: String? {
-        let parts = [info.highSchool, info.clubTeam]
-            .compactMap { $0 }
-            .filter { !$0.isEmpty }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ")
-    }
-
-    private var measurableChips: [CompactStatData] {
-        var chips: [CompactStatData] = []
-        if let v = info.sixtyYardDash {
-            chips.append(.init(label: "60 Yard", value: String(format: "%.2f", v) + "s", color: .brandNavy))
-        }
-        if let v = info.exitVelo {
-            chips.append(.init(label: "Exit Velo", value: "\(Int(v.rounded())) mph", color: .brandNavy))
-        }
-        if let v = info.throwingVelo {
-            chips.append(.init(label: "Throw Velo", value: "\(Int(v.rounded())) mph", color: .brandNavy))
-        }
-        if let v = info.pitchVelo {
-            chips.append(.init(label: "Pitch Velo", value: "\(Int(v.rounded())) mph", color: .brandNavy))
-        }
-        return chips
-    }
-
-    private var hasVisibleContact: Bool {
-        (info.includeGPA && info.gpa != nil) ||
-        (info.includeContactEmail && !(info.contactEmail ?? "").isEmpty) ||
-        (info.includeContactPhone && !(info.contactPhone ?? "").isEmpty)
     }
 
     // MARK: - Card wrapper

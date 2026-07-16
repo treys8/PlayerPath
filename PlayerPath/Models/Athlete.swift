@@ -183,6 +183,16 @@ final class Athlete {
             }
         }
 
+        // Best-effort: kill the published recruiting profile. This one is urgent
+        // rather than merely tidy — the doc backs a PUBLIC web page, so leaving it
+        // behind means a deleted athlete's photo and film stay live on the
+        // internet at a URL that's already been mailed to college coaches.
+        // Belt-and-braces: performDeleteAthlete retries this, and the
+        // cleanupUserDataOnDelete CF sweeps it on account deletion.
+        Task { @MainActor in
+            try? await RecruitingProfileService.shared.deleteProfileDoc(athleteId: athleteId)
+        }
+
         // Track which clips are owned by a game or practice so we don't double-delete
         var deletedClipIDs = Set<UUID>()
 

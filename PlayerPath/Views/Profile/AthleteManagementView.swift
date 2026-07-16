@@ -75,6 +75,11 @@ func performDeleteAthlete(_ athlete: Athlete, selectedAthlete: Binding<Athlete?>
             }
             await retryAsync { try await FirestoreManager.shared.deleteAthlete(userId: userId, athleteId: athleteFirestoreId) }
         }
+        // Retry the published-profile delete that Athlete.delete(in:) fires
+        // best-effort. Unlike the soft-deletes above this is a hard delete of a
+        // doc that serves a PUBLIC page, so it's worth the retry: a page that
+        // outlives its athlete is a privacy problem, not a stale record.
+        await retryAsync { try await RecruitingProfileService.shared.deleteProfileDoc(athleteId: athleteID) }
     }
 }
 

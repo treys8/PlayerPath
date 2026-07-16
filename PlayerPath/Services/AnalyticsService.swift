@@ -129,6 +129,28 @@ final class AnalyticsService {
         ])
     }
 
+    /// Fired when a profile goes live at its public link. `clipCount` is the
+    /// headline health metric — a published profile with film is the outcome the
+    /// feature exists for; one without is a fill-in that never converted.
+    func trackRecruitingProfilePublished(athleteID: String, sport: String,
+                                         clipCount: Int, isFirstPublish: Bool) {
+        logEvent(.recruitingProfilePublished, parameters: [
+            "athlete_id": athleteID,
+            "sport": sport,
+            "clip_count": clipCount,
+            "is_first_publish": isFirstPublish
+        ])
+    }
+
+    /// Fired when an athlete takes their public page down. Watch this against
+    /// publishes — a high unpublish rate means the page isn't doing its job.
+    func trackRecruitingProfileUnpublished(athleteID: String, sport: String) {
+        logEvent(.recruitingProfileUnpublished, parameters: [
+            "athlete_id": athleteID,
+            "sport": sport
+        ])
+    }
+
     // MARK: - Video Events
 
     func trackVideoRecorded(duration: TimeInterval, quality: String, isQuickRecord: Bool) {
@@ -520,6 +542,8 @@ enum AnalyticsEvent: String {
     // Recruiting profile
     case recruitingProfileCreated = "recruiting_profile_created"
     case recruitingProfileEdited = "recruiting_profile_edited"
+    case recruitingProfilePublished = "recruiting_profile_published"
+    case recruitingProfileUnpublished = "recruiting_profile_unpublished"
 }
 
 // MARK: - Bundle Extensions

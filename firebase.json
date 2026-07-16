@@ -8,5 +8,30 @@
   },
   "functions": {
     "source": "firebase/functions"
+  },
+  "hosting": {
+    "public": "firebase/hosting-public",
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "rewrites": [
+      {
+        "source": "/p/**",
+        "function": "serveRecruitingProfile"
+      }
+    ]
+  },
+  "emulators": {
+    "firestore": {
+      "port": 8080
+    },
+    "hosting": {
+      "port": 5000
+    },
+    "functions": {
+      "port": 5001
+    },
+    "ui": {
+      "enabled": true
+    },
+    "singleProjectMode": true
   }
 }
