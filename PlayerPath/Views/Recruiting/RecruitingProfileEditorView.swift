@@ -175,9 +175,16 @@ struct RecruitingProfileEditorView: View {
         defer { isUploadingHeadshot = false }
 
         do {
-            guard let data = try await item.loadTransferable(type: Data.self),
-                  let image = UIImage(data: data),
-                  let jpeg = image.recruitingHeadshotData() else {
+            guard let data = try await item.loadTransferable(type: Data.self) else {
+                headshotError = "Couldn't read that image. Try another."
+                return
+            }
+            // Decode + downscale + JPEG-encode off the main actor — a full-res
+            // library photo would otherwise freeze the Form for the whole redraw.
+            // Data in / Data out, so no @Model crosses the isolation boundary.
+            guard let jpeg = await Task.detached(priority: .userInitiated, operation: {
+                UIImage(data: data)?.recruitingHeadshotData()
+            }).value else {
                 headshotError = "Couldn't read that image. Try another."
                 return
             }

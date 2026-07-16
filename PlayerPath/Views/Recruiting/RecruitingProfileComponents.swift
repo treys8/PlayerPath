@@ -172,7 +172,9 @@ struct RecruitingNumberField: View {
 extension UIImage {
     /// Downscaled JPEG for a recruiting headshot — caps the longest edge and
     /// re-encodes so the upload (and the eventual public-page egress) stays small.
-    func recruitingHeadshotData(maxDimension: CGFloat = 1024, quality: CGFloat = 0.8) -> Data? {
+    /// `nonisolated` so the editor can run the redraw/encode off the main actor
+    /// (UIImage is Sendable and UIGraphicsImageRenderer is safe off-main).
+    nonisolated func recruitingHeadshotData(maxDimension: CGFloat = 1024, quality: CGFloat = 0.8) -> Data? {
         let longest = max(size.width, size.height)
         let factor = longest > maxDimension ? maxDimension / longest : 1
         let target = CGSize(width: size.width * factor, height: size.height * factor)

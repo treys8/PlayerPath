@@ -590,6 +590,11 @@ extension FirestoreManager {
         } catch {
             stepErrors.append("storage photos: \(error.localizedDescription)")
         }
+        do {
+            try await VideoCloudManager.shared.deleteAllUserRecruitingHeadshots(userID: userID)
+        } catch {
+            stepErrors.append("storage recruiting headshots: \(error.localizedDescription)")
+        }
 
         // MARK: Step 13 — Delete user profile document
         do {

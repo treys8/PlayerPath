@@ -1390,6 +1390,12 @@ export const cleanupUserDataOnDelete = functions.auth.user().onDelete(async (use
   await step('storage photos', () =>
     bucket.deleteFiles({ prefix: `athlete_photos/${uid}/` })
   );
+  // Recruiting headshots live outside the athlete_* namespaces and the client
+  // sweep can no longer delete them once Auth is torn down (storage.rules
+  // requires request.auth.uid == userID) — the Admin SDK bypasses rules.
+  await step('storage recruiting headshots', () =>
+    bucket.deleteFiles({ prefix: `recruiting_headshots/${uid}/` })
+  );
 
   if (errors.length > 0) {
     console.error(`cleanupUserDataOnDelete completed with partial failures for ${uid}: ${errors.join('; ')}`);

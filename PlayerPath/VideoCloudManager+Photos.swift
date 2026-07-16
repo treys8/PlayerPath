@@ -110,6 +110,34 @@ extension VideoCloudManager {
         }
     }
 
+    /// Deletes every recruiting headshot under `recruiting_headshots/{userID}/`.
+    /// Account-deletion sweep: `Athlete.delete(in:)` only reclaims per-athlete,
+    /// and it needs a live Auth session — this catches whatever remains while the
+    /// user is still signed in (the server CF sweep is the authless backstop).
+    func deleteAllUserRecruitingHeadshots(userID: String) async throws {
+        guard ConnectivityMonitor.shared.isConnected else {
+            throw VideoCloudError.networkUnavailable
+        }
+
+        let headshotsRef = Storage.storage().reference().child("recruiting_headshots/\(userID)")
+        do {
+            let result = try await headshotsRef.listAll()
+            for fileRef in result.items {
+                do {
+                    try await fileRef.delete()
+                } catch {
+                    videoCloudLog.warning("Failed to delete storage file: \(error.localizedDescription)")
+                }
+            }
+        } catch {
+            let nsError = error as NSError
+            if nsError.domain == "FIRStorageErrorDomain" && nsError.code == StorageErrorCode.objectNotFound.rawValue {
+                return
+            }
+            throw error
+        }
+    }
+
     /// Deletes an athlete's photo from Firebase Storage.
     func deleteAthletePhoto(fileName: String) async throws {
         guard let ownerUID = Auth.auth().currentUser?.uid else {
