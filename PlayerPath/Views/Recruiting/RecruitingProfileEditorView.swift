@@ -2,10 +2,17 @@
 //  RecruitingProfileEditorView.swift
 //  PlayerPath
 //
-//  Pro-gated editor for an athlete's video-first recruiting profile (Phase 1:
-//  in-app only — nothing is published). Edits a local copy of the JSON-blob bio
-//  and persists + syncs on exit, matching EditAthleteView's "apply immediately"
-//  convention.
+//  Editor for an athlete's video-first recruiting profile. Edits a local copy of
+//  the JSON-blob bio and persists + syncs on exit, matching EditAthleteView's
+//  "apply immediately" convention.
+//
+//  Deliberately NOT wrapped in `.proRequired()`, and it must never be: that
+//  modifier replaces the whole screen, and this screen is the ONLY route to
+//  RecruitingPublishView — which holds the unpublish kill switch that a
+//  lapsed-Pro family must always be able to reach. Gating here quietly defeated
+//  firestore.rules, the CF, and the rules test that all deliberately allow a
+//  free-tier unpublish. Pro is enforced on the publish ACTION instead; anyone can
+//  fill the profile in, which is also the better funnel.
 //
 
 import SwiftUI
@@ -15,6 +22,7 @@ import PhotosUI
 struct RecruitingProfileEditorView: View {
     let athlete: Athlete
 
+    @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @Environment(\.modelContext) private var modelContext
     @Environment(\.ppAccent) private var ppAccent
 
@@ -23,6 +31,7 @@ struct RecruitingProfileEditorView: View {
     @State private var isUploadingHeadshot = false
     @State private var headshotError: String?
     @State private var showingPublish = false
+    @State private var showingPaywall = false
 
     init(athlete: Athlete) {
         self.athlete = athlete
@@ -30,9 +39,11 @@ struct RecruitingProfileEditorView: View {
     }
 
     private var isGolf: Bool { (athlete.sport ?? .baseball) == .golf }
+    private var isPro: Bool { authManager.currentTier >= .pro }
 
     var body: some View {
         Form {
+            if !isPro { upsellSection }
             headshotSection
             basicsSection
             aboutSection
@@ -52,7 +63,10 @@ struct RecruitingProfileEditorView: View {
 
             Section {
                 NavigationLink {
-                    RecruitingProfileView(athlete: athlete, info: working)
+                    // Curated IDs, so the preview shows the clips actually on the
+                    // published page rather than the newest 8.
+                    RecruitingProfileView(athlete: athlete, info: working,
+                                          curatedClipIDs: working.publishedClipIDs)
                 } label: {
                     Label("Preview Profile", systemImage: "eye")
                 }
@@ -76,6 +90,11 @@ struct RecruitingProfileEditorView: View {
         .navigationDestination(isPresented: $showingPublish) {
             RecruitingPublishView(athlete: athlete)
         }
+        .sheet(isPresented: $showingPaywall) {
+            if let user = authManager.localUser {
+                ImprovedPaywallView(user: user, requiredTier: .pro)
+            }
+        }
         .onChange(of: headshotItem) { _, newItem in
             guard let newItem else { return }
             Task { await uploadHeadshot(newItem) }
@@ -90,6 +109,38 @@ struct RecruitingProfileEditorView: View {
     }
 
     // MARK: - Sections
+
+    /// Upsell for non-Pro accounts. A card rather than a screen-replacing gate:
+    /// everything here still works, and only publishing needs Pro. Mirrors the
+    /// locked-tile shape in GolfStrokesGainedSection.
+    private var upsellSection: some View {
+        Section {
+            Button {
+                Haptics.light()
+                showingPaywall = true
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "crown.fill")
+                        .font(.title3)
+                        .foregroundColor(ppAccent)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Publishing is a Pro feature")
+                            .font(.headingMedium)
+                            .foregroundColor(.primary)
+                        Text("Build your profile now — you'll need Pro to put it online as a link for college coaches.")
+                            .font(.bodySmall)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.leading)
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .buttonStyle(.plain)
+        }
+    }
 
     private var headshotSection: some View {
         Section {
@@ -136,10 +187,13 @@ struct RecruitingProfileEditorView: View {
                 }
             }
             RecruitingNumberField("Weight", unit: "lbs", value: weightBinding, isInteger: true)
-            TextField("City", text: $working.city.orEmpty())
-            TextField("State", text: $working.state.orEmpty())
-            TextField("High school", text: $working.highSchool.orEmpty())
-            TextField("Club / travel team", text: $working.clubTeam.orEmpty())
+            RecruitingTextField("City", prompt: "Austin", text: $working.city.orEmpty())
+            RecruitingTextField("State", prompt: "TX", text: $working.state.orEmpty(),
+                                autocapitalization: .characters, autocorrect: false)
+            RecruitingTextField("High school", prompt: "Austin High",
+                                text: $working.highSchool.orEmpty())
+            RecruitingTextField("Club team", prompt: "Texas Thunder 16U",
+                                text: $working.clubTeam.orEmpty())
         }
     }
 
@@ -229,11 +283,15 @@ struct RecruitingProfileEditorView: View {
     private func persistIfChanged() {
         // `working` was snapshotted in init, so it can't know about fields written
         // by screens pushed from here. RecruitingPublishView stamps
-        // publishConsentAt on first publish; without carrying it forward, this
-        // autosave would erase it on the way out and re-show the guardian gate to
-        // someone who already consented.
+        // publishConsentAt and publishedClipIDs on publish; without carrying them
+        // forward, this autosave would erase them on the way out — re-showing the
+        // guardian gate to someone who already consented, and losing the curated
+        // clip order so the next publish silently reverts to newest-8.
+        // Any new field written by a pushed screen needs a line here.
         var working = self.working
-        working.publishConsentAt = athlete.recruiting.publishConsentAt ?? working.publishConsentAt
+        let saved = athlete.recruiting
+        working.publishConsentAt = saved.publishConsentAt ?? working.publishConsentAt
+        working.publishedClipIDs = saved.publishedClipIDs ?? working.publishedClipIDs
 
         guard working != athlete.recruiting else { return }
         let isFirstSave = !athlete.hasRecruitingProfile

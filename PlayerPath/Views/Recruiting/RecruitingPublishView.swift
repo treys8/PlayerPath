@@ -11,6 +11,11 @@
 //  action is tier-gated — mirroring firestore.rules, which allows
 //  `isPublished == false` at any tier for exactly this reason.
 //
+//  The same applies to every screen on the ROUTE here. RecruitingProfileEditorView
+//  is the only way in, and while it carried `.proRequired()` the kill switch was
+//  unreachable the moment Pro lapsed — with rules, the Cloud Function, and the
+//  "lapsed owner CAN unpublish" rules test all still passing. Don't gate the path.
+//
 
 import SwiftUI
 import SwiftData
@@ -29,10 +34,16 @@ struct RecruitingPublishView: View {
     @State private var errorMessage: String?
     @State private var consentAcknowledged = false
     @State private var showingUnpublishConfirm = false
+    @State private var showingPaywall = false
+    @State private var noticeMessage: String?
 
     private var isPro: Bool { authManager.currentTier >= .pro }
     private var isPublished: Bool { status?.isPublished == true }
     private var needsConsent: Bool { athlete.recruiting.publishConsentAt == nil }
+    /// Tier is deliberately NOT part of this. Disabling the button at free tier
+    /// hides the upgrade path behind a dead control; the app's convention (see
+    /// GameDetailView.generateReelTapped) is to keep the action live and let the
+    /// tap open the paywall — the tap IS the conversion moment.
     private var canPublish: Bool {
         !selection.isEmpty && !isWorking && (!needsConsent || consentAcknowledged)
     }
@@ -69,6 +80,20 @@ struct RecruitingPublishView: View {
             Button("OK") { errorMessage = nil }
         } message: {
             Text(errorMessage ?? "")
+        }
+        .alert("Profile published", isPresented: .constant(noticeMessage != nil)) {
+            Button("OK") { noticeMessage = nil }
+        } message: {
+            Text(noticeMessage ?? "")
+        }
+        .sheet(isPresented: $showingPaywall) {
+            if let user = authManager.localUser {
+                // Resume the publish the athlete already asked for once Pro lands,
+                // rather than making them find this button again.
+                ImprovedPaywallView(user: user, requiredTier: .pro) {
+                    Task { await publish() }
+                }
+            }
         }
     }
 
@@ -131,6 +156,15 @@ struct RecruitingPublishView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            // Previews the LIVE selection, not the athlete's newest highlights —
+            // this is the only preview that can honestly claim to be the page.
+            NavigationLink {
+                RecruitingProfileView(athlete: athlete,
+                                      info: athlete.recruiting,
+                                      curatedClipIDs: selection)
+            } label: {
+                Label("Preview Profile", systemImage: "eye")
+            }
         } footer: {
             if selection.isEmpty {
                 Text(hasPublishableClips
@@ -157,19 +191,33 @@ struct RecruitingPublishView: View {
 
     private var upgradeSection: some View {
         Section {
-            Label(isPublished
-                  ? "Your profile is offline because Pro ended. Renew to bring it back — your link doesn't change, so anything you've already sent to coaches will work again."
-                  : "Publishing a public profile is a Pro feature.",
-                  systemImage: "crown.fill")
-                .font(.bodySmall)
-                .foregroundStyle(.secondary)
+            Button {
+                Haptics.light()
+                showingPaywall = true
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "crown.fill")
+                        .foregroundStyle(Theme.warning)
+                    Text(isPublished
+                         ? "Your profile is offline because Pro ended. Renew to bring it back — your link doesn't change, so anything you've already sent to coaches will work again."
+                         : "Publishing a public profile is a Pro feature.")
+                        .font(.bodySmall)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.leading)
+                    Spacer(minLength: 8)
+                    Image(systemName: "chevron.right")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .buttonStyle(.plain)
         }
     }
 
     private var publishSection: some View {
         Section {
             Button {
-                Task { await publish() }
+                publishTapped()
             } label: {
                 HStack {
                     if isWorking { ProgressView().controlSize(.small) }
@@ -179,7 +227,7 @@ struct RecruitingPublishView: View {
                 .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
-            .disabled(!canPublish || !isPro)
+            .disabled(!canPublish)
         } footer: {
             if isPublished {
                 Text("Republishing refreshes your stats and clips. Your link stays the same.")
@@ -220,21 +268,46 @@ struct RecruitingPublishView: View {
         defer { isLoading = false }
 
         // Read the model BEFORE the await — afterwards it may be invalidated.
-        // Default to the athlete's newest publishable highlights, so a first
-        // publish is one tap rather than a curation chore.
         let athleteId = athlete.id
-        let defaultSelection = (athlete.videoClips ?? [])
-            .filter(\.isPublishableHighlight)
+        let publishable = (athlete.videoClips ?? []).filter(\.isPublishableHighlight)
+
+        // What's already on the page wins. Without this the picker re-seeded to
+        // newest-8 on every launch, so the next "Update Published Profile" silently
+        // threw away the athlete's curation. Clips that have since been deleted or
+        // fallen out of publishable state drop out; the stored order is preserved.
+        let publishableIDs = Set(publishable.map(\.id))
+        let curated = (athlete.recruiting.publishedClipIDs ?? []).filter { publishableIDs.contains($0) }
+
+        // Only a never-published profile falls back to newest-first, so a first
+        // publish stays one tap rather than a curation chore.
+        let defaultSelection = publishable
             .sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
             .prefix(RecruitingProfileService.maxHighlights)
             .map(\.id)
 
         status = try? await RecruitingProfileService.shared.fetchStatus(athleteId: athleteId)
         if selection.isEmpty {
-            selection = defaultSelection
+            selection = curated.isEmpty ? defaultSelection : curated
         }
     }
 
+    /// Publish button tap. Free tier gets the paywall instead — the button stays
+    /// enabled so there's a visible way to upgrade, and unpublish, right below, is
+    /// never gated at all.
+    private func publishTapped() {
+        guard isPro else {
+            Haptics.light()
+            showingPaywall = true
+            return
+        }
+        Task { await publish() }
+    }
+
+    /// Does the work. Takes no tier check of its own: the paywall's
+    /// `onPurchaseCompleted` calls this directly, and it fires just before the
+    /// sheet dismisses — `authManager.currentTier` may not have caught up yet, so
+    /// re-checking here would bounce the just-paid customer straight back into the
+    /// paywall. Every caller has already established the entitlement.
     private func publish() async {
         isWorking = true
         defer { isWorking = false }
@@ -247,7 +320,7 @@ struct RecruitingPublishView: View {
             (athlete.videoClips ?? []).first { $0.id == id }
         }
         do {
-            _ = try await RecruitingProfileService.shared.publish(athlete: athlete, highlightClips: clips)
+            let result = try await RecruitingProfileService.shared.publish(athlete: athlete, highlightClips: clips)
             // Record consent only once the page is actually live: stamping it
             // before the write would permanently retire the guardian gate even
             // when publishing failed and nothing was ever shared.
@@ -255,11 +328,20 @@ struct RecruitingPublishView: View {
             // The liveness guard comes FIRST: conditions evaluate left to right,
             // and `needsConsent` reads athlete.recruiting — which would trap on a
             // model invalidated during the await above.
-            if !athlete.isDeleted, athlete.modelContext != nil, needsConsent {
+            if !athlete.isDeleted, athlete.modelContext != nil {
                 var info = athlete.recruiting
-                info.publishConsentAt = Date()
+                if needsConsent { info.publishConsentAt = Date() }
+                // The set that actually reached the page, in page order — so
+                // reopening this screen restores the real curation instead of
+                // re-seeding to newest-8. RecruitingProfileEditorView.persistIfChanged
+                // carries this forward; without that line its autosave erases it.
+                info.publishedClipIDs = result.publishedClipIDs
                 athlete.recruiting = info      // sets needsSync
                 ErrorHandlerService.shared.saveContext(modelContext, caller: "RecruitingPublishView.publish")
+            }
+            if result.skippedClipCount > 0 {
+                let n = result.skippedClipCount
+                noticeMessage = "\(n) clip\(n == 1 ? "" : "s") couldn't be included — the video isn't in your cloud storage any more. Everything else is live."
             }
             status = try? await RecruitingProfileService.shared.fetchStatus(athleteId: athleteId)
             // `user` was captured pre-await, but it's a @Model reference, not a

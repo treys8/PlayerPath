@@ -5,6 +5,11 @@
  * https://profiles.playerpath.net/p/{shareToken} in a browser — no account, no
  * app, no login — and watches the athlete's game film.
  *
+ * Two routes, both behind the same published + Pro checks (loadPublishedProfile):
+ *   /p/{shareToken}           the page
+ *   /p/{shareToken}/avatar    the headshot, proxied — a permanent URL for og:image
+ *                             because unfurl caches outlive a signed URL
+ *
  * SETUP (manual, one-time): Firebase Console → Hosting → add the custom domain
  * `profiles.playerpath.net` and create the TXT (verification) + A records it
  * issues. Until DNS propagates the same page is served at
@@ -54,8 +59,46 @@ const MAX_HIGHLIGHTS = 8;
  */
 const BOT_UA = /bot|crawler|spider|preview|facebookexternalhit|slackbot|whatsapp|telegram|discord|twitterbot|linkedinbot|embedly|quora|pinterest|vkshare|redditbot|applebot|skypeuripreview/i;
 
-/** Share tokens are UUIDs. Reject anything else before it reaches Firestore. */
-const TOKEN_RE = /^[A-Za-z0-9-]{8,64}$/;
+/**
+ * Share tokens are v4 UUIDs and always have been — `claimShareToken` only ever
+ * mints `UUID().uuidString`. Matching the exact shape (rather than "some
+ * alphanumeric string") means a junk request costs a regex instead of a Firestore
+ * query on an endpoint that is unauthenticated and has no App Check. Note Swift
+ * emits UUIDs UPPERCASE, hence the case-insensitive class.
+ */
+const TOKEN_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+/**
+ * Where these pages are served. Mirrors RecruitingProfileService.publicBaseURL.
+ * Hardcoded rather than read off the Host header: it ends up in og:image, and a
+ * header is caller-controlled.
+ */
+const PUBLIC_ORIGIN = 'https://profiles.playerpath.net';
+
+/**
+ * Set on every response, page or image.
+ *
+ * The page is built entirely from athlete-authored free text. `esc()` is the real
+ * defense and CSP is the backstop for the day something slips past it — hence
+ * `default-src 'none'`, widened only to what the page actually loads: signed
+ * Storage URLs for video and posters, and same-origin for the avatar route.
+ * `no-referrer` matters on its own: without it every media request leaks the page
+ * URL — which contains the share token — to Google in the Referer header.
+ */
+const SECURITY_HEADERS: Record<string, string> = {
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'no-referrer',
+  'Strict-Transport-Security': 'max-age=31536000',
+  'Content-Security-Policy': [
+    "default-src 'none'",
+    "img-src 'self' https://storage.googleapis.com data:",
+    'media-src https://storage.googleapis.com',
+    "style-src 'unsafe-inline'",
+    "base-uri 'none'",
+    "form-action 'none'",
+    "frame-ancestors 'none'",
+  ].join('; '),
+};
 
 interface StatPair {
   label?: unknown;
@@ -253,62 +296,151 @@ function unavailablePage(): string {
   });
 }
 
-export const serveRecruitingProfile = functions.https.onRequest(async (req, res) => {
-  // Never cached: the CDN would freeze view counts and, worse, eventually serve
-  // signed media URLs past their expiry.
-  res.set('Cache-Control', 'no-store');
-  res.set('Content-Type', 'text/html; charset=utf-8');
+/**
+ * Shown when the profile exists and is live but its film wouldn't load — almost
+ * always a missing signBlob role. Distinct copy on purpose: telling an athlete
+ * their link is "incorrect" when it's our signing that broke sends them chasing
+ * the wrong problem, and it's the message they'll relay to a coach.
+ */
+function temporarilyUnavailablePage(): string {
+  return page({
+    title: 'Temporarily unavailable · PlayerPath',
+    description: 'This recruiting profile is temporarily unavailable.',
+    image: null,
+    body: `<div class="empty"><h1>Temporarily unavailable</h1>
+<p class="sub">This profile's video can't be loaded right now. The link is fine — please try again shortly.</p>
+<footer><a href="https://playerpath.net">PlayerPath</a></footer></div>`,
+  });
+}
 
-  if (req.method !== 'GET' && req.method !== 'HEAD') {
-    res.status(405).send('Method Not Allowed');
+/** A live, Pro-backed profile, or null. Shared by the page and the avatar route. */
+interface LoadedProfile {
+  doc: admin.firestore.QueryDocumentSnapshot;
+  data: Record<string, unknown>;
+  ownerUID: string;
+}
+
+/**
+ * Looks up a published profile by share token and confirms it should be served.
+ *
+ * The tier check is here rather than at write time on purpose: rules gate writes
+ * and cannot expire an at-rest doc, so "publish on Pro, then cancel" would leave
+ * the page up forever. Every route that exposes profile content — page or image —
+ * must go through this, or it becomes the hole.
+ */
+async function loadPublishedProfile(token: string): Promise<LoadedProfile | null> {
+  const db = admin.firestore();
+  // Single equality filter, then check isPublished in code: keeps this off the
+  // composite-index path entirely (same shape as enforceStorageQuota).
+  const snap = await db
+    .collection('recruitingProfiles')
+    .where('shareToken', '==', token)
+    .limit(1)
+    .get();
+
+  if (snap.empty) return null;
+
+  const doc = snap.docs[0];
+  const data = doc.data() as Record<string, unknown>;
+  if (data.isPublished !== true) return null;
+
+  const ownerUID = typeof data.userId === 'string' ? data.userId : '';
+  if (!ownerUID) {
+    console.error('serveRecruitingProfile: profile has no userId', doc.id);
+    return null;
+  }
+
+  const owner = await db.collection('users').doc(ownerUID).get();
+  if (owner.get('subscriptionTier') !== 'pro') return null;
+
+  return { doc, data, ownerUID };
+}
+
+/**
+ * `/p/{token}/avatar` — the headshot, proxied.
+ *
+ * og:image used to be the signed URL itself, which dies within the hour while
+ * link-unfurl caches (iMessage, Slack, Gmail) hold onto it — so a shared profile's
+ * preview image broke on exactly the surface this feature grows through, and a
+ * signed Storage URL ended up sitting in third-party cache infrastructure. This
+ * URL is stable forever; the signed URL never leaves the function.
+ */
+async function serveAvatar(
+  res: functions.Response,
+  token: string
+): Promise<void> {
+  const profile = await loadPublishedProfile(token);
+  const path = profile ? ownedPath(profile.data.headshotPath, profile.ownerUID) : null;
+  if (!path) {
+    res.status(404).type('text/plain').send('Not found');
     return;
   }
 
-  // Hosting rewrites /p/** here; the token is the last path segment. Works the
-  // same when the function URL is hit directly.
-  const token = (req.path || '').split('/').filter(Boolean).pop() || '';
+  // Short cache, not long: an unpublish has to take a minor's photo down promptly,
+  // and unfurlers keep their own copy anyway.
+  res.set('Cache-Control', 'public, max-age=300');
+  res.set('Content-Type', 'image/jpeg');
+
+  const stream = admin.storage().bucket().file(path).createReadStream();
+  await new Promise<void>((resolve) => {
+    stream.once('error', (error: unknown) => {
+      console.warn('serveRecruitingProfile: avatar stream failed', path, error);
+      if (!res.headersSent) {
+        res.status(404).type('text/plain').send('Not found');
+      } else {
+        res.end();
+      }
+      resolve();
+    });
+    res.once('finish', () => resolve());
+    res.once('close', () => resolve());
+    stream.pipe(res);
+  });
+}
+
+export const serveRecruitingProfile = functions.https.onRequest(async (req, res) => {
+  // Never cached: the CDN would freeze view counts and, worse, eventually serve
+  // signed media URLs past their expiry. (The avatar route overrides both of these.)
+  res.set('Cache-Control', 'no-store');
+  res.set('Content-Type', 'text/html; charset=utf-8');
+  for (const [header, value] of Object.entries(SECURITY_HEADERS)) {
+    res.set(header, value);
+  }
+
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    res.status(405).type('text/plain').send('Method Not Allowed');
+    return;
+  }
+
+  // Hosting rewrites /p/** here; the token is the last path segment, which also
+  // holds when the function URL is hit directly. `/p/{token}/avatar` adds one
+  // trailing segment, so strip that before taking the last one.
+  const segments = (req.path || '').split('/').filter(Boolean);
+  const wantsAvatar = segments[segments.length - 1] === 'avatar';
+  if (wantsAvatar) segments.pop();
+  const token = segments[segments.length - 1] || '';
+
   if (!TOKEN_RE.test(token)) {
-    res.status(404).send(unavailablePage());
+    if (wantsAvatar) {
+      res.status(404).type('text/plain').send('Not found');
+    } else {
+      res.status(404).send(unavailablePage());
+    }
     return;
   }
 
   try {
-    const db = admin.firestore();
-    // Single equality filter, then check isPublished in code: keeps this off the
-    // composite-index path entirely (same shape as enforceStorageQuota).
-    const snap = await db
-      .collection('recruitingProfiles')
-      .where('shareToken', '==', token)
-      .limit(1)
-      .get();
-
-    if (snap.empty) {
-      res.status(404).send(unavailablePage());
+    if (wantsAvatar) {
+      await serveAvatar(res, token);
       return;
     }
 
-    const doc = snap.docs[0];
-    const data = doc.data() as Record<string, unknown>;
-    if (data.isPublished !== true) {
+    const profile = await loadPublishedProfile(token);
+    if (!profile) {
       res.status(404).send(unavailablePage());
       return;
     }
-
-    const ownerUID = typeof data.userId === 'string' ? data.userId : '';
-    if (!ownerUID) {
-      console.error('serveRecruitingProfile: profile has no userId', doc.id);
-      res.status(404).send(unavailablePage());
-      return;
-    }
-
-    // Publishing requires Pro, but rules only gate writes — cancelling a
-    // subscription leaves isPublished:true untouched forever. Re-check at render
-    // so the page actually tracks the entitlement it's sold as.
-    const owner = await db.collection('users').doc(ownerUID).get();
-    if (owner.get('subscriptionTier') !== 'pro') {
-      res.status(404).send(unavailablePage());
-      return;
-    }
+    const { doc, data, ownerUID } = profile;
 
     const bucket = admin.storage().bucket();
 
@@ -336,10 +468,13 @@ export const serveRecruitingProfile = functions.https.onRequest(async (req, res)
         doc.id,
         '— check the signBlob IAM role on the runtime service account'
       );
-      res.status(500).send(unavailablePage());
+      res.status(500).send(temporarilyUnavailablePage());
       return;
     }
     const headshot = await signPath(bucket, ownedPath(data.headshotPath, ownerUID));
+    // The <img> gets the signed URL (same request, so it can't expire in time);
+    // og:image gets the stable proxy, because unfurl caches outlive the signature.
+    const ogImage = headshot ? `${PUBLIC_ORIGIN}/p/${encodeURIComponent(token)}/avatar` : null;
 
     const name = typeof data.name === 'string' ? data.name : 'Athlete';
     const subline = typeof data.subline === 'string' ? data.subline : '';
@@ -384,7 +519,7 @@ ${contactSection(data.contact)}
     const html = page({
       title: subline ? `${name} · ${subline}` : name,
       description,
-      image: headshot,
+      image: ogImage,
       body,
     });
 
@@ -407,6 +542,13 @@ ${contactSection(data.contact)}
     res.status(200).send(html);
   } catch (error) {
     console.error('serveRecruitingProfile error:', error);
-    res.status(500).send(unavailablePage());
+    if (res.headersSent) {
+      res.end();
+    } else if (wantsAvatar) {
+      // Don't hand an unfurler an HTML page under an image content type.
+      res.status(500).type('text/plain').send('Temporarily unavailable');
+    } else {
+      res.status(500).send(temporarilyUnavailablePage());
+    }
   }
 });

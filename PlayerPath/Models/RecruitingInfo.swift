@@ -76,6 +76,16 @@ nonisolated struct RecruitingInfo: Codable, Equatable {
     /// owner's devices with no new sync sites.
     var publishConsentAt: Date?
 
+    /// The clips the athlete curated onto the published page, in page order
+    /// (first = hero). Nil until the first publish.
+    ///
+    /// This is the *published* set, not a draft: without it the picker's
+    /// selection lived only in view state, so relaunching the app re-seeded it to
+    /// "newest 8 highlights" and the next "Update Published Profile" silently
+    /// replaced a curated page. Stored in the blob for the same reason as
+    /// `publishConsentAt` — it syncs across the owner's devices for free.
+    var publishedClipIDs: [UUID]?
+
     init() {}
 
     enum CodingKeys: String, CodingKey {
@@ -84,7 +94,7 @@ nonisolated struct RecruitingInfo: Codable, Equatable {
         case primaryPosition, secondaryPosition, bats, throwsHand, showMeasurables
         case sixtyYardDash, exitVelo, throwingVelo, pitchVelo
         case gpa, includeGPA, contactEmail, includeContactEmail, contactPhone, includeContactPhone
-        case publishConsentAt
+        case publishConsentAt, publishedClipIDs
     }
 
     // Custom decoder: every key via `decodeIfPresent` so a blob written by an
@@ -118,6 +128,7 @@ nonisolated struct RecruitingInfo: Codable, Equatable {
         contactPhone = try c.decodeIfPresent(String.self, forKey: .contactPhone)
         includeContactPhone = try c.decodeIfPresent(Bool.self, forKey: .includeContactPhone) ?? false
         publishConsentAt = try c.decodeIfPresent(Date.self, forKey: .publishConsentAt)
+        publishedClipIDs = try c.decodeIfPresent([UUID].self, forKey: .publishedClipIDs)
     }
 }
 
@@ -142,15 +153,26 @@ extension RecruitingInfo {
     /// to a college roster than one who can't, and that's the whole reason the
     /// editor asks for them.
     var positionLine: String? {
-        let primary = primaryPosition?.trimmingCharacters(in: .whitespaces)
-        let secondary = secondaryPosition?.trimmingCharacters(in: .whitespaces)
-        switch (primary?.isEmpty == false ? primary : nil,
-                secondary?.isEmpty == false ? secondary : nil) {
+        let primary = Self.normalizedPositions(primaryPosition)
+        let secondary = Self.normalizedPositions(secondaryPosition)
+        switch (primary, secondary) {
         case let (primary?, secondary?): return "\(primary) / \(secondary)"
         case let (primary?, nil):        return primary
         case let (nil, secondary?):      return secondary
         default:                         return nil
         }
+    }
+
+    /// Tidies a free-text position field into `"2B, OF"`. The editor takes both
+    /// fields as plain text, so `"2B ,  of "` is a normal thing to receive and
+    /// would otherwise publish exactly as typed. Nil when nothing survives.
+    private static func normalizedPositions(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let tokens = raw
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        return tokens.isEmpty ? nil : tokens.joined(separator: ", ")
     }
 
     /// "6'1\" · 180 lbs · B/T R/R · Austin, TX"

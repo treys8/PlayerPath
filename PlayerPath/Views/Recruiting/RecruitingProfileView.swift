@@ -20,6 +20,10 @@ import SwiftUI
 struct RecruitingProfileView: View {
     let athlete: Athlete
     let info: RecruitingInfo
+    /// The clips actually on the published page, in page order. Nil previews the
+    /// newest highlights — correct only before a first publish, which is why the
+    /// publish screen always passes its live selection.
+    var curatedClipIDs: [UUID]?
 
     private var isGolf: Bool { (athlete.sport ?? .baseball) == .golf }
 
@@ -27,7 +31,7 @@ struct RecruitingProfileView: View {
         ScrollView {
             VStack(spacing: 20) {
                 header
-                card { RecruitingHighlightStrip(athlete: athlete) }
+                card { RecruitingHighlightStrip(athlete: athlete, curatedClipIDs: curatedClipIDs) }
 
                 if isGolf {
                     card { RecruitingGolfStatBand(athlete: athlete) }

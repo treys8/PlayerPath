@@ -223,7 +223,6 @@ struct ProfileView: View {
                 link: AnyView(
                     NavigationLink {
                         RecruitingProfileEditorView(athlete: selectedAthlete)
-                            .proRequired()
                     } label: {
                         Label("Recruiting Profile", systemImage: "graduationcap.fill")
                     }
@@ -547,11 +546,22 @@ struct ProfileView: View {
             }
 
             if let selectedAthlete = selectedAthlete {
+                // No `.proRequired()`: that gate replaces the screen, and this is the
+                // only route to the unpublish kill switch, which must stay reachable
+                // after Pro lapses. Publishing is gated on the action instead.
                 NavigationLink {
                     RecruitingProfileEditorView(athlete: selectedAthlete)
-                        .proRequired()
                 } label: {
-                    Label("Recruiting Profile", systemImage: "graduationcap.fill")
+                    HStack {
+                        Label("Recruiting Profile", systemImage: "graduationcap.fill")
+                        Spacer()
+                        // This row sits above the athlete list and otherwise reads as
+                        // account-level, but it publishes ONE athlete's photo, city,
+                        // and contact info. Name whose.
+                        Text(selectedAthlete.name)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
                 }
                 .accessibilityHint("Edit \(selectedAthlete.name)'s recruiting profile")
             } else {

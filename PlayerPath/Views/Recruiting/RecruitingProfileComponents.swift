@@ -77,16 +77,29 @@ struct RecruitingHeadshotImage: View {
 
 // MARK: - Highlight strip
 
-/// Horizontally-scrolling strip of the athlete's `isHighlight` clips (newest
-/// first, capped). Read-only in Phase 1 — curation/reorder is a Phase 2 publish
-/// concern. Reuses the cached `VideoThumbnailView`.
+/// Horizontally-scrolling strip of the athlete's highlight clips. Reuses the
+/// cached `VideoThumbnailView`.
+///
+/// Shows the CURATED set when one is supplied — the preview claims to be what a
+/// college coach will see, so it has to render the clips that are actually on the
+/// page, in the athlete's order, not the newest ones.
 struct RecruitingHighlightStrip: View {
     let athlete: Athlete
+    /// Clip IDs in published/page order (first = hero). Nil or empty falls back to
+    /// newest-first highlights, which is exactly what the picker defaults to — so a
+    /// profile that has never been published previews correctly either way.
+    var curatedClipIDs: [UUID]?
     var limit: Int = 8
 
     private var clips: [VideoClip] {
-        Array(
-            (athlete.videoClips ?? [])
+        let all = athlete.videoClips ?? []
+        if let curatedClipIDs, !curatedClipIDs.isEmpty {
+            // compactMap over the ID list, not a filter over the clips: the stored
+            // order IS the page order, and a clip deleted since publishing just drops.
+            return curatedClipIDs.compactMap { id in all.first { $0.id == id } }
+        }
+        return Array(
+            all
                 .filter { $0.isHighlight }
                 .sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
                 .prefix(limit)
@@ -131,6 +144,49 @@ struct RecruitingHighlightStrip: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 12)
+    }
+}
+
+// MARK: - Labelled text field
+
+/// A labelled, trailing-aligned text field — the text counterpart to
+/// `RecruitingNumberField`, and laid out to match it and the Form's `Picker` rows.
+///
+/// A bare `TextField("City", …)` shows its title only while empty, so a filled-in
+/// editor became a column of unlabelled values ("Starkville", "MS", "P", "CF")
+/// with no way to tell which field was which. The label is always visible here.
+struct RecruitingTextField: View {
+    let title: String
+    let prompt: String
+    @Binding var text: String
+    let keyboard: UIKeyboardType
+    let autocapitalization: TextInputAutocapitalization
+    let autocorrect: Bool
+
+    init(_ title: String,
+         prompt: String = "—",
+         text: Binding<String>,
+         keyboard: UIKeyboardType = .default,
+         autocapitalization: TextInputAutocapitalization = .words,
+         autocorrect: Bool = true) {
+        self.title = title
+        self.prompt = prompt
+        self._text = text
+        self.keyboard = keyboard
+        self.autocapitalization = autocapitalization
+        self.autocorrect = autocorrect
+    }
+
+    var body: some View {
+        HStack {
+            Text(title)
+            Spacer()
+            TextField(prompt, text: $text)
+                .multilineTextAlignment(.trailing)
+                .keyboardType(keyboard)
+                .textInputAutocapitalization(autocapitalization)
+                .autocorrectionDisabled(!autocorrect)
+        }
     }
 }
 

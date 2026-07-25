@@ -31,8 +31,12 @@ struct RecruitingBaseballSection: View {
 
     var body: some View {
         Section("Position & Handedness") {
-            TextField("Primary position (e.g. SS)", text: $info.primaryPosition.orEmpty())
-            TextField("Other positions (e.g. 2B, OF)", text: $info.secondaryPosition.orEmpty())
+            RecruitingTextField("Primary", prompt: "SS",
+                                text: $info.primaryPosition.orEmpty(),
+                                autocapitalization: .characters, autocorrect: false)
+            RecruitingTextField("Other", prompt: "2B, OF",
+                                text: $info.secondaryPosition.orEmpty(),
+                                autocapitalization: .characters, autocorrect: false)
             Picker("Bats", selection: $info.bats.orEmpty()) {
                 Text("—").tag("")
                 Text("Right").tag("R")
@@ -65,33 +69,57 @@ struct RecruitingBaseballSection: View {
 // MARK: - PII (per-field opt-in)
 
 /// GPA + contact info, each with an explicit opt-in. Off by default — these
-/// only appear on the profile when toggled on. The publish-time consent gate
-/// for minors arrives with Phase 2.
+/// only appear on the profile when toggled on.
+///
+/// Each toggle is disabled while its field is empty, AND cleared the moment the
+/// field is emptied. Masking alone isn't enough: a toggle left ON over a blank
+/// field is armed, and would publish a minor's email the instant someone typed
+/// one — no second decision, no second look at the consent copy.
 struct RecruitingPIISection: View {
     @Binding var info: RecruitingInfo
+
+    private var hasGPA: Bool { info.gpa != nil }
+    private var hasEmail: Bool { info.contactEmail?.isEmpty == false }
+    private var hasPhone: Bool { info.contactPhone?.isEmpty == false }
 
     var body: some View {
         Section {
             RecruitingNumberField("GPA", value: $info.gpa)
             Toggle("Show GPA on profile", isOn: $info.includeGPA)
+                .disabled(!hasGPA)
+        } header: {
+            Text("Academics")
         } footer: {
             Text("Optional. Off by default.")
         }
+        .onChange(of: info.gpa) { _, newValue in
+            if newValue == nil { info.includeGPA = false }
+        }
 
         Section {
-            TextField("Contact email", text: $info.contactEmail.orEmpty())
-                .keyboardType(.emailAddress)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
+            RecruitingTextField("Email", prompt: "you@example.com",
+                                text: $info.contactEmail.orEmpty(),
+                                keyboard: .emailAddress,
+                                autocapitalization: .never, autocorrect: false)
             Toggle("Show email on profile", isOn: $info.includeContactEmail)
+                .disabled(!hasEmail)
 
-            TextField("Contact phone", text: $info.contactPhone.orEmpty())
-                .keyboardType(.phonePad)
+            RecruitingTextField("Phone", prompt: "(555) 555-5555",
+                                text: $info.contactPhone.orEmpty(),
+                                keyboard: .phonePad,
+                                autocapitalization: .never, autocorrect: false)
             Toggle("Show phone on profile", isOn: $info.includeContactPhone)
+                .disabled(!hasPhone)
         } header: {
             Text("Contact")
         } footer: {
             Text("Each field appears on your profile only when its toggle is on. For a minor, the account owner controls what's shared.")
+        }
+        .onChange(of: info.contactEmail) { _, newValue in
+            if newValue?.isEmpty != false { info.includeContactEmail = false }
+        }
+        .onChange(of: info.contactPhone) { _, newValue in
+            if newValue?.isEmpty != false { info.includeContactPhone = false }
         }
     }
 }

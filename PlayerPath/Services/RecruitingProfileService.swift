@@ -17,7 +17,9 @@
 //
 
 import Foundation
+import FirebaseAuth
 import FirebaseFirestore
+import FirebaseStorage
 import os
 
 private let recruitingLog = Logger(subsystem: "com.playerpath.app", category: "RecruitingProfile")
@@ -32,8 +34,22 @@ struct RecruitingPublishStatus {
     var shareURL: URL? { RecruitingProfileService.shareURL(for: shareToken) }
 }
 
+/// Outcome of a publish — the link, plus anything that didn't make it onto the page.
+struct RecruitingPublishResult {
+    let url: URL
+    /// The clips that actually reached the page, in page order (first = hero).
+    /// Persisted by the caller so a relaunch reopens the athlete's real curation.
+    let publishedClipIDs: [UUID]
+    /// Clips the athlete picked whose file isn't in Storage, so they were left off.
+    /// Surfaced rather than swallowed: the Cloud Function drops an unsignable clip
+    /// with nothing but a server log, and the athlete would never learn their page
+    /// is short a clip.
+    let skippedClipCount: Int
+}
+
 enum RecruitingPublishError: LocalizedError {
     case notSignedIn
+    case accountMismatch
     case noPublishableClips
     case couldNotClaimLink
 
@@ -41,6 +57,8 @@ enum RecruitingPublishError: LocalizedError {
         switch self {
         case .notSignedIn:
             return "Sign in required to publish your profile."
+        case .accountMismatch:
+            return "This profile belongs to a different account. Sign out and back in, then try again."
         case .noPublishableClips:
             return "Your highlights are still uploading. This usually finishes on Wi-Fi."
         case .couldNotClaimLink:
@@ -77,11 +95,24 @@ final class RecruitingProfileService {
     /// and returns the public link. Reuses the existing share token when one
     /// exists, so republishing never breaks a coach's bookmark.
     @discardableResult
-    func publish(athlete: Athlete, highlightClips: [VideoClip]) async throws -> URL {
+    func publish(athlete: Athlete, highlightClips: [VideoClip]) async throws -> RecruitingPublishResult {
+        // Storage paths are anchored on the AUTH uid, because that is what every
+        // uploader used (VideoCloudManager.uploadVideo et al). The local User row's
+        // cached firebaseAuthUid is a copy that can go stale — AuthenticatedFlow's
+        // UID-mismatch branch can leave a second User row behind — and publishing
+        // under a stale uid would write paths into a namespace nothing was ever
+        // uploaded to. Rules would then reject the doc (its userId wouldn't match
+        // request.auth.uid) and the athlete would see an unexplained failure, so
+        // catch it here and say what actually happened.
+        guard let ownerUID = Auth.auth().currentUser?.uid, !ownerUID.isEmpty else {
+            throw RecruitingPublishError.notSignedIn
+        }
         // Snapshot every @Model property BEFORE the first await: a concurrent
         // delete that invalidates the model mid-await would trap on a later read.
-        guard let ownerUID = athlete.user?.firebaseAuthUid else {
-            throw RecruitingPublishError.notSignedIn
+        let modelUID = athlete.user?.firebaseAuthUid
+        guard modelUID == nil || modelUID == ownerUID else {
+            recruitingLog.error("Publish blocked: local user uid disagrees with the signed-in account")
+            throw RecruitingPublishError.accountMismatch
         }
         let athleteId = athlete.id
         let name = athlete.name
@@ -91,15 +122,34 @@ final class RecruitingProfileService {
 
         // Re-check the upload gate at write time: a clip that lost its cloud copy
         // would render as a broken player on the coach's page.
-        let highlights = highlightClips
+        // Carries the clip id alongside its payload so the caller can persist the
+        // set that ACTUALLY reached the page, not the set that was selected.
+        let candidates = highlightClips
             .prefix(Self.maxHighlights)
-            .compactMap { clip -> [String: Any]? in
+            .compactMap { clip -> (id: UUID, payload: [String: Any])? in
                 guard clip.isUploaded, clip.cloudURL != nil, !clip.fileName.isEmpty else { return nil }
-                return Self.highlightPayload(for: clip, ownerUID: ownerUID)
+                return (clip.id, Self.highlightPayload(for: clip, ownerUID: ownerUID))
             }
-        guard !highlights.isEmpty else {
+        guard !candidates.isEmpty else {
             throw RecruitingPublishError.noPublishableClips
         }
+
+        // `isUploaded` is a local flag; it can outlive the object (quota sweep,
+        // coach-side delete, a wipe on another device). Nothing records the real
+        // storage path, so the only way to know a clip will actually play is to ask
+        // Storage before publishing rather than let the page render short.
+        let missing = await Self.missingStoragePaths(
+            candidates.compactMap { $0.payload["videoStoragePath"] as? String }
+        )
+        let kept = missing.isEmpty ? candidates : candidates.filter {
+            !missing.contains($0.payload["videoStoragePath"] as? String ?? "")
+        }
+        guard !kept.isEmpty else {
+            throw RecruitingPublishError.noPublishableClips
+        }
+        let highlights = kept.map(\.payload)
+        let publishedClipIDs = kept.map(\.id)
+        let skippedClipCount = candidates.count - kept.count
 
         let docRef = db.collection(FC.recruitingProfiles).document(athleteId.uuidString)
         // NOT `try?`: every decision below depends on this read. Swallowing a
@@ -158,13 +208,46 @@ final class RecruitingProfileService {
             isFirstPublish: existingData == nil
         )
         recruitingLog.info("Published recruiting profile for athlete \(athleteId.uuidString, privacy: .public)")
+        if skippedClipCount > 0 {
+            recruitingLog.warning("Published with \(skippedClipCount, privacy: .public) clip(s) missing from Storage")
+        }
 
         guard let url = Self.shareURL(for: shareToken) else {
             // Unreachable in practice (constant host + UUID path), but "sign in
             // required" would be a nonsense thing to tell someone here.
             throw RecruitingPublishError.couldNotClaimLink
         }
-        return url
+        return RecruitingPublishResult(url: url,
+                                      publishedClipIDs: publishedClipIDs,
+                                      skippedClipCount: skippedClipCount)
+    }
+
+    /// Which of these Storage paths have no object behind them.
+    ///
+    /// Only a genuine `objectNotFound` counts — mirrors the check used throughout
+    /// VideoCloudManager. A timeout or an offline device must NOT shrink the page:
+    /// treating a transient failure as "gone" would quietly publish fewer clips
+    /// than the athlete curated, which is the exact failure this exists to stop.
+    private static func missingStoragePaths(_ paths: [String]) async -> Set<String> {
+        guard !paths.isEmpty else { return [] }
+        return await withTaskGroup(of: (String, Bool).self) { group in
+            for path in paths {
+                group.addTask {
+                    do {
+                        _ = try await Storage.storage().reference(withPath: path).getMetadata()
+                        return (path, false)
+                    } catch {
+                        let nsError = error as NSError
+                        let isGone = nsError.domain == "FIRStorageErrorDomain"
+                            && nsError.code == StorageErrorCode.objectNotFound.rawValue
+                        return (path, isGone)
+                    }
+                }
+            }
+            var missing: Set<String> = []
+            for await (path, isGone) in group where isGone { missing.insert(path) }
+            return missing
+        }
     }
 
     // MARK: - Share token
@@ -282,9 +365,6 @@ final class RecruitingProfileService {
         if let subline = info.subline(isGolf: isGolf) { data["subline"] = subline }
         if let physicalLine = info.physicalLine(isGolf: isGolf) { data["physicalLine"] = physicalLine }
         if let schoolLine = info.schoolLine { data["schoolLine"] = schoolLine }
-        if let position = info.primaryPosition, !position.isEmpty, !isGolf {
-            data["primaryPosition"] = position
-        }
         if let bio = info.bio, !bio.isEmpty { data["bio"] = bio }
 
         let measurables = info.measurableItems
@@ -330,9 +410,10 @@ extension VideoClip {
         var parts: [String] = []
 
         // Lead with the OUTCOME — it's the only part a coach scans for. On a golf
-        // clip that's the score relative to par, not the club: "Birdie" earns the
-        // rewatch, "Driver" is trivia. Club stays as the fallback for range clips,
-        // where there's no hole and so no outcome to name.
+        // clip that's a birdie-or-better score, not the club: "Birdie" earns the
+        // rewatch, "Driver" is trivia. Club stays as the fallback wherever there's
+        // no outcome worth naming — a range clip, or a hole the athlete didn't
+        // score under par.
         if let result = playResult?.type.displayName, !result.isEmpty {
             parts.append(result)
         } else if let golfOutcome {
@@ -357,11 +438,16 @@ extension VideoClip {
 
     /// "Birdie" / "Eagle" / "Hole-in-One" for a golf clip stamped with a scored
     /// hole. Reuses HoleScore.diffLabel so the page names a score exactly the way
-    /// the scorecard does.
+    /// the scorecard does — but only for birdie-or-better. The picker doesn't
+    /// restrict what the athlete can feature, and this caption is read by college
+    /// coaches: a clip that happens to sit on a bogey hole is better labeled by
+    /// its club than by "Double Bogey". Holes hang off Practice as well as Game,
+    /// so a practice-round birdie labels the same as a tournament one.
     private var golfOutcome: String? {
         guard let holeNumber,
-              let hole = (game?.holeScores ?? []).first(where: { $0.holeNumber == holeNumber }),
-              hole.score > 0
+              let hole = (game?.holeScores ?? practice?.holeScores ?? [])
+                  .first(where: { $0.holeNumber == holeNumber }),
+              hole.isBirdieOrBetter
         else { return nil }
         return hole.diffLabel
     }

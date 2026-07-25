@@ -72,6 +72,21 @@ struct EditAthleteView: View {
                 }
             }
 
+            // The per-athlete home for recruiting. The Profile-tab row keys off
+            // whichever athlete is selected and reads as account-level; in here
+            // there's no ambiguity about whose photo and contact info goes public.
+            Section {
+                NavigationLink {
+                    RecruitingProfileEditorView(athlete: athlete)
+                } label: {
+                    Label("Recruiting Profile", systemImage: "graduationcap.fill")
+                }
+            } header: {
+                Text("Recruiting")
+            } footer: {
+                Text("Build a profile page you can send to college coaches — film first, plus measurables and contact info you choose to share.")
+            }
+
             Section {
                 Toggle("Track Statistics", isOn: $athlete.trackStatsEnabled)
             } header: {
