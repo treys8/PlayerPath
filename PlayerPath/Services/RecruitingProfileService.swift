@@ -29,6 +29,8 @@ struct RecruitingPublishStatus {
     let isPublished: Bool
     let shareToken: String
     let viewCount: Int
+    let viewsThisWeek: Int
+    let lastViewedAt: Date?
     let publishedAt: Date?
 
     var shareURL: URL? { RecruitingProfileService.shareURL(for: shareToken) }
@@ -188,6 +190,16 @@ final class RecruitingProfileService {
         if let lastViewedAt = existingData?["lastViewedAt"] {
             data["lastViewedAt"] = lastViewedAt
         }
+        // Analytics fields only serveRecruitingProfile / recruitingViewDigest
+        // write. Any server-owned field NOT carried here is erased by this
+        // full-overwrite publish — dailyViews powers "views this week", and the
+        // notification watermarks stop a republish from re-arming the instant
+        // push or making the next digest re-count already-notified views.
+        for key in ["dailyViews", "lastNotifiedAt", "notifiedViewCount"] {
+            if let value = existingData?[key] {
+                data[key] = value
+            }
+        }
         data["publishedAt"] = existingData?["publishedAt"] ?? FieldValue.serverTimestamp()
         data["createdAt"] = existingData?["createdAt"] ?? FieldValue.serverTimestamp()
 
@@ -317,8 +329,27 @@ final class RecruitingProfileService {
             isPublished: data["isPublished"] as? Bool ?? false,
             shareToken: shareToken,
             viewCount: data["viewCount"] as? Int ?? 0,
+            viewsThisWeek: Self.viewsThisWeek(from: data["dailyViews"] as? [String: Any]),
+            lastViewedAt: (data["lastViewedAt"] as? Timestamp)?.dateValue(),
             publishedAt: (data["publishedAt"] as? Timestamp)?.dateValue()
         )
+    }
+
+    /// Sums the trailing 7 days of the CF-written `dailyViews` map. Keys are
+    /// UTC "yyyy-MM-dd" (serveRecruitingProfile.utcDayKey), so the cutoff is
+    /// computed in UTC too — string comparison works because the format is
+    /// big-endian. Stale keys past the digest's 14-day pruning are ignored by
+    /// construction.
+    private static func viewsThisWeek(from dailyViews: [String: Any]?) -> Int {
+        guard let dailyViews, !dailyViews.isEmpty else { return 0 }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.timeZone = TimeZone(identifier: "UTC")
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        let cutoff = formatter.string(from: Date().addingTimeInterval(-6 * 24 * 3600))
+        return dailyViews.reduce(0) { total, entry in
+            entry.key >= cutoff ? total + ((entry.value as? Int) ?? 0) : total
+        }
     }
 
     // MARK: - Delete

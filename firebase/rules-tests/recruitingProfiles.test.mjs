@@ -286,6 +286,24 @@ describe('recruitingProfiles — update', () => {
     await assertFails(updateDoc(doc(dbFor(OTHER_UID), PROFILE), { isPublished: false }));
   });
 
+  it('allows a republish carrying the Phase-3 analytics fields forward', async () => {
+    // The client's publish is a full-overwrite setData carrying the CF-written
+    // analytics fields (dailyViews / lastNotifiedAt / notifiedViewCount) forward
+    // by hand. This guards the whole shape: extra keys must not trip a rules
+    // allowlist, or every republish after a page view starts failing.
+    await seedProfile(PRO_UID, {
+      dailyViews: { '2026-07-25': 3 },
+      notifiedViewCount: 3,
+    });
+    await assertSucceeds(
+      updateDoc(doc(dbFor(PRO_UID), PROFILE), {
+        isPublished: true,
+        dailyViews: { '2026-07-25': 3 },
+        notifiedViewCount: 3,
+      })
+    );
+  });
+
   it('denies growing highlights past the cap', async () => {
     await seedProfile(PRO_UID);
     const highlights = Array.from({ length: 9 }, (_, i) => ({

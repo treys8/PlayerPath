@@ -35,7 +35,25 @@ struct RecruitingPublishView: View {
     @State private var consentAcknowledged = false
     @State private var showingUnpublishConfirm = false
     @State private var showingPaywall = false
-    @State private var noticeMessage: String?
+    @State private var showingQR = false
+    /// Non-nil right after a successful publish — drives the success sheet.
+    /// Carries the URL + skipped-clip count so the sheet needs no re-fetch.
+    @State private var publishSuccess: PublishSuccess?
+    /// Success that landed while the paywall sheet was still up (a fast publish
+    /// resumed from onPurchaseCompleted can beat the dismiss animation).
+    /// Presenting over a live sibling sheet gets silently dropped by SwiftUI —
+    /// and the binding would then stay "presented", blocking every later sheet
+    /// from this view. Parked here and promoted once the paywall is gone.
+    @State private var pendingSuccess: PublishSuccess?
+
+    /// Identifiable so the success sheet uses `.sheet(item:)` — with an
+    /// isPresented binding over an optional, dismissal nils the value while the
+    /// content closure is still on screen, flashing a blank sheet.
+    struct PublishSuccess: Identifiable {
+        let id = UUID()
+        let url: URL
+        let skipped: Int
+    }
 
     private var isPro: Bool { authManager.currentTier >= .pro }
     private var isPublished: Bool { status?.isPublished == true }
@@ -55,6 +73,9 @@ struct RecruitingPublishView: View {
             } else {
                 if isPublished, let url = status?.shareURL {
                     liveLinkSection(url: url)
+                    // Stats about a dark page would read as "coaches can still
+                    // see this" — only a live (Pro) page shows its numbers.
+                    if isPro { activitySection }
                 }
                 clipsSection
                 if needsConsent { consentSection }
@@ -81,10 +102,24 @@ struct RecruitingPublishView: View {
         } message: {
             Text(errorMessage ?? "")
         }
-        .alert("Profile published", isPresented: .constant(noticeMessage != nil)) {
-            Button("OK") { noticeMessage = nil }
-        } message: {
-            Text(noticeMessage ?? "")
+        .sheet(isPresented: $showingQR) {
+            if let url = status?.shareURL {
+                RecruitingQRCodeView(athleteName: athlete.name, url: url)
+            }
+        }
+        // Peak-motivation moment: the publish just landed, so the share verbs
+        // (and any skipped-clip warning) come to the athlete instead of hiding
+        // in the form. Replaces the old "Profile published" notice alert.
+        .sheet(item: $publishSuccess) { success in
+            RecruitingPublishSuccessView(athlete: athlete,
+                                         url: success.url,
+                                         skippedClipCount: success.skipped)
+        }
+        .onChange(of: showingPaywall) { _, isShowing in
+            if !isShowing, let pending = pendingSuccess {
+                pendingSuccess = nil
+                publishSuccess = pending
+            }
         }
         .sheet(isPresented: $showingPaywall) {
             if let user = authManager.localUser {
@@ -134,12 +169,54 @@ struct RecruitingPublishView: View {
                         }
                         .buttonStyle(.bordered)
                     }
+                    HStack(spacing: 12) {
+                        Button {
+                            showingQR = true
+                        } label: {
+                            Label("QR Code", systemImage: "qrcode")
+                        }
+                        .buttonStyle(.bordered)
+
+                        if let emailURL = coachEmailURL(url: url) {
+                            Button {
+                                // No mail app configured → open() fails with no
+                                // UI at all. Falling back to the pasteboard beats
+                                // a prominent button that does nothing.
+                                UIApplication.shared.open(emailURL, options: [:]) { opened in
+                                    if !opened {
+                                        UIPasteboard.general.string = url.absoluteString
+                                        errorMessage = "No mail app is set up on this device — your profile link was copied instead."
+                                    }
+                                }
+                            } label: {
+                                Label("Email a Coach", systemImage: "envelope")
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                    }
                 }
             }
             .padding(.vertical, 4)
         } footer: {
+            if isPro {
+                Text("For a social bio: tap and hold to copy.\n\(RecruitingShareTools.bioBlurb(sport: athlete.sport, url: url))")
+                    .textSelection(.enabled)
+            }
+        }
+    }
+
+    /// Total / this-week / last-viewed. The counts come off the profile doc
+    /// (written by serveRecruitingProfile, digested by recruitingViewDigest);
+    /// link unfurlers and bots are already excluded server-side.
+    private var activitySection: some View {
+        Section("Profile Activity") {
             if let status {
-                Text(viewCountText(status.viewCount))
+                LabeledContent("Total views", value: "\(status.viewCount)")
+                LabeledContent("This week", value: "\(status.viewsThisWeek)")
+                if let lastViewedAt = status.lastViewedAt {
+                    LabeledContent("Last viewed",
+                                   value: lastViewedAt.formatted(.relative(presentation: .named)))
+                }
             }
         }
     }
@@ -339,11 +416,15 @@ struct RecruitingPublishView: View {
                 athlete.recruiting = info      // sets needsSync
                 ErrorHandlerService.shared.saveContext(modelContext, caller: "RecruitingPublishView.publish")
             }
-            if result.skippedClipCount > 0 {
-                let n = result.skippedClipCount
-                noticeMessage = "\(n) clip\(n == 1 ? "" : "s") couldn't be included — the video isn't in your cloud storage any more. Everything else is live."
-            }
             status = try? await RecruitingProfileService.shared.fetchStatus(athleteId: athleteId)
+            let success = PublishSuccess(url: result.url, skipped: result.skippedClipCount)
+            // A publish resumed from the paywall can finish before its sheet is
+            // off screen — park the result until then (see pendingSuccess).
+            if showingPaywall {
+                pendingSuccess = success
+            } else {
+                publishSuccess = success
+            }
             // `user` was captured pre-await, but it's a @Model reference, not a
             // value — syncAthletes reads its properties, so it needs the same
             // liveness check as the athlete.
@@ -371,11 +452,12 @@ struct RecruitingPublishView: View {
         }
     }
 
-    private func viewCountText(_ count: Int) -> String {
-        switch count {
-        case 0: return "Not viewed yet."
-        case 1: return "Viewed 1 time."
-        default: return "Viewed \(count) times."
-        }
+    private func coachEmailURL(url: URL) -> URL? {
+        RecruitingShareTools.coachEmailURL(
+            athleteName: athlete.name,
+            info: athlete.recruiting,
+            isGolf: (athlete.sport ?? .baseball) == .golf,
+            url: url
+        )
     }
 }

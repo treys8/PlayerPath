@@ -45,9 +45,24 @@
 
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
+import { sendPushNotification } from './push';
 
 /** Signed media URLs live an hour — long enough to watch, short enough to rot. */
 const SIGNED_URL_HOURS = 1;
+
+/**
+ * How long a profile must go un-notified before a view earns an INSTANT push;
+ * anything inside the window rolls into the daily digest instead.
+ */
+const NOTIFY_QUIET_MS = 24 * 60 * 60 * 1000;
+
+/** How many trailing days of per-day view buckets the doc keeps. */
+const DAILY_VIEWS_RETENTION_DAYS = 14;
+
+/** "2026-07-25" — dailyViews map keys. UTC everywhere; the app only sums them. */
+function utcDayKey(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
 
 /** Mirrors RecruitingProfileService.maxHighlights and the firestore.rules cap. */
 const MAX_HIGHLIGHTS = 8;
@@ -525,17 +540,64 @@ ${contactSection(data.contact)}
 
     // Count real visits only. Awaited rather than fire-and-forget: the instance
     // can be frozen the moment the response flushes, which drops the write.
-    // Never let the counter's failure cost the page, though — it's a vanity
-    // metric and the film is what matters.
+    // Never let analytics' failure cost the page, though — the film is what
+    // matters. NOTE: the client's publish is a full-overwrite setData, so every
+    // field written here must be carried forward in
+    // RecruitingProfileService.publish or a republish erases it.
     const ua = String(req.headers['user-agent'] || '');
     if (req.method === 'GET' && !BOT_UA.test(ua)) {
       try {
-        await doc.ref.update({
-          viewCount: admin.firestore.FieldValue.increment(1),
-          lastViewedAt: admin.firestore.FieldValue.serverTimestamp(),
+        // Throttled "just viewed" push: at most one instant push per quiet
+        // period; every further view accumulates silently until the daily
+        // digest (recruitingViewDigest). A showcase weekend must feel alive,
+        // not ring the athlete's phone fifteen times an hour.
+        //
+        // The quiet check runs in a TRANSACTION against a fresh read: `data`
+        // was snapshotted before URL signing, hundreds of ms ago, and the
+        // link-blast moment this feature exists for is exactly when two first
+        // clicks land together — both would read a stale lastNotifiedAt,
+        // double-push, and leave notifiedViewCount one behind viewCount (a
+        // ghost digest that evening). First committer wins; the loser sees the
+        // fresh stamp and stays silent.
+        const isQuiet = await admin.firestore().runTransaction(async (tx) => {
+          const fresh = await tx.get(doc.ref);
+          const fd = (fresh.data() || {}) as Record<string, unknown>;
+          const lastNotifiedAt =
+            fd.lastNotifiedAt instanceof admin.firestore.Timestamp
+              ? fd.lastNotifiedAt.toMillis()
+              : 0;
+          const quiet = Date.now() - lastNotifiedAt > NOTIFY_QUIET_MS;
+
+          const update: Record<string, unknown> = {
+            viewCount: admin.firestore.FieldValue.increment(1),
+            // Per-day buckets (UTC keys) behind "views this week" in the app.
+            // Write-only here; recruitingViewDigest prunes keys older than 14d.
+            [`dailyViews.${utcDayKey(new Date())}`]: admin.firestore.FieldValue.increment(1),
+            lastViewedAt: admin.firestore.FieldValue.serverTimestamp(),
+          };
+          if (quiet) {
+            update.lastNotifiedAt = admin.firestore.FieldValue.serverTimestamp();
+            // Counter snapshot INCLUDING this view — the digest pushes only
+            // when viewCount has moved past this watermark.
+            update.notifiedViewCount =
+              (typeof fd.viewCount === 'number' ? fd.viewCount : 0) + 1;
+          }
+          tx.update(doc.ref, update);
+          return quiet;
         });
+
+        // After the stamp lands, so a failed write can't spam: no stamp, no
+        // push. sendPushNotification is itself best-effort and never throws.
+        if (isQuiet) {
+          await sendPushNotification(
+            ownerUID,
+            'Your recruiting profile was viewed',
+            `Someone just opened ${typeof data.name === 'string' ? data.name : 'your athlete'}'s page.`,
+            { type: 'recruiting_view' }
+          );
+        }
       } catch (error) {
-        console.warn('serveRecruitingProfile: viewCount', error);
+        console.warn('serveRecruitingProfile: view analytics', error);
       }
     }
 
@@ -552,3 +614,80 @@ ${contactSection(data.contact)}
     }
   }
 });
+
+/**
+ * Daily digest for the views the instant-push throttle held back.
+ *
+ * 01:00 UTC ≈ 7–8pm Central — evening, when a "coaches looked at your page
+ * today" push actually gets read. The window is 25h rather than "since UTC
+ * midnight" so views landing between one run and the next day-roll can't fall
+ * through the gap.
+ *
+ * The same sweep prunes dailyViews keys past retention — the render path stays
+ * write-only, and a doc nobody views keeps at most stale-but-harmless keys the
+ * client never sums (it only reads the trailing 7 days).
+ */
+export const recruitingViewDigest = functions.pubsub
+  .schedule('0 1 * * *')
+  .timeZone('UTC')
+  .onRun(async () => {
+    const db = admin.firestore();
+    const windowStart = admin.firestore.Timestamp.fromMillis(
+      Date.now() - 25 * 60 * 60 * 1000
+    );
+    // Single-field range — no composite index needed.
+    const snap = await db
+      .collection('recruitingProfiles')
+      .where('lastViewedAt', '>', windowStart)
+      .get();
+
+    const cutoffKey = utcDayKey(
+      new Date(Date.now() - DAILY_VIEWS_RETENTION_DAYS * 24 * 60 * 60 * 1000)
+    );
+
+    let digests = 0;
+    for (const doc of snap.docs) {
+      try {
+        const data = doc.data() as Record<string, unknown>;
+        const update: Record<string, unknown> = {};
+
+        const dailyViews = (data.dailyViews || {}) as Record<string, unknown>;
+        for (const key of Object.keys(dailyViews)) {
+          if (key < cutoffKey) {
+            update[`dailyViews.${key}`] = admin.firestore.FieldValue.delete();
+          }
+        }
+
+        const viewCount = typeof data.viewCount === 'number' ? data.viewCount : 0;
+        const notified =
+          typeof data.notifiedViewCount === 'number' ? data.notifiedViewCount : 0;
+        const unnotified = viewCount - notified;
+        // isPublished can't be false here in practice (an unpublished page never
+        // renders, so lastViewedAt stops moving), but an unpublish AFTER today's
+        // views would still land in the window — and a "coaches viewed it" push
+        // about a page the athlete just took down reads as a malfunction.
+        if (unnotified > 0 && data.isPublished === true && typeof data.userId === 'string') {
+          update.notifiedViewCount = viewCount;
+          update.lastNotifiedAt = admin.firestore.FieldValue.serverTimestamp();
+          await doc.ref.update(update);
+          const name = typeof data.name === 'string' ? data.name : 'Your athlete';
+          await sendPushNotification(
+            data.userId,
+            'Your recruiting profile was viewed',
+            // "today" would overstate: the delta can include quiet-window
+            // views from before the UTC day rolled.
+            unnotified === 1
+              ? `${name}'s page was opened 1 more time.`
+              : `${name}'s page was opened ${unnotified} more times.`,
+            { type: 'recruiting_view' }
+          );
+          digests++;
+        } else if (Object.keys(update).length > 0) {
+          await doc.ref.update(update);
+        }
+      } catch (error) {
+        console.warn(`recruitingViewDigest: ${doc.id}`, error);
+      }
+    }
+    console.log(`✅ recruitingViewDigest: ${snap.size} active profile(s), ${digests} digest(s) sent`);
+  });
