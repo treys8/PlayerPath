@@ -4,7 +4,7 @@
   "private": true,
   "description": "Firestore security-rules tests, run against the emulator.",
   "scripts": {
-    "test": "firebase emulators:exec --only firestore --project playerpath-rules-test 'node --test recruitingProfiles.test.mjs'"
+    "test": "NODE_BIN=\"$(command -v node)\" firebase emulators:exec --only firestore --project playerpath-rules-test '\"$NODE_BIN\" --test recruitingProfiles.test.mjs'"
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^3.0.4",

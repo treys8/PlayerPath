@@ -236,6 +236,21 @@ describe('recruitingProfiles — read', () => {
     await seedProfile(PRO_UID);
     await assertFails(getDoc(doc(anonDb(), PROFILE)));
   });
+
+  // Regression: every other read case seeds a profile first, which is why the
+  // rules shipped denying this one. publish() reads the doc BEFORE creating it
+  // (to reuse an existing shareToken) and doesn't swallow the failure, so a
+  // missing-doc denial broke the FIRST publish for every user — the feature was
+  // unusable end to end while all 29 other cases passed. Deleting this test
+  // hides that class of bug again.
+  it('allows the owner to read a profile that does NOT exist yet (first publish)', async () => {
+    await assertSucceeds(getDoc(doc(dbFor(PRO_UID), PROFILE)));
+  });
+
+  it('still denies a non-owner once the profile exists', async () => {
+    await seedProfile(PRO_UID);
+    await assertFails(getDoc(doc(dbFor(OTHER_UID), PROFILE)));
+  });
 });
 
 describe('recruitingProfiles — update', () => {

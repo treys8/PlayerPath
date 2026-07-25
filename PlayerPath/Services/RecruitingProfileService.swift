@@ -323,23 +323,46 @@ final class RecruitingProfileService {
 
 extension VideoClip {
     /// Caption shown under a clip on the published page — pre-formatted here so
-    /// the Cloud Function never needs to understand PlayResult or Club enums.
-    /// "Triple vs Eagles · Mar 12" / "Driver · Hole 7" / "Apr 22".
+    /// the Cloud Function never needs to understand PlayResult, Club, or scoring.
+    /// "Triple · vs Eagles · Mar 12" / "Birdie · Hole 14 · Jun 14" / "Driver · Jun 14".
     var recruitingLabel: String {
+        let isGolf = (athlete?.sport ?? .baseball) == .golf
         var parts: [String] = []
+
+        // Lead with the OUTCOME — it's the only part a coach scans for. On a golf
+        // clip that's the score relative to par, not the club: "Birdie" earns the
+        // rewatch, "Driver" is trivia. Club stays as the fallback for range clips,
+        // where there's no hole and so no outcome to name.
         if let result = playResult?.type.displayName, !result.isEmpty {
             parts.append(result)
+        } else if let golfOutcome {
+            parts.append(golfOutcome)
         } else if let club {
             parts.append(club.displayName)
         }
+
         if let holeNumber {
             parts.append("Hole \(holeNumber)")
         } else if let opponent = gameOpponent, !opponent.isEmpty {
-            parts.append("vs \(opponent)")
+            // `gameOpponent` holds the COURSE on a golf round, so "vs" would read
+            // as though the athlete played a match against Barton Creek.
+            parts.append(isGolf ? opponent : "vs \(opponent)")
         }
+
         if let date = gameDate ?? practiceDate ?? createdAt {
             parts.append(DateFormatter.monthDay.string(from: date))
         }
         return parts.joined(separator: " · ")
+    }
+
+    /// "Birdie" / "Eagle" / "Hole-in-One" for a golf clip stamped with a scored
+    /// hole. Reuses HoleScore.diffLabel so the page names a score exactly the way
+    /// the scorecard does.
+    private var golfOutcome: String? {
+        guard let holeNumber,
+              let hole = (game?.holeScores ?? []).first(where: { $0.holeNumber == holeNumber }),
+              hole.score > 0
+        else { return nil }
+        return hole.diffLabel
     }
 }

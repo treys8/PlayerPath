@@ -5,18 +5,25 @@ Tests `firestore.rules` against the Firestore emulator. Currently covers
 
 ## Prerequisite: Java
 
-The Firestore emulator is a Java program. **This machine has no JRE**, so the
-tests cannot run until one is installed:
+The Firestore emulator is a Java program. Homebrew on this machine lacks write
+permission to `/opt/homebrew`, so `brew install openjdk` fails without `sudo` —
+install a JDK into your home directory instead. **No sudo required:**
 
 ```bash
-# Homebrew on this machine currently lacks write permission, so fix that first:
-sudo chown -R $(whoami) /opt/homebrew
-brew install openjdk
-sudo ln -sfn /opt/homebrew/opt/openjdk/libexec/openjdk.jdk \
-             /Library/Java/JavaVirtualMachines/openjdk.jdk
+curl -sL -o /tmp/jdk.tar.gz \
+  "https://api.adoptium.net/v3/binary/latest/21/ga/mac/aarch64/jdk/hotspot/normal/eclipse"
+mkdir -p ~/.local/jdk && tar xzf /tmp/jdk.tar.gz -C ~/.local/jdk
 ```
 
-Verify with `java -version` before running the tests.
+Then export it for the shell that runs the tests (add to `~/.zshrc` to persist):
+
+```bash
+export JAVA_HOME="$(echo ~/.local/jdk/*/Contents/Home)"
+export PATH="$JAVA_HOME/bin:$PATH"
+```
+
+Verify with `java -version` before running the tests. Installed 2026-07-25:
+Temurin 21.0.11 at `~/.local/jdk/jdk-21.0.11+10/`.
 
 ## Run
 
@@ -26,6 +33,12 @@ npm install
 npm test
 ```
 
+Note the `test` script resolves `node` to an absolute path *before* invoking
+`firebase emulators:exec`. That's load-bearing: `emulators:exec` prepends its own
+bundled runtime (`~/.cache/firebase/runtime/node`) to `PATH`, and that binary is a
+`pkg`-packaged build that treats `--test` as a module path and dies with
+`Cannot find module '--test'`.
+
 `emulators:exec` boots Firestore on port 8080 (per the `emulators` block in
 `firebase.json`), runs the suite, and shuts the emulator down. Nothing touches a
 real project — the tests use the throwaway project id
@@ -34,7 +47,16 @@ test the rules as committed.
 
 ## What's covered
 
-`recruitingProfiles.test.mjs` — 29 cases across create / read / update / delete, plus the recruitingTokens claim.
+`recruitingProfiles.test.mjs` — 31 cases across create / read / update / delete, plus the recruitingTokens claim.
+
+**The bug this suite caught on its first real run (2026-07-25):** the read rule was
+`resource.data.userId == request.auth.uid` with no null guard. On a *missing* doc
+`resource` is null, so `resource.data` raises a Null value error and the rule
+denies. `publish()` reads the profile doc before creating it (to reuse an existing
+`shareToken`) and deliberately doesn't swallow that failure — so **every first
+publish failed for every user**, while all 29 original cases passed, because each
+one seeded a doc first. Fixed with `resource == null ||`; the regression case is
+"allows the owner to read a profile that does NOT exist yet". Don't delete it.
 
 The two that matter most, because they look like one rule and are two:
 

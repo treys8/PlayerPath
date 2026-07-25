@@ -1066,8 +1066,19 @@ service cloud.firestore {
     // SDK (bypassing rules) and renders HTML. Adding a public read here would
     // expose every field, including the PII the publish path is careful to omit.
     match /recruitingProfiles/{athleteID} {
+      // `resource == null` FIRST: on a missing document `resource` is null, so
+      // reading `resource.data` raises a Null value error, and an errored rule
+      // denies. Without this guard the FIRST publish always failed — publish()
+      // reads this doc before writing (to reuse an existing shareToken) and
+      // deliberately doesn't swallow the failure, so a brand-new profile could
+      // never be created by anyone. fetchStatus() and deleteProfileDoc() hit the
+      // same rule and were failing silently behind `try?`.
+      // The residual disclosure is existence-only — a missing doc has no data to
+      // leak, and an authenticated caller must already know the athlete UUID to
+      // ask. An existing doc owned by someone else is still denied.
       allow read, delete: if isAuthenticated()
-                          && resource.data.userId == request.auth.uid;
+                          && (resource == null
+                              || resource.data.userId == request.auth.uid);
 
       // Publishing is the athlete-Pro hook, so creation requires Pro.
       //

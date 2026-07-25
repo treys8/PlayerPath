@@ -129,12 +129,28 @@ nonisolated struct RecruitingInfo: Codable, Equatable {
 // something differently from what the athlete previewed.
 
 extension RecruitingInfo {
-    /// "Class of 2027 · SS" — position is baseball/softball only.
+    /// "Class of 2027 · SS / 2B, OF" — positions are baseball/softball only.
     func subline(isGolf: Bool) -> String? {
         var parts: [String] = []
         if let gradYear { parts.append("Class of \(gradYear)") }
-        if !isGolf, let primaryPosition, !primaryPosition.isEmpty { parts.append(primaryPosition) }
+        if !isGolf, let positionLine { parts.append(positionLine) }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// "SS" / "SS / 2B, OF". Secondary positions ride along with the primary
+    /// rather than being dropped: a kid who can cover three spots is worth more
+    /// to a college roster than one who can't, and that's the whole reason the
+    /// editor asks for them.
+    var positionLine: String? {
+        let primary = primaryPosition?.trimmingCharacters(in: .whitespaces)
+        let secondary = secondaryPosition?.trimmingCharacters(in: .whitespaces)
+        switch (primary?.isEmpty == false ? primary : nil,
+                secondary?.isEmpty == false ? secondary : nil) {
+        case let (primary?, secondary?): return "\(primary) / \(secondary)"
+        case let (primary?, nil):        return primary
+        case let (nil, secondary?):      return secondary
+        default:                         return nil
+        }
     }
 
     /// "6'1\" · 180 lbs · B/T R/R · Austin, TX"
@@ -220,6 +236,7 @@ extension RecruitingInfo {
         if bio?.isEmpty == false { n += 1 }
         if headshotCloudURL?.isEmpty == false { n += 1 }
         if primaryPosition?.isEmpty == false { n += 1 }
+        if secondaryPosition?.isEmpty == false { n += 1 }
         if bats?.isEmpty == false { n += 1 }
         if throwsHand?.isEmpty == false { n += 1 }
         if sixtyYardDash != nil { n += 1 }
