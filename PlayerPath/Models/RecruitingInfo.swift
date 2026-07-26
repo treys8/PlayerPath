@@ -86,6 +86,28 @@ nonisolated struct RecruitingInfo: Codable, Equatable {
     /// `publishConsentAt` — it syncs across the owner's devices for free.
     var publishedClipIDs: [UUID]?
 
+    /// The contact/academic kinds (`RecruitingStatItem.Kind` raw values — `gpa`,
+    /// `email`, `phone`) that the last publish actually made public.
+    ///
+    /// Consent is taken ONCE, before the first publish, and `publishConsentAt` is
+    /// then carried forward forever — so a republish that newly exposes a minor's
+    /// phone number used to go out with no confirmation and no change summary.
+    /// This records what has already been consented to, so the gate can re-arm for
+    /// anything NEW rather than for everything or nothing.
+    ///
+    /// **Nil means "unknown baseline", not "nothing was public"** — a profile
+    /// published before this field existed can't be diffed, and claiming a field is
+    /// newly public there would be a guess. Nothing is re-prompted in that state;
+    /// the next publish records the baseline and heals it. Same silent-when-unknown
+    /// rule as P3.1's stale-highlight count.
+    ///
+    /// Publish-owned like `publishConsentAt` and `publishedClipIDs`, so it needs
+    /// the same three protections: the nil-never-overwrites rule in
+    /// `mergedRecruitingBlob`, a carry-forward line in the editor's
+    /// `persistIfChanged`, and (already handled) the unknown-key sidecar so an
+    /// older build doesn't destroy it on the first bio edit.
+    var publishedContactKinds: [String]?
+
     /// Blob keys this build doesn't model, carried through untouched.
     ///
     /// The `recruiting` accessor re-encodes the WHOLE struct on every write, so
@@ -103,7 +125,7 @@ nonisolated struct RecruitingInfo: Codable, Equatable {
         case primaryPosition, secondaryPosition, bats, throwsHand, showMeasurables
         case sixtyYardDash, exitVelo, throwingVelo, pitchVelo
         case gpa, includeGPA, contactEmail, includeContactEmail, contactPhone, includeContactPhone
-        case publishConsentAt, publishedClipIDs
+        case publishConsentAt, publishedClipIDs, publishedContactKinds
     }
 
     /// Every key this build models. Anything in the stored blob that isn't here is
@@ -114,7 +136,7 @@ nonisolated struct RecruitingInfo: Codable, Equatable {
          .secondaryPosition, .bats, .throwsHand, .showMeasurables, .sixtyYardDash,
          .exitVelo, .throwingVelo, .pitchVelo, .gpa, .includeGPA, .contactEmail,
          .includeContactEmail, .contactPhone, .includeContactPhone,
-         .publishConsentAt, .publishedClipIDs].map(\.rawValue)
+         .publishConsentAt, .publishedClipIDs, .publishedContactKinds].map(\.rawValue)
     )
 
     /// Decodes one key, degrading a bad VALUE to nil instead of throwing.
@@ -164,6 +186,7 @@ nonisolated struct RecruitingInfo: Codable, Equatable {
         includeContactPhone = Self.lenient(c, Bool.self, .includeContactPhone) ?? false
         publishConsentAt = Self.lenient(c, Date.self, .publishConsentAt)
         publishedClipIDs = Self.lenient(c, [UUID].self, .publishedClipIDs)
+        publishedContactKinds = Self.lenient(c, [String].self, .publishedContactKinds)
 
         // Anything this build doesn't model. Best-effort: a blob that somehow
         // isn't a plain JSON object must not make the whole bio undecodable —
@@ -209,6 +232,7 @@ nonisolated struct RecruitingInfo: Codable, Equatable {
         try c.encode(includeContactPhone, forKey: .includeContactPhone)
         try c.encodeIfPresent(publishConsentAt, forKey: .publishConsentAt)
         try c.encodeIfPresent(publishedClipIDs, forKey: .publishedClipIDs)
+        try c.encodeIfPresent(publishedContactKinds, forKey: .publishedContactKinds)
 
         // Same encoder, second keyed container: JSONEncoder merges both into one
         // object. A stale key can never shadow a real one — knownKeys was filtered
@@ -326,6 +350,18 @@ extension RecruitingInfo {
             items.append(.init(kind: .phone, label: "Phone", value: contactPhone))
         }
         return items
+    }
+
+    /// Contact/academic kinds that are opted in NOW but weren't on the last
+    /// published page — i.e. what a republish would newly expose.
+    ///
+    /// Empty when `publishedContactKinds` is nil: unknown baseline, so nothing can
+    /// honestly be called new (see that property). Also empty on a first publish,
+    /// where the blanket consent gate covers it instead.
+    var newlyPublicContactKinds: [RecruitingStatItem.Kind] {
+        guard let publishedContactKinds else { return [] }
+        let alreadyPublic = Set(publishedContactKinds)
+        return visibleContactItems.map(\.kind).filter { !alreadyPublic.contains($0.rawValue) }
     }
 
     /// True when the published page carries a way for a coach to actually reply.
@@ -447,6 +483,10 @@ extension Athlete {
         }
         if merged.publishConsentAt == nil { merged.publishConsentAt = local.publishConsentAt }
         if merged.publishedClipIDs == nil { merged.publishedClipIDs = local.publishedClipIDs }
+        // Losing this would silently DISARM the re-consent gate: a nil baseline
+        // reads as "unknown", so every already-public field would look consented
+        // and a newly-shared phone number would publish with no re-prompt.
+        if merged.publishedContactKinds == nil { merged.publishedContactKinds = local.publishedContactKinds }
 
         guard let data = try? JSONEncoder().encode(merged),
               let json = String(data: data, encoding: .utf8) else { return incoming }

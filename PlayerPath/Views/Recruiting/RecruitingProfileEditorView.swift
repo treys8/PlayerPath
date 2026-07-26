@@ -489,6 +489,10 @@ struct RecruitingProfileEditorView: View {
         let saved = athlete.recruiting
         working.publishConsentAt = saved.publishConsentAt ?? working.publishConsentAt
         working.publishedClipIDs = saved.publishedClipIDs ?? working.publishedClipIDs
+        // Without this the autosave erases the re-consent baseline on the way out,
+        // which reads as "unknown" and disarms the gate — so the very next
+        // republish would newly expose a phone number with no re-prompt.
+        working.publishedContactKinds = saved.publishedContactKinds ?? working.publishedContactKinds
 
         guard working != athlete.recruiting else { return }
         let isFirstSave = !athlete.hasRecruitingProfile

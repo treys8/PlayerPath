@@ -1,42 +1,53 @@
 # Recruiting Profile — Implementation Review & Fix Plan
 
-**Date:** 2026-07-25 · **Reviewed at:** working tree on `main`, uncommitted, `MARKETING_VERSION 6.4.2` / `CURRENT_PROJECT_VERSION 206`
-**Scope:** Phase 1 + Phase 2 (public link) + Phase 3 (analytics/push/share tools) + the uncommitted Reset Link & share-card polish.
+**Review date:** 2026-07-25 · **Last updated:** 2026-07-26 · **Code state:** committed through `a21e2fd`, 6.4.3 / 207
+**Scope:** Phase 1 + Phase 2 (public link) + Phase 3 (analytics/push/share tools) + the Reset Link & share-card polish.
 **Method:** 7 parallel dimension reviewers (rules/authz, Cloud Function, Swift service, SwiftUI, sync/model, push loop, product) → adversarial refutation pass → completeness critic. 36 findings survived refutation, 7 were refuted, 4 added by the critic.
 
 ---
 
-## 0. FIX STATUS — read this first (updated 2026-07-26, client batch)
+## 0. STATUS — read this first
 
-**37 of 40 findings are DONE, 1 is partial, 2 are left.** (Earlier drafts said "12 left" — that number
-double-counted the device-test line and never reconciled: 32 + 1 + 12 = 45 against a 40-finding total.
-Recounted item by item below; the real remainder is **P3.7** and **N2**.)
+**Last updated 2026-07-26.** All code is written and deployed except two items; the remaining blocker is
+device testing, not development.
 
-✅ **CLIENT BATCH — 2026-07-26, committed on top of `f9d8308`.** P3.4, P3.3 (warning half), P3.8, P3.9 and
-N3, all client-only, no CF redeploy and no schema change. Build gate: **BUILD SUCCEEDED**.
-**Version bumped to 6.4.3 / 207** (both Debug and Release) — this tree is ready for a device build.
+| | |
+|---|---|
+| **Findings** | **38 of 40 done**, 1 partial (P2.8's paging), **1 left** (N2) |
+| **By group** | P0 1/1 · P1 8/8 · P2 8/9 · P3 9/9 · P4 10/10 · N 2/3 |
+| **Cloud Functions** | ✅ All deployed (5 deploys, latest 2026-07-26) |
+| **`firestore.rules`** | ✅ Released to prod |
+| **Client** | ✅ Committed through `a21e2fd`; **6.4.3 / 207**, both configs |
+| **Gates** | iOS build ✅ · `tsc` ✅ · blob harness **49/49** · rules ⚠️ not re-run (no JDK, see below) |
+| **Device tests** | ⚠️ **1 of ~14 run** — the real blocker. List at the end of §9 |
 
-**§9 execution order steps 1–15 are COMPLETE (2026-07-26): the P3.2 CF deploy, the five cheap P4 fixes, and
-the whole CF batch — P2.2, P4.1, P4.2, P4.3, P4.9 — plus new finding N1.**
+**Everything client-side in this review is closed.** What's left both needs a Cloud Function redeploy and
+neither is broken today:
 
-✅ **CF BATCH DEPLOYED 2026-07-26** (`npm run build` → freshness guard → all functions "Successful update").
-Live proof the new segment parser shipped: `/p/{token}/poster` now 404s as **text/plain**, where the old
-build treated `poster` as the token and returned an HTML 404 page.
+1. **N2** — the share token is a 36-char UUID, unreadable on the QR/bio/verbal channels the feature bets on.
+   `TOKEN_RE` must keep accepting UUIDs or every already-shared link dies. ~1.5 h.
+2. **P2.8 (rest)** — the digest query has no limit/cursor and writes serially. Scale-conditional (~800–1000
+   in-window profiles), but a killed pass loses that night's deltas *permanently*. ~1.5 h.
 
-⚠️ **The client half is NOT on any device yet.** `sport` in the subline and `filmDateRange` are written by
-`publish()`, so until Trey builds the current tree and REPUBLISHES, a live page shows the new film header,
-clip count, runtime, provenance and "Updated ‹Month›" — but **no date range and no sport**. Those two are not
-broken; the fields simply aren't on the doc yet.
+Also deferred **deliberately** — these are not open findings:
+- **P3.3's coach/parent reference block.** Scoped as a separate feature proposal from the start; needs a blob
+  field AND a CF render change. P3.3's actual defect (no publish-time warning) is done.
+- **N1's residual.** The ~30-day soft-delete window still serves a deleted clip publicly. Closing it means
+  removing the highlight from `recruitingProfiles` at clip-delete time.
 
-**Next: device tests.** One publish round-trip is done (page renders, view count ticks); everything else is
-untested.
+⚠️ **The rules-test suite cannot run on this machine** — `firebase emulators:exec` needs a JVM and only the
+`/usr/bin/java` stub is installed (no JDK). `firestore.rules` is untouched since its release, and every new
+client-written field passes because `recruitingProfiles` uses `hasAll`, not `hasOnly`. Re-run the 42/42 suite
+wherever Java is available.
 
-⚠️ **The rules-test gate could NOT be run this session** — `firebase emulators:exec` needs a JVM and this
-machine has only the `/usr/bin/java` stub (no JDK). `firestore.rules` was not modified, and the one new
-client-written field (`filmDateRange`) passes because `recruitingProfiles` uses `hasAll`, not `hasOnly` —
-but the 42/42 suite is unverified since the earlier release. Re-run it wherever Java is available.
-Do not re-do anything marked ✅ DONE below; §2's "not yet deployed" table is now obsolete.
-(Note: the execution order is §9 — earlier drafts of this doc called it §7.)
+⚠️ **A published page only shows the newest fields after a REPUBLISH.** `sport` in the subline and
+`filmDateRange` are written by `publish()`, so a page published before the client half shipped renders the
+film header, clip count, runtime, provenance and "Updated ‹Month›" but no date range and no sport. Not broken
+— the fields simply aren't on that doc yet.
+
+Do not re-do anything marked ✅ below. §2 is historical; its "not yet deployed" table is obsolete.
+
+### Per-finding record
 
 | Finding | Status |
 |---|---|
@@ -77,7 +88,8 @@ Do not re-do anything marked ✅ DONE below; §2's "not yet deployed" table is n
 | **P3.3** published page can dead-end (warning half) | ✅ **DONE 2026-07-26.** ⚠️ **Placed in the readiness checklist, not the publish footer as the fix text said** — it rides the "Email or phone" row's consequence line ("A coach who scans your QR code has no way to reach you."), which is the same screen and the same moment but sits next to the item it's about instead of stacking a third sentence under the button. Same for P3.4's grad-year line ("Recruiting class is the first thing a coach filters on."). Coverage is equivalent: the section renders whenever either is missing. **The coach/parent reference block is NOT done and was never part of this finding's defect** — the fix text scoped it as a separate feature proposal. |
 | **P3.8** unpublish keeps PII + headshot at rest | ✅ **DONE 2026-07-26.** New `deleteDataSection` + `deleteProfileData()`: `deleteProfileDoc` then a best-effort `deleteRecruitingHeadshot`, and it **clears `headshotCloudURL` locally** because the stored download URL 404s once the object is gone (safe to propagate — only `publishConsentAt` and `publishedClipIDs` are nil-protected by `mergedRecruitingBlob`). **Not tier-gated**, same reasoning as unpublish. Needed its own **connectivity guard in the view**, NOT in the service: `deleteProfileDoc` is deliberately unguarded so `Athlete.delete` can ride Firestore's offline queue rather than skip and leave a deleted athlete's page live — but as a foreground action behind `isWorking` it would hang with the kill switch disabled (P1.6's failure). `status` is set to nil **directly instead of via `refreshStatus`**, since a throwing re-read would raise "couldn't check whether this profile is live" over a profile just deleted on purpose. New `recruiting_profile_data_deleted` analytics event rather than reusing unpublish — this is a family withdrawing, not seasonal churn. |
 | **P3.9** two-sport athletes break `name · sport` | ✅ **DONE 2026-07-26.** New `Athlete.nameWithSportIfShared` (same `siblings > 1` rule as `PPAthleteSwitcher.rowTitle`) applied at 5 surfaces: the editor header, the Profile-tab row, the More-tab row, `RecruitingShareCard`, and the QR sheet. **Deliberately NOT the mailto subject or the page `<h1>`** — both already carry `subline`, which names the sport since P4.2, so qualifying the name there would print it twice ("Jordan Smith · Golf — Class of 2027 · Golf — Game Film"). That's also why the CF needs no redeploy for this finding. |
-| **P3.7, N2, P2.8 (rest)** | ⬜ **NOT STARTED** — the whole remainder. |
+| **P3.7** consent taken once forever | ✅ **DONE 2026-07-26.** New `publishedContactKinds: [String]?` in the blob (all four Codable sites: CodingKeys, `knownKeys`, lenient decoder, hand-written encoder) + `newlyPublicContactKinds` diff. `needsConsent` now re-arms when a republish would newly expose a kind, with its own header/toggle/footer copy naming the exact fields ("This update makes Jordan's phone number and email address public."). **Nil baseline = "unknown", never "nothing was public"** — a profile published before the field existed isn't re-prompted for what it already shows; the next publish records the baseline and heals it (same silent-when-unknown rule as P3.1). Three protections wired, all mandatory: `mergedRecruitingBlob` nil-guard, a `persistIfChanged` carry-forward line, and the P1.4 sidecar. **`publishConsentAt` is stamped on `info.publishConsentAt == nil`, NOT on `needsConsent`** — that flag is now also true for a re-consent, and re-stamping would overwrite the documented FIRST-guardian-confirmation date. `consentAcknowledged` resets only when the newly-public SET changes, so pull-to-refresh can't clear a tick but a set that grows re-arms. |
+| **N2, P2.8 (rest)** | ⬜ **NOT STARTED** — the whole remainder. Both need a CF redeploy. |
 
 **P3.2 notes.** `displayLink` strips the query, so the on-screen URL never shows the marker while every shared
 copy carries it. `mail` and `bio` are tagged INSIDE `coachEmailURL`/`bioBlurb` (those builders own their
@@ -102,9 +114,17 @@ functions`, all functions "Successful update"). Verified live: `recruitingViewDi
 token on `https://profiles.playerpath.net` returns **404 + the styled "Profile unavailable" page**. Rules were
 NOT touched by this batch.
 
-### Self-review of the 2026-07-26 batch — 2 defects found in the fixes themselves
+### Self-review — 9 defects found in the fixes themselves
 
-Both were caught reviewing the batch AFTER it deployed, and both are now fixed and redeployed.
+Every batch was re-reviewed after being written. That pass has now caught **nine** defects across three
+batches — including one guaranteed-to-fire data bug (S3) — so it is the single highest-yield step in this
+whole effort. Two lessons worth carrying: the traps that bite are the ones **already documented elsewhere in
+the codebase** (S3, S4 and S7 each repeated a footgun with an existing written warning), and **comments go
+stale under fixes too** (S9) — re-read the ones a fix invalidates, not just the code.
+
+All nine are fixed; CF-side ones (S1, S2) are redeployed, client-side ones are build-verified.
+
+**Batch 1 (CF, 2026-07-26) — caught after deploying:**
 
 | # | Defect I introduced | Fix |
 |---|---|---|
@@ -113,9 +133,7 @@ Both were caught reviewing the batch AFTER it deployed, and both are now fixed a
 
 **Checked and found correct** (worth not re-deriving): `missingStoragePaths` marks a path missing **only** on a genuine `objectNotFound` — a transient network error yields `isGone = false`. So P4.8's new `highlightsMissingFromCloud` copy ("no longer in your cloud backup") cannot fire on a connectivity blip, which would have been the same wrong-copy defect P4.8 exists to fix. Also verified: the JS rendition base-name derivation matches Swift's `NSString.deletingPathExtension` for multi-dot and extensionless names.
 
-### Self-review of client batch #2 — 4 defects found in the fixes themselves
-
-Same pattern as the S1/S2 pass: reviewing the batch after writing it. All four are fixed, build re-verified.
+**Batch 2 (client: P3.4 / P3.3 / P3.8 / P3.9 / N3):**
 
 | # | Defect I introduced | Fix |
 |---|---|---|
@@ -126,8 +144,22 @@ Same pattern as the S1/S2 pass: reviewing the batch after writing it. All four a
 
 **Also checked and found correct** (worth not re-deriving): **no Cloud Function writes `updatedAt`** — the view path increments `viewCount`/`dailyViews`/`channelViews` and stamps `lastViewedAt`, and the digest writes `notifiedViewCount`/`lastDigestAt`/prunes, but none touch `updatedAt`. So N3's "updated ‹date›" is a genuine content-freshness signal, not a view counter. The CF's own `updatedLabel` doc comment reaches the same conclusion independently. **Note the deliberate divergence:** the page renders `updatedAt` at **month granularity in UTC** (a coach shouldn't be invited to ask "why does it say yesterday"), while the in-app row renders the **full date in local time** (matching the existing "Live since" line and `DateFormatter.mediumDate`). At a month boundary the page can say "Updated June" while the app says "updated Jul 1" — the same UTC-vs-local tension already accepted for `filmDateRange`. Don't "fix" one to match the other.
 
-**New follow-up (not from the original 40):**
-- **`unpublish()` and `resetLink()` lack the `seededAthleteID` witness** that `publish()` and now `deleteProfileData()` carry. Both read `athlete.id` fresh, so on a re-rendered view they act on an athlete other than the one whose link and counts are on screen. `resetLink` is irreversible. ~15 min, client-only.
+**New follow-up (not from the original 40) — ✅ DONE 2026-07-26:**
+- **`unpublish()` and `resetLink()` lacked the `seededAthleteID` witness** that `publish()` carries. Both read `athlete.id` fresh, so on a re-rendered view they act on an athlete other than the one whose link and counts are on screen — and `resetLink` is irreversible (the abandoned token can never be re-claimed, so every printed QR code dies with it). Now all four write actions go through one `confirmSeededAthlete()` gate. **It reports rather than returning silently**, unlike `publish()`'s original bare guard: two of the four callers are Unpublish and Reset Link, and a kill switch that quietly does nothing when tapped is its own failure mode — the same one the "never gate the route" rule exists to prevent.
+
+**Batch 3 (client: P3.7 + the `seededAthleteID` witness):**
+
+| # | Defect I introduced | Fix |
+|---|---|---|
+| **S7** | **`needsConsent` and `isReConsent` each decoded the recruiting blob, in `body`.** Between the two they were evaluated up to **five times per render** (`needsConsent` directly, again through `canPublish`, and `isReConsent` three times inside `consentSection`) — so P3.7 made a pre-existing 2-decodes-per-render cost worse. This is the exact trap I had just documented one field above, on `readiness`. | Mirror `publishConsentAt != nil` into a `hasConsentStamp` @State set by the same refresh that computes `newlyPublicKinds`. Both gates now read @State only: **zero blob decodes in `body`**. Defaults `false` = "consent still needed", so an unrefreshed or undecodable blob fails toward MORE consent, not less. |
+| **S8** | `refreshReadiness()` had grown to own the consent gate too, so its name no longer described it — a future consent field would get added to `body` instead. | Renamed `refreshPublishGates()`, doc comment naming all three things it derives. |
+| **S9** | Two comments went stale under the fixes. `publish()` still cited "`needsConsent` reads athlete.recruiting" as the reason for its liveness guard (no longer true — it reads `info`), and `readiness` still said "Recomputed in `load()`, which is enough", which S4 had already disproved. | Both rewritten. |
+
+**Blob harness rebuilt and extended: 49/49** (`scratchpad/blobtest/` — stubs `Sport` plus a plain `Athlete` class so `RecruitingInfo.swift` compiles verbatim outside the app target; the previous session's harness was session-scoped and gone). Beyond the P3.7 field it now pins: the key is emitted **exactly once** (the real hazard of a missed `knownKeys` entry is the dynamic unknown-key container writing it a second time), nil-vs-empty-array distinctness, wrong-type values degrading to nil instead of erasing the profile, the `[String]`-shaped unknown-key round trip an older build depends on, `mergedRecruitingBlob`'s nil-guard keeping the consent gate armed, and synthesized `Equatable` seeing the new field — which `persistIfChanged`'s `working != athlete.recruiting` early-return depends on. One assertion failed on first run and was a bad test, not a bug: it compared raw JSON strings, and `JSONEncoder` key order isn't deterministic without `.sortedKeys`.
+
+**Checked and found correct:** the re-consent gate can't collide with the first-publish gate (`publishedContactKinds` is nil until the first publish, so `newlyPublicKinds` is empty exactly when `publishConsentAt` is nil); `newlyPublicContactKinds` ordering is deterministic (`visibleContactItems` is fixed gpa/email/phone), so the `!=` comparison that guards the acknowledgement reset is stable; a failed publish leaves the ticked box and the gate intact for a retry; and `newlyPublicCopy` uses the plain `athlete.name`, not `nameWithSportIfShared`, because "Jordan Smith · Golf's phone number" reads badly mid-sentence — the share card above already disambiguates.
+
+**Known, accepted:** "Delete Profile Data" clears neither `publishConsentAt` nor `publishedContactKinds`, so republishing after a delete re-prompts for neither. Defensible (both were genuinely consented to once) and consistent with the P3.8 decision above — and clearing either would be a false promise anyway, since `mergedRecruitingBlob`'s nil-never-overwrites rule lets any other device resurrect it.
 
 ### New findings — added 2026-07-26, after the original 37
 
@@ -137,69 +169,55 @@ Same pattern as the S1/S2 pass: reviewing the batch after writing it. All four a
 | **N2** | **The share token is a 36-char UUID** (`claimShareToken` → `UUID().uuidString`), so links read `profiles.playerpath.net/p/1D695788-DEE7-4298-9966-EE8…`. Not a security issue — freshly random, 122 bits, and deliberately *not* the athlete UUID, so nothing is enumerable. It is a product cost, and it lands on exactly the channels this feature bets on: the success sheet truncates it, it can't be read aloud at a showcase, it can't be typed from the QR screen's fallback text, and it eats a third of an Instagram bio. | ⬜ **NOT STARTED.** Fix: a short random slug (~10 base32 chars ≈ 50 bits; the claim loop already retries on collision). **`TOKEN_RE` is UUID-strict and must keep accepting UUIDs** or every already-shared link dies. Interacts with §8.1.9's "re-key profiles by shareToken" option. |
 | **N3** | The doc's P3.1 note says a true last-updated line "would need a new `updatedAt` field". **That field already exists** — publish has always written it (`RecruitingProfileService`), which is why P4.2 could render it server-side with no schema work. The in-app editor could show "Updated \<date\>" instead of / alongside "Live since" by adding it to `RecruitingPublishStatus`. | ✅ **DONE 2026-07-26.** `RecruitingPublishStatus` gained `updatedAt`, parsed in `fetchStatus`; the editor's clock row now reads **"Live since Feb 3, 2026 · updated Jul 26, 2026"** via a new `liveSinceText(publishedAt:updatedAt:)`. **Both dates, not one** — `publishedAt` alone tells someone who republished this morning their page is months old, and `updatedAt` alone loses how long the link has been in circulation. The updated half is **suppressed on the same calendar day** so a fresh first publish doesn't read "live since today · updated today", and both use the full date because a bare "Jul 26" repeats P4.2's year-ambiguity defect. `resetLink`'s local status reconstruction stamps `updatedAt: Date()` to mirror the server write — otherwise the row would show a date older than an action just taken. Note `updatedAt` also moves on **unpublish**, so it means "when the page last changed", including going dark. |
 
-### Scoreboard: 37 done + 1 partial, 2 left
+### Shipping order that produced this (historical)
 
-Recount by group (40 findings = 37 original + N1–N3): **P0** 1/1 · **P1** 8/8 · **P2** 8/9 (P2.8 partial) ·
-**P3** 8/9 (P3.7 left) · **P4** 10/10 · **N** 2/3 (N2 left).
-
-**LEFT TO DO, in the order I'd take it:**
-
-| # | Item | Cost | Needs CF redeploy |
-|---|---|---|---|
-| ~~0~~ | ~~Deploy P3.2's CF half~~ | ✅ **DONE 2026-07-26** | — |
-| 1 | **Device tests — 1 of ~14 run.** Full list at the end of §9. **Now unblocked: the tree builds at 6.4.3 / 207 and carries the whole client half** | — | — |
-| ~~2–6~~ | ~~P4.10 · P4.5 · P4.8 · P4.4 · P4.6~~ | ✅ **DONE 2026-07-26** (build clean) | — |
-| ~~7–9~~ | ~~P2.2 · P4.1 · P4.2+P4.3~~ + **P4.9** and new **N1** | ✅ **DONE + DEPLOYED 2026-07-26** | ✅ |
-| ~~10, 11, 13, 14~~ | ~~P3.4 · P3.8 · P3.9 · P3.3 (warning half)~~ + **N3** | ✅ **DONE 2026-07-26** (client batch, build clean) | — |
-| 2 | **P3.7** consent taken once forever — later PII opt-ins publish with no re-prompt (COPPA-adjacent). Needs a new `publishedContactKinds` blob field, so it also needs P1.4's unknown-key sidecar (already shipped) | ~1 h | — |
-| 3 | **N2** share token is a 36-char UUID — unreadable on the QR/bio/verbal channels the feature bets on. `TOKEN_RE` must keep accepting UUIDs or live links die | ~1.5 h | ✅ |
-| 4 | **P2.8 (rest)** digest query paging/batching — scale-conditional, but a killed pass loses that night's deltas permanently | ~1.5 h | ✅ |
-
-Ordering logic: device tests first — they can invalidate anything below, and nothing left is urgent. Then P3.7
-(the only remaining item with a compliance edge), then the two that need a CF redeploy, grouped into **one**
-deploy if they land together. P2.8's paging is last because nothing is broken today.
-
-**Also deferred, deliberately (not open findings):**
-- **P3.3's coach/parent reference block** — `coachName`/`coachRole`/`coachEmail`/`includeCoachContact` rendered as a second contact group. The recruiting-normal, minor-safe reply channel. Scoped as a separate feature proposal from the start; needs a blob field AND a CF render change.
-- **N1's residual** — the ~30-day soft-delete window still serves a deleted clip publicly. Closing it means removing the highlight from `recruitingProfiles` at clip-delete time.
+Kept only because the sequencing reasoning may be worth reusing: rules release first (it unblocked Reset Link
+in prod) → **P0.1's codec**, since nothing else in this document matters if the film doesn't play → the three
+that touch money and the kill switch (P1.1/P1.2/P1.6) as one edit → the data-integrity pair (P1.3/P1.4) as one
+edit → client-only fixes → CF work grouped into as few redeploys as possible → product gaps → the
+scale-conditional item last. **What's left is §9; the live counts are at the top of §0.**
 
 **Carry these forward:**
-- ✅ **Client work is COMMITTED** — `f9d8308` carried the earlier batch; this batch sits on top of it. (Trey also commits outside these sessions, so still `git status` fresh.)
-- ✅ **Version/build bumped to 6.4.3 / 207** (both Debug and Release), so a device build is ready to go.
-- 🚨 **`firebase deploy --only functions` does NOT compile TypeScript.** It uploads `lib/` as-is while reporting success. **Always `cd firebase/functions && npm run build` first.** A predeploy guard (`firebase/functions/check-build-fresh.sh`) now blocks a stale deploy. This was the root cause of §2's deployment drift.
-- P1.5 is fixed, so the deployed `athleteId` push payload now deep-links correctly — but that path is **only reachable on a multi-athlete account** and is still device-untested.
-- Blob serialization has a **35-assertion scratch harness** — the repo has no test target, so re-run it if `RecruitingInfo` changes.
+- 🚨 **`firebase deploy --only functions` does NOT compile TypeScript** — always `npm run build` first. See §2.
+- ✅ Client work is committed through **`a21e2fd`**. Trey also commits outside these sessions, so check `git status` fresh anyway.
+- **The blob has a 49-assertion scratch harness** (`scratchpad/blobtest/`). The repo has no test target, so rebuild and re-run it on any `RecruitingInfo` change — adding a field touches **four** Codable sites and missing `knownKeys` makes the key get written twice rather than dropped.
+- P1.5's `athleteId` deep-link path is **only reachable on a multi-athlete account** and is still device-untested.
 
 ---
 
 ## How to use this document in a fresh session
 
-> Read **§0** first — its scoreboard is the live source of what is done and what is left. Then this file top
-> to bottom. Every
-> finding carries a `file:line`
-> anchor, a concrete failure scenario, and a specific fix. **§6 Do-not-re-raise** lists decisions that were
-> already argued and settled — do not "fix" anything in that list. Findings marked ✅ were re-verified
-> against source during the review session; unmarked ones came from the reviewer pass and should be
-> confirmed against the code before you change anything.
+> Read **§0** first — it is the live source of what is done and what is left; **§9** is what to do next.
+> Everything between them is the original review record: each finding carries a `file:line` anchor, a
+> concrete failure scenario, and a specific fix, kept so a future change can see what was already reasoned
+> through. **§8 Do-not-re-raise** lists decisions already argued and settled — do not "fix" anything in it.
 >
-> ⚠️ Line numbers in the findings below were captured on 2026-07-25 and have **drifted** in the files
-> already fixed (`RecruitingProfileService.swift`, `RecruitingPublishView.swift`, `recruitingProfile.ts`,
-> `RecruitingInfo.swift`, `SyncCoordinator+Athletes.swift`, `firestore.rules`). Anchor by symbol name.
+> ⚠️ **Line numbers throughout §3–§7 were captured on 2026-07-25 and have drifted** — nearly every file
+> named has been edited since. **Anchor by symbol name, not line number.**
+>
+> ⚠️ **Fix text in §3–§7 is the ORIGINAL proposal, not always what shipped.** Several were deliberately
+> changed during implementation once the code disagreed with them — P2.1's retry row renders *above* the
+> layout rather than instead of it; P3.3/P3.4 gate on `hasPublicReplyChannel` rather than the
+> `visibleContactItems` the fix text named, because that array counts GPA. **§0's per-finding record is
+> authoritative for what was actually built.**
 
 Related context: `docs/RECRUITING_PROFILE_PLAN.md`, `docs/RECRUITING_PROFILE_PHASE1.md`,
 `docs/RECRUITING_PROFILE_PHASE2.md`, `docs/superpowers/specs/2026-07-16-recruiting-profile-phase2-design.md`.
 
 ---
 
-## 1. Verification gates (run at review time)
+## 1. Verification gates
 
-| Gate | Command | Result |
+| Gate | Command | Latest result |
 |---|---|---|
 | iOS build | `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project PlayerPath.xcodeproj -scheme PlayerPath -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build` | ✅ **BUILD SUCCEEDED** |
 | Functions typecheck | `cd firebase/functions && npx tsc --noEmit -p tsconfig.json` | ✅ clean |
-| Firestore rules tests | `cd firebase/rules-tests && export JAVA_HOME="$(echo ~/.local/jdk/*/Contents/Home)" && npm test` | ✅ **37/37 pass** |
-| New file target membership | `RecruitingShareCard.swift` | ✅ no pbxproj entry needed — project uses `PBXFileSystemSynchronizedRootGroup` |
-| `syncNotificationPreferences` call sites | `grep -rn syncNotificationPreferences --include="*.swift" .` | ✅ one call site, updated for the 3rd param |
+| Blob round-trip | `scratchpad/blobtest/` — rebuild + `./blobtest` | ✅ **49/49** |
+| Firestore rules tests | `cd firebase/rules-tests && export JAVA_HOME="$(echo ~/.local/jdk/*/Contents/Home)" && npm test` | ⚠️ **not re-run** — no JDK on this machine. Last known 42/42; `firestore.rules` untouched since |
+| New file target membership | `RecruitingReadinessSection.swift`, `RecruitingShareCard.swift` | ✅ no pbxproj entry needed — project uses `PBXFileSystemSynchronizedRootGroup` |
+
+> New client-written blob/doc fields need **no rules change**: `recruitingProfiles` uses `hasAll`, not
+> `hasOnly`. (`recruitingTokens` DOES use `hasOnly` — `createdAt` must stay in its allowlist.)
 
 **Assessment.** The architecture holds up. The security layer in particular survived adversarial reading —
 `ownedPath()`, the `recruitingTokens` atomic claim, the per-render tier re-check, `esc()` coverage, and the
@@ -208,28 +226,24 @@ that layer. **What is wrong is at the edges: the codec, the money, and the kill 
 
 ---
 
-## 2. Deployment state — ⚠️ OBSOLETE, kept for the root-cause analysis
+## 2. The deployment-drift root cause — keep this, the rest is history
 
-> **This section is historical.** Rules and functions have both been deployed (see §0). The root cause of
-> the drift documented here was found on 2026-07-26: `firebase deploy --only functions` **does not compile
-> TypeScript** — `package.json` `main` is `lib/index.js` and the CLI uploads that directory as-is, so every
-> green deploy was re-shipping stale JS. A predeploy guard now blocks it.
+Rules and functions are all deployed now (§0), so this section's original inventory of undeployed artifacts
+is gone. What must not be lost is **why** the drift existed, because the trap is still live:
 
-| Artifact | Built but NOT live | Consequence until deployed |
-|---|---|---|
-| `firestore.rules:1129-1136` | shareToken-rotation exception (`\|\| (hasProTier() && ownsShareToken(...))`) | ✅ **Reset Link is denied in prod today.** Deployed rules still require `request.resource.data.shareToken == resource.data.shareToken`. **Requires a rules RELEASE.** |
-| `firebase/functions/src/recruitingProfile.ts:596` | `athleteId: doc.id` in the instant-push payload | Push taps carry no athlete id → deep-link always lands on the More root. **Requires CF REDEPLOY.** |
-| `firebase/functions/src/recruitingProfile.ts:637-766` | per-account digest grouping + single-athlete deep-link | Multi-athlete Pro parents still get one digest push per kid. **Requires CF REDEPLOY.** |
-| `firebase/rules-tests/recruitingProfiles.test.mjs` (+53L) | new token/rotation cases | Now passing locally (37/37); not a deploy artifact. |
+🚨 **`firebase deploy --only functions` does NOT compile TypeScript.** `package.json`'s `main` is
+`lib/index.js` and the CLI uploads that directory as-is — so every deploy reported "Successful update" while
+re-shipping stale JS. The digest's owner-grouping rewrite sat uncompiled and undeployed for days behind a
+string of green deploys. **Always `cd firebase/functions && npm run build` first.** A predeploy guard
+(`firebase/functions/check-build-fresh.sh`) now blocks a stale deploy, and the general lesson is recorded in
+the `cf-deploy-stale-lib` memory.
 
-✅ **Drift evidence:** `firebase/functions/lib/recruitingProfile.js` (mtime 12:18) predates
-`src/recruitingProfile.ts` (16:42) and contains **no** `pendingByUser` — the digest owner-grouping rewrite
-has never been compiled, therefore never deployed.
-
-> **Hard release-ordering gate:** release `firestore.rules` **before** the app build ships. The rules change
-> only *widens* `allow update`, so it is backward-compatible with the build currently on the App Store.
-> Ship the app first and every Reset Link tap fails with a raw permissions error **and** leaves behind a
-> permanently-undeletable orphan `recruitingTokens` claim.
+Two ordering rules that came out of the same episode and still apply:
+- **Release `firestore.rules` BEFORE the app build ships.** Rules changes here only *widen* `allow update`, so
+  they are backward-compatible with whatever is on the App Store. Ship the app first and every Reset Link tap
+  fails with a raw permissions error *and* leaves a permanently-undeletable orphan `recruitingTokens` claim.
+- **A full `firebase deploy --only functions` updates EVERY function**, not just the recruiting ones. Budget
+  the blast radius accordingly.
 
 ---
 
@@ -822,28 +836,21 @@ card — e.g. `Text(athlete.name + (hasSiblings ? " · \(athlete.sportType.displ
 
 ---
 
-## 9. Execution order
+## 9. What's left
 
-> ✅ **Steps 1–4 are COMPLETE (see §0). Start at step 5, P1.5.** Step 6's CF redeploy has also happened, but
-> carried only P0.1 + P3.5 + what was already written — **P2.3, P2.4, P2.6 and P2.9 are still unwritten** and
-> will need another deploy. Run `cd firebase/functions && npm run build` first; the CLI does not compile
-> TypeScript, and a predeploy guard will now block you if you forget.
+✅ **The original 16-step execution order is complete.** Every fix has shipped except the two below, and the
+staged ordering that produced them (rules release → codec → the money/kill-switch trio → the data-integrity
+pair → client-only fixes → grouped CF redeploys) is no longer needed. It is not reproduced here; §0's
+per-finding record is the outcome.
 
-1. ~~**Release `firestore.rules`**~~ ✅ DONE — unblocks Reset Link in prod. Fold in **P2.7**'s `hasOnly` + Pro gate
-   (remember `createdAt` in the allowlist). Run the emulator suite first:
-   `cd firebase/rules-tests && export JAVA_HOME="$(echo ~/.local/jdk/*/Contents/Home)" && npm test`
-2. **P0.1 codec fix** — nothing else in this document matters if the film does not play. Ship the
-   `<source type>` + fallback-text mitigation in the same change.
-3. **P1.1 + P1.2 + P1.6 as one edit** — awaited tier sync, `isFromCache`/`source: .server`, and the
-   connectivity guard. These are the three that touch money and the kill switch.
-4. **P1.3 + P1.4 as one edit** — the blob merge and the unknown-key sidecar are one data-integrity change.
-5. **P1.5, P1.7, P1.8, then P2.1 / P2.5** — client-only, no backend coupling.
-6. **CF redeploy** carrying P1.5's `athleteId` payload, the already-written per-account digest, P2.3's
-   memoization + `maxInstances`, P2.4's timeout race, P2.9's `lastDigestAt`, P3.5's CSS cap, P3.6's TTL.
-7. ~~**P3.1** (stale-profile nudge)~~ ✅ DONE.
-8. ~~**P3.2** (growth loop measurable)~~ ✅ code complete — **its CF deploy is still pending.**
-9. Everything else in §6 / §7 — **see §0's scoreboard for the ordered remaining list**, which supersedes this
-   step list.
+**1. Device tests — the actual blocker.** 1 of ~14 run. Nothing below is urgent; this is. List follows.
+
+**2. Then the last two findings, both needing ONE shared CF redeploy** (`npm run build` first — see §2):
+
+| Item | Why it's not urgent | Cost |
+|---|---|---|
+| **N2** short share slug | The UUID works; it is a product cost on the QR/bio/verbal channels, not a defect. `TOKEN_RE` must keep accepting UUIDs or live links die | ~1.5 h |
+| **P2.8 (rest)** digest paging | Scale-conditional (~800–1000 in-window profiles). Today's volume is far below it — but a killed pass loses that night's deltas permanently | ~1.5 h |
 
 ### Verification checklist after each stage
 ```bash
@@ -858,11 +865,42 @@ cd firebase/functions && npx tsc --noEmit -p tsconfig.json
 # Rules
 cd firebase/rules-tests && export JAVA_HOME="$(echo ~/.local/jdk/*/Contents/Home)" && npm test
 ```
-Bump `MARKETING_VERSION` + `CURRENT_PROJECT_VERSION` in both Debug and Release build configs before any
-device build (currently 6.4.2 / 206).
+Plus the blob round-trip harness (`scratchpad/blobtest/`, **49/49**) — rebuild and re-run it on any
+`RecruitingInfo` change; the repo has no test target, so it is the only coverage that field has.
+
+Bump `MARKETING_VERSION` + `CURRENT_PROJECT_VERSION` in **both** Debug and Release before any device build
+(currently **6.4.3 / 207**).
 
 ### Device tests still outstanding
-- **P0.1:** open a published link in **Firefox** and on a **Windows** machine — before and after the fix.
+
+**Run this first:** build the current tree and **republish a profile**. It is the single fastest way to see
+most of the recent work at once — the sport in the subline, the film date range, the film header, provenance,
+per-clip runtimes and "Updated ‹Month›" all land together.
+
+✅ **Done:** one publish round-trip (page renders, view count ticks).
+
+**Highest value:**
+- **P0.1:** open a published link in **Firefox** and on a **Windows** machine — the whole feature is worthless
+  if the film doesn't play, and this is the fix nothing else compensates for.
+- Over-the-top **V34→V35 migration** (install over existing data, not fresh — a migration failure *looks* like
+  data loss because the container falls back to in-memory).
+- **P1.5:** requires **two athlete profiles** — unreproducible on a single-athlete account.
+
+**From the recent client batches (all untested):**
+- **P3.8 → S3 regression check:** Delete Profile Data, then go **back to the editor and leave it**. The
+  headshot must stay gone. This is the bug that fired 100% of the time before it was caught.
+- **P3.7:** publish with only an email opted in, then opt in a phone number and republish → the consent gate
+  must re-arm and name **the phone number specifically**. Then republish again with nothing changed → no prompt.
+- **P3.4:** a profile missing grad year / headshot / contact shows the readiness checklist; "Fill These In"
+  pops to the editor, and the row **ticks over on the way back** (that's S4).
+- **P3.9:** needs a **dual-sport person** (two profiles, one `personGroupID`) — the editor header, both
+  Recruiting rows, the share card and the QR sheet should read "Name · Sport". The mailto subject and the
+  page `<h1>` should NOT (their subline already carries it).
+- **N3:** publish, wait a day, republish → "Live since ‹first date› · updated ‹today›".
+- Paste a published link into **iMessage/Slack** → the P4.1 poster unfurl should show an image. Needs no
+  republish.
+
+**Still outstanding from the original list:**
 - **P1.5:** requires **two athlete profiles** — unreproducible on a single-athlete account. Tap a recruiting
   push while a DIFFERENT athlete is selected and confirm you land on that athlete's Recruiting editor, not the
   More root.
@@ -880,5 +918,6 @@ device build (currently 6.4.2 / 206).
 - Headshot upload + cross-device sync; first-view instant push; next-day digest; republish preserves
   `dailyViews`; QR scan; mailto prefill.
 
-> ⚠️ Plain `curl` is **not** in the CF's `BOT_UA` regex, so every curl check inflates `viewCount`. Test with a
-> bot UA or a real browser.
+> ⚠️ **`curl` no longer counts as a view.** P4.9's `looksLikeBot` now requires `Accept: text/html`, so a plain
+> curl is treated as a bot and does NOT increment `viewCount`. To exercise the counting path use
+> `-H 'Accept: text/html'` or a real browser. (This reverses the older warning that curl *inflated* the count.)

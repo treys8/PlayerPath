@@ -50,9 +50,18 @@ struct RecruitingPublishView: View {
     /// @State rather than computed in `body`: the items read `athlete.recruiting`,
     /// which decodes a JSON blob, and doing that on every render is the trap
     /// already logged against RecruitingGolfStatBand and the editor's stale-clip
-    /// count. Recomputed in `load()`, which is enough — these fields are only
-    /// editable one screen back, and this view is recreated on the way in.
+    /// count. Refreshed via `refreshPublishGates()` — from `load()`, from
+    /// `.onAppear` (so a field filled in via "Fill These In" ticks over on the way
+    /// back), and after any action that rewrites the blob.
     @State private var readiness: [RecruitingReadinessItem] = []
+    /// Contact kinds this publish would newly make public, versus what the last
+    /// publish recorded. Non-empty re-arms the consent gate. Computed alongside
+    /// `readiness` for the same reason — it decodes the blob.
+    @State private var newlyPublicKinds: [RecruitingStatItem.Kind] = []
+    /// Whether `publishConsentAt` is set. Mirrored into @State for the same reason
+    /// as `newlyPublicKinds`. Defaults false, i.e. "consent still needed" — the
+    /// safe side if it is somehow read before the first refresh.
+    @State private var hasConsentStamp = false
     @State private var showingPaywall = false
     @State private var showingQR = false
     /// (completed, total) while publish makes the web-safe copy of each clip.
@@ -96,7 +105,20 @@ struct RecruitingPublishView: View {
 
     private var isPro: Bool { authManager.currentTier >= .pro }
     private var isPublished: Bool { status?.isPublished == true }
-    private var needsConsent: Bool { athlete.recruiting.publishConsentAt == nil }
+    /// Blanket consent before the FIRST publish, and again whenever a republish
+    /// would newly make a PII field public. The second half is P3.7: the stamp is
+    /// carried forward forever, so without it an update that first exposes a
+    /// minor's phone number went out with no confirmation and no change summary.
+    ///
+    /// Reads the two @State witnesses, NOT `athlete.recruiting` — this and
+    /// `isReConsent` are evaluated up to five times per render (here, through
+    /// `canPublish`, and three times inside `consentSection`), and each blob read
+    /// is a JSON decode. Same reason `readiness` is @State.
+    private var needsConsent: Bool { !hasConsentStamp || !newlyPublicKinds.isEmpty }
+
+    /// True for the re-prompt rather than the first-publish gate — they ask
+    /// different questions, so they can't share copy.
+    private var isReConsent: Bool { hasConsentStamp && !newlyPublicKinds.isEmpty }
     /// Tier is deliberately NOT part of this. Disabling the button at free tier
     /// hides the upgrade path behind a dead control; the app's convention (see
     /// GameDetailView.generateReelTapped) is to keep the action live and let the
@@ -161,7 +183,7 @@ struct RecruitingPublishView: View {
             // the exact trap already logged against the editor's stale-clip count,
             // and here it would land on the one control whose whole job is to send
             // the athlete off to fix something and welcome them back.
-            refreshReadiness()
+            refreshPublishGates()
             AnalyticsService.shared.trackScreenView(
                 screenName: "Recruiting Publish",
                 screenClass: "RecruitingPublishView"
@@ -291,13 +313,42 @@ struct RecruitingPublishView: View {
     private var consentSection: some View {
         Section {
             Toggle(isOn: $consentAcknowledged) {
-                Text("I'm this athlete's parent or guardian, or I'm 13 or older.")
+                Text(isReConsent
+                     ? "I'm OK sharing this publicly."
+                     : "I'm this athlete's parent or guardian, or I'm 13 or older.")
                     .font(.bodyMedium)
             }
         } header: {
-            Text("Before you publish")
+            Text(isReConsent ? "This update shares something new" : "Before you publish")
         } footer: {
-            Text("Publishing puts this profile — including the headshot and anything you chose to share — on a public web page that anyone with the link can open. You can take it down at any time.")
+            Text(isReConsent
+                 ? newlyPublicCopy
+                 : "Publishing puts this profile — including the headshot and anything you chose to share — on a public web page that anyone with the link can open. You can take it down at any time.")
+        }
+    }
+
+    /// "This update makes Jordan's phone number and email address public. Anyone
+    /// with the link will be able to see it."
+    ///
+    /// Names the specific fields rather than saying "your information changed":
+    /// the whole point of re-arming the gate is that the guardian can see exactly
+    /// what is newly leaving the account.
+    private var newlyPublicCopy: String {
+        let phrases = newlyPublicKinds.map(Self.consentPhrase(for:))
+            .formatted(.list(type: .and))
+        return "This update makes \(athlete.name)'s \(phrases) public. Anyone with the link will be able to see it."
+    }
+
+    /// Natural-language name for a PII kind, for the sentence above. `.gpa` stays
+    /// uppercase; the rest read as an English noun phrase.
+    private static func consentPhrase(for kind: RecruitingStatItem.Kind) -> String {
+        switch kind {
+        case .phone: return "phone number"
+        case .email: return "email address"
+        case .gpa:   return "GPA"
+        // Unreachable: visibleContactItems only ever emits the three above. A
+        // neutral noun beats a fatalError on a consent screen.
+        default:     return "profile information"
         }
     }
 
@@ -489,7 +540,7 @@ struct RecruitingPublishView: View {
         // Read the model BEFORE the await — afterwards it may be invalidated.
         let athleteId = athlete.id
         let publishable = (athlete.videoClips ?? []).filter(\.isPublishableHighlight)
-        refreshReadiness()
+        refreshPublishGates()
 
         // What's already on the page wins. Without this the picker re-seeded to
         // newest-8 on every launch, so the next "Update Published Profile" silently
@@ -511,12 +562,51 @@ struct RecruitingPublishView: View {
         }
     }
 
-    /// Recomputes the pre-publish checklist. One blob decode per call rather than
-    /// one per render — see the `readiness` declaration.
-    private func refreshReadiness() {
+    /// Gate for every action that writes to a profile doc.
+    ///
+    /// `selection`, `status` and `readiness` were all loaded for `seededAthleteID`.
+    /// If the view has since been re-rendered with a different athlete, the screen
+    /// still shows the loaded athlete's link and view counts while `athlete.id`
+    /// already points at the new one — so an action here would hit a profile other
+    /// than the one being displayed. Every route in carries `.id(athlete.id)`, so
+    /// this is a backstop for the one that someday won't.
+    ///
+    /// Reports rather than returning silently, unlike `publish()`'s original bare
+    /// guard: two of the four callers are Unpublish and Reset Link, and a kill
+    /// switch that quietly does nothing when tapped is its own failure mode — the
+    /// same one the "never gate the route" rule at the top of this file exists to
+    /// prevent. Reopening the screen re-seeds the witness and clears it.
+    private func confirmSeededAthlete() -> Bool {
+        guard athlete.id == seededAthleteID else {
+            errorMessage = "This screen is now showing a different athlete. Go back and open Share Profile again."
+            return false
+        }
+        return true
+    }
+
+    /// Recomputes every gate derived from the recruiting blob: the readiness
+    /// checklist, whether consent has ever been given, and what a republish would
+    /// newly make public.
+    ///
+    /// ONE blob decode per call rather than one per render — that's the whole
+    /// point of the mirrored @State (see `readiness`). Named for the gates rather
+    /// than the checklist so a future consent or readiness field gets added here
+    /// instead of in `body`.
+    private func refreshPublishGates() {
         guard !athlete.isDeleted, athlete.modelContext != nil else { return }
-        readiness = RecruitingReadiness.items(for: athlete.recruiting,
-                                              sport: athlete.sport ?? .baseball)
+        let info = athlete.recruiting
+        readiness = RecruitingReadiness.items(for: info, sport: athlete.sport ?? .baseball)
+        hasConsentStamp = info.publishConsentAt != nil
+
+        let updated = info.newlyPublicContactKinds
+        // Only on an actual CHANGE, so pull-to-refresh can't clear a box the
+        // athlete just ticked. But a set that grew MUST re-arm: a tick given for
+        // "phone number" cannot be allowed to silently also cover an email address
+        // added afterwards — that would be the P3.7 defect with extra steps.
+        if updated != newlyPublicKinds {
+            newlyPublicKinds = updated
+            consentAcknowledged = false
+        }
     }
 
     /// Re-reads publish state, KEEPING what we already have when the read fails.
@@ -565,7 +655,7 @@ struct RecruitingPublishView: View {
         // `selection` belongs to the athlete this screen loaded for. If the view
         // has since been re-rendered with a different one, publishing would write
         // this athlete's curation and consent stamp against that athlete's doc.
-        guard athlete.id == seededAthleteID else { return }
+        guard confirmSeededAthlete() else { return }
         isWorking = true
         defer {
             isWorking = false
@@ -607,17 +697,27 @@ struct RecruitingPublishView: View {
             // before the write would permanently retire the guardian gate even
             // when publishing failed and nothing was ever shared.
             //
-            // The liveness guard comes FIRST: conditions evaluate left to right,
-            // and `needsConsent` reads athlete.recruiting — which would trap on a
-            // model invalidated during the await above.
+            // The liveness guard comes FIRST: everything inside reads
+            // athlete.recruiting, which would trap on a model invalidated during
+            // the await above.
             if !athlete.isDeleted, athlete.modelContext != nil {
                 var info = athlete.recruiting
-                if needsConsent { info.publishConsentAt = Date() }
+                // `publishConsentAt == nil`, NOT `needsConsent`: since P3.7 that
+                // flag is also true for a RE-consent, and this field is documented
+                // as the date of the FIRST guardian confirmation. Re-stamping it
+                // would quietly overwrite the original record with today's date.
+                // Reading `info` rather than the model also sidesteps the
+                // invalidated-@Model trap the guard above exists for.
+                if info.publishConsentAt == nil { info.publishConsentAt = Date() }
                 // The set that actually reached the page, in page order — so
                 // reopening this screen restores the real curation instead of
                 // re-seeding to newest-8. RecruitingProfileEditorView.persistIfChanged
                 // carries this forward; without that line its autosave erases it.
                 info.publishedClipIDs = result.publishedClipIDs
+                // The re-consent baseline: what this publish actually made public.
+                // Read off the same `info` the service snapshotted its `contact`
+                // array from, so the record can't disagree with the page.
+                info.publishedContactKinds = info.visibleContactItems.map(\.kind.rawValue)
                 athlete.recruiting = info      // sets needsSync
                 ErrorHandlerService.shared.saveContext(modelContext, caller: "RecruitingPublishView.publish")
             }
@@ -627,6 +727,10 @@ struct RecruitingPublishView: View {
             // "8 of 8" — at cap, every unselected row disabled — so the athlete
             // couldn't add replacements without blind-deselecting good clips.
             selection = result.publishedClipIDs
+            // The publish just recorded a new baseline, so the re-consent gate and
+            // the readiness checklist are both stale — leaving them would keep
+            // "This update shares something new" on screen after the update landed.
+            refreshPublishGates()
             await refreshStatus(athleteId: athleteId)
             let success = PublishSuccess(url: result.url, skipped: result.skippedClipCount)
             // A publish resumed from the paywall can finish before its sheet is
@@ -655,6 +759,9 @@ struct RecruitingPublishView: View {
     }
 
     private func unpublish() async {
+        // Reversible if it lands on the wrong athlete (they can republish), but it
+        // still darkens a page nobody asked to take down.
+        guard confirmSeededAthlete() else { return }
         isWorking = true
         defer { isWorking = false }
         let athleteId = athlete.id
@@ -672,12 +779,7 @@ struct RecruitingPublishView: View {
     /// Deletes the published doc and the headshot object. See `deleteDataSection`
     /// for what this does and doesn't remove.
     private func deleteProfileData() async {
-        // Same witness `publish()` uses, and for a sharper reason: if the view was
-        // re-rendered with a different athlete while this screen stayed pushed, the
-        // live link and view count on screen still belong to the athlete it loaded
-        // for, while `athlete.id` already points at the new one — so the tap would delete
-        // a profile other than the one being displayed. Irreversible, so drop it.
-        guard athlete.id == seededAthleteID else { return }
+        guard confirmSeededAthlete() else { return }
         // `deleteProfileDoc` carries no connectivity guard of its own, on purpose:
         // Athlete.delete fires it best-effort, and offline it SHOULD ride
         // Firestore's local queue rather than be skipped — skipping would leave a
@@ -725,7 +827,7 @@ struct RecruitingPublishView: View {
                     // The checklist was computed at load, when the headshot still
                     // existed — without this it would sit there reporting
                     // "Headshot ✓" immediately after deleting the headshot.
-                    refreshReadiness()
+                    refreshPublishGates()
                     if let user = athlete.user, !user.isDeleted, user.modelContext != nil {
                         Task { try? await SyncCoordinator.shared.syncAthletes(for: user) }
                     }
@@ -749,6 +851,10 @@ struct RecruitingPublishView: View {
     }
 
     private func resetLink() async {
+        // The sharpest case of the four: killing the wrong athlete's link is
+        // IRREVERSIBLE — the abandoned token can never be re-claimed — and every
+        // QR code they have printed dies with it.
+        guard confirmSeededAthlete() else { return }
         isWorking = true
         defer { isWorking = false }
         let athleteId = athlete.id
