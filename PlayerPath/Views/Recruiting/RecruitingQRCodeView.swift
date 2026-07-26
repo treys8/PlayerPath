@@ -37,6 +37,11 @@ struct RecruitingQRCodeView: View {
                         .background(Color.white)
                         .clipShape(RoundedRectangle(cornerRadius: 20))
                         .shadow(color: .black.opacity(0.08), radius: 12, y: 4)
+                        // Without this VoiceOver announces only "image": the QR is
+                        // the entire content of the sheet, and its payload is
+                        // otherwise unreachable to a screen reader.
+                        .accessibilityLabel("QR code for \(athleteName)'s recruiting profile")
+                        .accessibilityValue(RecruitingShareTools.displayLink(url))
                 } else {
                     // CIFilter failing on a static string doesn't happen in
                     // practice, but a blank sheet with no explanation is worse
@@ -53,6 +58,13 @@ struct RecruitingQRCodeView: View {
                     Text("Scan to watch game film")
                         .font(.bodyMedium)
                         .foregroundStyle(.secondary)
+                    // A scanner that won't focus, or a coach across a table, needs
+                    // the link readable — the success sheet shows it the same way.
+                    Text(RecruitingShareTools.displayLink(url))
+                        .font(.bodySmall)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                        .padding(.top, 2)
                 }
 
                 Spacer()

@@ -151,6 +151,15 @@ final class AnalyticsService {
         ])
     }
 
+    /// Fired on "Reset Link" — the old share URL is dead, a new token is live.
+    /// A spike here means links are leaking somewhere athletes regret.
+    func trackRecruitingLinkReset(athleteID: String, sport: String) {
+        logEvent(.recruitingLinkReset, parameters: [
+            "athlete_id": athleteID,
+            "sport": sport
+        ])
+    }
+
     // MARK: - Video Events
 
     func trackVideoRecorded(duration: TimeInterval, quality: String, isQuickRecord: Bool) {
@@ -544,6 +553,7 @@ enum AnalyticsEvent: String {
     case recruitingProfileEdited = "recruiting_profile_edited"
     case recruitingProfilePublished = "recruiting_profile_published"
     case recruitingProfileUnpublished = "recruiting_profile_unpublished"
+    case recruitingLinkReset = "recruiting_link_reset"
 }
 
 // MARK: - Bundle Extensions

@@ -361,6 +361,13 @@ class VideoCloudManager: ObservableObject {
         guard let ownerUID = Auth.auth().currentUser?.uid else {
             throw VideoCloudError.uploadFailed("User session expired — please sign in again to upload")
         }
+        // A published clip also has a web-safe .mp4 rendition beside it
+        // (RecruitingWebRenditionService). Best-effort: it's a derived file, so
+        // failing to remove it must never block deleting the master, and an
+        // orphan is only wasted bytes.
+        if let renditionPath = RecruitingWebRenditionService.renditionPath(ownerUID: ownerUID, fileName: fileName) {
+            try? await Storage.storage().reference(withPath: renditionPath).delete()
+        }
         let videoRef = Storage.storage().reference().child("athlete_videos/\(ownerUID)/\(fileName)")
         return try await withCheckedThrowingContinuation { continuation in
             videoRef.delete { error in

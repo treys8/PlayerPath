@@ -56,9 +56,19 @@ extension VideoCloudManager {
     /// returned URL goes into `RecruitingInfo.headshotCloudURL` and renders on
     /// the athlete's other devices once the bio blob syncs. Image bytes only —
     /// the caller downscales to a small JPEG before passing `imageData`.
-    func uploadRecruitingHeadshot(imageData: Data, athleteId: UUID, ownerUID: String) async throws -> String {
+    ///
+    /// The owner segment is resolved HERE, from the signed-in account, because
+    /// `RecruitingProfileService.publish` derives the path it publishes the same
+    /// way (`Auth.auth().currentUser?.uid`). Callers holding a cached
+    /// `user.firebaseAuthUid` may pass it as `ownerUID`, but only as a fallback:
+    /// that copy can go stale, and an upload under a stale uid lands in a
+    /// namespace publish never looks in — a headshot that silently never appears.
+    func uploadRecruitingHeadshot(imageData: Data, athleteId: UUID, ownerUID: String? = nil) async throws -> String {
+        guard let owner = Auth.auth().currentUser?.uid ?? ownerUID, !owner.isEmpty else {
+            throw VideoCloudError.uploadFailed("Sign in required")
+        }
         let storage = Storage.storage()
-        let ref = storage.reference().child("recruiting_headshots/\(ownerUID)/\(athleteId.uuidString).jpg")
+        let ref = storage.reference().child("recruiting_headshots/\(owner)/\(athleteId.uuidString).jpg")
         let metadata = StorageMetadata()
         metadata.contentType = "image/jpeg"
 
@@ -92,8 +102,13 @@ extension VideoCloudManager {
     /// Deletes a recruiting headshot from Firebase Storage. Idempotent —
     /// `objectNotFound` is treated as success so cleanup on replace/athlete-delete
     /// never throws when the object is already gone.
-    func deleteRecruitingHeadshot(athleteId: UUID, ownerUID: String) async throws {
-        let ref = Storage.storage().reference().child("recruiting_headshots/\(ownerUID)/\(athleteId.uuidString).jpg")
+    ///
+    /// Owner resolved the same way as the upload — see `uploadRecruitingHeadshot`.
+    /// With no signed-in account and no fallback there is nothing to delete
+    /// (Storage would reject the write anyway), so this no-ops rather than throws.
+    func deleteRecruitingHeadshot(athleteId: UUID, ownerUID: String? = nil) async throws {
+        guard let owner = Auth.auth().currentUser?.uid ?? ownerUID, !owner.isEmpty else { return }
+        let ref = Storage.storage().reference().child("recruiting_headshots/\(owner)/\(athleteId.uuidString).jpg")
         return try await withCheckedThrowingContinuation { continuation in
             ref.delete { error in
                 if let error = error {

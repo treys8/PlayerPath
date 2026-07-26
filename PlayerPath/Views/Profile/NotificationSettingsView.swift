@@ -21,6 +21,7 @@ struct NotificationSettingsView: View {
     @AppStorage(NotificationPrefKeys.staleGameReminders) private var staleGameReminders = true
     @AppStorage(NotificationPrefKeys.coachActivity) private var coachActivity = true
     @AppStorage(NotificationPrefKeys.athleteActivity) private var athleteActivity = true
+    @AppStorage(NotificationPrefKeys.recruitingViews) private var recruitingViews = true
 
     // Behavioral re-engagement nudges (local-only; read directly from UserDefaults
     // by their schedulers). Opt-out, default on. (`weeklyStats` above is nudge #4,
@@ -151,6 +152,17 @@ struct NotificationSettingsView: View {
                 .disabled(authorizationStatus == .denied)
             }
 
+            if !isCoach {
+                Section {
+                    Toggle("Profile View Alerts", isOn: $recruitingViews)
+                } header: {
+                    Text("Recruiting")
+                } footer: {
+                    Text("Notifications when someone opens your athlete's public recruiting profile.")
+                }
+                .disabled(authorizationStatus == .denied)
+            }
+
             if isCoach {
                 Section {
                     Toggle("Athlete Activity", isOn: $athleteActivity)
@@ -260,14 +272,15 @@ struct NotificationSettingsView: View {
             if weeklyStats, let athleteId, let athlete = findAthlete(id: athleteId) {
                 await WeeklySummaryScheduler.schedule(for: athlete)
             }
-            // Backfill the server-side prefs for existing users who set these
-            // toggles before the Firestore sync existed.
-            await syncActivityPushPreferences()
+            await seedActivityPushPreferences()
         }
         .onChange(of: coachActivity) { _, _ in
             Task { await syncActivityPushPreferences() }
         }
         .onChange(of: athleteActivity) { _, _ in
+            Task { await syncActivityPushPreferences() }
+        }
+        .onChange(of: recruitingViews) { _, _ in
             Task { await syncActivityPushPreferences() }
         }
         .onChange(of: scenePhase) { _, phase in
@@ -277,12 +290,34 @@ struct NotificationSettingsView: View {
         }
     }
 
-    /// Pushes the two activity-banner toggles to Firestore so the
+    /// Reconciles the three server-relevant toggles with the account-level values
+    /// on first appearance. The toggles are device-local `@AppStorage` (all
+    /// defaulting `true`) while Firestore holds one account-level map, so blindly
+    /// writing on appear made a second device silently re-enable pushes the user
+    /// had turned off on the first one.
+    ///
+    /// Remote wins for every key that exists; local back-fills only the keys the
+    /// account has never stored (the legacy users this sync was added for). A
+    /// FAILED read writes nothing — guessing is exactly the clobber being fixed.
+    private func seedActivityPushPreferences() async {
+        guard let remote = await FirestoreManager.shared.fetchNotificationPreferences() else { return }
+        if let value = remote["coachActivity"] { coachActivity = value }
+        if let value = remote["athleteActivity"] { athleteActivity = value }
+        if let value = remote["recruitingViews"] { recruitingViews = value }
+        // Now that locals mirror every stored key, this write is a no-op for those
+        // and a back-fill for any that were missing.
+        if remote.count < 3 {
+            await syncActivityPushPreferences()
+        }
+    }
+
+    /// Pushes the server-relevant toggles to Firestore so the
     /// `sendPushNotification` Cloud Function can honor them for background pushes.
     private func syncActivityPushPreferences() async {
         await FirestoreManager.shared.syncNotificationPreferences(
             coachActivity: coachActivity,
-            athleteActivity: athleteActivity
+            athleteActivity: athleteActivity,
+            recruitingViews: recruitingViews
         )
     }
 

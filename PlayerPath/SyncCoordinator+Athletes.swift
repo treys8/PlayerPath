@@ -50,7 +50,47 @@ extension SyncCoordinator {
         // would orphan the freshly-created Firestore doc.
         var rollback: [(athlete: Athlete, needsSync: Bool, version: Int, lastSyncDate: Date?)] = []
 
+        // Upload runs BEFORE download (see syncAthletes), so a device whose blob
+        // predates a publish made elsewhere would overwrite the server's
+        // publishConsentAt / publishedClipIDs with nils before it ever learns they
+        // exist — and those drive the coach-facing page's clip set. Reconcile
+        // against the server copy first. Only fetched when a recruiting blob is
+        // actually in play, so the overwhelming majority of syncs pay nothing.
+        var remoteBlobs: [String: String] = [:]
+        var blobReconcileFailed = false
+        if dirtyAthletes.contains(where: { $0.recruitingProfileJSON?.isEmpty == false }) {
+            do {
+                let remote = try await FirestoreManager.shared.fetchAthletes(
+                    userId: (user.firebaseAuthUid ?? user.id.uuidString)
+                )
+                for entry in remote where entry.recruitingProfileJSON != nil {
+                    if let id = entry.id { remoteBlobs[id] = entry.recruitingProfileJSON }
+                }
+            } catch {
+                blobReconcileFailed = true
+                syncLog.warning("Could not read remote recruiting blobs — deferring those uploads: \(error.localizedDescription)")
+            }
+        }
+
         for athlete in dirtyAthletes {
+            // Without the server copy there is no way to tell a legitimately-empty
+            // publish state from one this device simply hasn't seen, and guessing
+            // wrong permanently erases the curation behind a live page. A bio edit
+            // that waits for the next sync is the cheaper failure.
+            if blobReconcileFailed, athlete.recruitingProfileJSON?.isEmpty == false {
+                continue
+            }
+            // Merge onto the model, not just the outgoing payload: leaving the
+            // local copy short would re-clobber on the athlete's next edit.
+            if let firestoreId = athlete.firestoreId, let remoteBlob = remoteBlobs[firestoreId] {
+                let merged = Athlete.mergedRecruitingBlob(
+                    incoming: athlete.recruitingProfileJSON,
+                    existing: remoteBlob
+                )
+                if athlete.recruitingProfileJSON != merged {
+                    athlete.recruitingProfileJSON = merged
+                }
+            }
             let priorNeedsSync = athlete.needsSync
             let priorVersion = athlete.version
             let priorLastSync = athlete.lastSyncDate
@@ -215,8 +255,23 @@ extension SyncCoordinator {
                     if local.headshotPhotoId != remoteHeadshotId {
                         local.headshotPhotoId = remoteHeadshotId; changed = true
                     }
-                    if local.recruitingProfileJSON != remoteData.recruitingProfileJSON {
-                        local.recruitingProfileJSON = remoteData.recruitingProfileJSON; changed = true
+                    // Field-aware, not a blind string swap: the blob carries two
+                    // fields the bio editor doesn't own, and a plain assignment
+                    // lets a device that never saw a publish erase them.
+                    let mergedBlob = Athlete.mergedRecruitingBlob(
+                        incoming: remoteData.recruitingProfileJSON,
+                        existing: local.recruitingProfileJSON
+                    )
+                    if local.recruitingProfileJSON != mergedBlob {
+                        local.recruitingProfileJSON = mergedBlob; changed = true
+                    }
+                    // The merge can end up holding a publish field the server lost
+                    // to an older build. Without this the healed value would sit on
+                    // this device only, invisible and unsynced, until the athlete
+                    // happened to edit their bio. Converges: once the server matches,
+                    // the merge equals the incoming blob and this stops firing.
+                    if mergedBlob != remoteData.recruitingProfileJSON {
+                        local.needsSync = true
                     }
                     if local.version != remoteData.version { local.version = remoteData.version; changed = true }
                     if changed {

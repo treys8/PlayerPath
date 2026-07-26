@@ -4309,8 +4309,14 @@ function createVerifiers(): { production: SignedDataVerifier; sandbox: SignedDat
  * 2. Process pending deletions that failed on the client
  * 3. Delete expired invitations older than 30 days past their expiry
  */
-export const dailyStorageCleanup = functions.pubsub
-  .schedule('every 24 hours')
+// 60 s (the default) was already thin for three sections that each page up to
+// 500 documents and delete Storage objects one at a time — and because sections
+// 2 and 3 run only after section 1 returns, a timeout in the purge loop means
+// pending deletions and expired invitations are silently never processed at all.
+// Memory is left at the default: the constraint here is round-trips, not heap.
+export const dailyStorageCleanup = functions
+  .runWith({ timeoutSeconds: 540 })
+  .pubsub.schedule('every 24 hours')
   .onRun(async () => {
     const db = admin.firestore();
     const bucket = admin.storage().bucket();
@@ -4334,14 +4340,42 @@ export const dailyStorageCleanup = functions.pubsub
         const fileName = data.fileName;
 
         if (ownerUID && fileName) {
-          try {
-            await bucket.file(`athlete_videos/${ownerUID}/${fileName}`).delete();
+          // The recruiting web rendition is derived from this master
+          // (RecruitingWebRenditionService.renditionPath — same base name, under
+          // a `recruiting/` subfolder, always .mp4) and has no life of its own.
+          // Nothing else deletes it: the client only ever writes it, and this
+          // purge matched the master by exact name. Left behind it outlives the
+          // clip permanently — leaked bytes that never counted against the
+          // athlete's quota, and worse, a published recruiting page that goes on
+          // serving a clip whose owner deleted it. serveRecruitingProfile's
+          // existence probe drops the tile once this is gone.
+          //
+          // The two deletes run CONCURRENTLY, deliberately. This loop is serial
+          // over as many as 500 documents inside a 60 s default timeout, and
+          // sections 2 and 3 below only run if it finishes — so a third blocking
+          // round-trip per document is not free, especially when the rendition
+          // 404s for every clip that was never published (the common case).
+          const renditionBase = String(fileName).replace(/\.[^./]+$/, '');
+          const [masterResult, renditionResult] = await Promise.allSettled([
+            bucket.file(`athlete_videos/${ownerUID}/${fileName}`).delete(),
+            renditionBase
+              ? bucket.file(`athlete_videos/${ownerUID}/recruiting/${renditionBase}.mp4`).delete()
+              : Promise.resolve(),
+          ]);
+          if (masterResult.status === 'fulfilled') {
             purgedCount++;
-          } catch (err: any) {
+          } else if ((masterResult.reason as any)?.code !== 404) {
             // File may already be gone — that's fine
-            if (err?.code !== 404) {
-              console.error(`Failed to delete Storage file for ${doc.id}:`, err);
-            }
+            console.error(`Failed to delete Storage file for ${doc.id}:`, masterResult.reason);
+          }
+          if (
+            renditionResult.status === 'rejected' &&
+            (renditionResult.reason as any)?.code !== 404
+          ) {
+            console.error(
+              `Failed to delete recruiting rendition for ${doc.id}:`,
+              renditionResult.reason
+            );
           }
         }
 

@@ -24,6 +24,11 @@ struct MainTabView: View {
     @State private var morePath = NavigationPath()
     // Home tab programmatic navigation
     @State private var homePath = NavigationPath()
+    // A More destination that must survive an athlete switch. Writing the path in
+    // the same synchronous transaction as `selectedAthlete` loses it: SwiftUI
+    // coalesces both writes, then .onChange(of: selectedAthlete.id) clears
+    // `morePath` last. Park it here and consume it after those resets run.
+    @State private var pendingMoreDestination: MoreDestination?
 
     // Onboarding milestone tracking
     @ObservedObject private var onboardingManager = OnboardingManager.shared
@@ -57,6 +62,7 @@ struct MainTabView: View {
 
     enum MoreDestination: Hashable {
         case practice, highlights, seasons, photos, coaches, sharedFolders
+        case recruiting                                             // recruiting profile editor (also a push-tap target)
         case sharedFolder(String)                                   // folder by ID
         case sharedFolderVideo(folderID: String, videoID: String)   // folder + target video to highlight
         case storageSettings                                        // deep link target for cloud-backup push taps
@@ -160,6 +166,12 @@ struct MainTabView: View {
                 homePath = NavigationPath()
                 morePath = NavigationPath()
                 refreshAllTabAthleteIDs()
+                // A deep link that had to switch athletes first parks its
+                // destination above; re-apply it now that the resets are done.
+                if let destination = pendingMoreDestination {
+                    pendingMoreDestination = nil
+                    navigateToMore(destination)
+                }
             }
             .onChange(of: scenePhase) { _, phase in
                 // Weekly summary body is baked in at schedule time — refresh on
@@ -362,6 +374,37 @@ struct MainTabView: View {
             }
         }
 
+        // Recruiting-view push tap: select the profile the push is about (the
+        // recruiting doc ID is the athlete UUID), then open More → Recruiting.
+        // Unknown or missing ID lands on the More tab root — never another
+        // athlete's editor.
+        notificationManager.observe(name: Notification.Name.navigateToRecruiting) { note in
+            MainActor.assumeIsolated { [self] in
+                if let idStr = note.object as? String, let uuid = UUID(uuidString: idStr),
+                   let athlete = (user.athletes ?? []).first(where: { $0.id == uuid }) {
+                    if athlete.id == selectedAthlete.id {
+                        // No switch, so no path reset to race — push directly.
+                        navigateToMore(.recruiting)
+                    } else {
+                        // Switching athletes clears `morePath` in
+                        // .onChange(of: selectedAthlete.id), which runs after this
+                        // callback — pushing here would be discarded. Park the
+                        // destination and let that handler apply it.
+                        pendingMoreDestination = .recruiting
+                        selectedAthlete = athlete
+                        selectedTab = MainTab.more.rawValue
+                    }
+                } else {
+                    // Same single-transaction batching as navigateToMore(_:).
+                    withTransaction(Transaction()) {
+                        morePath = NavigationPath()
+                        selectedTab = MainTab.more.rawValue
+                    }
+                    Haptics.light()
+                }
+            }
+        }
+
         notificationManager.observe(name: Notification.Name.gameCreated) { _ in
             Task { @MainActor in await WeeklySummaryScheduler.scheduleAll(for: user) }
         }
@@ -495,6 +538,33 @@ struct MainTabView: View {
                         Label("Seasons", systemImage: "calendar")
                             .foregroundColor(.primary)
                     }
+                    NavigationLink(value: MoreDestination.recruiting) {
+                        Label {
+                            HStack {
+                                Text("Recruiting")
+                                if authManager.currentTier != .pro {
+                                    Text("PRO")
+                                        .font(.custom("Inter18pt-Bold", size: 11, relativeTo: .caption2))
+                                        .foregroundColor(ppAccent)
+                                        .padding(.horizontal, 5)
+                                        .padding(.vertical, 2)
+                                        .background(Capsule().fill(ppAccent.opacity(0.12)))
+                                }
+                                // Name whose. Unlike the other rows here, this one
+                                // leads to publishing ONE athlete's photo, city and
+                                // contact info on a public page — the same reason
+                                // the Profile-tab row carries the name.
+                                Spacer()
+                                Text(selectedAthlete.name)
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(1)
+                            }
+                        } icon: {
+                            Image(systemName: "graduationcap.fill")
+                        }
+                        .foregroundColor(.primary)
+                    }
+                    .accessibilityHint("Edit \(selectedAthlete.name)'s recruiting profile")
                     NavigationLink(value: MoreDestination.coaches) {
                         Label {
                             HStack {
@@ -549,6 +619,11 @@ struct MainTabView: View {
                     SeasonsView(athlete: selectedAthlete).id(selectedAthlete.id)
                 case .photos:
                     PhotosView(athlete: selectedAthlete).id(selectedAthlete.id)
+                case .recruiting:
+                    // No `.proRequired()`: that gate replaces the screen, and this is
+                    // a route to the unpublish kill switch, which must stay reachable
+                    // after Pro lapses. Publishing is gated on the action instead.
+                    RecruitingProfileEditorView(athlete: selectedAthlete).id(selectedAthlete.id)
                 case .coaches:
                     CoachesView(athlete: selectedAthlete).id(selectedAthlete.id)
                 case .sharedFolders:

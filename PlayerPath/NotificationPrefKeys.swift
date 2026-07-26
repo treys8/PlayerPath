@@ -20,6 +20,10 @@ enum NotificationPrefKeys {
     static let coachActivity = "notif_coachActivity"
     /// Foreground banner for athlete activity (new videos). Default on.
     static let athleteActivity = "notif_athleteActivity"
+    /// Recruiting-profile view alerts (instant + daily digest pushes). Default on.
+    /// The server (`push.ts`) suppresses only on an explicit Firestore `false`,
+    /// so the missing-key default matches this client default.
+    static let recruitingViews = "notif_recruitingViews"
     /// Pre-game "starts soon" reminder. Default on.
     static let gameReminders = "notif_gameReminders"
     /// Upload-complete notification. Default on.

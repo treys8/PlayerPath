@@ -61,6 +61,10 @@ extension Notification.Name {
     /// MainTabView selects that athlete (the milestone may belong to a different
     /// profile than the selected one) and switches to the Stats tab.
     static let navigateToAthleteStats = Notification.Name("navigateToAthleteStats")
+    /// Posted by a recruiting_view push tap with `object: athleteId` (String?, the
+    /// recruiting doc ID == athlete UUID). MainTabView selects that athlete and
+    /// opens More → Recruiting; unknown/missing ID lands on the More tab root.
+    static let navigateToRecruiting = Notification.Name("navigateToRecruiting")
     /// Posted by the GAME_REMINDER action / default tap with `object: gameId` (String).
     static let startRecordingForGame = Notification.Name("startRecordingForGame")
     /// Posted by the PRACTICE_REMINDER action / default tap with `object: practiceId` (String).

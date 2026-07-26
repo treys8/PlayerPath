@@ -32,10 +32,35 @@ struct RecruitingProfileEditorView: View {
     @State private var headshotError: String?
     @State private var showingPublish = false
     @State private var showingPaywall = false
+    // Surfaces view counts one level up from RecruitingPublishView, where the
+    // full activity tiles live. Single getDocument, silent-fail.
+    @State private var status: RecruitingPublishStatus?
+    /// Publishable highlights that aren't on the live page yet.
+    ///
+    /// Stored rather than computed in `body`: the count reads
+    /// `athlete.recruiting`, which decodes a JSON blob, and the clip list — doing
+    /// that per render is the same trap already logged against
+    /// RecruitingGolfStatBand. Refreshed wherever `status` is.
+    @State private var staleHighlightCount = 0
+    /// The athlete `working` was seeded from.
+    ///
+    /// @State, NOT a `let`: SwiftUI rebuilds this struct with whatever `athlete`
+    /// the parent hands it on every re-render, so a stored property would silently
+    /// track the new athlete while `working` still held the old one's bio. Only
+    /// @State survives a re-render, which is exactly what makes it a witness.
+    ///
+    /// On a multi-athlete account the parent's `athlete` really can change under a
+    /// pushed editor — PPAthleteSwitcher (Journal/Games/Stats/Videos) posts
+    /// `.switchAthlete` while the More stack stays put. Every route in should carry
+    /// `.id(athlete.id)` so the view is recreated instead; this is the backstop for
+    /// the one that doesn't, because the failure mode is writing one athlete's bio,
+    /// city and contact info onto another — and from there onto their public page.
+    @State private var seededAthleteID: UUID
 
     init(athlete: Athlete) {
         self.athlete = athlete
         _working = State(initialValue: athlete.recruiting)
+        _seededAthleteID = State(initialValue: athlete.id)
     }
 
     private var isGolf: Bool { (athlete.sport ?? .baseball) == .golf }
@@ -70,6 +95,13 @@ struct RecruitingProfileEditorView: View {
                 } label: {
                     Label("Preview Profile", systemImage: "eye")
                 }
+                // Both rows are held while a headshot is still uploading:
+                // `headshotCloudURL` is written only when the upload returns, so
+                // publishing inside that window ships a page with the placeholder
+                // avatar and a nil og:image — and the editor shows the headshot
+                // seconds later, so nothing ever tells the athlete their live page
+                // is missing it.
+                .disabled(isUploadingHeadshot)
                 // Persist before pushing rather than relying on this view's
                 // .onDisappear firing first — the publish snapshot reads the
                 // saved blob, so an unsaved edit would publish stale bio text.
@@ -78,6 +110,35 @@ struct RecruitingProfileEditorView: View {
                     showingPublish = true
                 } label: {
                     Label("Share Profile", systemImage: "square.and.arrow.up")
+                }
+                .disabled(isUploadingHeadshot)
+                // Pro-gated to match the publish screen's Profile Activity section:
+                // a lapsed subscription leaves isPublished true while the CF serves
+                // a dark page, so live-looking view counts there would be a lie.
+                if isPro, let status, status.isPublished {
+                    Label {
+                        Text("\(status.viewCount) total view\(status.viewCount == 1 ? "" : "s") · \(status.viewsThisWeek) this week")
+                    } icon: {
+                        Image(systemName: "eye.fill")
+                    }
+                    .font(.bodySmall)
+                    .foregroundStyle(.secondary)
+                    // "Live since", NOT "last updated": publish carries publishedAt
+                    // forward from the first publish, so wording it as a freshness
+                    // date would tell someone who republished yesterday that their
+                    // page is months old.
+                    if let publishedAt = status.publishedAt {
+                        Label {
+                            Text("Live since \(DateFormatter.mediumDate.string(from: publishedAt))")
+                        } icon: {
+                            Image(systemName: "clock")
+                        }
+                        .font(.bodySmall)
+                        .foregroundStyle(.secondary)
+                    }
+                }
+                if staleHighlightCount > 0 {
+                    staleHighlightsRow
                 }
             } footer: {
                 Text("This is what a college coach will see. Your changes save automatically.")
@@ -99,7 +160,29 @@ struct RecruitingProfileEditorView: View {
             guard let newItem else { return }
             Task { await uploadHeadshot(newItem) }
         }
+        .task {
+            status = try? await RecruitingProfileService.shared.fetchStatus(athleteId: athlete.id)
+            refreshStaleHighlightCount()
+        }
+        .onChange(of: showingPublish) { _, isShowing in
+            // Publish/unpublish happens on the pushed screen — refresh on return.
+            guard !isShowing else { return }
+            // Snapshot before the unstructured Task: reading a @Model property
+            // on an invalidated model traps.
+            let athleteId = athlete.id
+            Task {
+                status = try? await RecruitingProfileService.shared.fetchStatus(athleteId: athleteId)
+                // Publishing is exactly what clears this nudge, so it has to be
+                // recomputed on the way back — and AFTER status lands, since it
+                // gates on isPublished.
+                refreshStaleHighlightCount()
+            }
+        }
         .onAppear {
+            // `.task` runs once per view identity, so a clip flagged as a
+            // highlight while this screen sat in the More stack wouldn't show up
+            // without this. No-op on the first appear (status is still nil).
+            refreshStaleHighlightCount()
             AnalyticsService.shared.trackScreenView(
                 screenName: "Recruiting Profile Editor",
                 screenClass: "RecruitingProfileEditorView"
@@ -147,6 +230,13 @@ struct RecruitingProfileEditorView: View {
             HStack(spacing: 16) {
                 RecruitingHeadshotImage(url: working.headshotCloudURL, size: 72)
                 VStack(alignment: .leading, spacing: 6) {
+                    // Whose profile this is. On a multi-athlete account the way in
+                    // (a More-tab row, a view-alert push tap) doesn't always make
+                    // that obvious, and everything below goes on a public page.
+                    Text(athlete.name)
+                        .font(.headingMedium)
+                        .lineLimit(1)
+
                     PhotosPicker(selection: $headshotItem, matching: .images) {
                         Label(working.headshotCloudURL == nil ? "Add Headshot" : "Change Headshot",
                               systemImage: "camera")
@@ -232,10 +322,10 @@ struct RecruitingProfileEditorView: View {
     private func uploadHeadshot(_ item: PhotosPickerItem) async {
         // Snapshot model attributes BEFORE any await — a concurrent delete that
         // invalidates the @Model mid-await would trap on a later property read.
-        guard let ownerUID = athlete.user?.firebaseAuthUid else {
-            headshotError = "Sign in required to upload a headshot."
-            return
-        }
+        // The Storage owner segment is resolved inside VideoCloudManager off the
+        // signed-in account, matching the path publish() derives; the cached
+        // firebaseAuthUid rides along only as a fallback.
+        let ownerUID = athlete.user?.firebaseAuthUid
         let athleteId = athlete.id
         isUploadingHeadshot = true
         headshotError = nil
@@ -259,8 +349,17 @@ struct RecruitingProfileEditorView: View {
                 imageData: jpeg, athleteId: athleteId, ownerUID: ownerUID
             )
             working.headshotCloudURL = url
+            // Persist immediately rather than waiting for .onDisappear: publish
+            // snapshots the SAVED blob, so a publish that happens before this view
+            // is dismissed would otherwise still see a nil headshot URL.
+            persistIfChanged()
         } catch {
-            headshotError = "Upload failed. Check your connection and try again."
+            // Prefer the thrown reason: the owner check moved into
+            // VideoCloudManager, so a signed-out upload arrives here as
+            // VideoCloudError rather than as its own guard, and telling someone to
+            // check their connection would send them after the wrong problem.
+            headshotError = (error as? LocalizedError)?.errorDescription
+                ?? "Upload failed. Check your connection and try again."
             ErrorHandlerService.shared.handle(error, context: "RecruitingProfileEditorView.uploadHeadshot", showAlert: false)
         }
     }
@@ -269,11 +368,63 @@ struct RecruitingProfileEditorView: View {
     /// doesn't orphan it (replace overwrites in place; only Remove leaks otherwise
     /// — nothing else reclaims `recruiting_headshots/`).
     private func removeHeadshot() {
-        if let ownerUID = athlete.user?.firebaseAuthUid {
-            let athleteId = athlete.id
-            Task { try? await VideoCloudManager.shared.deleteRecruitingHeadshot(athleteId: athleteId, ownerUID: ownerUID) }
-        }
+        let ownerUID = athlete.user?.firebaseAuthUid
+        let athleteId = athlete.id
+        Task { try? await VideoCloudManager.shared.deleteRecruitingHeadshot(athleteId: athleteId, ownerUID: ownerUID) }
         working.headshotCloudURL = nil
+    }
+
+    /// The staleness nudge. `highlights` and `golfStats` are publish-time
+    /// snapshots and the picker never self-heals — `load()` seeds the selection
+    /// from the persisted curation, so newly flagged highlights stay unselected
+    /// forever. Publish in February with 3 clips, flag 17 more by June, and the
+    /// same link still serves February. Nothing else in the app says so: the only
+    /// mention of republishing is a footer on the publish screen itself.
+    private var staleHighlightsRow: some View {
+        Button {
+            persistIfChanged()
+            showingPublish = true
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .foregroundStyle(Theme.warning)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(staleHighlightCount == 1
+                         ? "1 new highlight isn't on your page yet"
+                         : "\(staleHighlightCount) new highlights aren't on your page yet")
+                        .font(.bodySmall)
+                        .multilineTextAlignment(.leading)
+                    Text("Update to put your best film in front of coaches.")
+                        .font(.bodySmall)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.leading)
+                }
+                Spacer(minLength: 8)
+                Text("Update")
+                    .font(.bodySmall.weight(.semibold))
+                    .foregroundStyle(ppAccent)
+            }
+        }
+        .buttonStyle(.plain)
+        .disabled(isUploadingHeadshot)
+    }
+
+    /// Recomputes the nudge count. Silent (0) unless we can say something TRUE:
+    /// the page must be live, and the curation must be known — a profile published
+    /// before `publishedClipIDs` was persisted has unknown page contents, and
+    /// counting every highlight as "new" there would claim staleness we can't
+    /// verify. The next publish heals it.
+    private func refreshStaleHighlightCount() {
+        guard !athlete.isDeleted, athlete.modelContext != nil,
+              let status, status.isPublished,
+              let published = athlete.recruiting.publishedClipIDs else {
+            staleHighlightCount = 0
+            return
+        }
+        let live = Set(published)
+        staleHighlightCount = (athlete.videoClips ?? [])
+            .filter { $0.isPublishableHighlight && !live.contains($0.id) }
+            .count
     }
 
     // MARK: - Persistence
@@ -281,6 +432,12 @@ struct RecruitingProfileEditorView: View {
     /// Single exit path: persist + sync only when the bio actually changed.
     /// `version` is bumped later in uploadLocalAthletes, not here.
     private func persistIfChanged() {
+        // Never write a snapshot back onto a DIFFERENT athlete. See seededAthleteID:
+        // if these disagree the view was re-rendered with another profile while
+        // holding this one's bio, and saving would publish A's PII on B's page.
+        // Dropping the edit is the safe side of that trade.
+        guard athlete.id == seededAthleteID else { return }
+
         // `working` was snapshotted in init, so it can't know about fields written
         // by screens pushed from here. RecruitingPublishView stamps
         // publishConsentAt and publishedClipIDs on publish; without carrying them

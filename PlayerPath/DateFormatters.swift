@@ -53,6 +53,20 @@ extension DateFormatter {
         f.dateFormat = "M/d/yy"
         return f
     }()
+
+    /// Month only (e.g., "Jan") — the open end of a same-year date range.
+    static let monthOnly: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "MMM"
+        return f
+    }()
+
+    /// Month and year (e.g., "Jan 2026")
+    static let monthYear: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "MMM yyyy"
+        return f
+    }()
 }
 
 // MARK: - Date Helpers

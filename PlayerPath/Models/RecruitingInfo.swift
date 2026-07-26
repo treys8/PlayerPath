@@ -86,6 +86,15 @@ nonisolated struct RecruitingInfo: Codable, Equatable {
     /// `publishConsentAt` — it syncs across the owner's devices for free.
     var publishedClipIDs: [UUID]?
 
+    /// Blob keys this build doesn't model, carried through untouched.
+    ///
+    /// The `recruiting` accessor re-encodes the WHOLE struct on every write, so
+    /// without this any key added by a newer build is destroyed the first time an
+    /// older build edits any field — see RecruitingBlobValue for the concrete
+    /// data-loss case. Kept private: nothing should read these, they only need to
+    /// survive the round trip.
+    private var unknownKeys: [String: RecruitingBlobValue] = [:]
+
     init() {}
 
     enum CodingKeys: String, CodingKey {
@@ -97,38 +106,118 @@ nonisolated struct RecruitingInfo: Codable, Equatable {
         case publishConsentAt, publishedClipIDs
     }
 
-    // Custom decoder: every key via `decodeIfPresent` so a blob written by an
-    // older or newer build (missing/extra keys) never throws. Encoding stays
-    // synthesized (Encodable synthesis is independent of a custom init(from:)).
+    /// Every key this build models. Anything in the stored blob that isn't here is
+    /// captured into `unknownKeys` and written back out verbatim.
+    private static let knownKeys: Set<String> = Set(
+        [CodingKeys.schemaVersion, .gradYear, .heightInches, .weightLbs, .city, .state,
+         .highSchool, .clubTeam, .bio, .headshotCloudURL, .primaryPosition,
+         .secondaryPosition, .bats, .throwsHand, .showMeasurables, .sixtyYardDash,
+         .exitVelo, .throwingVelo, .pitchVelo, .gpa, .includeGPA, .contactEmail,
+         .includeContactEmail, .contactPhone, .includeContactPhone,
+         .publishConsentAt, .publishedClipIDs].map(\.rawValue)
+    )
+
+    /// Decodes one key, degrading a bad VALUE to nil instead of throwing.
+    ///
+    /// `decodeIfPresent` alone only tolerates a missing key — a key that's present
+    /// with the wrong type (a future build changing a field's shape, or one
+    /// malformed UUID in `publishedClipIDs`) throws, and a throw here is not a
+    /// small loss: the `recruiting` accessor catches it and hands back an EMPTY
+    /// RecruitingInfo, which the editor's autosave then writes over the real blob.
+    /// One bad field would silently erase the athlete's whole profile. Losing that
+    /// single field instead is strictly better, and the unknown-key sidecar means
+    /// cross-version blobs are now an expected input, not a freak event.
+    private static func lenient<T: Decodable>(
+        _ c: KeyedDecodingContainer<CodingKeys>, _ type: T.Type, _ key: CodingKeys
+    ) -> T? {
+        (try? c.decodeIfPresent(type, forKey: key)) ?? nil
+    }
+
+    // Custom decoder: no key can throw, so a blob written by an older or newer
+    // build — missing keys, extra keys, or a changed value type — always decodes.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        schemaVersion = try c.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
-        gradYear = try c.decodeIfPresent(Int.self, forKey: .gradYear)
-        heightInches = try c.decodeIfPresent(Int.self, forKey: .heightInches)
-        weightLbs = try c.decodeIfPresent(Int.self, forKey: .weightLbs)
-        city = try c.decodeIfPresent(String.self, forKey: .city)
-        state = try c.decodeIfPresent(String.self, forKey: .state)
-        highSchool = try c.decodeIfPresent(String.self, forKey: .highSchool)
-        clubTeam = try c.decodeIfPresent(String.self, forKey: .clubTeam)
-        bio = try c.decodeIfPresent(String.self, forKey: .bio)
-        headshotCloudURL = try c.decodeIfPresent(String.self, forKey: .headshotCloudURL)
-        primaryPosition = try c.decodeIfPresent(String.self, forKey: .primaryPosition)
-        secondaryPosition = try c.decodeIfPresent(String.self, forKey: .secondaryPosition)
-        bats = try c.decodeIfPresent(String.self, forKey: .bats)
-        throwsHand = try c.decodeIfPresent(String.self, forKey: .throwsHand)
-        showMeasurables = try c.decodeIfPresent(Bool.self, forKey: .showMeasurables) ?? false
-        sixtyYardDash = try c.decodeIfPresent(Double.self, forKey: .sixtyYardDash)
-        exitVelo = try c.decodeIfPresent(Double.self, forKey: .exitVelo)
-        throwingVelo = try c.decodeIfPresent(Double.self, forKey: .throwingVelo)
-        pitchVelo = try c.decodeIfPresent(Double.self, forKey: .pitchVelo)
-        gpa = try c.decodeIfPresent(Double.self, forKey: .gpa)
-        includeGPA = try c.decodeIfPresent(Bool.self, forKey: .includeGPA) ?? false
-        contactEmail = try c.decodeIfPresent(String.self, forKey: .contactEmail)
-        includeContactEmail = try c.decodeIfPresent(Bool.self, forKey: .includeContactEmail) ?? false
-        contactPhone = try c.decodeIfPresent(String.self, forKey: .contactPhone)
-        includeContactPhone = try c.decodeIfPresent(Bool.self, forKey: .includeContactPhone) ?? false
-        publishConsentAt = try c.decodeIfPresent(Date.self, forKey: .publishConsentAt)
-        publishedClipIDs = try c.decodeIfPresent([UUID].self, forKey: .publishedClipIDs)
+        schemaVersion = Self.lenient(c, Int.self, .schemaVersion) ?? 1
+        gradYear = Self.lenient(c, Int.self, .gradYear)
+        heightInches = Self.lenient(c, Int.self, .heightInches)
+        weightLbs = Self.lenient(c, Int.self, .weightLbs)
+        city = Self.lenient(c, String.self, .city)
+        state = Self.lenient(c, String.self, .state)
+        highSchool = Self.lenient(c, String.self, .highSchool)
+        clubTeam = Self.lenient(c, String.self, .clubTeam)
+        bio = Self.lenient(c, String.self, .bio)
+        headshotCloudURL = Self.lenient(c, String.self, .headshotCloudURL)
+        primaryPosition = Self.lenient(c, String.self, .primaryPosition)
+        secondaryPosition = Self.lenient(c, String.self, .secondaryPosition)
+        bats = Self.lenient(c, String.self, .bats)
+        throwsHand = Self.lenient(c, String.self, .throwsHand)
+        showMeasurables = Self.lenient(c, Bool.self, .showMeasurables) ?? false
+        sixtyYardDash = Self.lenient(c, Double.self, .sixtyYardDash)
+        exitVelo = Self.lenient(c, Double.self, .exitVelo)
+        throwingVelo = Self.lenient(c, Double.self, .throwingVelo)
+        pitchVelo = Self.lenient(c, Double.self, .pitchVelo)
+        gpa = Self.lenient(c, Double.self, .gpa)
+        includeGPA = Self.lenient(c, Bool.self, .includeGPA) ?? false
+        contactEmail = Self.lenient(c, String.self, .contactEmail)
+        includeContactEmail = Self.lenient(c, Bool.self, .includeContactEmail) ?? false
+        contactPhone = Self.lenient(c, String.self, .contactPhone)
+        includeContactPhone = Self.lenient(c, Bool.self, .includeContactPhone) ?? false
+        publishConsentAt = Self.lenient(c, Date.self, .publishConsentAt)
+        publishedClipIDs = Self.lenient(c, [UUID].self, .publishedClipIDs)
+
+        // Anything this build doesn't model. Best-effort: a blob that somehow
+        // isn't a plain JSON object must not make the whole bio undecodable —
+        // losing the entire profile to preserve a stray key would be a worse bug
+        // than the one this fixes.
+        if let all = try? decoder.singleValueContainer()
+            .decode([String: RecruitingBlobValue].self) {
+            unknownKeys = all.filter { !Self.knownKeys.contains($0.key) }
+        }
+    }
+
+    // Hand-written to match: Encodable synthesis would silently drop `unknownKeys`
+    // (it's a stored property, so it would actually be encoded under the literal
+    // key "unknownKeys" — a nested object that then re-decodes as an unknown key
+    // and grows every save). Known keys use encodeIfPresent so the emitted shape
+    // is byte-identical to what synthesis produced before this change.
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(schemaVersion, forKey: .schemaVersion)
+        try c.encodeIfPresent(gradYear, forKey: .gradYear)
+        try c.encodeIfPresent(heightInches, forKey: .heightInches)
+        try c.encodeIfPresent(weightLbs, forKey: .weightLbs)
+        try c.encodeIfPresent(city, forKey: .city)
+        try c.encodeIfPresent(state, forKey: .state)
+        try c.encodeIfPresent(highSchool, forKey: .highSchool)
+        try c.encodeIfPresent(clubTeam, forKey: .clubTeam)
+        try c.encodeIfPresent(bio, forKey: .bio)
+        try c.encodeIfPresent(headshotCloudURL, forKey: .headshotCloudURL)
+        try c.encodeIfPresent(primaryPosition, forKey: .primaryPosition)
+        try c.encodeIfPresent(secondaryPosition, forKey: .secondaryPosition)
+        try c.encodeIfPresent(bats, forKey: .bats)
+        try c.encodeIfPresent(throwsHand, forKey: .throwsHand)
+        try c.encode(showMeasurables, forKey: .showMeasurables)
+        try c.encodeIfPresent(sixtyYardDash, forKey: .sixtyYardDash)
+        try c.encodeIfPresent(exitVelo, forKey: .exitVelo)
+        try c.encodeIfPresent(throwingVelo, forKey: .throwingVelo)
+        try c.encodeIfPresent(pitchVelo, forKey: .pitchVelo)
+        try c.encodeIfPresent(gpa, forKey: .gpa)
+        try c.encode(includeGPA, forKey: .includeGPA)
+        try c.encodeIfPresent(contactEmail, forKey: .contactEmail)
+        try c.encode(includeContactEmail, forKey: .includeContactEmail)
+        try c.encodeIfPresent(contactPhone, forKey: .contactPhone)
+        try c.encode(includeContactPhone, forKey: .includeContactPhone)
+        try c.encodeIfPresent(publishConsentAt, forKey: .publishConsentAt)
+        try c.encodeIfPresent(publishedClipIDs, forKey: .publishedClipIDs)
+
+        // Same encoder, second keyed container: JSONEncoder merges both into one
+        // object. A stale key can never shadow a real one — knownKeys was filtered
+        // out on decode.
+        var dynamic = encoder.container(keyedBy: RecruitingBlobKey.self)
+        for (key, value) in unknownKeys {
+            guard let codingKey = RecruitingBlobKey(stringValue: key) else { continue }
+            try dynamic.encode(value, forKey: codingKey)
+        }
     }
 }
 
@@ -140,11 +229,20 @@ nonisolated struct RecruitingInfo: Codable, Equatable {
 // something differently from what the athlete previewed.
 
 extension RecruitingInfo {
-    /// "Class of 2027 · SS / 2B, OF" — positions are baseball/softball only.
-    func subline(isGolf: Bool) -> String? {
+    /// "Class of 2027 · Baseball · SS / 2B, OF" — positions are baseball/softball only.
+    ///
+    /// The sport is named explicitly because nothing else on the page says it:
+    /// "SS / 2B" reads as baseball to a baseball coach and as softball to a
+    /// softball coach, and a golf profile carries no positions at all, so it had
+    /// no sport signal whatsoever. This string is also the page's `og:title`
+    /// suffix, so naming the sport here is what makes a shared link legible in an
+    /// unfurl — and it stays a single source, so the in-app preview and the
+    /// published page cannot word it differently.
+    func subline(sport: Sport) -> String? {
         var parts: [String] = []
         if let gradYear { parts.append("Class of \(gradYear)") }
-        if !isGolf, let positionLine { parts.append(positionLine) }
+        parts.append(sport.displayName)
+        if sport != .golf, let positionLine { parts.append(positionLine) }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
@@ -297,5 +395,45 @@ extension Athlete {
     /// True once the athlete has saved any recruiting bio.
     var hasRecruitingProfile: Bool {
         recruitingProfileJSON?.isEmpty == false
+    }
+
+    /// Reconciles two versions of the recruiting blob without letting the
+    /// publish-owned fields regress to nil.
+    ///
+    /// The blob otherwise syncs as ONE opaque last-write-wins string, and two of
+    /// its fields aren't owned by the bio editor at all: `publishConsentAt` and
+    /// `publishedClipIDs` are written only by the publish path. So a device that
+    /// has an offline bio edit and has never seen a publish uploads a blob with
+    /// both keys nil and erases them for the whole account — after which the
+    /// publish screen re-seeds the curation to "newest 8" and one tap on
+    /// "Update Published Profile" silently replaces the hero clip and ordering on
+    /// the page a college coach is looking at.
+    ///
+    /// Neither field is ever legitimately cleared, so "nil never overwrites
+    /// non-nil" is the whole rule. When both sides have a value, normal
+    /// last-write-wins applies and `incoming` takes it.
+    ///
+    /// A nil `incoming` means "this side has no blob", never "clear the bio" —
+    /// nothing in the app sets `recruitingProfileJSON` back to nil.
+    static func mergedRecruitingBlob(incoming: String?, existing: String?) -> String? {
+        guard let incoming, !incoming.isEmpty else { return existing }
+        guard let existing, !existing.isEmpty else { return incoming }
+
+        let decoder = JSONDecoder()
+        guard let incomingData = incoming.data(using: .utf8),
+              let existingData = existing.data(using: .utf8),
+              var merged = try? decoder.decode(RecruitingInfo.self, from: incomingData),
+              let local = try? decoder.decode(RecruitingInfo.self, from: existingData)
+        else {
+            // Undecodable on either side — fall back to the plain swap rather than
+            // inventing a value.
+            return incoming
+        }
+        if merged.publishConsentAt == nil { merged.publishConsentAt = local.publishConsentAt }
+        if merged.publishedClipIDs == nil { merged.publishedClipIDs = local.publishedClipIDs }
+
+        guard let data = try? JSONEncoder().encode(merged),
+              let json = String(data: data, encoding: .utf8) else { return incoming }
+        return json
     }
 }

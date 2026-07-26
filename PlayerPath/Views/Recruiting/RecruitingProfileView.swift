@@ -66,7 +66,7 @@ struct RecruitingProfileView: View {
             Text(athlete.name)
                 .font(.displayMedium)
                 .multilineTextAlignment(.center)
-            if let subline = info.subline(isGolf: isGolf) {
+            if let subline = info.subline(sport: athlete.sport ?? .baseball) {
                 Text(subline)
                     .font(.headingMedium)
                     .foregroundColor(.secondary)

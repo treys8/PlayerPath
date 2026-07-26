@@ -57,9 +57,19 @@ struct RecruitingHighlightPicker: View {
 
             let unselected = publishable.filter { !selection.contains($0.id) }
             if !unselected.isEmpty {
-                Section("Your highlights") {
+                Section {
                     ForEach(unselected) { clip in
                         clipRow(clip, isOn: false)
+                    }
+                } header: {
+                    Text("Your highlights")
+                } footer: {
+                    // At the cap these rows are disabled, and without this they are
+                    // just greyed out for no stated reason — especially for someone
+                    // who arrived from the editor's "new highlights aren't on your
+                    // page yet" nudge and came here to add exactly these.
+                    if atCap {
+                        Text("Your page holds \(RecruitingProfileService.maxHighlights) clips. Remove one above to add another.")
                     }
                 }
             }

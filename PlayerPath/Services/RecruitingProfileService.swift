@@ -53,7 +53,13 @@ enum RecruitingPublishError: LocalizedError {
     case notSignedIn
     case accountMismatch
     case noPublishableClips
+    /// Distinct from `noPublishableClips`: the clips ARE marked uploaded, but every
+    /// Storage object came back `objectNotFound`. Waiting on Wi-Fi will never fix
+    /// this, so it must not reuse the "still uploading" copy.
+    case highlightsMissingFromCloud
     case couldNotClaimLink
+    case offline
+    case tierNotSyncedYet
 
     var errorDescription: String? {
         switch self {
@@ -63,8 +69,14 @@ enum RecruitingPublishError: LocalizedError {
             return "This profile belongs to a different account. Sign out and back in, then try again."
         case .noPublishableClips:
             return "Your highlights are still uploading. This usually finishes on Wi-Fi."
+        case .highlightsMissingFromCloud:
+            return "These clips are no longer in your cloud backup. Pick different clips, or re-upload them from the Videos tab."
         case .couldNotClaimLink:
             return "Couldn't reserve a link for your profile. Check your connection and try again."
+        case .offline:
+            return "You need a connection to change your published profile."
+        case .tierNotSyncedYet:
+            return "Your Pro subscription is still activating. Give it a moment and tap Publish again."
         }
     }
 }
@@ -96,8 +108,21 @@ final class RecruitingProfileService {
     /// Snapshots the athlete's bio, stats, and chosen clips into the published doc
     /// and returns the public link. Reuses the existing share token when one
     /// exists, so republishing never breaks a coach's bookmark.
+    ///
+    /// `onRenditionProgress` reports (completed, total) while the web-safe copies of
+    /// the chosen clips are produced — the slow part of a first publish.
     @discardableResult
-    func publish(athlete: Athlete, highlightClips: [VideoClip]) async throws -> RecruitingPublishResult {
+    func publish(athlete: Athlete,
+                 highlightClips: [VideoClip],
+                 onRenditionProgress: @MainActor (Int, Int) -> Void = { _, _ in }) async throws -> RecruitingPublishResult {
+        // Publishing downloads, transcodes and uploads; a Firestore write also only
+        // completes on backend commit. Without this the whole screen hangs on a
+        // suspended task with Unpublish and Reset Link both .disabled(isWorking) —
+        // i.e. the kill switch becomes unreachable — with no error and no timeout.
+        // Matches VideoCloudManager's convention.
+        guard ConnectivityMonitor.shared.isConnected else {
+            throw RecruitingPublishError.offline
+        }
         // Storage paths are anchored on the AUTH uid, because that is what every
         // uploader used (VideoCloudManager.uploadVideo et al). The local User row's
         // cached firebaseAuthUid is a copy that can go stale — AuthenticatedFlow's
@@ -128,9 +153,13 @@ final class RecruitingProfileService {
         // set that ACTUALLY reached the page, not the set that was selected.
         let candidates = highlightClips
             .prefix(Self.maxHighlights)
-            .compactMap { clip -> (id: UUID, payload: [String: Any])? in
+            .compactMap { clip -> (id: UUID, source: RecruitingClipSource, payload: [String: Any], date: Date?)? in
                 guard clip.isUploaded, clip.cloudURL != nil, !clip.fileName.isEmpty else { return nil }
-                return (clip.id, Self.highlightPayload(for: clip, ownerUID: ownerUID))
+                let source = RecruitingClipSource(id: clip.id,
+                                                  fileName: clip.fileName,
+                                                  localPath: clip.resolvedFilePath,
+                                                  cloudURL: clip.cloudURL)
+                return (clip.id, source, Self.highlightPayload(for: clip, ownerUID: ownerUID), clip.recruitingDate)
             }
         guard !candidates.isEmpty else {
             throw RecruitingPublishError.noPublishableClips
@@ -147,18 +176,51 @@ final class RecruitingProfileService {
             !missing.contains($0.payload["videoStoragePath"] as? String ?? "")
         }
         guard !kept.isEmpty else {
-            throw RecruitingPublishError.noPublishableClips
+            // Every candidate was dropped by the Storage probe, i.e. the objects are
+            // gone for good — not mid-upload. Different remedy, different copy.
+            throw RecruitingPublishError.highlightsMissingFromCloud
         }
-        let highlights = kept.map(\.payload)
         let publishedClipIDs = kept.map(\.id)
         let skippedClipCount = candidates.count - kept.count
+
+        // Swap in the web-safe H.264/mp4 rendition of each clip. The master is
+        // HEVC-in-QuickTime, which does not play in Firefox at all and needs a
+        // paid OS decoder on Windows — see RecruitingWebRenditionService for the
+        // full chain. A clip whose rendition can't be produced keeps its master
+        // path: it still plays for Safari/Chrome-on-Mac viewers, which beats
+        // dropping the clip off the page entirely.
+        let renditions = await RecruitingWebRenditionService.shared.ensureRenditions(
+            for: kept.map(\.source),
+            ownerUID: ownerUID,
+            progress: onRenditionProgress
+        )
+        let highlights = kept.map { candidate -> [String: Any] in
+            guard let renditionPath = renditions[candidate.id] else { return candidate.payload }
+            var payload = candidate.payload
+            payload["videoStoragePath"] = renditionPath
+            return payload
+        }
+        let unrenderedCount = kept.count - renditions.count
+        if unrenderedCount > 0 {
+            recruitingLog.warning("\(unrenderedCount, privacy: .public) clip(s) published without a web rendition")
+        }
 
         let docRef = db.collection(FC.recruitingProfiles).document(athleteId.uuidString)
         // NOT `try?`: every decision below depends on this read. Swallowing a
         // failure would mint a fresh shareToken on a republish — which the rules'
         // token-immutability check then rejects, surfacing as an unexplainable
         // "couldn't publish" — and would reset viewCount to zero.
-        let existing = try await docRef.getDocument()
+        //
+        // `source: .server` is load-bearing, not caution. PersistentCacheSettings
+        // is installed (AppDelegate), so a default read on an unreachable backend
+        // returns the LOCAL COPY — and every server-owned field below, shareToken
+        // included, is then copied out of a stale snapshot. A device that missed a
+        // Reset Link would write the OLD token straight back, and the rules ADMIT
+        // it (the abandoned claim is deliberately undeletable, so ownsShareToken
+        // still passes) — silently resurrecting the URL the family paid a Pro
+        // action to kill permanently. It would also roll the view counters
+        // backwards and re-arm the instant push.
+        let existing = try await docRef.getDocument(source: .server)
         let existingData = existing.exists ? existing.data() : nil
 
         // The write is a full overwrite, NOT a merge: a merge would leave a
@@ -187,6 +249,14 @@ final class RecruitingProfileService {
             "viewCount": existingData?["viewCount"] as? Int ?? 0,
             "updatedAt": FieldValue.serverTimestamp()
         ]
+        // "Feb–Jun 2026" under the film header. Built here, not in the Cloud
+        // Function: the CF receives only pre-formatted labels (it has no clip
+        // dates and no notion of the athlete's calendar), and formatting here
+        // means the range renders in the athlete's own locale and time zone
+        // rather than UTC — which at a month boundary is a different month.
+        if let range = Self.filmDateRange(kept.compactMap(\.date)) {
+            data["filmDateRange"] = range
+        }
         if let lastViewedAt = existingData?["lastViewedAt"] {
             data["lastViewedAt"] = lastViewedAt
         }
@@ -195,7 +265,11 @@ final class RecruitingProfileService {
         // full-overwrite publish — dailyViews powers "views this week", and the
         // notification watermarks stop a republish from re-arming the instant
         // push or making the next digest re-count already-notified views.
-        for key in ["dailyViews", "lastNotifiedAt", "notifiedViewCount"] {
+        // `lastDigestAt` is the daily digest's own stamp; `lastNotifiedAt` is the
+        // retired per-profile instant stamp, carried only so a republish doesn't
+        // drop history (the instant window now lives on users/{uid}, which this
+        // write never touches).
+        for key in ["dailyViews", "channelViews", "lastNotifiedAt", "lastDigestAt", "notifiedViewCount"] {
             if let value = existingData?[key] {
                 data[key] = value
             }
@@ -211,7 +285,21 @@ final class RecruitingProfileService {
             data["headshotPath"] = headshotPath
         }
 
-        try await docRef.setData(data)
+        do {
+            try await docRef.setData(data)
+        } catch {
+            // The only rule this write can realistically trip is hasProTier() —
+            // ownership and token are established above. A denial here almost
+            // always means the server hasn't seen the just-purchased tier yet, and
+            // telling a paying customer to "check your connection" sends them to
+            // fix the one thing that isn't wrong.
+            if (error as NSError).domain == FirestoreErrorDomain,
+               (error as NSError).code == FirestoreErrorCode.permissionDenied.rawValue {
+                recruitingLog.error("Publish denied by rules — tier likely not synced yet")
+                throw RecruitingPublishError.tierNotSyncedYet
+            }
+            throw error
+        }
 
         AnalyticsService.shared.trackRecruitingProfilePublished(
             athleteID: athleteId.uuidString,
@@ -295,6 +383,50 @@ final class RecruitingProfileService {
         throw RecruitingPublishError.couldNotClaimLink
     }
 
+    // MARK: - Reset link
+
+    /// "Reset Link": claims a fresh share token and swaps it onto the profile
+    /// doc, killing the current URL for everyone who has it. Permanent by
+    /// construction — the abandoned claim in `recruitingTokens` is never
+    /// deletable (rules), so the old token can't be re-claimed, and the CF's
+    /// `where(shareToken)` lookup simply stops matching it.
+    ///
+    /// Order matters: claim FIRST, then swap. A failure between the two orphans
+    /// an unused claim doc (harmless, same exposure `publish` already has) —
+    /// the reverse order could point the doc at a token nobody holds.
+    ///
+    /// **Pro-only — unlike `unpublish`.** Enforced at the rules layer; the caller
+    /// gates the UI the same way. Removing that gate would produce orphan claims
+    /// and a raw permissions error.
+    ///
+    /// Takes plain values rather than the `Athlete`: callers reach this after an
+    /// await, and reading a @Model property on an invalidated model traps.
+    ///
+    /// Returns the new token so the caller can update its UI without a re-read.
+    /// That matters: if the caller had to re-fetch and the read failed, it would
+    /// go on displaying the OLD token — a link that is already dead — and an
+    /// athlete could hand a 404 to a college coach.
+    @discardableResult
+    func resetLink(athleteId: UUID, sport: String) async throws -> String {
+        guard ConnectivityMonitor.shared.isConnected else {
+            throw RecruitingPublishError.offline
+        }
+        guard let ownerUID = Auth.auth().currentUser?.uid, !ownerUID.isEmpty else {
+            throw RecruitingPublishError.notSignedIn
+        }
+        let token = try await claimShareToken(athleteId: athleteId, ownerUID: ownerUID)
+        try await db.collection(FC.recruitingProfiles).document(athleteId.uuidString)
+            .updateData([
+                "shareToken": token,
+                "updatedAt": FieldValue.serverTimestamp()
+            ])
+        AnalyticsService.shared.trackRecruitingLinkReset(
+            athleteID: athleteId.uuidString, sport: sport
+        )
+        recruitingLog.info("Reset share link for athlete \(athleteId.uuidString, privacy: .public)")
+        return token
+    }
+
     // MARK: - Unpublish
 
     /// Takes the public page down. Deliberately NOT tier-gated — a lapsed-Pro
@@ -303,7 +435,14 @@ final class RecruitingProfileService {
     ///
     /// Takes plain values rather than the `Athlete`: callers reach this after an
     /// await, and reading a @Model property on an invalidated model traps.
+    ///
+    /// The connectivity guard is not a tier gate: a Firestore write only completes
+    /// on backend commit, so offline this would suspend forever behind the screen's
+    /// `isWorking` flag and the kill switch would appear broken rather than refused.
     func unpublish(athleteId: UUID, sport: String) async throws {
+        guard ConnectivityMonitor.shared.isConnected else {
+            throw RecruitingPublishError.offline
+        }
         try await db.collection(FC.recruitingProfiles).document(athleteId.uuidString)
             .updateData([
                 "isPublished": false,
@@ -371,6 +510,28 @@ final class RecruitingProfileService {
         return "recruiting_headshots/\(ownerUID)/\(athleteId.uuidString).jpg"
     }
 
+    /// "Jun 2026" / "Feb–Jun 2026" / "Sep 2025–Jun 2026" for the clips that
+    /// actually reached the page, or nil when none of them carry a date.
+    ///
+    /// Month granularity is deliberate. Exact days are already printed under each
+    /// clip; what this line answers is the question those captions can't — they
+    /// carry no year, so "Mar 12" reads the same whether it was this spring or
+    /// three seasons ago, which is precisely what a coach is judging.
+    static func filmDateRange(_ dates: [Date]) -> String? {
+        guard let earliest = dates.min(), let latest = dates.max() else { return nil }
+        let calendar = Calendar.current
+        let from = calendar.dateComponents([.year, .month], from: earliest)
+        let to = calendar.dateComponents([.year, .month], from: latest)
+        if from.year == to.year && from.month == to.month {
+            return DateFormatter.monthYear.string(from: latest)
+        }
+        // Within one year the opening month doesn't need to repeat it.
+        if from.year == to.year {
+            return "\(DateFormatter.monthOnly.string(from: earliest))–\(DateFormatter.monthYear.string(from: latest))"
+        }
+        return "\(DateFormatter.monthYear.string(from: earliest))–\(DateFormatter.monthYear.string(from: latest))"
+    }
+
     private static func highlightPayload(for clip: VideoClip, ownerUID: String) -> [String: Any] {
         var payload: [String: Any] = [
             "videoStoragePath": "athlete_videos/\(ownerUID)/\(clip.fileName)",
@@ -393,12 +554,15 @@ final class RecruitingProfileService {
     private static func applyBio(_ info: RecruitingInfo, sport: Sport, to data: inout [String: Any]) {
         let isGolf = sport == .golf
         if let gradYear = info.gradYear { data["gradYear"] = gradYear }
-        if let subline = info.subline(isGolf: isGolf) { data["subline"] = subline }
+        if let subline = info.subline(sport: sport) { data["subline"] = subline }
         if let physicalLine = info.physicalLine(isGolf: isGolf) { data["physicalLine"] = physicalLine }
         if let schoolLine = info.schoolLine { data["schoolLine"] = schoolLine }
         if let bio = info.bio, !bio.isEmpty { data["bio"] = bio }
 
-        let measurables = info.measurableItems
+        // Golf pages carry the golf stat band instead; the in-app preview already
+        // hides the baseball measurables card for golfers, and the published page
+        // has to agree with it.
+        let measurables = isGolf ? [] : info.measurableItems
         if !measurables.isEmpty {
             data["measurables"] = measurables.map { ["label": $0.label, "value": $0.value] }
         }
@@ -461,11 +625,16 @@ extension VideoClip {
             parts.append(isGolf ? opponent : "vs \(opponent)")
         }
 
-        if let date = gameDate ?? practiceDate ?? createdAt {
+        if let date = recruitingDate {
             parts.append(DateFormatter.monthDay.string(from: date))
         }
         return parts.joined(separator: " · ")
     }
+
+    /// When this clip was played, for recruiting display. Shared by the caption
+    /// and the film section's date range so the range can never disagree with the
+    /// dates printed underneath the clips.
+    var recruitingDate: Date? { gameDate ?? practiceDate ?? createdAt }
 
     /// "Birdie" / "Eagle" / "Hole-in-One" for a golf clip stamped with a scored
     /// hole. Reuses HoleScore.diffLabel so the page names a score exactly the way

@@ -7,11 +7,18 @@
     "rules": "storage.rules"
   },
   "functions": {
-    "source": "firebase/functions"
+    "source": "firebase/functions",
+    "predeploy": [
+      "bash firebase/functions/check-build-fresh.sh"
+    ]
   },
   "hosting": {
     "public": "firebase/hosting-public",
-    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
     "rewrites": [
       {
         "source": "/p/**",

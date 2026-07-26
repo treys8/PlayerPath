@@ -175,9 +175,12 @@ final class Athlete {
         // doesn't orphan (keyed by athleteId, same as upload). Idempotent. There
         // is NO server-side sweep for recruiting_headshots/ (the daily cleanup CF
         // only covers the videos collection), so this delete + the editor's
-        // Remove button are the only reclaim paths. Uses the user's
-        // firebaseAuthUid — the same owner key the upload wrote under.
-        if recruiting.headshotCloudURL != nil, let ownerUID = user?.firebaseAuthUid {
+        // Remove button are the only reclaim paths. The owner segment is resolved
+        // inside VideoCloudManager from the signed-in account (the cached
+        // firebaseAuthUid goes along only as a fallback), which keeps FirebaseAuth
+        // out of this model file and matches the path the upload wrote under.
+        if recruiting.headshotCloudURL != nil {
+            let ownerUID = user?.firebaseAuthUid
             Task { @MainActor in
                 try? await VideoCloudManager.shared.deleteRecruitingHeadshot(athleteId: athleteId, ownerUID: ownerUID)
             }

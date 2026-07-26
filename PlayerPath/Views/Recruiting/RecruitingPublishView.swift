@@ -30,12 +30,22 @@ struct RecruitingPublishView: View {
     @State private var status: RecruitingPublishStatus?
     @State private var selection: [UUID] = []
     @State private var isLoading = true
+    /// True when the last status read THREW. Distinguishes "couldn't check" from
+    /// `fetchStatus`'s legitimate nil-for-no-profile, which look identical in
+    /// `status` alone.
+    @State private var statusLoadFailed = false
     @State private var isWorking = false
     @State private var errorMessage: String?
     @State private var consentAcknowledged = false
     @State private var showingUnpublishConfirm = false
+    @State private var showingResetConfirm = false
     @State private var showingPaywall = false
     @State private var showingQR = false
+    /// (completed, total) while publish makes the web-safe copy of each clip.
+    /// That step downloads, transcodes and uploads, so it can run tens of seconds
+    /// on a first publish — long enough that a bare spinner reads as a hang.
+    @State private var renditionStep = 0
+    @State private var renditionTotal = 0
     /// Non-nil right after a successful publish — drives the success sheet.
     /// Carries the URL + skipped-clip count so the sheet needs no re-fetch.
     @State private var publishSuccess: PublishSuccess?
@@ -45,6 +55,21 @@ struct RecruitingPublishView: View {
     /// and the binding would then stay "presented", blocking every later sheet
     /// from this view. Parked here and promoted once the paywall is gone.
     @State private var pendingSuccess: PublishSuccess?
+    /// The error-path twin of `pendingSuccess`. A publish resumed from the paywall
+    /// most often fails on the tier race — i.e. exactly while that sheet is still
+    /// dismissing — and an alert raised then is silently dropped, leaving a paying
+    /// customer with no page and no explanation at all.
+    @State private var pendingError: String?
+    /// The athlete `selection` was loaded for. Same witness as the editor's — see
+    /// RecruitingProfileEditorView.seededAthleteID for why it must be @State and
+    /// what goes wrong without it. Here the stake is publishing one athlete's
+    /// curated clips and consent stamp against another athlete's profile doc.
+    @State private var seededAthleteID: UUID
+
+    init(athlete: Athlete) {
+        self.athlete = athlete
+        _seededAthleteID = State(initialValue: athlete.id)
+    }
 
     /// Identifiable so the success sheet uses `.sheet(item:)` — with an
     /// isPresented binding over an optional, dismissal nils the value while the
@@ -71,6 +96,13 @@ struct RecruitingPublishView: View {
             if isLoading {
                 Section { ProgressView().frame(maxWidth: .infinity) }
             } else {
+                // A failed read must not let the rest of the screen assert "no page
+                // exists" — but it must not hide the curation and publish path
+                // either, or a first-time athlete offline is left with nothing to
+                // do. The sections that depend on KNOWING the live state
+                // (live link, activity, unpublish, reset) are already keyed on a
+                // non-nil `status`, so they stay hidden on their own.
+                if status == nil && statusLoadFailed { statusUnavailableSection }
                 if isPublished, let url = status?.shareURL {
                     liveLinkSection(url: url)
                     // Stats about a dark page would read as "coaches can still
@@ -84,13 +116,23 @@ struct RecruitingPublishView: View {
                 if !isPro { upgradeSection }
                 publishSection
                 if isPublished { unpublishSection }
+                // Reset needs only a profile doc, not a live page: an unpublished
+                // profile still holds its token, and the next publish would
+                // resurrect the old link. Pro-only (mirrors the rules) — a
+                // lapsed account's remedy is Unpublish, which darkens the page
+                // for everyone anyway.
+                if status != nil && isPro { resetLinkSection }
             }
         }
         .navigationTitle("Share Profile")
         .navigationBarTitleDisplayMode(.inline)
+        .listSectionSpacing(.compact)
         .tint(ppAccent)
         .ppAccent(for: athlete.sport)
         .task { await load() }
+        // View counts otherwise only move on a fresh push of this screen, which
+        // is the wrong affordance for the number an athlete comes back to check.
+        .refreshable { await load(showSpinner: false) }
         .onAppear {
             AnalyticsService.shared.trackScreenView(
                 screenName: "Recruiting Publish",
@@ -104,7 +146,9 @@ struct RecruitingPublishView: View {
         }
         .sheet(isPresented: $showingQR) {
             if let url = status?.shareURL {
-                RecruitingQRCodeView(athleteName: athlete.name, url: url)
+                // A scanned code is its own channel — the showcase-table case.
+                RecruitingQRCodeView(athleteName: athlete.name,
+                                     url: RecruitingShareTools.taggedURL(url, channel: .qr))
             }
         }
         // Peak-motivation moment: the publish just landed, so the share verbs
@@ -119,6 +163,10 @@ struct RecruitingPublishView: View {
             if !isShowing, let pending = pendingSuccess {
                 pendingSuccess = nil
                 publishSuccess = pending
+            }
+            if !isShowing, let pending = pendingError {
+                pendingError = nil
+                errorMessage = pending
             }
         }
         .sheet(isPresented: $showingPaywall) {
@@ -136,72 +184,29 @@ struct RecruitingPublishView: View {
 
     private func liveLinkSection(url: URL) -> some View {
         Section {
-            VStack(alignment: .leading, spacing: 10) {
-                // isPublished alone doesn't mean a coach can open it:
-                // serveRecruitingProfile re-checks the owner's tier per render, so
-                // a lapsed account's page is dark even though the flag is still
-                // true. Claiming "live" here would be a lie the athlete only
-                // discovers when a coach tells them the link is broken.
-                Label(isPro ? "Your profile is live" : "Your profile is offline",
-                      systemImage: isPro ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
-                    .font(.headingMedium)
-                    .foregroundStyle(isPro ? ppAccent : Theme.warning)
-                Text(url.absoluteString)
-                    .font(.bodySmall)
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-                    .lineLimit(2)
-                // No sharing while the page is dark: handing a college coach a link
-                // that 404s is worse than not sharing at all. The URL still shows
-                // (it's theirs, and it comes back on renewal) — just not the verbs
-                // that put it in someone else's inbox.
-                if isPro {
-                    HStack(spacing: 12) {
-                        ShareLink(item: url) {
-                            Label("Share", systemImage: "square.and.arrow.up")
-                        }
-                        .buttonStyle(.borderedProminent)
-
-                        Button {
-                            UIPasteboard.general.string = url.absoluteString
-                        } label: {
-                            Label("Copy", systemImage: "doc.on.doc")
-                        }
-                        .buttonStyle(.bordered)
-                    }
-                    HStack(spacing: 12) {
-                        Button {
-                            showingQR = true
-                        } label: {
-                            Label("QR Code", systemImage: "qrcode")
-                        }
-                        .buttonStyle(.bordered)
-
-                        if let emailURL = coachEmailURL(url: url) {
-                            Button {
-                                // No mail app configured → open() fails with no
-                                // UI at all. Falling back to the pasteboard beats
-                                // a prominent button that does nothing.
-                                UIApplication.shared.open(emailURL, options: [:]) { opened in
-                                    if !opened {
-                                        UIPasteboard.general.string = url.absoluteString
-                                        errorMessage = "No mail app is set up on this device — your profile link was copied instead."
-                                    }
-                                }
-                            } label: {
-                                Label("Email a Coach", systemImage: "envelope")
+            RecruitingShareCard(
+                url: url,
+                athleteName: athlete.name,
+                isPro: isPro,
+                sport: athlete.sport,
+                onShowQR: { showingQR = true },
+                onEmail: coachEmailURL(url: url).map { emailURL in
+                    {
+                        // No mail app configured → open() fails with no UI at
+                        // all. Falling back to the pasteboard beats a button
+                        // that does nothing.
+                        UIApplication.shared.open(emailURL, options: [:]) { opened in
+                            if !opened {
+                                // Still the mail channel: that was the intent, and
+                                // the athlete pastes this into a mail app.
+                                UIPasteboard.general.string =
+                                    RecruitingShareTools.taggedURL(url, channel: .mail).absoluteString
+                                errorMessage = "No mail app is set up on this device — your profile link was copied instead."
                             }
-                            .buttonStyle(.bordered)
                         }
                     }
                 }
-            }
-            .padding(.vertical, 4)
-        } footer: {
-            if isPro {
-                Text("For a social bio: tap and hold to copy.\n\(RecruitingShareTools.bioBlurb(sport: athlete.sport, url: url))")
-                    .textSelection(.enabled)
-            }
+            )
         }
     }
 
@@ -211,12 +216,11 @@ struct RecruitingPublishView: View {
     private var activitySection: some View {
         Section("Profile Activity") {
             if let status {
-                LabeledContent("Total views", value: "\(status.viewCount)")
-                LabeledContent("This week", value: "\(status.viewsThisWeek)")
-                if let lastViewedAt = status.lastViewedAt {
-                    LabeledContent("Last viewed",
-                                   value: lastViewedAt.formatted(.relative(presentation: .named)))
-                }
+                RecruitingActivityTiles(
+                    totalViews: status.viewCount,
+                    viewsThisWeek: status.viewsThisWeek,
+                    lastViewedAt: status.lastViewedAt
+                )
             }
         }
     }
@@ -266,6 +270,31 @@ struct RecruitingPublishView: View {
         }
     }
 
+    /// Shown ABOVE the rest of the screen when we could not determine whether a
+    /// page is live. Without it the remaining sections silently assert
+    /// "never published" — hiding the live URL, the counts, Unpublish and Reset
+    /// Link on a page that is up and being served.
+    private var statusUnavailableSection: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 12) {
+                Label("Couldn't check whether this profile is live.", systemImage: "exclamationmark.triangle.fill")
+                    .font(.bodySmall)
+                    .foregroundStyle(Theme.warning)
+                // Without this line the button below ("Publish Profile") implies no
+                // page exists — the exact false assertion this section fixes.
+                Text("Your link and settings are safe — this device just couldn't reach the server. Publishing will update your existing page if you already have one.")
+                    .font(.bodySmall)
+                    .foregroundStyle(.secondary)
+                Button("Retry") {
+                    Haptics.light()
+                    Task { await load() }
+                }
+                .buttonStyle(.borderedProminent)
+            }
+            .padding(.vertical, 4)
+        }
+    }
+
     private var upgradeSection: some View {
         Section {
             Button {
@@ -305,8 +334,18 @@ struct RecruitingPublishView: View {
             }
             .buttonStyle(.borderedProminent)
             .disabled(!canPublish)
+
+            if isWorking, renditionTotal > 0 {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Preparing clip \(min(renditionStep + 1, renditionTotal)) of \(renditionTotal)")
+                        .font(.bodySmall)
+                    ProgressView(value: Double(renditionStep), total: Double(renditionTotal))
+                }
+            }
         } footer: {
-            if isPublished {
+            if isWorking, renditionTotal > 0 {
+                Text("Your clips are being converted so they play in any web browser. This happens once per clip.")
+            } else if isPublished {
                 Text("Republishing refreshes your stats and clips. Your link stays the same.")
             }
         }
@@ -329,8 +368,37 @@ struct RecruitingPublishView: View {
             } message: {
                 Text("The link stops working immediately. Anyone who already has it will see \"profile unavailable\". You can publish again later and the same link will work.")
             }
+        }
+        // No footer here on purpose: the confirmation dialog above makes the
+        // same "your link survives" promise at the moment it's actually needed,
+        // and the publish section says it a third time. Once is enough.
+    }
+
+    /// The one action that breaks the "your link never changes" promise — on
+    /// purpose. There is no per-recipient revocation on this feature (recruiters
+    /// never authenticate; every share path is blind to who received it), so a
+    /// leaked link's only remedies are taking the page down for everyone or
+    /// minting a new link. This is the second one, and the copy doesn't soften
+    /// what it costs.
+    private var resetLinkSection: some View {
+        Section {
+            Button(role: .destructive) {
+                showingResetConfirm = true
+            } label: {
+                Text("Reset Link")
+                    .frame(maxWidth: .infinity)
+            }
+            .disabled(isWorking)
+            .confirmationDialog("Reset your profile link?", isPresented: $showingResetConfirm) {
+                Button("Cancel", role: .cancel) {}
+                Button("Reset Link", role: .destructive) {
+                    Task { await resetLink() }
+                }
+            } message: {
+                Text("You'll get a new link, and the current one stops working permanently — for everyone you've sent it to, including any QR codes you've shared or printed. This can't be undone.")
+            }
         } footer: {
-            Text("Your link never changes, so a coach's bookmark still works if you publish again.")
+            Text("If your link ended up somewhere you didn't intend, this is how you take it back.")
         }
     }
 
@@ -340,9 +408,11 @@ struct RecruitingPublishView: View {
         (athlete.videoClips ?? []).contains(where: \.isPublishableHighlight)
     }
 
-    private func load() async {
-        isLoading = true
-        defer { isLoading = false }
+    /// `showSpinner: false` for pull-to-refresh — swapping the whole form for a
+    /// ProgressView under the user's finger reads as a crash, not a refresh.
+    private func load(showSpinner: Bool = true) async {
+        if showSpinner { isLoading = true }
+        defer { if showSpinner { isLoading = false } }
 
         // Read the model BEFORE the await — afterwards it may be invalidated.
         let athleteId = athlete.id
@@ -362,9 +432,34 @@ struct RecruitingPublishView: View {
             .prefix(RecruitingProfileService.maxHighlights)
             .map(\.id)
 
-        status = try? await RecruitingProfileService.shared.fetchStatus(athleteId: athleteId)
+        await refreshStatus(athleteId: athleteId)
         if selection.isEmpty {
             selection = curated.isEmpty ? defaultSelection : curated
+        }
+    }
+
+    /// Re-reads publish state, KEEPING what we already have when the read fails.
+    ///
+    /// `fetchStatus` returns nil for "no profile yet" but THROWS when Firestore
+    /// can't be reached, and `try?` flattened those into the same nil. A single
+    /// failed refresh therefore rendered a published profile as never-published
+    /// — which silently removes the live link, Unpublish and Reset Link from the
+    /// screen. Losing the kill switch to a dropped connection is the same class
+    /// of bug as paywalling it: the page stays live while the controls vanish.
+    /// Only a successful nil (the doc really is gone) clears it.
+    /// On the FIRST load there is no previous value to keep, so a failure leaves
+    /// `status` nil — indistinguishable from a legitimate "no profile yet".
+    /// `statusLoadFailed` carries that distinction to the UI so an athlete whose
+    /// page is live is never shown the never-published layout.
+    private func refreshStatus(athleteId: UUID) async {
+        do {
+            status = try await RecruitingProfileService.shared.fetchStatus(athleteId: athleteId)
+            statusLoadFailed = false
+        } catch {
+            statusLoadFailed = true
+            ErrorHandlerService.shared.handle(error,
+                                              context: "RecruitingPublishView.refreshStatus",
+                                              showAlert: false)
         }
     }
 
@@ -386,8 +481,16 @@ struct RecruitingPublishView: View {
     /// re-checking here would bounce the just-paid customer straight back into the
     /// paywall. Every caller has already established the entitlement.
     private func publish() async {
+        // `selection` belongs to the athlete this screen loaded for. If the view
+        // has since been re-rendered with a different one, publishing would write
+        // this athlete's curation and consent stamp against that athlete's doc.
+        guard athlete.id == seededAthleteID else { return }
         isWorking = true
-        defer { isWorking = false }
+        defer {
+            isWorking = false
+            renditionTotal = 0
+            renditionStep = 0
+        }
 
         // Read the model up front — after the awaits below it may be invalidated,
         // and a property read on a deleted @Model traps.
@@ -396,8 +499,29 @@ struct RecruitingPublishView: View {
         let clips = selection.compactMap { id in
             (athlete.videoClips ?? []).first { $0.id == id }
         }
+        // The rules' hasProTier() reads users/{uid}.subscriptionTier, which no
+        // client can write — only the syncSubscriptionTier CF sets it, after an
+        // AppTransaction fetch, an entitlement JWS and a round trip. A publish
+        // resumed from the paywall races that: StoreKit says Pro locally while
+        // the server still says free, and the setData is denied. This is the
+        // single worst moment in the feature to fail, and each failed attempt
+        // also mints another permanently-undeletable recruitingTokens claim.
+        // `try?` on purpose — SharedFolderManager.acceptInvitation takes the same
+        // position for the identical race: the write below stays authoritative.
+        try? await authManager.syncSubscriptionTierToFirestoreAndWait()
+        // That await is a suspension point, and the service reads @Model
+        // properties off `athlete` before its own first await — a delete landing
+        // in between would trap on an invalidated model rather than fail.
+        guard !athlete.isDeleted, athlete.modelContext != nil else { return }
+
         do {
-            let result = try await RecruitingProfileService.shared.publish(athlete: athlete, highlightClips: clips)
+            let result = try await RecruitingProfileService.shared.publish(
+                athlete: athlete,
+                highlightClips: clips
+            ) { done, total in
+                renditionStep = done
+                renditionTotal = total
+            }
             // Record consent only once the page is actually live: stamping it
             // before the write would permanently retire the guardian gate even
             // when publishing failed and nothing was ever shared.
@@ -416,7 +540,13 @@ struct RecruitingPublishView: View {
                 athlete.recruiting = info      // sets needsSync
                 ErrorHandlerService.shared.saveContext(modelContext, caller: "RecruitingPublishView.publish")
             }
-            status = try? await RecruitingProfileService.shared.fetchStatus(athleteId: athleteId)
+            // Reconcile the picker with what actually published. Clips whose
+            // Storage objects were reclaimed drop out server-side, and leaving
+            // `selection` at the pre-publish set left the picker reading
+            // "8 of 8" — at cap, every unselected row disabled — so the athlete
+            // couldn't add replacements without blind-deselecting good clips.
+            selection = result.publishedClipIDs
+            await refreshStatus(athleteId: athleteId)
             let success = PublishSuccess(url: result.url, skipped: result.skippedClipCount)
             // A publish resumed from the paywall can finish before its sheet is
             // off screen — park the result until then (see pendingSuccess).
@@ -432,8 +562,13 @@ struct RecruitingPublishView: View {
                 Task { try? await SyncCoordinator.shared.syncAthletes(for: user) }
             }
         } catch {
-            errorMessage = (error as? LocalizedError)?.errorDescription
+            let message = (error as? LocalizedError)?.errorDescription
                 ?? "Couldn't publish your profile. Check your connection and try again."
+            if showingPaywall {
+                pendingError = message
+            } else {
+                errorMessage = message
+            }
             ErrorHandlerService.shared.handle(error, context: "RecruitingPublishView.publish", showAlert: false)
         }
     }
@@ -445,10 +580,42 @@ struct RecruitingPublishView: View {
         let sport = (athlete.sport ?? .baseball).rawValue
         do {
             try await RecruitingProfileService.shared.unpublish(athleteId: athleteId, sport: sport)
-            status = try? await RecruitingProfileService.shared.fetchStatus(athleteId: athleteId)
+            await refreshStatus(athleteId: athleteId)
         } catch {
-            errorMessage = "Couldn't unpublish. Check your connection and try again."
+            errorMessage = (error as? LocalizedError)?.errorDescription
+                ?? "Couldn't unpublish. Check your connection and try again."
             ErrorHandlerService.shared.handle(error, context: "RecruitingPublishView.unpublish", showAlert: false)
+        }
+    }
+
+    private func resetLink() async {
+        isWorking = true
+        defer { isWorking = false }
+        let athleteId = athlete.id
+        let sport = (athlete.sport ?? .baseball).rawValue
+        do {
+            let newToken = try await RecruitingProfileService.shared.resetLink(athleteId: athleteId, sport: sport)
+            // Swap the token locally instead of re-reading. A failed re-read
+            // would leave the OLD token on screen — a link that is now dead —
+            // and every surface here (URL line, QR sheet, ShareLink, the bio
+            // blurb, the mailto body) would hand out a 404. The write already
+            // succeeded, so this is the authoritative value; the counts are
+            // untouched by a reset and carry over as-is.
+            if let current = status {
+                status = RecruitingPublishStatus(
+                    isPublished: current.isPublished,
+                    shareToken: newToken,
+                    viewCount: current.viewCount,
+                    viewsThisWeek: current.viewsThisWeek,
+                    lastViewedAt: current.lastViewedAt,
+                    publishedAt: current.publishedAt
+                )
+            }
+            Haptics.light()
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription
+                ?? "Couldn't reset your link. Check your connection and try again."
+            ErrorHandlerService.shared.handle(error, context: "RecruitingPublishView.resetLink", showAlert: false)
         }
     }
 
@@ -456,7 +623,7 @@ struct RecruitingPublishView: View {
         RecruitingShareTools.coachEmailURL(
             athleteName: athlete.name,
             info: athlete.recruiting,
-            isGolf: (athlete.sport ?? .baseball) == .golf,
+            sport: athlete.sport ?? .baseball,
             url: url
         )
     }

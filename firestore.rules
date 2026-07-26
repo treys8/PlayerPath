@@ -1046,9 +1046,19 @@ service cloud.firestore {
     // hijack that live link. cleanupUserDataOnDelete sweeps them with the Admin
     // SDK on account deletion.
     match /recruitingTokens/{shareToken} {
+      // hasOnly (not hasAll) + a size bound: the doc is never deletable, so an
+      // unbounded shape would let any signed-in account script permanent junk
+      // into a collection designed for one ~100-byte doc per profile. createdAt
+      // MUST stay in the allowlist — claimShareToken writes it, and dropping it
+      // here breaks every publish. Pro is safe to require: both callers
+      // (publish, resetLink) are already Pro-only.
       allow create: if isAuthenticated()
+                    && hasProTier()
+                    && request.resource.data.keys().hasOnly(['userId', 'athleteId', 'createdAt'])
                     && request.resource.data.keys().hasAll(['userId', 'athleteId'])
-                    && request.resource.data.userId == request.auth.uid;
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.athleteId is string
+                    && request.resource.data.athleteId.size() < 64;
       allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
       allow update, delete: if false;
     }
@@ -1102,13 +1112,25 @@ service cloud.firestore {
                     && request.resource.data.highlights.size() <= 8
                     && isOwnHeadshotPath();
 
-      // userId and shareToken are frozen: reparenting a doc would hand a profile to
-      // another account, and rotating the token would break every coach's bookmark.
+      // userId is frozen: reparenting a doc would hand a profile to another
+      // account.
+      //
+      // shareToken normally holds still (rotating it silently would break every
+      // coach's bookmark), with ONE deliberate exception — the owner's "Reset
+      // Link". A leaked URL is otherwise unkillable: unpublish-then-republish
+      // reuses the same token, so the only permanent remedy would be staying
+      // unpublished forever. The exception is exactly as narrow as a first
+      // publish: the incoming token must be a recruitingTokens claim this
+      // account holds FOR THIS ATHLETE (ownsShareToken — same bar `create`
+      // sets), plus Pro. The abandoned claim doc is never deletable, so the
+      // old URL stays dead instead of becoming claimable by someone else.
       //
       // The tier check is on the RESULT, not the action: a user whose Pro lapsed must
       // always be able to UNPUBLISH (isPublished == false) — the kill switch can never
       // be paywalled — but may not publish or re-publish without Pro. The client UI
       // mirrors this: RecruitingPublishView gates only publish, never unpublish.
+      // (Reset requires Pro; a lapsed account's kill switch is unpublish, which
+      // darkens the page for every holder of the link anyway.)
       //
       // These rules gate WRITES only; they cannot expire an at-rest doc, so a
       // cancelled subscription would otherwise leave isPublished:true live forever.
@@ -1117,7 +1139,9 @@ service cloud.firestore {
       allow update: if isAuthenticated()
                     && resource.data.userId == request.auth.uid
                     && request.resource.data.userId == resource.data.userId
-                    && request.resource.data.shareToken == resource.data.shareToken
+                    && (request.resource.data.shareToken == resource.data.shareToken
+                        || (hasProTier()
+                            && ownsShareToken(request.resource.data.shareToken, athleteID)))
                     && request.resource.data.highlights is list
                     && request.resource.data.highlights.size() <= 8
                     && isOwnHeadshotPath()

@@ -222,7 +222,12 @@ struct ProfileView: View {
                 keywords: ["recruiting", "profile", "college", "coach", "bio", "highlight", "commit", "scout"],
                 link: AnyView(
                     NavigationLink {
+                        // `.id` per athlete: the editor snapshots the bio into
+                        // @State, and a switch under a pushed editor would write
+                        // one athlete's profile onto another. Same convention as
+                        // every athlete-scoped destination in MainTabView.
                         RecruitingProfileEditorView(athlete: selectedAthlete)
+                            .id(selectedAthlete.id)
                     } label: {
                         Label("Recruiting Profile", systemImage: "graduationcap.fill")
                     }
@@ -550,7 +555,12 @@ struct ProfileView: View {
                 // only route to the unpublish kill switch, which must stay reachable
                 // after Pro lapses. Publishing is gated on the action instead.
                 NavigationLink {
+                    // `.id` per athlete: the editor holds the bio in @State, and
+                    // PPAthleteSwitcher can change `selectedAthlete` while this
+                    // stack stays pushed — without a fresh identity the editor
+                    // would save one athlete's profile onto another.
                     RecruitingProfileEditorView(athlete: selectedAthlete)
+                        .id(selectedAthlete.id)
                 } label: {
                     HStack {
                         Label("Recruiting Profile", systemImage: "graduationcap.fill")

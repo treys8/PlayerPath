@@ -204,6 +204,45 @@ describe('recruitingTokens — the uniqueness claim', () => {
     );
   });
 
+  it('allows the createdAt field claimShareToken actually writes', async () => {
+    // The allowlist is hasOnly, so omitting createdAt here would break publish.
+    await assertSucceeds(
+      setDoc(doc(dbFor(PRO_UID), CLAIM), {
+        userId: PRO_UID,
+        athleteId: ATHLETE_ID,
+        createdAt: new Date(),
+      })
+    );
+  });
+
+  it('denies a free-tier account claiming a token', async () => {
+    await assertFails(
+      setDoc(doc(dbFor(FREE_UID), CLAIM), { userId: FREE_UID, athleteId: ATHLETE_ID })
+    );
+  });
+
+  it('denies extra keys — claims are undeletable, so junk would be permanent', async () => {
+    await assertFails(
+      setDoc(doc(dbFor(PRO_UID), CLAIM), {
+        userId: PRO_UID,
+        athleteId: ATHLETE_ID,
+        payload: 'x'.repeat(1000),
+      })
+    );
+  });
+
+  it('denies a non-string athleteId', async () => {
+    await assertFails(
+      setDoc(doc(dbFor(PRO_UID), CLAIM), { userId: PRO_UID, athleteId: 42 })
+    );
+  });
+
+  it('denies an oversized athleteId', async () => {
+    await assertFails(
+      setDoc(doc(dbFor(PRO_UID), CLAIM), { userId: PRO_UID, athleteId: 'x'.repeat(64) })
+    );
+  });
+
   it('denies deleting a claim — releasing it would let a live link be hijacked', async () => {
     await seedTokenClaim(PRO_UID);
     await assertFails(deleteDoc(doc(dbFor(PRO_UID), CLAIM)));
@@ -271,9 +310,60 @@ describe('recruitingProfiles — update', () => {
     await assertFails(updateDoc(doc(dbFor(FREE_UID), PROFILE), { name: 'New Name' }));
   });
 
-  it('denies rotating the shareToken (would break a coach bookmark)', async () => {
+  // Token rotation is "Reset Link": legal ONLY when the incoming token is a
+  // recruitingTokens claim this account holds for this athlete, plus Pro — the
+  // same bar `create` sets. Everything below the first case is the fence.
+  it('allows a Pro owner to rotate to a fresh token they claimed for this athlete (Reset Link)', async () => {
+    await seedProfile(PRO_UID);
+    await seedTokenClaim(PRO_UID, 'token-fresh');
+    await assertSucceeds(
+      updateDoc(doc(dbFor(PRO_UID), PROFILE), { shareToken: 'token-fresh' })
+    );
+  });
+
+  it('denies rotating to an UNCLAIMED token — uniqueness is the whole point of the claim', async () => {
     await seedProfile(PRO_UID);
     await assertFails(updateDoc(doc(dbFor(PRO_UID), PROFILE), { shareToken: 'token-xyz' }));
+  });
+
+  it("denies rotating to another account's claimed token (live-link hijack via update)", async () => {
+    // The create-path version of this attack is covered above; this is the same
+    // hole through the update door — without ownsShareToken here, a Pro user
+    // could steal a victim's URL by *updating* their own doc onto it.
+    await seedProfile(PRO_UID);
+    await seedTokenClaim(OTHER_UID, 'token-stolen');
+    await assertFails(
+      updateDoc(doc(dbFor(PRO_UID), PROFILE), { shareToken: 'token-stolen' })
+    );
+  });
+
+  it('denies rotating to a claim minted for a different athlete', async () => {
+    await seedProfile(PRO_UID);
+    await seedTokenClaim(PRO_UID, 'token-other-kid', 'athlete-uuid-2');
+    await assertFails(
+      updateDoc(doc(dbFor(PRO_UID), PROFILE), { shareToken: 'token-other-kid' })
+    );
+  });
+
+  it('allows rotating an UNPUBLISHED profile — the client offers Reset there too', async () => {
+    // An unpublished profile still holds its token, so republishing would
+    // resurrect the old link for everyone who has it. The UI shows Reset
+    // whenever a profile doc exists, so this write has to be legal.
+    await seedProfile(PRO_UID, { isPublished: false });
+    await seedTokenClaim(PRO_UID, 'token-fresh-dark');
+    await assertSucceeds(
+      updateDoc(doc(dbFor(PRO_UID), PROFILE), { shareToken: 'token-fresh-dark' })
+    );
+  });
+
+  it('denies a free-tier owner rotating, even to their own claim — reset is a Pro action', async () => {
+    // Their kill switch is unpublish, which darkens the page for every holder
+    // of the link; rotation only matters for an account that can publish.
+    await seedProfile(FREE_UID);
+    await seedTokenClaim(FREE_UID, 'token-free-fresh');
+    await assertFails(
+      updateDoc(doc(dbFor(FREE_UID), PROFILE), { shareToken: 'token-free-fresh', isPublished: false })
+    );
   });
 
   it('denies reassigning userId', async () => {

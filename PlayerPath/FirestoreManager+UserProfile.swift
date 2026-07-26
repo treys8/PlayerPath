@@ -96,27 +96,53 @@ extension FirestoreManager {
         }
     }
 
-    /// Mirrors the two activity-push toggles to the user's Firestore document so
-    /// the `sendPushNotification` Cloud Function can suppress *background* pushes
-    /// when a user has turned them off. The client already suppresses the
+    /// Mirrors the server-relevant push toggles to the user's Firestore document
+    /// so the `sendPushNotification` Cloud Function can suppress *background*
+    /// pushes when a user has turned them off. The client already suppresses the
     /// in-app foreground banner; without this sync the server kept delivering
     /// backgrounded pushes regardless of the toggle.
     ///
-    /// Only these two toggles are server-relevant — uploads, weekly stats, and
+    /// Only these three toggles are server-relevant — uploads, weekly stats, and
     /// game reminders are scheduled as *local* notifications on-device, and
     /// invitations are transactional. Best-effort: a failure just means the
     /// pref retries on the next toggle change or screen open.
-    func syncNotificationPreferences(coachActivity: Bool, athleteActivity: Bool) async {
+    func syncNotificationPreferences(coachActivity: Bool, athleteActivity: Bool, recruitingViews: Bool) async {
         guard let userID = Auth.auth().currentUser?.uid else { return }
         do {
             try await db.collection(FC.users).document(userID).setData([
                 "notificationPreferences": [
                     "coachActivity": coachActivity,
-                    "athleteActivity": athleteActivity
+                    "athleteActivity": athleteActivity,
+                    "recruitingViews": recruitingViews
                 ]
             ], merge: true)
         } catch {
             firestoreLog.error("Failed to sync notification preferences: \(error.localizedDescription)")
+        }
+    }
+
+    /// Reads the account-level push toggles back from Firestore so a second device
+    /// can seed its own device-local `@AppStorage` values instead of overwriting
+    /// them. `notificationPreferences` is account-level while the toggles are
+    /// device-local, so without this read the first appearance of the Notifications
+    /// screen on a new device silently re-enables everything the user turned off
+    /// elsewhere (every toggle defaults `true`).
+    ///
+    /// Returns `nil` when the read FAILS, and an empty dictionary when the account
+    /// simply has no prefs stored yet. Callers must treat those differently: only
+    /// the empty-dictionary case is safe to back-fill from local values.
+    /// Reads from the server on purpose — a stale cached `true` would be written
+    /// straight back over a remote `false`.
+    func fetchNotificationPreferences() async -> [String: Bool]? {
+        guard let userID = Auth.auth().currentUser?.uid else { return nil }
+        do {
+            let doc = try await db.collection(FC.users).document(userID)
+                .getDocument(source: .server)
+            let raw = doc.data()?["notificationPreferences"] as? [String: Any] ?? [:]
+            return raw.compactMapValues { $0 as? Bool }
+        } catch {
+            firestoreLog.warning("Failed to read notification preferences: \(error.localizedDescription)")
+            return nil
         }
     }
 

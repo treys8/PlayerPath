@@ -62,7 +62,12 @@ nonisolated struct RecruitingGolfStats: Equatable {
     /// GolfExportData.advancedStats, which pools tournament AND practice rounds.
     /// This wording is deliberately narrow — do not broaden it to claim the whole
     /// band is tournament-only.
-    static let footnote = "Scoring (avg / best / rounds) from tournament rounds only."
+    ///
+    /// It also leads with provenance: the measurables card says "self-reported"
+    /// while this band said nothing, so a coach read the golf numbers as verified.
+    /// Same source read by `golfPayload`, so the in-app band and the published page
+    /// can't disagree.
+    static let footnote = "Scores entered by the athlete in PlayerPath. Scoring (avg / best / rounds) from tournament rounds only."
 
     // MARK: Display items (single source for band chips and page)
 

@@ -77,7 +77,11 @@ struct EditAthleteView: View {
             // there's no ambiguity about whose photo and contact info goes public.
             Section {
                 NavigationLink {
+                    // `.id` for the same reason as the Profile-tab route: the
+                    // editor holds the bio in @State, so it must be recreated
+                    // rather than re-rendered if the athlete underneath changes.
                     RecruitingProfileEditorView(athlete: athlete)
+                        .id(athlete.id)
                 } label: {
                     Label("Recruiting Profile", systemImage: "graduationcap.fill")
                 }

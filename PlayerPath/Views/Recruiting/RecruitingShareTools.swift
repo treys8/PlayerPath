@@ -14,12 +14,41 @@ import SwiftUI
 
 enum RecruitingShareTools {
 
+    /// Which share verb a link left the app through.
+    ///
+    /// Travels as `?s=<raw>` and is bucketed server-side as `channelViews.<raw>`,
+    /// so "the QR code at a showcase table is worth more than the Instagram bio"
+    /// becomes a number instead of a hunch. **These raw values are a wire format:
+    /// `recruitingProfile.ts` whitelists exactly this set, and anything else is
+    /// dropped rather than bucketed.**
+    ///
+    /// Attribution is first-touch, not per-viewer: a coach who forwards the link
+    /// carries the original marker along. That is the intended reading — the
+    /// channel is where the link entered the world.
+    enum ShareChannel: String {
+        case share, copy, qr, mail, bio
+    }
+
+    /// Stamps the share channel onto a profile URL.
+    ///
+    /// Query-only, so it cannot disturb token parsing: the CF reads `req.path`,
+    /// which excludes the query string. Existing items are preserved rather than
+    /// replaced in case the URL ever carries more than this.
+    static func taggedURL(_ url: URL, channel: ShareChannel) -> URL {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url }
+        var items = components.queryItems ?? []
+        items.removeAll { $0.name == "s" }
+        items.append(URLQueryItem(name: "s", value: channel.rawValue))
+        components.queryItems = items
+        return components.url ?? url
+    }
+
     /// `mailto:` with a coach-ready subject and body — the athlete only adds
     /// the recipient. Built from the same RecruitingInfo display helpers the
     /// page uses, so the subject line matches what the coach will open.
-    static func coachEmailURL(athleteName: String, info: RecruitingInfo, isGolf: Bool, url: URL) -> URL? {
+    static func coachEmailURL(athleteName: String, info: RecruitingInfo, sport: Sport, url: URL) -> URL? {
         var subjectParts = [athleteName]
-        if let subline = info.subline(isGolf: isGolf) { subjectParts.append(subline) }
+        if let subline = info.subline(sport: sport) { subjectParts.append(subline) }
         subjectParts.append("Game Film")
         let subject = subjectParts.joined(separator: " — ")
 
@@ -30,7 +59,9 @@ enum RecruitingShareTools {
         lines.append(intro)
         lines.append("")
         lines.append("My game film, measurables, and contact info are here:")
-        lines.append(url.absoluteString)
+        // Tagged here rather than at the call site: this builder OWNS the email
+        // channel, so the marker can't be forgotten by a future caller.
+        lines.append(taggedURL(url, channel: .mail).absoluteString)
         lines.append("")
         lines.append("Thank you for your time.")
         lines.append(athleteName)
@@ -46,6 +77,26 @@ enum RecruitingShareTools {
         return components.url
     }
 
+    /// How the link is shown on screen — never how it's copied or sent.
+    ///
+    /// Drops the scheme and leans on TAIL truncation, so what survives is
+    /// `profiles.playerpath.net/p/1D695788-DEE7…`. Middle truncation reads well
+    /// for paths but not for this URL: the tail is a UUID, so it spent the
+    /// visible space on meaningless hex and hid the domain — the one part that
+    /// tells an athlete (or a coach glancing over their shoulder) what the link
+    /// even is. Every path that actually shares the link uses `absoluteString`.
+    static func displayLink(_ url: URL) -> String {
+        // Strip the channel marker: `?s=copy` is plumbing, and showing it invites
+        // an athlete to retype a URL that differs from the one they're sharing.
+        var stripped = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        stripped?.queryItems = nil
+        var text = (stripped?.url ?? url).absoluteString
+        for scheme in ["https://", "http://"] where text.hasPrefix(scheme) {
+            text.removeFirst(scheme.count)
+        }
+        return text
+    }
+
     /// One-liner for a Twitter/Instagram bio — where recruiters actually scout.
     static func bioBlurb(sport: Sport?, url: URL) -> String {
         let emoji: String
@@ -54,7 +105,7 @@ enum RecruitingShareTools {
         case .softball: emoji = "🥎"
         default: emoji = "⚾️"
         }
-        return "\(emoji) Game film & recruiting profile: \(url.absoluteString)"
+        return "\(emoji) Game film & recruiting profile: \(taggedURL(url, channel: .bio).absoluteString)"
     }
 }
 
@@ -89,11 +140,14 @@ struct RecruitingPublishSuccessView: View {
                 VStack(spacing: 6) {
                     Text("Your profile is live")
                         .font(.headingLarge)
-                    Text(url.absoluteString)
+                    // Same treatment as the Share Profile card: wrapped, the
+                    // share token's hex buries the headline right above it.
+                    Text(RecruitingShareTools.displayLink(url))
                         .font(.bodySmall)
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
-                        .lineLimit(2)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                         .multilineTextAlignment(.center)
                 }
                 .padding(.horizontal)
@@ -109,7 +163,7 @@ struct RecruitingPublishSuccessView: View {
                 }
 
                 VStack(spacing: 12) {
-                    ShareLink(item: url) {
+                    ShareLink(item: RecruitingShareTools.taggedURL(url, channel: .share)) {
                         Label("Share Link", systemImage: "square.and.arrow.up")
                             .frame(maxWidth: .infinity)
                     }
@@ -123,7 +177,10 @@ struct RecruitingPublishSuccessView: View {
                             // does SOMETHING on the peak-motivation sheet.
                             UIApplication.shared.open(emailURL, options: [:]) { opened in
                                 if !opened {
-                                    UIPasteboard.general.string = url.absoluteString
+                                    // Still the email channel — that was the intent,
+                                    // and the athlete pastes it into a mail app.
+                                    UIPasteboard.general.string =
+                                        RecruitingShareTools.taggedURL(url, channel: .mail).absoluteString
                                     emailUnavailable = true
                                 }
                             }
@@ -151,7 +208,8 @@ struct RecruitingPublishSuccessView: View {
                     .controlSize(.large)
 
                     Button {
-                        UIPasteboard.general.string = url.absoluteString
+                        UIPasteboard.general.string =
+                            RecruitingShareTools.taggedURL(url, channel: .copy).absoluteString
                         Haptics.light()
                         copied = true
                     } label: {
@@ -174,7 +232,8 @@ struct RecruitingPublishSuccessView: View {
                 }
             }
             .sheet(isPresented: $showingQR) {
-                RecruitingQRCodeView(athleteName: athlete.name, url: url)
+                RecruitingQRCodeView(athleteName: athlete.name,
+                                     url: RecruitingShareTools.taggedURL(url, channel: .qr))
             }
         }
         .presentationDetents([.large])
@@ -184,7 +243,7 @@ struct RecruitingPublishSuccessView: View {
         RecruitingShareTools.coachEmailURL(
             athleteName: athlete.name,
             info: athlete.recruiting,
-            isGolf: (athlete.sport ?? .baseball) == .golf,
+            sport: athlete.sport ?? .baseball,
             url: url
         )
     }

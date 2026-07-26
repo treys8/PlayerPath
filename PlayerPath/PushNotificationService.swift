@@ -784,6 +784,12 @@ extension PushNotificationService: UNUserNotificationCenterDelegate {
                 completionHandler([])
                 return
             }
+        } else if notifType == "recruiting_view" {
+            let recruitingViews = UserDefaults.standard.object(forKey: NotificationPrefKeys.recruitingViews) as? Bool ?? true
+            if !recruitingViews {
+                completionHandler([])
+                return
+            }
         }
 
         // Local re-engagement nudges already have an in-app surface (the Journal
@@ -796,7 +802,11 @@ extension PushNotificationService: UNUserNotificationCenterDelegate {
             return
         }
 
-        if isActive && isActivityFCM {
+        // recruiting_view is exempt from the activity suppression: it writes no
+        // notifications/ doc, so there is no in-app ActivityNotificationBanner
+        // mirror — suppressing it would lose the event entirely. (The user
+        // toggle for it was already checked above.)
+        if isActive && isActivityFCM && notifType != "recruiting_view" {
             completionHandler([])
         } else {
             completionHandler([.banner, .list, .sound, .badge])
@@ -943,6 +953,12 @@ extension PushNotificationService: UNUserNotificationCenterDelegate {
                 }
             case "coach_review_reminder":
                 NotificationCenter.default.post(name: .switchCoachTab, object: 1)
+            case "recruiting_view":
+                // Server key is `athleteId` (lowercase d — the recruiting doc ID,
+                // which IS the athlete UUID), unlike milestone's `athleteID`.
+                // Older pushes without the key still land on the More tab root.
+                NotificationCenter.default.post(name: .navigateToRecruiting,
+                                                object: userInfo["athleteId"] as? String)
             default:
                 logger.info("Unhandled notification type: \(notificationType)")
             }
