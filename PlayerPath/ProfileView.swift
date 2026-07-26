@@ -567,8 +567,10 @@ struct ProfileView: View {
                         Spacer()
                         // This row sits above the athlete list and otherwise reads as
                         // account-level, but it publishes ONE athlete's photo, city,
-                        // and contact info. Name whose.
-                        Text(selectedAthlete.name)
+                        // and contact info. Name whose — with the sport when the
+                        // person has two profiles, since those are two separate
+                        // public pages under the same name.
+                        Text(selectedAthlete.nameWithSportIfShared)
                             .foregroundColor(.secondary)
                             .lineLimit(1)
                     }

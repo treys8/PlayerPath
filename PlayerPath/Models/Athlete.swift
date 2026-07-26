@@ -144,6 +144,24 @@ final class Athlete {
         personGroupSports.count < Season.SportType.allCases.count
     }
 
+    /// `"Jordan Smith"`, or `"Jordan Smith · Golf"` once this person has more
+    /// than one linked profile.
+    ///
+    /// Same `siblings > 1` rule as `PPAthleteSwitcher.rowTitle`, so a
+    /// single-sport athlete still reads as just their name. Factored out here
+    /// because recruiting is where the ambiguity actually costs something: a
+    /// dual-sport person is two rows with the SAME name, and each row carries its
+    /// own bio, headshot, consent stamp, share link and published page. A screen
+    /// that says only "Jordan Smith" gives no way to tell which of the two is
+    /// about to go public — or which one a live link belongs to.
+    var nameWithSportIfShared: String {
+        let groupID = personGroupID ?? id
+        let siblings = (user?.athletes ?? [])
+            .filter { ($0.personGroupID ?? $0.id) == groupID }
+            .count
+        return siblings > 1 ? "\(name) · \((sport ?? .baseball).displayName)" : name
+    }
+
     /// True when this single row tracks seasons in 2+ distinct sports — a legacy
     /// "Add a sport" profile that predates the spinoff model. Such a row can't run
     /// overlapping seasons and flips `sport` on every switch; the split tool migrates

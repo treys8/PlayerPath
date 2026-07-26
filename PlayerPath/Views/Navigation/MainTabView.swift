@@ -553,9 +553,11 @@ struct MainTabView: View {
                                 // Name whose. Unlike the other rows here, this one
                                 // leads to publishing ONE athlete's photo, city and
                                 // contact info on a public page — the same reason
-                                // the Profile-tab row carries the name.
+                                // the Profile-tab row carries the name. Carries the
+                                // sport too when the person has two profiles —
+                                // those are two separate public pages, same name.
                                 Spacer()
-                                Text(selectedAthlete.name)
+                                Text(selectedAthlete.nameWithSportIfShared)
                                     .foregroundColor(.secondary)
                                     .lineLimit(1)
                             }

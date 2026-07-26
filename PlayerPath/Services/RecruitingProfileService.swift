@@ -32,6 +32,13 @@ struct RecruitingPublishStatus {
     let viewsThisWeek: Int
     let lastViewedAt: Date?
     let publishedAt: Date?
+    /// When the page last actually changed. Distinct from `publishedAt`, which
+    /// `publish()` carries forward from the FIRST publish and never moves — so
+    /// `publishedAt` alone tells someone who republished this morning that their
+    /// page is months old. Every write path here stamps this (publish, unpublish,
+    /// resetLink), so it also moves when the page went DARK, not just when it
+    /// changed content.
+    let updatedAt: Date?
 
     var shareURL: URL? { RecruitingProfileService.shareURL(for: shareToken) }
 }
@@ -470,7 +477,8 @@ final class RecruitingProfileService {
             viewCount: data["viewCount"] as? Int ?? 0,
             viewsThisWeek: Self.viewsThisWeek(from: data["dailyViews"] as? [String: Any]),
             lastViewedAt: (data["lastViewedAt"] as? Timestamp)?.dateValue(),
-            publishedAt: (data["publishedAt"] as? Timestamp)?.dateValue()
+            publishedAt: (data["publishedAt"] as? Timestamp)?.dateValue(),
+            updatedAt: (data["updatedAt"] as? Timestamp)?.dateValue()
         )
     }
 

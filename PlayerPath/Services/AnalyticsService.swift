@@ -160,6 +160,18 @@ final class AnalyticsService {
         ])
     }
 
+    /// Fired on "Delete Profile Data" — the published doc and headshot are gone.
+    /// Kept separate from unpublish on purpose: unpublish is reversible and often
+    /// seasonal, while this is a family withdrawing from the feature, and folding
+    /// the two together would hide that behind a metric that looks like churn
+    /// noise.
+    func trackRecruitingProfileDataDeleted(athleteID: String, sport: String) {
+        logEvent(.recruitingProfileDataDeleted, parameters: [
+            "athlete_id": athleteID,
+            "sport": sport
+        ])
+    }
+
     // MARK: - Video Events
 
     func trackVideoRecorded(duration: TimeInterval, quality: String, isQuickRecord: Bool) {
@@ -554,6 +566,7 @@ enum AnalyticsEvent: String {
     case recruitingProfilePublished = "recruiting_profile_published"
     case recruitingProfileUnpublished = "recruiting_profile_unpublished"
     case recruitingLinkReset = "recruiting_link_reset"
+    case recruitingProfileDataDeleted = "recruiting_profile_data_deleted"
 }
 
 // MARK: - Bundle Extensions

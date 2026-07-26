@@ -6,11 +6,18 @@
 
 ---
 
-## 0. FIX STATUS — read this first (updated 2026-07-26)
+## 0. FIX STATUS — read this first (updated 2026-07-26, client batch)
+
+**37 of 40 findings are DONE, 1 is partial, 2 are left.** (Earlier drafts said "12 left" — that number
+double-counted the device-test line and never reconciled: 32 + 1 + 12 = 45 against a 40-finding total.
+Recounted item by item below; the real remainder is **P3.7** and **N2**.)
+
+✅ **CLIENT BATCH — 2026-07-26, committed on top of `f9d8308`.** P3.4, P3.3 (warning half), P3.8, P3.9 and
+N3, all client-only, no CF redeploy and no schema change. Build gate: **BUILD SUCCEEDED**.
+**Version bumped to 6.4.3 / 207** (both Debug and Release) — this tree is ready for a device build.
 
 **§9 execution order steps 1–15 are COMPLETE (2026-07-26): the P3.2 CF deploy, the five cheap P4 fixes, and
-the whole CF batch — P2.2, P4.1, P4.2, P4.3, P4.9 — plus new finding N1.
-32 findings done + 1 partial; 12 left (see the scoreboard below).**
+the whole CF batch — P2.2, P4.1, P4.2, P4.3, P4.9 — plus new finding N1.**
 
 ✅ **CF BATCH DEPLOYED 2026-07-26** (`npm run build` → freshness guard → all functions "Successful update").
 Live proof the new segment parser shipped: `/p/{token}/poster` now 404s as **text/plain**, where the old
@@ -66,7 +73,11 @@ Do not re-do anything marked ✅ DONE below; §2's "not yet deployed" table is n
 | **P4.1** `og:image` nil without a headshot | ✅ **DONE — DEPLOYED 2026-07-26.** `serveAvatar` → `serveProxiedImage(res, token, kind)` with `kind: 'avatar' \| 'poster'`; new `/p/{token}/poster` route in the same segment parser; `ogImage` falls back to the hero clip's thumbnail. Keyed on `rawHighlights[0]` (what the route re-derives), not the rendered `clips[0]`, so tag and route can't disagree. Still goes through `ownedPath`. |
 | **P4.2** renderer drops sport / updatedAt / duration | ✅ **DONE — DEPLOYED 2026-07-26.** `subline(isGolf:)` → **`subline(sport:)`** and now names the sport, so it reaches the page header AND `og:title` (4 call sites updated — note `coachEmailURL` was a 4th site a `subline(` grep misses). Footer renders "Updated \<Month YYYY\>" from `updatedAt` (already written by publish; month granularity + UTC). Per-clip `durationSeconds` now shows in captions — worth the space precisely because grid clips are `preload="none"`, so the browser shows no duration until clicked. |
 | **P4.3** film section has no header or provenance | ✅ **DONE — DEPLOYED 2026-07-26.** `<h2>Game Film</h2>` + `8 clips · 3:12 · tagged in PlayerPath · Feb–Jun 2026`. **"tagged", not "recorded & tagged"** — clips can be imported from Photos, so "recorded in PlayerPath" is false for some; the same reasoning as measurables' "self-reported". The footer's old provenance sentence was replaced by "Updated \<Month\> · PlayerPath" so the claim isn't duplicated. Date range is built Swift-side (`RecruitingProfileService.filmDateRange`, new `filmDateRange` doc field) off the same `gameDate ?? practiceDate ?? createdAt` precedence the captions use, so the range can't disagree with the dates under the clips. |
-| **P3.3, P3.4, P3.7–P3.9, P2.8 (rest)** | ⬜ **NOT STARTED.** |
+| **P3.4** no minimum-viable-profile bar | ✅ **DONE 2026-07-26.** New `Views/Recruiting/RecruitingReadinessSection.swift` (own file — the publish view was already ~630 lines): a `RecruitingReadinessItem` list + a Section that renders **only while something is unmet**, matching the app's surface-a-problem-and-stay-quiet convention (stale-highlight nudge, status-unavailable row). Publish stays enabled. Header counts "3 of 5". **Golf drops the Position row** rather than showing a box that can never be ticked — golf has no positions, so every golf profile would otherwise read as permanently incomplete (same reasoning as P4.10). No clips row either: `canPublish` already requires a non-empty selection, so it could never be unticked. Rows are computed **once per `load()` into @State**, not in `body` — the items read `athlete.recruiting`, which decodes a JSON blob. A "Fill These In" button calls `dismiss()`, which is safe as a pop because the editor is this screen's ONLY route in. |
+| **P3.3** published page can dead-end (warning half) | ✅ **DONE 2026-07-26.** ⚠️ **Placed in the readiness checklist, not the publish footer as the fix text said** — it rides the "Email or phone" row's consequence line ("A coach who scans your QR code has no way to reach you."), which is the same screen and the same moment but sits next to the item it's about instead of stacking a third sentence under the button. Same for P3.4's grad-year line ("Recruiting class is the first thing a coach filters on."). Coverage is equivalent: the section renders whenever either is missing. **The coach/parent reference block is NOT done and was never part of this finding's defect** — the fix text scoped it as a separate feature proposal. |
+| **P3.8** unpublish keeps PII + headshot at rest | ✅ **DONE 2026-07-26.** New `deleteDataSection` + `deleteProfileData()`: `deleteProfileDoc` then a best-effort `deleteRecruitingHeadshot`, and it **clears `headshotCloudURL` locally** because the stored download URL 404s once the object is gone (safe to propagate — only `publishConsentAt` and `publishedClipIDs` are nil-protected by `mergedRecruitingBlob`). **Not tier-gated**, same reasoning as unpublish. Needed its own **connectivity guard in the view**, NOT in the service: `deleteProfileDoc` is deliberately unguarded so `Athlete.delete` can ride Firestore's offline queue rather than skip and leave a deleted athlete's page live — but as a foreground action behind `isWorking` it would hang with the kill switch disabled (P1.6's failure). `status` is set to nil **directly instead of via `refreshStatus`**, since a throwing re-read would raise "couldn't check whether this profile is live" over a profile just deleted on purpose. New `recruiting_profile_data_deleted` analytics event rather than reusing unpublish — this is a family withdrawing, not seasonal churn. |
+| **P3.9** two-sport athletes break `name · sport` | ✅ **DONE 2026-07-26.** New `Athlete.nameWithSportIfShared` (same `siblings > 1` rule as `PPAthleteSwitcher.rowTitle`) applied at 5 surfaces: the editor header, the Profile-tab row, the More-tab row, `RecruitingShareCard`, and the QR sheet. **Deliberately NOT the mailto subject or the page `<h1>`** — both already carry `subline`, which names the sport since P4.2, so qualifying the name there would print it twice ("Jordan Smith · Golf — Class of 2027 · Golf — Game Film"). That's also why the CF needs no redeploy for this finding. |
+| **P3.7, N2, P2.8 (rest)** | ⬜ **NOT STARTED** — the whole remainder. |
 
 **P3.2 notes.** `displayLink` strips the query, so the on-screen URL never shows the marker while every shared
 copy carries it. `mail` and `bio` are tagged INSIDE `coachEmailURL`/`bioBlurb` (those builders own their
@@ -102,40 +113,59 @@ Both were caught reviewing the batch AFTER it deployed, and both are now fixed a
 
 **Checked and found correct** (worth not re-deriving): `missingStoragePaths` marks a path missing **only** on a genuine `objectNotFound` — a transient network error yields `isGone = false`. So P4.8's new `highlightsMissingFromCloud` copy ("no longer in your cloud backup") cannot fire on a connectivity blip, which would have been the same wrong-copy defect P4.8 exists to fix. Also verified: the JS rendition base-name derivation matches Swift's `NSString.deletingPathExtension` for multi-dot and extensionless names.
 
+### Self-review of client batch #2 — 4 defects found in the fixes themselves
+
+Same pattern as the S1/S2 pass: reviewing the batch after writing it. All four are fixed, build re-verified.
+
+| # | Defect I introduced | Fix |
+|---|---|---|
+| **S3** | **P3.8's headshot clear was resurrected on the way out.** `RecruitingProfileEditorView` holds `working: RecruitingInfo` snapshotted in `init`, and its `.onDisappear` → `persistIfChanged` writes that snapshot back. My delete path set `headshotCloudURL = nil` from the *pushed* publish screen — so returning to the editor and leaving re-wrote the stale URL, pointing at a Storage object I had just deleted. **Not an edge case: the publish screen's only exit is back to the editor, so it fired every time.** Consequences compounded — a broken headshot in the editor with a live "Remove" button, and the next publish stamping a dead `headshotPath` onto the public page (`headshotPath()` keys purely on `headshotCloudURL != nil`). This is the footgun `persistIfChanged`'s own comment warns about — *"Any new field written by a pushed screen needs a line here"* — and I walked straight into it. | Re-seed `working.headshotCloudURL` from the saved blob in the editor's existing `.onChange(of: showingPublish)` return handler. **Deliberately NOT a line in `persistIfChanged`'s carry-forward block**: that block is "saved wins if non-nil" and this is a deliberate nil-CLEAR, which that rule would discard — and it's the same reason the editor's own Remove button can't use that mechanism. Safe unconditionally because `persistIfChanged` runs immediately before the push, so the two agree on every field the publish screen didn't change. |
+| **S4** | **The checklist went stale after "Fill These In"** — the one flow it exists to serve. `readiness` was computed only in `load()`, and `.task` runs once per view identity, so a field filled in on the editor and returned from would still read as missing. **The editor had already logged this exact trap** for `staleHighlightCount` ("`.task` runs once per view identity…"), which is what made it findable. | Extracted `refreshReadiness()` (with the `isDeleted`/`modelContext` liveness guard) and called it from `.onAppear` as well as `load()`. |
+| **S5** | The checklist reported **"Headshot ✓" immediately after deleting the headshot** — computed at load, never recomputed by the delete path. | `refreshReadiness()` after the blob write. |
+| **S6** | `deleteProfileData` had **no `seededAthleteID` witness**, unlike `publish()`. If the view was re-rendered with a different athlete while pushed, the on-screen link and view count still belonged to the loaded athlete while `athlete.id` pointed at the new one — so the tap would delete a profile other than the one displayed. Irreversible. | Added the same guard `publish()` uses. ⚠️ **`unpublish()` and `resetLink()` still lack it** — pre-existing, not touched by this batch, and `resetLink` is irreversible too. Logged below as a follow-up rather than silently changed. |
+
+**Also checked and found correct** (worth not re-deriving): **no Cloud Function writes `updatedAt`** — the view path increments `viewCount`/`dailyViews`/`channelViews` and stamps `lastViewedAt`, and the digest writes `notifiedViewCount`/`lastDigestAt`/prunes, but none touch `updatedAt`. So N3's "updated ‹date›" is a genuine content-freshness signal, not a view counter. The CF's own `updatedLabel` doc comment reaches the same conclusion independently. **Note the deliberate divergence:** the page renders `updatedAt` at **month granularity in UTC** (a coach shouldn't be invited to ask "why does it say yesterday"), while the in-app row renders the **full date in local time** (matching the existing "Live since" line and `DateFormatter.mediumDate`). At a month boundary the page can say "Updated June" while the app says "updated Jul 1" — the same UTC-vs-local tension already accepted for `filmDateRange`. Don't "fix" one to match the other.
+
+**New follow-up (not from the original 40):**
+- **`unpublish()` and `resetLink()` lack the `seededAthleteID` witness** that `publish()` and now `deleteProfileData()` carry. Both read `athlete.id` fresh, so on a re-rendered view they act on an athlete other than the one whose link and counts are on screen. `resetLink` is irreversible. ~15 min, client-only.
+
 ### New findings — added 2026-07-26, after the original 37
 
 | # | Finding | Status |
 |---|---|---|
 | **N1** | **A deleted clip keeps playing on the published page.** `dailyStorageCleanup` purged the master by exact name (`athlete_videos/{uid}/{fileName}`) and **nothing anywhere deleted the P0.1 web rendition** at `athlete_videos/{uid}/recruiting/{base}.mp4` — not the client, not the cron. Since a published doc's `videoStoragePath` now points at the *rendition*, P2.2's existence probe would have found it happily present: the athlete deletes a clip, and a college coach can still play it from the public link, forever. Also a silent storage leak (renditions never counted against `cloudStorageUsedBytes`). | ✅ **FIXED — DEPLOYED 2026-07-26.** `dailyStorageCleanup` now deletes the rendition alongside the master. P2.2's probe then drops the tile on the next render. **Residual, NOT fixed:** the ~30-day soft-delete window, during which the deleted clip still plays. Closing that needs a client-side decision — remove the highlight from `recruitingProfiles` at delete time (the "cheaper complement" P2.2's own fix text suggested). |
 | **N2** | **The share token is a 36-char UUID** (`claimShareToken` → `UUID().uuidString`), so links read `profiles.playerpath.net/p/1D695788-DEE7-4298-9966-EE8…`. Not a security issue — freshly random, 122 bits, and deliberately *not* the athlete UUID, so nothing is enumerable. It is a product cost, and it lands on exactly the channels this feature bets on: the success sheet truncates it, it can't be read aloud at a showcase, it can't be typed from the QR screen's fallback text, and it eats a third of an Instagram bio. | ⬜ **NOT STARTED.** Fix: a short random slug (~10 base32 chars ≈ 50 bits; the claim loop already retries on collision). **`TOKEN_RE` is UUID-strict and must keep accepting UUIDs** or every already-shared link dies. Interacts with §8.1.9's "re-key profiles by shareToken" option. |
-| **N3** | The doc's P3.1 note says a true last-updated line "would need a new `updatedAt` field". **That field already exists** — publish has always written it (`RecruitingProfileService`), which is why P4.2 could render it server-side with no schema work. The in-app editor could show "Updated \<date\>" instead of / alongside "Live since" by adding it to `RecruitingPublishStatus`. | ⬜ Small, not started. |
+| **N3** | The doc's P3.1 note says a true last-updated line "would need a new `updatedAt` field". **That field already exists** — publish has always written it (`RecruitingProfileService`), which is why P4.2 could render it server-side with no schema work. The in-app editor could show "Updated \<date\>" instead of / alongside "Live since" by adding it to `RecruitingPublishStatus`. | ✅ **DONE 2026-07-26.** `RecruitingPublishStatus` gained `updatedAt`, parsed in `fetchStatus`; the editor's clock row now reads **"Live since Feb 3, 2026 · updated Jul 26, 2026"** via a new `liveSinceText(publishedAt:updatedAt:)`. **Both dates, not one** — `publishedAt` alone tells someone who republished this morning their page is months old, and `updatedAt` alone loses how long the link has been in circulation. The updated half is **suppressed on the same calendar day** so a fresh first publish doesn't read "live since today · updated today", and both use the full date because a bare "Jul 26" repeats P4.2's year-ambiguity defect. `resetLink`'s local status reconstruction stamps `updatedAt: Date()` to mirror the server write — otherwise the row would show a date older than an action just taken. Note `updatedAt` also moves on **unpublish**, so it means "when the page last changed", including going dark. |
 
-### Scoreboard: 32 done + 1 partial, 12 left
+### Scoreboard: 37 done + 1 partial, 2 left
+
+Recount by group (40 findings = 37 original + N1–N3): **P0** 1/1 · **P1** 8/8 · **P2** 8/9 (P2.8 partial) ·
+**P3** 8/9 (P3.7 left) · **P4** 10/10 · **N** 2/3 (N2 left).
 
 **LEFT TO DO, in the order I'd take it:**
 
 | # | Item | Cost | Needs CF redeploy |
 |---|---|---|---|
 | ~~0~~ | ~~Deploy P3.2's CF half~~ | ✅ **DONE 2026-07-26** | — |
-| 1 | **Device tests — ZERO run so far.** Full list at the end of §9 | — | — |
+| 1 | **Device tests — 1 of ~14 run.** Full list at the end of §9. **Now unblocked: the tree builds at 6.4.3 / 207 and carries the whole client half** | — | — |
 | ~~2–6~~ | ~~P4.10 · P4.5 · P4.8 · P4.4 · P4.6~~ | ✅ **DONE 2026-07-26** (build clean) | — |
 | ~~7–9~~ | ~~P2.2 · P4.1 · P4.2+P4.3~~ + **P4.9** and new **N1** | ✅ **DONE + DEPLOYED 2026-07-26** | ✅ |
-| 10 | **P3.4** no minimum-viable-profile bar; `filledFieldCount` computed and never shown | ~1 h | — |
-| 11 | **P3.8** unpublish keeps PII + headshot at rest; no per-profile delete | ~1.5 h | — |
-| 12 | **P3.7** consent taken once forever — later PII opt-ins publish with no re-prompt (COPPA-adjacent) | ~1 h | — |
-| 13 | **P3.9** two-sport athletes break the app's own `name · sport` convention | ~1 h | — |
-| 14 | **P3.3** published page can dead-end — no reply path from a scanned QR | ~2 h | ✅ |
-| ~~15~~ | ~~P4.9~~ | ✅ **DONE 2026-07-26** (folded into the batch above) | ✅ |
-| 16 | **P2.8 (rest)** digest query paging/batching — scale-conditional, but a killed pass loses that night's deltas permanently | ~1.5 h | ✅ |
+| ~~10, 11, 13, 14~~ | ~~P3.4 · P3.8 · P3.9 · P3.3 (warning half)~~ + **N3** | ✅ **DONE 2026-07-26** (client batch, build clean) | — |
+| 2 | **P3.7** consent taken once forever — later PII opt-ins publish with no re-prompt (COPPA-adjacent). Needs a new `publishedContactKinds` blob field, so it also needs P1.4's unknown-key sidecar (already shipped) | ~1 h | — |
+| 3 | **N2** share token is a 36-char UUID — unreadable on the QR/bio/verbal channels the feature bets on. `TOKEN_RE` must keep accepting UUIDs or live links die | ~1.5 h | ✅ |
+| 4 | **P2.8 (rest)** digest query paging/batching — scale-conditional, but a killed pass loses that night's deltas permanently | ~1.5 h | ✅ |
 
-Ordering logic: the deploy first (it gates data already being collected), then device tests (they can invalidate
-anything below), then the one-line fixes that put **wrong data on a live page** (P4.10, P4.5), then cheap
-credibility/a11y polish, then the CF batch — group P2.2 / P4.1 / P4.2+P4.3 / P4.9 into **one** redeploy if they
-land together. P2.8's paging is last because nothing is broken today.
+Ordering logic: device tests first — they can invalidate anything below, and nothing left is urgent. Then P3.7
+(the only remaining item with a compliance edge), then the two that need a CF redeploy, grouped into **one**
+deploy if they land together. P2.8's paging is last because nothing is broken today.
+
+**Also deferred, deliberately (not open findings):**
+- **P3.3's coach/parent reference block** — `coachName`/`coachRole`/`coachEmail`/`includeCoachContact` rendered as a second contact group. The recruiting-normal, minor-safe reply channel. Scoped as a separate feature proposal from the start; needs a blob field AND a CF render change.
+- **N1's residual** — the ~30-day soft-delete window still serves a deleted clip publicly. Closing it means removing the highlight from `recruitingProfiles` at clip-delete time.
 
 **Carry these forward:**
-- ⚠️ **All fix work is UNCOMMITTED** (24 modified + 5 untracked files as of the last check — verify with `git status`, Trey also commits outside these sessions).
-- ⚠️ **Version/build is still 6.4.2 / 206** — bump before any device build.
+- ✅ **Client work is COMMITTED** — `f9d8308` carried the earlier batch; this batch sits on top of it. (Trey also commits outside these sessions, so still `git status` fresh.)
+- ✅ **Version/build bumped to 6.4.3 / 207** (both Debug and Release), so a device build is ready to go.
 - 🚨 **`firebase deploy --only functions` does NOT compile TypeScript.** It uploads `lib/` as-is while reporting success. **Always `cd firebase/functions && npm run build` first.** A predeploy guard (`firebase/functions/check-build-fresh.sh`) now blocks a stale deploy. This was the root cause of §2's deployment drift.
 - P1.5 is fixed, so the deployed `athleteId` push payload now deep-links correctly — but that path is **only reachable on a multi-athlete account** and is still device-untested.
 - Blob serialization has a **35-assertion scratch harness** — the repo has no test target, so re-run it if `RecruitingInfo` changes.

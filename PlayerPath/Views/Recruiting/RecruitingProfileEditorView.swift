@@ -123,13 +123,10 @@ struct RecruitingProfileEditorView: View {
                     }
                     .font(.bodySmall)
                     .foregroundStyle(.secondary)
-                    // "Live since", NOT "last updated": publish carries publishedAt
-                    // forward from the first publish, so wording it as a freshness
-                    // date would tell someone who republished yesterday that their
-                    // page is months old.
                     if let publishedAt = status.publishedAt {
                         Label {
-                            Text("Live since \(DateFormatter.mediumDate.string(from: publishedAt))")
+                            Text(liveSinceText(publishedAt: publishedAt,
+                                               updatedAt: status.updatedAt))
                         } icon: {
                             Image(systemName: "clock")
                         }
@@ -167,6 +164,23 @@ struct RecruitingProfileEditorView: View {
         .onChange(of: showingPublish) { _, isShowing in
             // Publish/unpublish happens on the pushed screen — refresh on return.
             guard !isShowing else { return }
+            // "Delete Profile Data" on the publish screen CLEARS headshotCloudURL
+            // (the Storage object is gone, so the stored download URL 404s). Our
+            // `working` snapshot predates that, so without re-seeding it here
+            // `.onDisappear`'s persistIfChanged writes the stale URL straight back
+            // — resurrecting a pointer to an object that no longer exists, showing
+            // a broken headshot in this editor, and making the next publish stamp a
+            // dead `headshotPath` onto the public page. Unconditionally safe:
+            // persistIfChanged runs immediately before the push, so these two agree
+            // on every field the publish screen didn't deliberately change.
+            //
+            // NOT foldable into persistIfChanged's carry-forward block — that block
+            // is "saved wins if non-nil", and this is a deliberate nil-CLEAR, which
+            // that rule would silently discard. It's also why the editor's own
+            // Remove button can't use the same mechanism.
+            if !athlete.isDeleted, athlete.modelContext != nil {
+                working.headshotCloudURL = athlete.recruiting.headshotCloudURL
+            }
             // Snapshot before the unstructured Task: reading a @Model property
             // on an invalidated model traps.
             let athleteId = athlete.id
@@ -233,7 +247,10 @@ struct RecruitingProfileEditorView: View {
                     // Whose profile this is. On a multi-athlete account the way in
                     // (a More-tab row, a view-alert push tap) doesn't always make
                     // that obvious, and everything below goes on a public page.
-                    Text(athlete.name)
+                    // Carries the sport for a dual-sport person: those are two
+                    // profiles with the same name and two separate public pages,
+                    // so the name alone doesn't say which one this is.
+                    Text(athlete.nameWithSportIfShared)
                         .font(.headingMedium)
                         .lineLimit(1)
 
@@ -372,6 +389,29 @@ struct RecruitingProfileEditorView: View {
         let athleteId = athlete.id
         Task { try? await VideoCloudManager.shared.deleteRecruitingHeadshot(athleteId: athleteId, ownerUID: ownerUID) }
         working.headshotCloudURL = nil
+    }
+
+    /// "Live since Feb 3, 2026", plus "· updated Jul 26, 2026" once a republish has
+    /// actually moved the page on.
+    ///
+    /// Both dates, because neither answers the question alone. `publishedAt` is
+    /// carried forward from the FIRST publish and never moves, so on its own it
+    /// tells someone who republished this morning that their page is months old.
+    /// `updatedAt` on its own loses how long the link has been in circulation,
+    /// which is the other half of what an athlete opens this row to check.
+    ///
+    /// The updated half is suppressed on the same calendar day so a fresh first
+    /// publish doesn't read "Live since today · updated today". Both use the full
+    /// date rather than the shorter month/day: a page updated two seasons after it
+    /// went live is exactly the case this line exists for, and a bare "Jul 26"
+    /// would be silent about which year — the same year-ambiguity that made the
+    /// published page's clip captions unreadable (P4.2).
+    private func liveSinceText(publishedAt: Date, updatedAt: Date?) -> String {
+        let base = "Live since \(DateFormatter.mediumDate.string(from: publishedAt))"
+        guard let updatedAt,
+              !Calendar.current.isDate(updatedAt, inSameDayAs: publishedAt)
+        else { return base }
+        return base + " · updated \(DateFormatter.mediumDate.string(from: updatedAt))"
     }
 
     /// The staleness nudge. `highlights` and `golfStats` are publish-time

@@ -328,6 +328,22 @@ extension RecruitingInfo {
         return items
     }
 
+    /// True when the published page carries a way for a coach to actually reply.
+    ///
+    /// Deliberately NOT `!visibleContactItems.isEmpty`: that array also holds GPA,
+    /// so a page showing a 3.8 and nothing else would count as reachable while
+    /// giving a coach who scanned a QR code at a showcase table no way to contact
+    /// anyone. Only email and phone are reply channels — and each still has to be
+    /// opted in, because a value entered but kept private is not a public channel.
+    ///
+    /// ShareLink and the coach mailto both leave a thread the coach can reply
+    /// into, so this only matters for the channels that don't: a scanned QR code,
+    /// a link in a social bio, and any forwarded link.
+    var hasPublicReplyChannel: Bool {
+        (includeContactEmail && contactEmail?.isEmpty == false)
+            || (includeContactPhone && contactPhone?.isEmpty == false)
+    }
+
     /// "Austin, TX" — nil when neither city nor state is set.
     var locationLine: String? {
         let parts = [city, state].compactMap { value -> String? in

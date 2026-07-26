@@ -26,6 +26,11 @@ struct RecruitingPublishView: View {
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @Environment(\.modelContext) private var modelContext
     @Environment(\.ppAccent) private var ppAccent
+    /// Pops back to the editor for "Fill These In". Safe as a pop rather than a
+    /// push: RecruitingProfileEditorView is this screen's ONLY route in, so there
+    /// is no stack where dismissing lands somewhere other than the fields the
+    /// readiness checklist is talking about.
+    @Environment(\.dismiss) private var dismiss
 
     @State private var status: RecruitingPublishStatus?
     @State private var selection: [UUID] = []
@@ -39,6 +44,15 @@ struct RecruitingPublishView: View {
     @State private var consentAcknowledged = false
     @State private var showingUnpublishConfirm = false
     @State private var showingResetConfirm = false
+    @State private var showingDeleteDataConfirm = false
+    /// Pre-publish checklist rows.
+    ///
+    /// @State rather than computed in `body`: the items read `athlete.recruiting`,
+    /// which decodes a JSON blob, and doing that on every render is the trap
+    /// already logged against RecruitingGolfStatBand and the editor's stale-clip
+    /// count. Recomputed in `load()`, which is enough — these fields are only
+    /// editable one screen back, and this view is recreated on the way in.
+    @State private var readiness: [RecruitingReadinessItem] = []
     @State private var showingPaywall = false
     @State private var showingQR = false
     /// (completed, total) while publish makes the web-safe copy of each clip.
@@ -110,6 +124,11 @@ struct RecruitingPublishView: View {
                     if isPro { activitySection }
                 }
                 clipsSection
+                // Only while something is unmet — see RecruitingReadinessSection
+                // on why an all-green checklist doesn't earn its space.
+                if readiness.contains(where: { !$0.isDone }) {
+                    RecruitingReadinessSection(items: readiness, isBusy: isWorking) { dismiss() }
+                }
                 if needsConsent { consentSection }
                 // Shown when published too: a lapsed-Pro account would otherwise
                 // face a disabled "Update" button with no explanation of why.
@@ -122,6 +141,9 @@ struct RecruitingPublishView: View {
                 // lapsed account's remedy is Unpublish, which darkens the page
                 // for everyone anyway.
                 if status != nil && isPro { resetLinkSection }
+                // Last, because it's the most destructive thing here. Needs a doc
+                // to delete, but NOT Pro — see deleteDataSection.
+                if status != nil { deleteDataSection }
             }
         }
         .navigationTitle("Share Profile")
@@ -134,6 +156,12 @@ struct RecruitingPublishView: View {
         // is the wrong affordance for the number an athlete comes back to check.
         .refreshable { await load(showSpinner: false) }
         .onAppear {
+            // `.task` runs once per view identity, so a field filled in via
+            // "Fill These In" wouldn't tick over on the way back without this —
+            // the exact trap already logged against the editor's stale-clip count,
+            // and here it would land on the one control whose whole job is to send
+            // the athlete off to fix something and welcome them back.
+            refreshReadiness()
             AnalyticsService.shared.trackScreenView(
                 screenName: "Recruiting Publish",
                 screenClass: "RecruitingPublishView"
@@ -147,7 +175,7 @@ struct RecruitingPublishView: View {
         .sheet(isPresented: $showingQR) {
             if let url = status?.shareURL {
                 // A scanned code is its own channel — the showcase-table case.
-                RecruitingQRCodeView(athleteName: athlete.name,
+                RecruitingQRCodeView(athleteName: athlete.nameWithSportIfShared,
                                      url: RecruitingShareTools.taggedURL(url, channel: .qr))
             }
         }
@@ -186,7 +214,10 @@ struct RecruitingPublishView: View {
         Section {
             RecruitingShareCard(
                 url: url,
-                athleteName: athlete.name,
+                // Sport-qualified for a dual-sport person: this card names the
+                // profile a live link belongs to, and both of that person's
+                // profiles have the same name and different links.
+                athleteName: athlete.nameWithSportIfShared,
                 isPro: isPro,
                 sport: athlete.sport,
                 onShowQR: { showingQR = true },
@@ -402,6 +433,47 @@ struct RecruitingPublishView: View {
         }
     }
 
+    /// Per-profile data removal.
+    ///
+    /// `unpublish` only flips `isPublished`, so the doc goes on holding the
+    /// athlete's name, school, bio, GPA and contact info and the headshot JPEG
+    /// stays in Storage. That leftover exposure is owner-only — the Cloud Function
+    /// serves nothing unless `isPublished` is true — so this is NOT a GDPR gap;
+    /// account and athlete deletion already purge everything. What was missing is
+    /// granularity: "delete our recruiting data" used to mean deleting the athlete
+    /// and losing four seasons of film with it.
+    ///
+    /// **Not tier-gated**, for the same reason unpublish isn't: a lapsed-Pro
+    /// family must always be able to remove their kid's data. The
+    /// `recruitingTokens` claim deliberately stays behind (rules make it
+    /// undeletable so a killed link can never be re-claimed) — afterwards it
+    /// simply matches no profile.
+    private var deleteDataSection: some View {
+        Section {
+            Button(role: .destructive) {
+                showingDeleteDataConfirm = true
+            } label: {
+                Text("Delete Profile Data")
+                    .frame(maxWidth: .infinity)
+            }
+            .disabled(isWorking)
+            .confirmationDialog("Delete this profile's recruiting data?",
+                                isPresented: $showingDeleteDataConfirm) {
+                Button("Cancel", role: .cancel) {}
+                Button("Delete", role: .destructive) {
+                    Task { await deleteProfileData() }
+                }
+            } message: {
+                // Names exactly what goes and what doesn't. The private copy in
+                // the app is NOT deleted — claiming otherwise would be the same
+                // class of wrong-copy defect as P4.8, and on a privacy promise.
+                Text("Deletes the published page and everything on it, and removes the headshot image from your cloud backup. Your current link stops working permanently — publishing again creates a new one. What you typed stays in the app, and your clips, stats and seasons aren't touched.")
+            }
+        } footer: {
+            Text("Unpublish takes the page offline but leaves the published copy on our servers so you can put it back. This deletes it.")
+        }
+    }
+
     // MARK: - Data
 
     private var hasPublishableClips: Bool {
@@ -417,6 +489,7 @@ struct RecruitingPublishView: View {
         // Read the model BEFORE the await — afterwards it may be invalidated.
         let athleteId = athlete.id
         let publishable = (athlete.videoClips ?? []).filter(\.isPublishableHighlight)
+        refreshReadiness()
 
         // What's already on the page wins. Without this the picker re-seeded to
         // newest-8 on every launch, so the next "Update Published Profile" silently
@@ -436,6 +509,14 @@ struct RecruitingPublishView: View {
         if selection.isEmpty {
             selection = curated.isEmpty ? defaultSelection : curated
         }
+    }
+
+    /// Recomputes the pre-publish checklist. One blob decode per call rather than
+    /// one per render — see the `readiness` declaration.
+    private func refreshReadiness() {
+        guard !athlete.isDeleted, athlete.modelContext != nil else { return }
+        readiness = RecruitingReadiness.items(for: athlete.recruiting,
+                                              sport: athlete.sport ?? .baseball)
     }
 
     /// Re-reads publish state, KEEPING what we already have when the read fails.
@@ -588,6 +669,85 @@ struct RecruitingPublishView: View {
         }
     }
 
+    /// Deletes the published doc and the headshot object. See `deleteDataSection`
+    /// for what this does and doesn't remove.
+    private func deleteProfileData() async {
+        // Same witness `publish()` uses, and for a sharper reason: if the view was
+        // re-rendered with a different athlete while this screen stayed pushed, the
+        // live link and view count on screen still belong to the athlete it loaded
+        // for, while `athlete.id` already points at the new one — so the tap would delete
+        // a profile other than the one being displayed. Irreversible, so drop it.
+        guard athlete.id == seededAthleteID else { return }
+        // `deleteProfileDoc` carries no connectivity guard of its own, on purpose:
+        // Athlete.delete fires it best-effort, and offline it SHOULD ride
+        // Firestore's local queue rather than be skipped — skipping would leave a
+        // deleted athlete's page live on the internet. Here it's a foreground
+        // action behind `isWorking`, and a Firestore delete only completes on
+        // backend commit, so without this guard the screen would hang with
+        // Unpublish and Reset Link both disabled: the same lost-kill-switch
+        // failure P1.6 fixed on the publish path.
+        guard ConnectivityMonitor.shared.isConnected else {
+            errorMessage = RecruitingPublishError.offline.errorDescription
+            return
+        }
+        isWorking = true
+        defer { isWorking = false }
+
+        // Snapshot every @Model read before the first await — a concurrent delete
+        // that invalidates the model would trap on a later property read.
+        let athleteId = athlete.id
+        let sport = (athlete.sport ?? .baseball).rawValue
+        let ownerUID = athlete.user?.firebaseAuthUid
+        let hadHeadshot = athlete.recruiting.headshotCloudURL != nil
+
+        do {
+            try await RecruitingProfileService.shared.deleteProfileDoc(athleteId: athleteId)
+            if hadHeadshot {
+                // Best-effort: the page — the part that was public — is already
+                // gone. Failing the whole action over a leftover JPEG would leave
+                // the athlete no way to retry the half that succeeded, since the
+                // button hides once `status` is nil.
+                try? await VideoCloudManager.shared.deleteRecruitingHeadshot(
+                    athleteId: athleteId, ownerUID: ownerUID
+                )
+                // The stored download URL 404s now, so leaving it behind shows a
+                // broken headshot in the editor with nothing to explain why. Safe
+                // to clear across devices: only publishConsentAt and
+                // publishedClipIDs are nil-protected by mergedRecruitingBlob, so
+                // this one propagates as a normal last-write-wins edit.
+                if !athlete.isDeleted, athlete.modelContext != nil {
+                    var info = athlete.recruiting
+                    info.headshotCloudURL = nil
+                    athlete.recruiting = info      // sets needsSync
+                    ErrorHandlerService.shared.saveContext(
+                        modelContext, caller: "RecruitingPublishView.deleteProfileData"
+                    )
+                    // The checklist was computed at load, when the headshot still
+                    // existed — without this it would sit there reporting
+                    // "Headshot ✓" immediately after deleting the headshot.
+                    refreshReadiness()
+                    if let user = athlete.user, !user.isDeleted, user.modelContext != nil {
+                        Task { try? await SyncCoordinator.shared.syncAthletes(for: user) }
+                    }
+                }
+            }
+            // Set directly rather than via refreshStatus: the doc is gone, so a
+            // re-read can only return nil — but on a flaky connection it could
+            // THROW instead, arming statusLoadFailed and raising "couldn't check
+            // whether this profile is live" over a profile just deleted on purpose.
+            status = nil
+            statusLoadFailed = false
+            AnalyticsService.shared.trackRecruitingProfileDataDeleted(
+                athleteID: athleteId.uuidString, sport: sport
+            )
+            Haptics.light()
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription
+                ?? "Couldn't delete your profile data. Check your connection and try again."
+            ErrorHandlerService.shared.handle(error, context: "RecruitingPublishView.deleteProfileData", showAlert: false)
+        }
+    }
+
     private func resetLink() async {
         isWorking = true
         defer { isWorking = false }
@@ -608,7 +768,12 @@ struct RecruitingPublishView: View {
                     viewCount: current.viewCount,
                     viewsThisWeek: current.viewsThisWeek,
                     lastViewedAt: current.lastViewedAt,
-                    publishedAt: current.publishedAt
+                    publishedAt: current.publishedAt,
+                    // resetLink stamps updatedAt server-side; mirror it locally
+                    // rather than keeping the pre-reset value, which would make
+                    // the editor's "updated" date older than an action the athlete
+                    // just took.
+                    updatedAt: Date()
                 )
             }
             Haptics.light()
@@ -621,6 +786,11 @@ struct RecruitingPublishView: View {
 
     private func coachEmailURL(url: URL) -> URL? {
         RecruitingShareTools.coachEmailURL(
+            // Plain `name`, NOT nameWithSportIfShared: the subject already appends
+            // `subline`, which names the sport since P4.2, so qualifying the name
+            // would print it twice — "Jordan Smith · Golf — Class of 2027 · Golf
+            // — Game Film". The published page's <h1> is left alone for the same
+            // reason; its subline carries the sport.
             athleteName: athlete.name,
             info: athlete.recruiting,
             sport: athlete.sport ?? .baseball,
