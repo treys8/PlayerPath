@@ -1,0 +1,23 @@
+[debug] [2026-07-26T14:09:48.615Z] ----------------------------------------------------------------------
+[debug] [2026-07-26T14:09:48.617Z] Command:       /Users/Trey/.nvm/versions/node/v20.20.1/bin/node /Users/Trey/.npm/_npx/ba4f1959e38407b5/node_modules/.bin/firebase functions:log --only serveRecruitingProfile -n 400
+[debug] [2026-07-26T14:09:48.617Z] CLI Version:   15.24.0
+[debug] [2026-07-26T14:09:48.617Z] Platform:      darwin
+[debug] [2026-07-26T14:09:48.617Z] Node Version:  v20.20.1
+[debug] [2026-07-26T14:09:48.617Z] Detected Agent: claude-code_2-1-220_agent
+[debug] [2026-07-26T14:09:48.617Z] Time:          Sun Jul 26 2026 09:09:48 GMT-0500 (Central Daylight Time)
+[debug] [2026-07-26T14:09:48.618Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2026-07-26T14:09:48.733Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-07-26T14:09:48.734Z] > authorizing via signed-in user (treyschill@gmail.com)
+[debug] [2026-07-26T14:09:48.734Z] [iam] checking project playerpath-159b2 for permissions ["firebase.projects.get","logging.logEntries.list","logging.logs.list"]
+[debug] [2026-07-26T14:09:48.739Z] Checked if tokens are valid: true, expires at: 1785077861466
+[debug] [2026-07-26T14:09:48.739Z] Checked if tokens are valid: true, expires at: 1785077861466
+[debug] [2026-07-26T14:09:48.740Z] >>> [apiv2][query] POST https://cloudresourcemanager.googleapis.com/v1/projects/playerpath-159b2:testIamPermissions [none]
+[debug] [2026-07-26T14:09:48.740Z] >>> [apiv2][(partial)header] POST https://cloudresourcemanager.googleapis.com/v1/projects/playerpath-159b2:testIamPermissions  x-goog-user-project=playerpath-159b2
+[debug] [2026-07-26T14:09:48.740Z] >>> [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/playerpath-159b2:testIamPermissions {"permissions":["firebase.projects.get","logging.logEntries.list","logging.logs.list"]}
+[debug] [2026-07-26T14:09:49.016Z] <<< [apiv2][status] POST https://cloudresourcemanager.googleapis.com/v1/projects/playerpath-159b2:testIamPermissions 200
+[debug] [2026-07-26T14:09:49.017Z] <<< [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/playerpath-159b2:testIamPermissions {"permissions":["firebase.projects.get","logging.logEntries.list","logging.logs.list"]}
+[debug] [2026-07-26T14:09:49.018Z] Checked if tokens are valid: true, expires at: 1785077861466
+[debug] [2026-07-26T14:09:49.018Z] Checked if tokens are valid: true, expires at: 1785077861466
+[debug] [2026-07-26T14:09:49.018Z] >>> [apiv2][query] POST https://logging.googleapis.com/v2/entries:list [none]
+[debug] [2026-07-26T14:09:49.018Z] >>> [apiv2][body] POST https://logging.googleapis.com/v2/entries:list {"resourceNames":["projects/playerpath-159b2"],"filter":"resource.type=\"cloud_function\" OR (resource.type=\"cloud_run_revision\" AND labels.\"goog-managed-by\"=\"cloudfunctions\")\n(resource.labels.function_name=\"serveRecruitingProfile\" OR resource.labels.service_name=\"serveRecruitingProfile\")","orderBy":"timestamp desc","pageSize":"400"}

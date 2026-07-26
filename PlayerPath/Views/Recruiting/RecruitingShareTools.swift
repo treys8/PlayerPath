@@ -140,8 +140,9 @@ struct RecruitingPublishSuccessView: View {
                 VStack(spacing: 6) {
                     Text("Your profile is live")
                         .font(.headingLarge)
-                    // Same treatment as the Share Profile card: wrapped, the
-                    // share token's hex buries the headline right above it.
+                    // Same treatment as the Share Profile card. A short slug fits
+                    // on one line, but LEGACY UUID links are still live and still
+                    // bury the headline right above them, so the clamp stays.
                     Text(RecruitingShareTools.displayLink(url))
                         .font(.bodySmall)
                         .foregroundStyle(.secondary)

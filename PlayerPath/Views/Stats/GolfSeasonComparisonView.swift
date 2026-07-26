@@ -19,6 +19,11 @@ struct GolfSeasonComparisonView: View {
 
     @State private var selectedSeasons: Set<UUID> = []
 
+    /// Set once the user taps Compare. Without it the view would swap to the
+    /// charts the instant a second season was tapped, making the advertised
+    /// 3- and 4-season comparisons unreachable.
+    @State private var isComparing = false
+
     // MARK: - Season pools
 
     private var allSeasons: [Season] {
@@ -58,7 +63,7 @@ struct GolfSeasonComparisonView: View {
             Group {
                 if authManager.currentTier < .plus {
                     LockedFeaturePlaceholder(message: "Upgrade to Plus to compare golf seasons side-by-side")
-                } else if canCompare {
+                } else if isComparing && canCompare {
                     comparison
                         .onAppear { AnalyticsService.shared.trackScreenView(screenName: "Golf Season Comparison", screenClass: "GolfSeasonComparisonView") }
                 } else {
@@ -66,14 +71,15 @@ struct GolfSeasonComparisonView: View {
                 }
             }
             .navigationTitle("Season Comparison")
-            .navigationBarTitleDisplayMode(.large)
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }
                 }
-                if authManager.currentTier >= .plus && canCompare {
+                if authManager.currentTier >= .plus && isComparing {
                     ToolbarItem(placement: .primaryAction) {
-                        Button("Change Seasons") { selectedSeasons.removeAll() }
+                        // Back to the picker with the current selection intact
+                        Button("Change Seasons") { isComparing = false }
                     }
                 }
             }
@@ -133,6 +139,7 @@ struct GolfSeasonComparisonView: View {
             }
             .padding()
         }
+        .background(Theme.surface)
     }
 
     /// Builds trend points for a metric, skipping seasons with no qualifying
@@ -211,38 +218,14 @@ struct GolfSeasonComparisonView: View {
 
     // MARK: - Season selection
 
+    @ViewBuilder
     private var seasonSelection: some View {
-        VStack(spacing: 20) {
-            VStack(spacing: 8) {
-                Image(systemName: "chart.line.uptrend.xyaxis")
-                    .font(.system(size: 60))
-                    .foregroundStyle(Color.brandNavy)
-                Text("Compare Seasons")
-                    .font(.displayMedium)
-                Text("Select 2-4 golf seasons to compare scoring and trends")
-                    .font(.bodyMedium)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal)
-            }
-            .padding(.top, 40)
-
-            if allSeasons.isEmpty {
-                VStack(spacing: 12) {
-                    Image(systemName: "calendar.badge.plus")
-                        .font(.system(size: 40))
-                        .foregroundStyle(.secondary)
-                    Text("No Golf Seasons Yet")
-                        .font(.headingLarge)
-                    Text("Create at least two golf seasons with scored rounds to start comparing.")
-                        .font(.bodyMedium)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal)
-                }
-                .frame(maxHeight: .infinity)
-            } else {
-                List {
+        // Comparison needs two seasons — with fewer, the picker is a dead end.
+        if allSeasons.count < 2 {
+            notEnoughSeasons
+        } else {
+            List {
+                Section {
                     ForEach(allSeasons) { season in
                         Button {
                             toggleSeason(season)
@@ -254,13 +237,68 @@ struct GolfSeasonComparisonView: View {
                             )
                         }
                         .buttonStyle(.plain)
+                        .listRowBackground(Theme.card)
                     }
+                } header: {
+                    Text("Select 2–4 Seasons")
+                } footer: {
+                    Text(selectionFooter)
                 }
-                .listStyle(.insetGrouped)
             }
-
-            Spacer()
+            .listStyle(.insetGrouped)
+            .scrollContentBackground(.hidden)
+            .background(Theme.surface)
+            .safeAreaInset(edge: .bottom) { compareBar }
         }
+    }
+
+    private var selectionFooter: String {
+        switch selectedSeasons.count {
+        case 0: return "Pick the golf seasons you want to see side-by-side."
+        case 1: return "1 selected — pick one more to compare."
+        case 4: return "4 selected — the maximum."
+        default: return "\(selectedSeasons.count) selected."
+        }
+    }
+
+    private var compareBar: some View {
+        Button {
+            Haptics.light()
+            isComparing = true
+        } label: {
+            Text(canCompare ? "Compare \(selectedSeasons.count) Seasons" : "Compare")
+                .font(.headingMedium)
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(
+                    RoundedRectangle(cornerRadius: .cornerLarge, style: .continuous)
+                        .fill(canCompare ? Theme.golfAccent : Theme.textTertiary)
+                )
+        }
+        .disabled(!canCompare)
+        .padding(.horizontal)
+        .padding(.vertical, 12)
+        .background(Theme.surface)
+    }
+
+    private var notEnoughSeasons: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "calendar.badge.plus")
+                .font(.system(size: 40))
+                .foregroundStyle(.secondary)
+            Text(allSeasons.isEmpty ? "No Golf Seasons Yet" : "Only One Golf Season")
+                .font(.headingLarge)
+            Text(allSeasons.isEmpty
+                 ? "Create at least two golf seasons with scored rounds to start comparing."
+                 : "Comparison needs at least two seasons. Start a new season — this one stays in your history.")
+                .font(.bodyMedium)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.surface)
     }
 
     private func toggleSeason(_ season: Season) {

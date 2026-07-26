@@ -184,13 +184,59 @@ function shareChannel(req: functions.Request): string | null {
 }
 
 /**
- * Share tokens are v4 UUIDs and always have been — `claimShareToken` only ever
- * mints `UUID().uuidString`. Matching the exact shape (rather than "some
- * alphanumeric string") means a junk request costs a regex instead of a Firestore
- * query on an endpoint that is unauthenticated and has no App Check. Note Swift
- * emits UUIDs UPPERCASE, hence the case-insensitive class.
+ * Share tokens come in TWO shapes and both must keep resolving forever.
+ *
+ * • **Legacy v4 UUIDs.** Every token minted before the short-slug change is a
+ *   `UUID().uuidString`. Those links are already on printed cards, in QR codes
+ *   and in college coaches' inboxes, and nobody can fix a dead one — so this is
+ *   a permanent branch, not a migration window. Swift emits UUIDs UPPERCASE,
+ *   hence the case-insensitive class, and the string is passed through
+ *   completely untouched because that is exactly how it sits in Firestore.
+ *
+ * • **Short slugs** — 10 Crockford base32 characters, ~50 bits. Minted by
+ *   `claimShareToken` for every token from here on. The reason is the channels
+ *   this feature actually bets on: a 36-char UUID cannot be read aloud to a
+ *   coach at a showcase, cannot be typed from the QR screen's fallback text,
+ *   and eats a third of an Instagram bio. Crockford's alphabet omits i/l/o/u
+ *   precisely because those are the characters people mis-transcribe.
+ *
+ * 50 bits is a deliberate step down from a UUID's 122. Two different numbers
+ * matter and only one of them is fixed: hitting ONE chosen token takes ~1.1e15
+ * guesses, but hitting ANY of N published profiles takes ~1.1e15/N — so the
+ * margin shrinks as the corpus grows. At thousands of profiles that is still
+ * ~1e11 requests against an anonymous route capped at `maxInstances: 20`, which
+ * is unreachable; at tens of millions it is the number to re-check. The page
+ * stays `noindex` regardless — an unguessable token was never the only reason
+ * these pages aren't searchable.
+ *
+ * Matching an exact shape (rather than "some alphanumeric string") means a junk
+ * request costs a regex instead of a Firestore query on an endpoint that is
+ * unauthenticated and has no App Check.
  */
-const TOKEN_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+const UUID_TOKEN_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+const SLUG_TOKEN_RE = /^[0-9abcdefghjkmnpqrstvwxyz]{10}$/;
+
+/**
+ * The canonical STORED form of a requested token, or null when the input is not
+ * a token shape at all.
+ *
+ * UUIDs are tested first and returned verbatim: lower-casing one would break the
+ * `where('shareToken', '==', …)` equality query, since the stored value is
+ * whatever Swift emitted. (A UUID is 36 characters and could never satisfy
+ * SLUG_TOKEN_RE anyway, so the ordering is belt and braces.)
+ *
+ * Slug input is canonicalised rather than rejected: someone who hears the link
+ * read out and types `l` for `1`, or `O` for `0`, still lands on the page. That
+ * forgiveness is the whole point of choosing Crockford's alphabet, and it costs
+ * nothing — the minted form only ever contains the 32 canonical characters, so
+ * the mapping can never collide two real tokens onto each other. `u` is absent
+ * from the alphabet but deliberately NOT remapped: it has no unambiguous target.
+ */
+function normalizeShareToken(raw: string): string | null {
+  if (UUID_TOKEN_RE.test(raw)) return raw;
+  const canonical = raw.toLowerCase().replace(/[ilo]/g, (c) => (c === 'o' ? '0' : '1'));
+  return SLUG_TOKEN_RE.test(canonical) ? canonical : null;
+}
 
 /**
  * Where these pages are served. Mirrors RecruitingProfileService.publicBaseURL.
@@ -804,9 +850,13 @@ export const serveRecruitingProfile = functions
     ? (lastSegment as ImageKind)
     : null;
   if (imageKind) segments.pop();
-  const token = segments[segments.length - 1] || '';
+  // Canonicalised, not just validated: a short slug typed with an `l` for a `1`
+  // has to reach the same document. Everything downstream — the Firestore
+  // lookup, the view-dedup hash, the channel counters — uses this form, so a
+  // forgiving spelling can't fork into a second identity.
+  const token = normalizeShareToken(segments[segments.length - 1] || '');
 
-  if (!TOKEN_RE.test(token)) {
+  if (!token) {
     if (imageKind) {
       res.status(404).type('text/plain').send('Not found');
     } else {
@@ -1115,29 +1165,78 @@ ${contactSection(data.contact)}
  * at the same minute. So the sweep collects qualifying docs by owner and sends a
  * single notification — hence the two passes below.
  */
-// The sweep is serial (an update per doc, then a send per owner) inside what was
-// the 60 s default, with retries off — so at scale the instance would be killed
-// mid-pass and that night's deltas would be lost PERMANENTLY: the next run's
-// 25 h window no longer covers them. 540 s + 512 MB buys roughly an order of
-// magnitude of headroom. Still unpaged (P2.8): the query has no limit/cursor, so
-// past a few thousand in-window profiles this needs batching too.
+// Why this sweep is paged and batched rather than a single `.get()` + a serial
+// loop, which is what it was:
+//
+// A pubsub function has retries OFF, and losing a run is not losing a retry —
+// it is losing DATA. Every profile this pass fails to stamp keeps its old
+// `notifiedViewCount`, and tomorrow's 25 h window no longer reaches today's
+// views, so a killed instance drops that night's deltas PERMANENTLY. Both of
+// the original failure modes were unbounded in the number of published
+// profiles: one `.get()` of every in-window doc (memory) and one awaited write
+// per doc (wall clock). 540 s + 512 MB bought headroom; paging + batching moves
+// the ceiling by roughly another order of magnitude.
+//
+// The pieces, and why each is shaped the way it is:
+//  • PAGED so peak memory tracks the page, not the collection. Only the small
+//    PendingDigest survives a page; the document data is dropped.
+//  • Prunes are BATCHED — they are best-effort retention housekeeping, and a
+//    failed batch simply leaves old keys for tomorrow to retry. Atomicity is
+//    acceptable here precisely because nothing depends on the outcome.
+//  • Stamps are NOT batched. A batch fails as a unit, and one malformed doc
+//    taking its siblings down is the exact failure the per-entry isolation
+//    below exists to prevent. They run concurrently instead.
+//  • Owners are processed in bounded-concurrency chunks, so the wall clock
+//    scales with accounts/CONCURRENCY rather than with accounts.
+
+/** Docs per page of the sweep. Bounds peak memory; nothing else depends on it. */
+const DIGEST_PAGE_SIZE = 300;
+
+/**
+ * Prune updates per committed batch. Must stay under Firestore's 500-op batch
+ * limit, and the counter is checked after EVERY add (not once per page) so the
+ * batch can never overshoot.
+ */
+const DIGEST_PRUNE_BATCH = 400;
+
+/** Owners stamped + notified in parallel. Bounds concurrent writes and FCM sends. */
+const DIGEST_OWNER_CONCURRENCY = 10;
+
+/**
+ * When to stop scanning and go spend what's left of the budget on pass 2.
+ *
+ * Under the 540 s timeout, with margin for the digests themselves. Stopping
+ * early still loses the unscanned profiles' deltas — the point is that it does
+ * so LOUDLY, with a log line naming the count, instead of being killed silently
+ * mid-write. A truncated run is a signal to raise the page size or shard the
+ * sweep, so it must never look like a clean one.
+ */
+const DIGEST_SCAN_DEADLINE_MS = 420 * 1000;
+
+/**
+ * The same guard for pass 2, because a deadline on only half the function
+ * doesn't buy what the deadline is for.
+ *
+ * If pass 1 runs long — or an account fleet is large enough that the digests
+ * themselves overrun — the instance gets killed mid-pass-2 and the owners it
+ * never reached lose their deltas exactly as silently as before, which is the
+ * failure this whole change exists to make impossible. Stopping short is the
+ * same data loss, but it is REPORTED. Slack under the 540 s timeout is
+ * deliberate: one more chunk must be able to finish after the check.
+ */
+const DIGEST_TOTAL_DEADLINE_MS = 500 * 1000;
 export const recruitingViewDigest = functions
   .runWith({ timeoutSeconds: 540, memory: '512MB' })
   .pubsub.schedule('0 1 * * *')
   .timeZone('UTC')
   .onRun(async () => {
     const db = admin.firestore();
+    const startedAt = Date.now();
     const windowStart = admin.firestore.Timestamp.fromMillis(
-      Date.now() - 25 * 60 * 60 * 1000
+      startedAt - 25 * 60 * 60 * 1000
     );
-    // Single-field range — no composite index needed.
-    const snap = await db
-      .collection('recruitingProfiles')
-      .where('lastViewedAt', '>', windowStart)
-      .get();
-
     const cutoffKey = utcDayKey(
-      new Date(Date.now() - DAILY_VIEWS_RETENTION_DAYS * 24 * 60 * 60 * 1000)
+      new Date(startedAt - DAILY_VIEWS_RETENTION_DAYS * 24 * 60 * 60 * 1000)
     );
 
     /** A profile that has earned a digest, waiting to be grouped by owner. */
@@ -1151,78 +1250,145 @@ export const recruitingViewDigest = functions
       prune: Record<string, unknown>;
     }
 
-    // Pass 1 — per doc: prune, and work out whether it owes its owner a digest.
-    // Docs that don't (nothing new, unpublished, malformed) are written here and
-    // done with; the rest are held so one owner gets one push.
     const pendingByUser = new Map<string, PendingDigest[]>();
     // Growth-loop telemetry. Nothing else reports on the share funnel, so the
     // nightly log line is the only place the numbers surface at all.
     let windowNewViews = 0;
     const channelTotals: Record<string, number> = {};
-    for (const doc of snap.docs) {
+    let scanned = 0;
+    let pruned = 0;
+    let truncated = false;
+    // Doc IDs already folded in. A page is a snapshot of a MOVING ordering: the
+    // render path writes `lastViewedAt`, so a profile viewed mid-sweep can sort
+    // past the cursor and be read again on a later page. Unguarded, that same
+    // athlete would appear twice in one owner's digest — "2 of your athletes'
+    // pages" for one kid, and a second stamp of a doc already counted.
+    const seen = new Set<string>();
+
+    // Prune batching. The two mutable variables are swapped out before the
+    // commit is awaited, so a slow commit can't collect writes meant for the
+    // next batch.
+    let pruneBatch = db.batch();
+    let pruneOps = 0;
+    const commitPrunes = async (): Promise<void> => {
+      if (pruneOps === 0) return;
+      const batch = pruneBatch;
+      const count = pruneOps;
+      pruneBatch = db.batch();
+      pruneOps = 0;
       try {
-        const data = doc.data() as Record<string, unknown>;
-        const prune: Record<string, unknown> = {};
-
-        const dailyViews = (data.dailyViews || {}) as Record<string, unknown>;
-        for (const key of Object.keys(dailyViews)) {
-          if (key < cutoffKey) {
-            prune[`dailyViews.${key}`] = admin.firestore.FieldValue.delete();
-          }
-        }
-
-        const viewCount = typeof data.viewCount === 'number' ? data.viewCount : 0;
-        const notified =
-          typeof data.notifiedViewCount === 'number' ? data.notifiedViewCount : 0;
-        const unnotified = viewCount - notified;
-        windowNewViews += Math.max(0, unnotified);
-        // channelViews is LIFETIME-cumulative (the render path only increments),
-        // so this total is not window-scoped — the log says so.
-        const channelViews = (data.channelViews || {}) as Record<string, unknown>;
-        for (const [key, value] of Object.entries(channelViews)) {
-          if (typeof value === 'number') {
-            channelTotals[key] = (channelTotals[key] || 0) + value;
-          }
-        }
-        // isPublished can't be false here in practice (an unpublished page never
-        // renders, so lastViewedAt stops moving), but an unpublish AFTER today's
-        // views would still land in the window — and a "coaches viewed it" push
-        // about a page the athlete just took down reads as a malfunction.
-        if (unnotified > 0 && data.isPublished === true && typeof data.userId === 'string') {
-          const owner = data.userId;
-          const entry: PendingDigest = {
-            ref: doc.ref,
-            athleteId: doc.id,
-            name: typeof data.name === 'string' ? data.name : 'Your athlete',
-            unnotified,
-            viewCount,
-            prune,
-          };
-          const existing = pendingByUser.get(owner);
-          if (existing) existing.push(entry);
-          else pendingByUser.set(owner, [entry]);
-        } else if (Object.keys(prune).length > 0) {
-          await doc.ref.update(prune);
-        }
+        await batch.commit();
+        pruned += count;
       } catch (error) {
-        console.warn(`recruitingViewDigest: ${doc.id}`, error);
+        // Retention housekeeping only: the keys stay old, so tomorrow's run
+        // prunes them again. Nothing downstream reads the result.
+        console.warn(`recruitingViewDigest: prune batch of ${count} failed`, error);
+      }
+    };
+
+    // Pass 1 — per doc: prune, and work out whether it owes its owner a digest.
+    // Docs that don't (nothing new, unpublished, malformed) are batched here and
+    // done with; the rest are held so one owner gets one push.
+    //
+    // Single-field range + matching orderBy — no composite index needed, and the
+    // cursor is a document snapshot so ties on `lastViewedAt` page correctly.
+    let cursor: admin.firestore.QueryDocumentSnapshot | null = null;
+    for (;;) {
+      let query = db
+        .collection('recruitingProfiles')
+        .where('lastViewedAt', '>', windowStart)
+        .orderBy('lastViewedAt')
+        .limit(DIGEST_PAGE_SIZE);
+      if (cursor) query = query.startAfter(cursor);
+
+      const snap = await query.get();
+      if (snap.empty) break;
+      cursor = snap.docs[snap.docs.length - 1];
+
+      for (const doc of snap.docs) {
+        if (seen.has(doc.id)) continue;
+        seen.add(doc.id);
+        scanned++;
+        try {
+          const data = doc.data() as Record<string, unknown>;
+          const prune: Record<string, unknown> = {};
+
+          const dailyViews = (data.dailyViews || {}) as Record<string, unknown>;
+          for (const key of Object.keys(dailyViews)) {
+            if (key < cutoffKey) {
+              prune[`dailyViews.${key}`] = admin.firestore.FieldValue.delete();
+            }
+          }
+
+          const viewCount = typeof data.viewCount === 'number' ? data.viewCount : 0;
+          const notified =
+            typeof data.notifiedViewCount === 'number' ? data.notifiedViewCount : 0;
+          const unnotified = viewCount - notified;
+          windowNewViews += Math.max(0, unnotified);
+          // channelViews is LIFETIME-cumulative (the render path only increments),
+          // so this total is not window-scoped — the log says so.
+          const channelViews = (data.channelViews || {}) as Record<string, unknown>;
+          for (const [key, value] of Object.entries(channelViews)) {
+            if (typeof value === 'number') {
+              channelTotals[key] = (channelTotals[key] || 0) + value;
+            }
+          }
+          // isPublished can't be false here in practice (an unpublished page never
+          // renders, so lastViewedAt stops moving), but an unpublish AFTER today's
+          // views would still land in the window — and a "coaches viewed it" push
+          // about a page the athlete just took down reads as a malfunction.
+          if (unnotified > 0 && data.isPublished === true && typeof data.userId === 'string') {
+            const owner = data.userId;
+            const entry: PendingDigest = {
+              ref: doc.ref,
+              athleteId: doc.id,
+              name: typeof data.name === 'string' ? data.name : 'Your athlete',
+              unnotified,
+              viewCount,
+              prune,
+            };
+            const existing = pendingByUser.get(owner);
+            if (existing) existing.push(entry);
+            else pendingByUser.set(owner, [entry]);
+          } else if (Object.keys(prune).length > 0) {
+            pruneBatch.update(doc.ref, prune);
+            pruneOps++;
+            // Checked per add, never per page: a page can contribute up to
+            // DIGEST_PAGE_SIZE ops, so a per-page check could overshoot
+            // Firestore's 500-op ceiling and fail the whole batch.
+            if (pruneOps >= DIGEST_PRUNE_BATCH) await commitPrunes();
+          }
+        } catch (error) {
+          console.warn(`recruitingViewDigest: ${doc.id}`, error);
+        }
+      }
+
+      // A short page is the last page.
+      if (snap.size < DIGEST_PAGE_SIZE) break;
+      if (Date.now() - startedAt > DIGEST_SCAN_DEADLINE_MS) {
+        truncated = true;
+        break;
       }
     }
+    await commitPrunes();
 
     // Pass 2 — per owner: stamp every one of their profiles, THEN send a single
     // push. Stamp-before-send is the same invariant the render path keeps: no
     // stamp, no push, so a failed write can never turn into a nightly repeat.
-    let digests = 0;
-    for (const [userId, entries] of pendingByUser) {
-      // Stamp each profile SEPARATELY. Grouping the sends must not group the
-      // failures: one doc's update throwing used to cost only that doc, and
-      // bailing on the whole account here would skip its siblings' stamps and
-      // swallow the views of any sibling already stamped — stamped but never
-      // notified, and tomorrow's delta starts from the new watermark, so those
-      // views are simply gone. The push then describes only what was stamped.
-      const stamped: PendingDigest[] = [];
-      for (const entry of entries) {
-        try {
+    const digestOwner = async (
+      userId: string,
+      entries: PendingDigest[]
+    ): Promise<boolean> => {
+      // Stamp each profile SEPARATELY — concurrently, but never as a batch.
+      // Grouping the sends must not group the failures: one doc's update
+      // throwing costs only that doc, and failing the whole account here would
+      // skip its siblings' stamps and swallow the views of any sibling already
+      // stamped — stamped but never notified, and tomorrow's delta starts from
+      // the new watermark, so those views are simply gone. The push then
+      // describes only what was stamped. (allSettled preserves input order, so
+      // `stamped[0]` stays the same doc it always was.)
+      const settled = await Promise.allSettled(
+        entries.map(async (entry) => {
           // `lastDigestAt`, NOT `lastNotifiedAt`. Stamping the instant path's
           // field here re-armed its 24 h window nightly, so any profile viewed
           // at least once a day could never satisfy the quiet test again — the
@@ -1237,12 +1403,16 @@ export const recruitingViewDigest = functions
             notifiedViewCount: entry.viewCount,
             lastDigestAt: admin.firestore.FieldValue.serverTimestamp(),
           });
-          stamped.push(entry);
-        } catch (error) {
-          console.warn(`recruitingViewDigest: ${entry.athleteId}`, error);
-        }
-      }
-      if (stamped.length === 0) continue;
+          return entry;
+        })
+      );
+
+      const stamped: PendingDigest[] = [];
+      settled.forEach((result, index) => {
+        if (result.status === 'fulfilled') stamped.push(result.value);
+        else console.warn(`recruitingViewDigest: ${entries[index].athleteId}`, result.reason);
+      });
+      if (stamped.length === 0) return false;
 
       try {
         const total = stamped.reduce((sum, entry) => sum + entry.unnotified, 0);
@@ -1266,18 +1436,53 @@ export const recruitingViewDigest = functions
             : `${total} more views across ${stamped.length} of your athletes' pages.`,
           data
         );
-        digests++;
+        return true;
       } catch (error) {
         console.warn(`recruitingViewDigest: user ${userId}`, error);
+        return false;
       }
+    };
+
+    let digests = 0;
+    let undigestedOwners = 0;
+    const owners = Array.from(pendingByUser.entries());
+    for (let i = 0; i < owners.length; i += DIGEST_OWNER_CONCURRENCY) {
+      if (Date.now() - startedAt > DIGEST_TOTAL_DEADLINE_MS) {
+        undigestedOwners = owners.length - i;
+        break;
+      }
+      const chunk = owners.slice(i, i + DIGEST_OWNER_CONCURRENCY);
+      const results = await Promise.all(
+        chunk.map(([userId, entries]) => digestOwner(userId, entries))
+      );
+      digests += results.filter(Boolean).length;
     }
+
     const channelSummary =
       Object.entries(channelTotals)
         .sort((a, b) => b[1] - a[1])
         .map(([name, count]) => `${name}=${count}`)
         .join(' ') || 'none';
     console.log(
-      `✅ recruitingViewDigest: ${snap.size} active profile(s), ${digests} digest(s) sent, ` +
-        `${windowNewViews} new view(s) in window; lifetime views by channel: ${channelSummary}`
+      `✅ recruitingViewDigest: ${scanned} active profile(s), ${digests} digest(s) sent, ` +
+        `${windowNewViews} new view(s) in window, ${pruned} doc(s) pruned; ` +
+        `lifetime views by channel: ${channelSummary}`
     );
+    // Never let a truncated sweep read as a clean one. Whatever this run did not
+    // reach keeps its old watermark, and tomorrow's 25 h window will not stretch
+    // back to tonight's views — those deltas are gone, not deferred. Either line
+    // means the same thing: raise the page size, raise the concurrency, or shard
+    // the sweep.
+    if (truncated) {
+      console.error(
+        `🚨 recruitingViewDigest: scan deadline hit after ${scanned} profile(s) — ` +
+          'remaining in-window profiles were NOT scanned and their view deltas are lost'
+      );
+    }
+    if (undigestedOwners > 0) {
+      console.error(
+        `🚨 recruitingViewDigest: digest deadline hit — ${undigestedOwners} owner(s) were ` +
+          'NOT stamped or notified and their view deltas are lost'
+      );
+    }
   });

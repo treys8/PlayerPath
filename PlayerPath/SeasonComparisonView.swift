@@ -19,6 +19,11 @@ struct SeasonComparisonView: View {
     // Selected seasons for comparison (max 4)
     @State private var selectedSeasons: Set<UUID> = []
 
+    /// Set once the user taps Compare. Selection stays on screen until then, so
+    /// picking a third or fourth season is possible — without this the view
+    /// would swap to the charts the instant the second season was tapped.
+    @State private var isComparing = false
+
     // Get all seasons (active + archived) sorted by date
     private var allSeasons: [Season] {
         var seasons: [Season] = []
@@ -28,7 +33,11 @@ struct SeasonComparisonView: View {
         seasons.append(contentsOf: athlete.archivedSeasons)
         // Dedup by ID in case activeSeason also appears in archivedSeasons
         let unique = Dictionary(grouping: seasons, by: \.id).compactMap { $0.value.first }
-        return unique.sorted { ($0.startDate ?? Date.distantPast) > ($1.startDate ?? Date.distantPast) }
+        return unique
+            // Golf seasons compare on scoring, not batting — they belong to
+            // GolfSeasonComparisonView. Mirrors that view's `== .golf` filter.
+            .filter { $0.sport != .golf }
+            .sorted { ($0.startDate ?? Date.distantPast) > ($1.startDate ?? Date.distantPast) }
     }
 
     // Get selected season objects
@@ -49,7 +58,7 @@ struct SeasonComparisonView: View {
                     LockedFeaturePlaceholder(message: "Upgrade to Plus to compare seasons side-by-side")
                 } else {
                     VStack(spacing: 0) {
-                        if canCompare {
+                        if isComparing && canCompare {
                             // Comparison view
                             ScrollView {
                                 VStack(spacing: 20) {
@@ -99,6 +108,7 @@ struct SeasonComparisonView: View {
                                 }
                                 .padding()
                             }
+                            .background(Theme.surface)
                         } else {
                             // Season selection view
                             seasonSelectionView
@@ -108,7 +118,7 @@ struct SeasonComparisonView: View {
                 }
             }
             .navigationTitle("Season Comparison")
-            .navigationBarTitleDisplayMode(.large)
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") {
@@ -116,11 +126,11 @@ struct SeasonComparisonView: View {
                     }
                 }
 
-                if authManager.currentTier >= .plus && canCompare {
+                if authManager.currentTier >= .plus && isComparing {
                     ToolbarItem(placement: .primaryAction) {
                         Button("Change Seasons") {
-                            // Clear selections to go back to selection view
-                            selectedSeasons.removeAll()
+                            // Back to the picker with the current selection intact
+                            isComparing = false
                         }
                     }
                 }
@@ -128,42 +138,15 @@ struct SeasonComparisonView: View {
         }
     }
 
+    @ViewBuilder
     private var seasonSelectionView: some View {
-        VStack(spacing: 20) {
-            // Header
-            VStack(spacing: 8) {
-                Image(systemName: "chart.line.uptrend.xyaxis")
-                    .font(.system(size: 60))
-                    .foregroundStyle(ppAccent)
-
-                Text("Compare Seasons")
-                    .font(.displayMedium)
-
-                Text("Select 2-4 seasons to compare statistics and trends")
-                    .font(.bodyMedium)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal)
-            }
-            .padding(.top, 40)
-
-            // Season selection list
-            if allSeasons.isEmpty {
-                VStack(spacing: 12) {
-                    Image(systemName: "calendar.badge.plus")
-                        .font(.system(size: 40))
-                        .foregroundStyle(.secondary)
-                    Text("No Seasons Yet")
-                        .font(.headingLarge)
-                    Text("Create at least two seasons with game data to start comparing.")
-                        .font(.bodyMedium)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal)
-                }
-                .frame(maxHeight: .infinity)
-            } else {
-                List {
+        // Comparison needs two seasons — with fewer, the picker is a dead end,
+        // so show what's missing instead of an un-actionable list.
+        if allSeasons.count < 2 {
+            notEnoughSeasonsView
+        } else {
+            List {
+                Section {
                     ForEach(allSeasons) { season in
                         Button {
                             toggleSeasonSelection(season)
@@ -174,13 +157,68 @@ struct SeasonComparisonView: View {
                             )
                         }
                         .buttonStyle(.plain)
+                        .listRowBackground(Theme.card)
                     }
+                } header: {
+                    Text("Select 2–4 Seasons")
+                } footer: {
+                    Text(selectionFooter)
                 }
-                .listStyle(.insetGrouped)
             }
-
-            Spacer()
+            .listStyle(.insetGrouped)
+            .scrollContentBackground(.hidden)
+            .background(Theme.surface)
+            .safeAreaInset(edge: .bottom) { compareBar }
         }
+    }
+
+    private var selectionFooter: String {
+        switch selectedSeasons.count {
+        case 0: return "Pick the seasons you want to see side-by-side."
+        case 1: return "1 selected — pick one more to compare."
+        case 4: return "4 selected — the maximum."
+        default: return "\(selectedSeasons.count) selected."
+        }
+    }
+
+    private var compareBar: some View {
+        Button {
+            Haptics.light()
+            isComparing = true
+        } label: {
+            Text(canCompare ? "Compare \(selectedSeasons.count) Seasons" : "Compare")
+                .font(.headingMedium)
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(
+                    RoundedRectangle(cornerRadius: .cornerLarge, style: .continuous)
+                        .fill(canCompare ? ppAccent : Theme.textTertiary)
+                )
+        }
+        .disabled(!canCompare)
+        .padding(.horizontal)
+        .padding(.vertical, 12)
+        .background(Theme.surface)
+    }
+
+    private var notEnoughSeasonsView: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "calendar.badge.plus")
+                .font(.system(size: 40))
+                .foregroundStyle(.secondary)
+            Text(allSeasons.isEmpty ? "No Seasons Yet" : "Only One Season")
+                .font(.headingLarge)
+            Text(allSeasons.isEmpty
+                 ? "Create at least two seasons with game data to start comparing."
+                 : "Comparison needs at least two seasons. Start a new season — this one stays in your history.")
+                .font(.bodyMedium)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.surface)
     }
 
     private func toggleSeasonSelection(_ season: Season) {

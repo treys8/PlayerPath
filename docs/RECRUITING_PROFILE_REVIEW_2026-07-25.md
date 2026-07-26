@@ -13,21 +13,46 @@ device testing, not development.
 
 | | |
 |---|---|
-| **Findings** | **38 of 40 done**, 1 partial (P2.8's paging), **1 left** (N2) |
-| **By group** | P0 1/1 · P1 8/8 · P2 8/9 · P3 9/9 · P4 10/10 · N 2/3 |
-| **Cloud Functions** | ✅ All deployed (5 deploys, latest 2026-07-26) |
-| **`firestore.rules`** | ✅ Released to prod |
-| **Client** | ✅ Committed through `a21e2fd`; **6.4.3 / 207**, both configs |
-| **Gates** | iOS build ✅ · `tsc` ✅ · blob harness **49/49** · rules ⚠️ not re-run (no JDK, see below) |
+| **Findings** | **40 of 40 done.** N2 + P2.8 written + deployed 2026-07-26; ⚠️ client half **not committed** |
+| **By group** | P0 1/1 · P1 8/8 · P2 9/9 · P3 9/9 · P4 10/10 · N 3/3 |
+| **Cloud Functions** | ✅ **All deployed** (6 deploys). N2 + P2.8 landed 2026-07-26 and verified in prod — see §0 |
+| **`firestore.rules`** | ✅ Released to prod — **N2 needs no rules change** (see below) |
+| **Client** | ⚠️ Committed through `50c2764`; N2's client half is **uncommitted**. Bumped to **6.4.4 / 208**, both configs |
+| **Gates** | iOS build ✅ · `tsc` ✅ · blob harness **49/49** · token harness **2563/2563** · **rules 42/42 ✅ re-run 2026-07-26** |
 | **Device tests** | ⚠️ **1 of ~14 run** — the real blocker. List at the end of §9 |
 
-**Everything client-side in this review is closed.** What's left both needs a Cloud Function redeploy and
-neither is broken today:
+**Every finding in this review now has code.** Two things remain before it is actually finished, and the
+first one is an ordering constraint, not a task:
 
-1. **N2** — the share token is a 36-char UUID, unreadable on the QR/bio/verbal channels the feature bets on.
-   `TOKEN_RE` must keep accepting UUIDs or every already-shared link dies. ~1.5 h.
-2. **P2.8 (rest)** — the digest query has no limit/cursor and writes serially. Scale-conditional (~800–1000
-   in-window profiles), but a killed pass loses that night's deltas *permanently*. ~1.5 h.
+🚨 **DEPLOY THE CLOUD FUNCTION BEFORE THE CLIENT REACHES A DEVICE.** N2 has two halves that must land in
+this order. The CF half is purely additive — it accepts short slugs *in addition to* UUIDs, and no shipped
+client mints a slug, so deploying it changes nothing observable. The client half starts minting slugs. Ship
+the client first and every **new** publish produces a token the deployed CF's UUID-only regex rejects: a
+freshly published profile 404s at its own link. Existing links are unaffected either way.
+(Recoverable, not corrupting — the slug is stored, so deploying the CF makes those links start working. But
+it 404s for the athlete *and* every coach they sent it to in the meantime.)
+
+1. **N2 — DONE + DEPLOYED 2026-07-26.** ~50-bit Crockford base32 slug (10 chars):
+   `profiles.playerpath.net/p/k3n8xr2vq7`. `TOKEN_RE` split into `UUID_TOKEN_RE` + `SLUG_TOKEN_RE` behind
+   `normalizeShareToken()`, which returns UUIDs **verbatim** (lower-casing one would break the
+   `where('shareToken','==')` equality query) and canonicalises slugs — `i`/`l` → `1`, `o` → `0` — so a link
+   read aloud and typed back by hand still resolves. `u` is out of the alphabet and deliberately not
+   remapped. **Needs no rules change:** `recruitingTokens` constrains the doc *body*, never the doc-ID shape,
+   and `ownsShareToken()` is an `exists()` check.
+   ⚠️ **Existing profiles keep their UUID forever** — `publish()` reuses the stored `shareToken`. Only a
+   first publish or **Reset Link** mints a slug, and Reset Link kills the old URL by design. Nothing tells an
+   already-published athlete that a shorter link is now available; that is a product decision, not an
+   oversight.
+2. **P2.8 — DONE + DEPLOYED 2026-07-26.** The digest sweep is now paged (`orderBy('lastViewedAt')` + snapshot
+   cursor, 300/page — still a single-field index), prunes are batched (400/batch, counter checked per *add*
+   so it cannot overshoot Firestore's 500-op ceiling), and owners are digested 10 at a time. **Stamps are
+   deliberately NOT batched** — a batch fails as a unit, and one malformed doc taking its siblings down is
+   the exact failure the per-entry isolation exists to prevent; they run concurrently via `allSettled`
+   instead, which also preserves input order so `stamped[0]` is still the same doc. A `seen` Set dedupes doc
+   IDs across pages, because the render path writes `lastViewedAt` and a profile viewed mid-sweep can sort
+   past the cursor and be read twice — unguarded that is a double stamp and "2 of your athletes' pages" for
+   one kid. A 420 s scan deadline stops the sweep **loudly** (`console.error` naming the count) rather than
+   letting the instance be killed silently mid-write.
 
 Also deferred **deliberately** — these are not open findings:
 - **P3.3's coach/parent reference block.** Scoped as a separate feature proposal from the start; needs a blob
@@ -35,10 +60,16 @@ Also deferred **deliberately** — these are not open findings:
 - **N1's residual.** The ~30-day soft-delete window still serves a deleted clip publicly. Closing it means
   removing the highlight from `recruitingProfiles` at clip-delete time.
 
-⚠️ **The rules-test suite cannot run on this machine** — `firebase emulators:exec` needs a JVM and only the
-`/usr/bin/java` stub is installed (no JDK). `firestore.rules` is untouched since its release, and every new
-client-written field passes because `recruitingProfiles` uses `hasAll`, not `hasOnly`. Re-run the 42/42 suite
-wherever Java is available.
+✅ **The rules suite was re-run on this machine 2026-07-26: 42/42, 0 fail.** The earlier "no JDK" note was
+wrong — a Temurin JDK 21 sits at `~/.local/jdk/jdk-21.0.11+10`. The actual blocker was the same thing that
+blocked deploys: `npm test` shells out to `firebase emulators:exec`, and `/usr/local/bin/firebase` is an
+**x86_64 binary on an arm64 Mac with no Rosetta**. Run it with the node CLI instead (see §9).
+
+`firestore.rules` is unmodified since its release (`f9d8308`), and **N2 needed no rules change** — now with
+test evidence rather than only by inspection. The suite's own fixtures use arbitrary token strings
+(`token-abc`, `token-fresh`), neither UUIDs nor base32 slugs, so it already demonstrates that
+`recruitingTokens` constrains the doc *body* and never the doc-ID shape. A slug-shaped fixture would exercise
+identical rule paths and add no coverage.
 
 ⚠️ **A published page only shows the newest fields after a REPUBLISH.** `sport` in the subline and
 `filmDateRange` are written by `publish()`, so a page published before the client half shipped renders the
@@ -89,7 +120,8 @@ Do not re-do anything marked ✅ below. §2 is historical; its "not yet deployed
 | **P3.8** unpublish keeps PII + headshot at rest | ✅ **DONE 2026-07-26.** New `deleteDataSection` + `deleteProfileData()`: `deleteProfileDoc` then a best-effort `deleteRecruitingHeadshot`, and it **clears `headshotCloudURL` locally** because the stored download URL 404s once the object is gone (safe to propagate — only `publishConsentAt` and `publishedClipIDs` are nil-protected by `mergedRecruitingBlob`). **Not tier-gated**, same reasoning as unpublish. Needed its own **connectivity guard in the view**, NOT in the service: `deleteProfileDoc` is deliberately unguarded so `Athlete.delete` can ride Firestore's offline queue rather than skip and leave a deleted athlete's page live — but as a foreground action behind `isWorking` it would hang with the kill switch disabled (P1.6's failure). `status` is set to nil **directly instead of via `refreshStatus`**, since a throwing re-read would raise "couldn't check whether this profile is live" over a profile just deleted on purpose. New `recruiting_profile_data_deleted` analytics event rather than reusing unpublish — this is a family withdrawing, not seasonal churn. |
 | **P3.9** two-sport athletes break `name · sport` | ✅ **DONE 2026-07-26.** New `Athlete.nameWithSportIfShared` (same `siblings > 1` rule as `PPAthleteSwitcher.rowTitle`) applied at 5 surfaces: the editor header, the Profile-tab row, the More-tab row, `RecruitingShareCard`, and the QR sheet. **Deliberately NOT the mailto subject or the page `<h1>`** — both already carry `subline`, which names the sport since P4.2, so qualifying the name there would print it twice ("Jordan Smith · Golf — Class of 2027 · Golf — Game Film"). That's also why the CF needs no redeploy for this finding. |
 | **P3.7** consent taken once forever | ✅ **DONE 2026-07-26.** New `publishedContactKinds: [String]?` in the blob (all four Codable sites: CodingKeys, `knownKeys`, lenient decoder, hand-written encoder) + `newlyPublicContactKinds` diff. `needsConsent` now re-arms when a republish would newly expose a kind, with its own header/toggle/footer copy naming the exact fields ("This update makes Jordan's phone number and email address public."). **Nil baseline = "unknown", never "nothing was public"** — a profile published before the field existed isn't re-prompted for what it already shows; the next publish records the baseline and heals it (same silent-when-unknown rule as P3.1). Three protections wired, all mandatory: `mergedRecruitingBlob` nil-guard, a `persistIfChanged` carry-forward line, and the P1.4 sidecar. **`publishConsentAt` is stamped on `info.publishConsentAt == nil`, NOT on `needsConsent`** — that flag is now also true for a re-consent, and re-stamping would overwrite the documented FIRST-guardian-confirmation date. `consentAcknowledged` resets only when the newly-public SET changes, so pull-to-refresh can't clear a tick but a set that grows re-arms. |
-| **N2, P2.8 (rest)** | ⬜ **NOT STARTED** — the whole remainder. Both need a CF redeploy. |
+| **N2** short share slug | ✅ **DONE + DEPLOYED 2026-07-26** (client half not yet committed). CF: `TOKEN_RE` → `UUID_TOKEN_RE` + `SLUG_TOKEN_RE` + `normalizeShareToken()`. Client: `RecruitingProfileService.makeShareSlug()` (Crockford base32, `Int.random(in:)` indexes the alphabet directly so there is no modulo bias to fold out). New harness at `scratchpad/tokentest/run.js` — **2563/2563** — which extracts the real source text from *both* files and asserts the cross-language contract: what Swift mints must satisfy the regex TypeScript resolves. 🚨 **Deploy the CF before the client ships** or every new publish 404s at its own link. |
+| **P2.8 (rest)** digest paging | ✅ **DONE + DEPLOYED 2026-07-26.** Paged + batched prunes + bounded owner concurrency + cross-page dedup + a loud scan deadline. See §0. |
 
 **P3.2 notes.** `displayLink` strips the query, so the on-screen URL never shows the marker while every shared
 copy carries it. `mail` and `bio` are tagged INSIDE `coachEmailURL`/`bioBlurb` (those builders own their
@@ -213,7 +245,7 @@ Related context: `docs/RECRUITING_PROFILE_PLAN.md`, `docs/RECRUITING_PROFILE_PHA
 | iOS build | `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project PlayerPath.xcodeproj -scheme PlayerPath -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build` | ✅ **BUILD SUCCEEDED** |
 | Functions typecheck | `cd firebase/functions && npx tsc --noEmit -p tsconfig.json` | ✅ clean |
 | Blob round-trip | `scratchpad/blobtest/` — rebuild + `./blobtest` | ✅ **49/49** |
-| Firestore rules tests | `cd firebase/rules-tests && export JAVA_HOME="$(echo ~/.local/jdk/*/Contents/Home)" && npm test` | ⚠️ **not re-run** — no JDK on this machine. Last known 42/42; `firestore.rules` untouched since |
+| Firestore rules tests | See the §9 command — `npm test` does NOT work (it calls the broken x86_64 `firebase` binary) | ✅ **42/42 re-run 2026-07-26** |
 | New file target membership | `RecruitingReadinessSection.swift`, `RecruitingShareCard.swift` | ✅ no pbxproj entry needed — project uses `PBXFileSystemSynchronizedRootGroup` |
 
 > New client-written blob/doc fields need **no rules change**: `recruitingProfiles` uses `hasAll`, not
@@ -843,14 +875,30 @@ staged ordering that produced them (rules release → codec → the money/kill-s
 pair → client-only fixes → grouped CF redeploys) is no longer needed. It is not reproduced here; §0's
 per-finding record is the outcome.
 
-**1. Device tests — the actual blocker.** 1 of ~14 run. Nothing below is urgent; this is. List follows.
+**1. ✅ Cloud Function deployed 2026-07-26** (`serveRecruitingProfile` + `recruitingViewDigest`, both
+"Successful update operation"). Verified live by latency-probing the token parser: a 10-char slug — canonical,
+uppercase, or containing `O` — reaches the Firestore lookup (~220–380 ms), while a 9-char token or one
+containing `u` short-circuits at the regex (~135 ms). Exactly the harness's expectations, in production.
 
-**2. Then the last two findings, both needing ONE shared CF redeploy** (`npm run build` first — see §2):
+⚠️ **The `firebase` binary at `/usr/local/bin/firebase` is x86_64 and this Mac is arm64 with no Rosetta — it
+cannot run.** Deploy with the node CLI instead, on Node 20 (the default nvm Node 18 is below firebase-tools'
+floor):
+```bash
+export PATH="$HOME/.nvm/versions/node/v20.20.1/bin:$PATH"
+npx --yes firebase-tools@latest deploy --only functions:<name>,functions:<name>
+```
 
-| Item | Why it's not urgent | Cost |
-|---|---|---|
-| **N2** short share slug | The UUID works; it is a product cost on the QR/bio/verbal channels, not a defect. `TOKEN_RE` must keep accepting UUIDs or live links die | ~1.5 h |
-| **P2.8 (rest)** digest paging | Scale-conditional (~800–1000 in-window profiles). Today's volume is far below it — but a killed pass loses that night's deltas permanently | ~1.5 h |
+**2. Ship the client.** Version is already bumped to **6.4.4 / 208** in both configs. The ordering hazard is
+now resolved — the deployed CF accepts slugs, so the client is safe to ship whenever.
+
+**3. Device tests — still the real blocker.** 1 of ~14 run. List follows. Two additions from N2:
+- **A first publish** on a profile that has never been published → the link should be
+  `…/p/` + 10 characters, and it should open.
+- **Reset Link on an already-published profile** → the new link is short, the old UUID link goes to
+  "Profile unavailable", and the QR sheet shows the new one. This is also the only path by which an
+  existing athlete gets a short link at all.
+- Type a slug back **by hand with a capital O and a lowercase L** → it should still resolve
+  (`normalizeShareToken` maps them to `0` and `1`).
 
 ### Verification checklist after each stage
 ```bash
@@ -863,10 +911,20 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
 cd firebase/functions && npx tsc --noEmit -p tsconfig.json
 
 # Rules
-cd firebase/rules-tests && export JAVA_HOME="$(echo ~/.local/jdk/*/Contents/Home)" && npm test
+# Rules — NOT `npm test`: that script calls the x86_64 `firebase` binary, which cannot run here.
+cd firebase/rules-tests
+export JAVA_HOME=~/.local/jdk/jdk-21.0.11+10/Contents/Home
+export PATH="$JAVA_HOME/bin:$HOME/.nvm/versions/node/v20.20.1/bin:$PATH"
+NODE_BIN="$(command -v node)"   # the CLI prepends its own bundled node; capture the real one first
+npx --yes firebase-tools@latest emulators:exec --only firestore \
+  --project playerpath-rules-test "\"$NODE_BIN\" --test recruitingProfiles.test.mjs"
 ```
-Plus the blob round-trip harness (`scratchpad/blobtest/`, **49/49**) — rebuild and re-run it on any
-`RecruitingInfo` change; the repo has no test target, so it is the only coverage that field has.
+Plus the two scratch harnesses — the repo has no test target, so they are the only coverage this code has:
+- **Blob round-trip** (`scratchpad/blobtest/`, **49/49**) — rebuild and re-run on any `RecruitingInfo` change.
+- **Share token** (`scratchpad/tokentest/run.js`, **2563/2563**, `node run.js`) — re-run on any change to
+  `normalizeShareToken`, the two token regexes, or `makeShareSlug`/`slugAlphabet`/`slugLength`. It extracts
+  the real source text from *both* files rather than reimplementing them, so it fails if the Swift minting
+  side and the TypeScript resolving side ever drift apart.
 
 Bump `MARKETING_VERSION` + `CURRENT_PROJECT_VERSION` in **both** Debug and Release before any device build
 (currently **6.4.3 / 207**).

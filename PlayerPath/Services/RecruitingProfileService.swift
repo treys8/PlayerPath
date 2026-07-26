@@ -110,6 +110,45 @@ final class RecruitingProfileService {
         URL(string: "\(publicBaseURL)/p/\(token)")
     }
 
+    // MARK: - Share slug
+
+    /// Crockford base32: the digits plus the alphabet minus `i`, `l`, `o` and
+    /// `u` — the characters people mis-transcribe (and, for `u`, the one that
+    /// turns random strings into words nobody wants on a teenager's link).
+    /// Exactly 32 symbols, so each character is a clean 5 bits.
+    ///
+    /// Lowercase is the canonical stored form. The Cloud Function upper/lower
+    /// folds an incoming token and maps `i`/`l` → `1` and `o` → `0` before its
+    /// lookup, so a link read aloud and typed back by hand still resolves.
+    private static let slugAlphabet = Array("0123456789abcdefghjkmnpqrstvwxyz")
+
+    /// 10 characters × 5 bits ≈ 50 bits of entropy.
+    ///
+    /// Down from a UUID's 122, deliberately. The link's whole job is to travel
+    /// through channels a 36-character UUID cannot survive: read out loud at a
+    /// showcase, typed from the QR sheet's fallback text, pasted into an
+    /// Instagram bio that only allows one link.
+    ///
+    /// Guessing one chosen token takes ~1.1e15 attempts; guessing ANY of N
+    /// published profiles takes ~1.1e15/N, so the margin shrinks as the corpus
+    /// grows — unreachable at thousands of profiles against a route capped at
+    /// `maxInstances: 20`, worth re-checking at tens of millions. The page is
+    /// `noindex` either way; the token was never the only thing keeping these
+    /// pages out of search.
+    private static let slugLength = 10
+
+    /// A fresh share slug. Collisions are handled by the claim loop, not here.
+    ///
+    /// `Int.random(in:)` draws from `SystemRandomNumberGenerator`, which is
+    /// backed by `arc4random_buf` on Apple platforms and safe for this. Indexing
+    /// the alphabet directly — rather than taking a random byte modulo 32 —
+    /// keeps the distribution uniform with no bias to fold out.
+    private static func makeShareSlug() -> String {
+        String((0..<slugLength).map { _ in
+            slugAlphabet[Int.random(in: 0..<slugAlphabet.count)]
+        })
+    }
+
     // MARK: - Publish
 
     /// Snapshots the athlete's bio, stats, and chosen clips into the published doc
@@ -320,7 +359,8 @@ final class RecruitingProfileService {
         }
 
         guard let url = Self.shareURL(for: shareToken) else {
-            // Unreachable in practice (constant host + UUID path), but "sign in
+            // Unreachable in practice (constant host, and the token is either a
+            // legacy UUID or a base32 slug — both URL-safe), but "sign in
             // required" would be a nonsense thing to tell someone here.
             throw RecruitingPublishError.couldNotClaimLink
         }
@@ -367,14 +407,13 @@ final class RecruitingProfileService {
     /// account doesn't hold a claim on, which is what stops someone republishing
     /// under an athlete's already-circulated link.
     ///
-    /// v4 UUIDs don't collide by accident, so a failed claim means someone else
-    /// holds that token; mint a fresh one rather than surfacing an error the user
-    /// can't act on. (An abandoned claim — a network failure between the claim and
-    /// the profile write — leaves a tiny orphan doc; the next attempt mints a new
-    /// token, so nothing is stuck.)
+    /// A failed claim is treated as "someone else holds that token"; mint a fresh
+    /// one rather than surfacing an error the user can't act on. (An abandoned
+    /// claim — a network failure between the claim and the profile write — leaves
+    /// a tiny orphan doc; the next attempt mints a new token, so nothing is stuck.)
     private func claimShareToken(athleteId: UUID, ownerUID: String) async throws -> String {
         for _ in 0..<3 {
-            let token = UUID().uuidString
+            let token = Self.makeShareSlug()
             do {
                 try await db.collection(FC.recruitingTokens).document(token).setData([
                     "userId": ownerUID,
