@@ -258,6 +258,10 @@ final class UploadQueueManager {
                 let persistedUpload: PendingUpload
                 if upload.isCoachUpload, let folderID = upload.folderID,
                    let coachID = upload.coachID, let coachName = upload.coachName {
+                    // `isHighlight` is deliberately NOT persisted: PendingUpload is a
+                    // SwiftData @Model, and a schema bump isn't worth one coach toggle.
+                    // Consequence: an upload restored after an app kill loses the flag
+                    // (the video still uploads, just not marked as a highlight).
                     persistedUpload = PendingUpload(
                         clipId: upload.clipId,
                         fileName: upload.fileName,
@@ -476,7 +480,8 @@ final class UploadQueueManager {
         priority: UploadPriority = .normal,
         videoType: String = "instruction",
         gameOpponent: String? = nil,
-        gameDate: Date? = nil
+        gameDate: Date? = nil,
+        isHighlight: Bool = false
     ) {
         // Deterministic UUID from folderID+fileName so duplicate detection works across app restarts
         let clipId = Self.stableUUID(from: "\(folderID)|\(fileName)")
@@ -501,7 +506,8 @@ final class UploadQueueManager {
             sessionID: sessionID,
             videoType: videoType,
             gameOpponent: gameOpponent,
-            gameDate: gameDate
+            gameDate: gameDate,
+            isHighlight: isHighlight
         )
 
         pendingUploads.append(upload)
@@ -1042,7 +1048,11 @@ final class UploadQueueManager {
             ) : nil,
             uploadedByType: .coach,
             visibility: "private",
-            sessionID: upload.sessionID
+            sessionID: upload.sessionID,
+            // Preserve createPendingVideoMetadata's own `videoType == "highlight"`
+            // fallback: passing a bare Bool would permanently override it, so a future
+            // caller enqueuing a "highlight" videoType would silently land as false.
+            isHighlight: upload.isHighlight || upload.videoType == "highlight"
         )
 
         do {
@@ -1202,6 +1212,10 @@ struct QueuedUpload: Identifiable {
     let videoType: String?
     let gameOpponent: String?
     let gameDate: Date?
+    /// Coach's "Mark as Highlight" choice, forwarded to the video's Firestore
+    /// metadata. NOT persisted to `PendingUpload` (see persistQueueToDatabase),
+    /// so it resets to false if the queue is restored after an app kill.
+    let isHighlight: Bool
 
     var timeUntilRetry: TimeInterval? {
         guard let lastAttempt = lastAttempt, retryCount > 0 else { return nil }
@@ -1230,13 +1244,15 @@ struct QueuedUpload: Identifiable {
         self.videoType = nil
         self.gameOpponent = nil
         self.gameDate = nil
+        self.isHighlight = false
     }
 
     /// Initializer for coach uploads
     init(clipId: UUID, fileName: String, filePath: String, priority: UploadPriority,
          retryCount: Int, lastAttempt: Date?, folderID: String, coachID: String,
          coachName: String, sessionID: String?,
-         videoType: String? = nil, gameOpponent: String? = nil, gameDate: Date? = nil) {
+         videoType: String? = nil, gameOpponent: String? = nil, gameDate: Date? = nil,
+         isHighlight: Bool = false) {
         self.clipId = clipId
         self.athleteId = nil
         self.fileName = fileName
@@ -1252,6 +1268,7 @@ struct QueuedUpload: Identifiable {
         self.videoType = videoType
         self.gameOpponent = gameOpponent
         self.gameDate = gameDate
+        self.isHighlight = isHighlight
     }
 }
 

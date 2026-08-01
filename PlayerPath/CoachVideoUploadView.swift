@@ -575,7 +575,8 @@ class CoachVideoUploadViewModel {
             priority: .high,
             videoType: videoContext == .game ? "game" : "instruction",
             gameOpponent: videoContext == .game ? gameOpponent.trimmingCharacters(in: .whitespaces) : nil,
-            gameDate: contextDate
+            gameDate: contextDate,
+            isHighlight: isHighlight
         )
 
         // Clean up picker temp file + any raw/trimmed temp files the view

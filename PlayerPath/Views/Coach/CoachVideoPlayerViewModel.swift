@@ -925,6 +925,10 @@ class CoachVideoPlayerViewModel {
         clip.thumbnailPath = thumbnailPath
         clip.duration = video.duration
         clip.createdAt = video.createdAt ?? Date()
+        // Carry the highlight flag over from the shared-folder metadata. Without it
+        // the saved clip always landed unstarred, which also made the auto-upload
+        // gate below skip it forever under the "Highlights Only" preference.
+        clip.isHighlight = video.isHighlight
         clip.sourceCoachVideoID = coachVideoID
         // Durable coach-feedback snapshot (SchemaV28, local-only). Uses the VM's
         // already-resolved coachNote* state (set in init, incl. the legacy-notes
