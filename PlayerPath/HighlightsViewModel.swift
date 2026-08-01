@@ -71,7 +71,8 @@ final class HighlightsViewModel {
     private(set) var feed: [HighlightFeedItem] = []
     private(set) var feedIndex: [String: Int] = [:]
 
-    /// Today-dated highlight clips for the "Today's Reel" hero card. Always
+    /// Today-dated highlight clips for the "Today's Reel" hero card — from a game
+    /// OR a practice dated today (a practice-only day still earns a reel). Always
     /// computed from the unfiltered source list so user-applied filters
     /// (season/type/search) don't hide the card.
     private(set) var todaysHighlightClips: [VideoClip] = []
@@ -138,10 +139,12 @@ final class HighlightsViewModel {
         }
 
         // 2. Reel side — apply the same UX filters where they apply.
-        // - Season: resolve via the parent game (if locatable in allVideoClips).
-        // - Type: reels are game-origin in PR2, so .game and .all pass; .practice excludes.
+        // - Season: resolve via the parent game OR practice (if locatable in allVideoClips).
+        // - Type: a reel follows its parent — .game passes game-parented reels,
+        //   .practice passes practice-parented ones (golf practice rounds create
+        //   reels too; they used to be excluded from .practice outright).
         // - Search: match on displayName / course / hole label.
-        // Multiple clips share the same parent game, so `game.id` repeats across
+        // Multiple clips share the same parent, so the id repeats across
         // `allVideoClips`. `Dictionary(uniqueKeysWithValues:)` traps on duplicate
         // keys ("Fatal error: Duplicate values for key"), so collapse duplicates
         // by keeping the first occurrence — every clip of a game points to the
@@ -153,13 +156,26 @@ final class HighlightsViewModel {
             },
             uniquingKeysWith: { existing, _ in existing }
         )
+        let practicesByID: [UUID: Practice] = Dictionary(
+            allVideoClips.compactMap { clip -> (UUID, Practice)? in
+                guard let practice = clip.practice else { return nil }
+                return (practice.id, practice)
+            },
+            uniquingKeysWith: { existing, _ in existing }
+        )
 
         var filteredReels: [HighlightReel] = allReels.filter { !$0.isDeletedRemotely }
 
         if let seasonFilter = selectedSeasonFilter {
             filteredReels = filteredReels.filter { reel in
-                guard let gameID = reel.gameID else { return seasonFilter == "no_season" }
-                let parentSeason = gamesByID[gameID]?.season
+                let parentSeason: Season?
+                if let gameID = reel.gameID {
+                    parentSeason = gamesByID[gameID]?.season
+                } else if let practiceID = reel.practiceID {
+                    parentSeason = practicesByID[practiceID]?.season
+                } else {
+                    return seasonFilter == "no_season"
+                }
                 if seasonFilter == "no_season" {
                     return parentSeason == nil
                 }
@@ -167,10 +183,11 @@ final class HighlightsViewModel {
             }
         }
 
-        filteredReels = filteredReels.filter { _ in
+        filteredReels = filteredReels.filter { reel in
             switch filter {
-            case .all, .game: return true
-            case .practice: return false
+            case .all: return true
+            case .game: return reel.gameID != nil
+            case .practice: return reel.practiceID != nil
             }
         }
 
@@ -211,7 +228,7 @@ final class HighlightsViewModel {
     private func recomputeTodaysHighlights() {
         todaysHighlightClips = allVideoClips
             .filter { $0.isHighlight }
-            .filter { $0.game?.date?.isToday == true }
+            .filter { $0.game?.date?.isToday == true || $0.practice?.date?.isToday == true }
             .sorted { ($0.createdAt ?? .distantPast) < ($1.createdAt ?? .distantPast) }
     }
 
@@ -259,11 +276,38 @@ final class HighlightsViewModel {
         onItemAppear(.clip(clip))
     }
 
+    /// Seasons offered in the filter menu. Derived from BOTH feed sources: starred
+    /// clips and the parent seasons of the reels. A golf athlete whose highlights are
+    /// all birdie reels has no starred clips at all, so a starred-only derivation left
+    /// them with an empty season picker (and made the reel season filter unreachable).
     private func updateAvailableSeasons() {
         let highlightClips = allVideoClips.filter { $0.isHighlight }
-        let seasons = highlightClips.compactMap { $0.season }
+        var seasons = highlightClips.compactMap { $0.season }
+
+        let liveReels = allReels.filter { !$0.isDeletedRemotely }
+        if !liveReels.isEmpty {
+            var seasonByGameID: [UUID: Season] = [:]
+            var seasonByPracticeID: [UUID: Season] = [:]
+            for clip in allVideoClips {
+                if let game = clip.game, seasonByGameID[game.id] == nil {
+                    seasonByGameID[game.id] = game.season
+                }
+                if let practice = clip.practice, seasonByPracticeID[practice.id] == nil {
+                    seasonByPracticeID[practice.id] = practice.season
+                }
+            }
+            for reel in liveReels {
+                if let gameID = reel.gameID, let season = seasonByGameID[gameID] {
+                    seasons.append(season)
+                } else if let practiceID = reel.practiceID, let season = seasonByPracticeID[practiceID] {
+                    seasons.append(season)
+                }
+            }
+        }
+
         let uniqueSeasons = Array(Set(seasons))
         availableSeasons = uniqueSeasons.sorted { ($0.startDate ?? .distantPast) > ($1.startDate ?? .distantPast) }
         hasNoSeasonClips = highlightClips.contains(where: { $0.season == nil })
+            || liveReels.contains(where: { $0.gameID == nil && $0.practiceID == nil })
     }
 }

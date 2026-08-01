@@ -312,9 +312,14 @@ struct PlayResultEditorView: View {
             clip.pitchType = nil
         }
 
-        // Re-evaluate auto-highlight rule against the new type+role so a clip
-        // doesn't keep a stale highlight flag from its previous tag.
-        let newHighlight: Bool = {
+        // Re-evaluate the auto-highlight rule against the new type+role, but only
+        // ever to PROMOTE — same invariant as ClipPersistenceService's
+        // `isHighlight ||= shouldAutoHighlight(...)`. Nothing distinguishes an
+        // auto-set flag from a deliberate manual star, so overwriting here silently
+        // un-starred a hand-picked clip whenever its play result was edited (or
+        // cleared). Un-starring stays an explicit user action (clip card / player
+        // menu / Highlights bulk "Remove from Highlights").
+        let newHighlight: Bool = clip.isHighlight || {
             guard let selected = selectedResult else { return false }
             return AutoHighlightSettings.shared.shouldAutoHighlight(playType: selected, role: mode)
         }()
