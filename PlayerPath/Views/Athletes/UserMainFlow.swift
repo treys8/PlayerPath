@@ -446,7 +446,14 @@ struct UserMainFlow: View {
                 (resolvedAthlete?.videoClips ?? []).map { ($0.id, $0) },
                 uniquingKeysWith: { existing, _ in existing }
             )
-            reelClips = summary.clipIDs.compactMap { byID[$0] }.filter { !$0.isDeleted }
+            // Order comes from `summary.clipIDs`, which GolfHighlightUnion built —
+            // replaying it preserves that order. `isDeletedRemotely` matters too: the
+            // union filters on it, so without it a clip soft-deleted by sync between
+            // round end and this tap would land in the reel here but not in the one
+            // GameDetailView builds under the same `round_<id>` cache scope.
+            reelClips = summary.clipIDs
+                .compactMap { byID[$0] }
+                .filter { !$0.isDeleted && !$0.isDeletedRemotely }
             reelScope = summary.scopeKey
             reelTitle = summary.title
             showingReel = true

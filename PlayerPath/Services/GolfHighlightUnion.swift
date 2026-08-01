@@ -46,8 +46,17 @@ enum GolfHighlightUnion {
             ErrorHandlerService.shared.handle(error, context: "GolfHighlightUnion.fetchReels", showAlert: false)
             return []
         }
+        return reelClipIDStrings(gameIDs: gameIDs, practiceIDs: practiceIDs, reels: allReels)
+    }
+
+    /// Same, over reels the caller already holds (a `@Query`), so a view that
+    /// observes reels doesn't fetch them a second time to compute the union.
+    static func reelClipIDStrings(gameIDs: Set<UUID>,
+                                  practiceIDs: Set<UUID>,
+                                  reels: [HighlightReel]) -> Set<String> {
+        guard !gameIDs.isEmpty || !practiceIDs.isEmpty else { return [] }
         var ids: Set<String> = []
-        for reel in allReels where !reel.isDeletedRemotely {
+        for reel in reels where !reel.isDeletedRemotely {
             if let gameID = reel.gameID, gameIDs.contains(gameID) {
                 ids.formUnion(reel.clipIDs)
             } else if let practiceID = reel.practiceID, practiceIDs.contains(practiceID) {
@@ -74,12 +83,37 @@ enum GolfHighlightUnion {
         return chronological(clips, reelClipIDs: reelClipIDs)
     }
 
+    /// Same, over caller-held reels.
+    static func highlightClips(from clips: [VideoClip],
+                               gameID: UUID?,
+                               practiceID: UUID?,
+                               reels: [HighlightReel]) -> [VideoClip] {
+        let reelClipIDs = reelClipIDStrings(
+            gameIDs: gameID.map { [$0] } ?? [],
+            practiceIDs: practiceID.map { [$0] } ?? [],
+            reels: reels
+        )
+        return chronological(clips, reelClipIDs: reelClipIDs)
+    }
+
     /// The highlight set for a whole SEASON: starred clips ∪ every clip bundled
     /// into a birdie reel of any game or practice in that season, chronological.
     static func seasonHighlightClips(for season: Season, in context: ModelContext) -> [VideoClip] {
-        let gameIDs = Set((season.games ?? []).map(\.id))
-        let practiceIDs = Set((season.practices ?? []).map(\.id))
-        let reelClipIDs = reelClipIDStrings(gameIDs: gameIDs, practiceIDs: practiceIDs, in: context)
+        let reelClipIDs = reelClipIDStrings(
+            gameIDs: Set((season.games ?? []).map(\.id)),
+            practiceIDs: Set((season.practices ?? []).map(\.id)),
+            in: context
+        )
+        return chronological(season.videoClips ?? [], reelClipIDs: reelClipIDs)
+    }
+
+    /// Same, over caller-held reels.
+    static func seasonHighlightClips(for season: Season, reels: [HighlightReel]) -> [VideoClip] {
+        let reelClipIDs = reelClipIDStrings(
+            gameIDs: Set((season.games ?? []).map(\.id)),
+            practiceIDs: Set((season.practices ?? []).map(\.id)),
+            reels: reels
+        )
         return chronological(season.videoClips ?? [], reelClipIDs: reelClipIDs)
     }
 
@@ -103,7 +137,12 @@ enum GolfHighlightUnion {
             .sorted { lhs, rhs in
                 let l = lhs.createdAt ?? .distantPast
                 let r = rhs.createdAt ?? .distantPast
-                return l == r ? lhs.id.uuidString < rhs.id.uuidString : l < r
+                if l != r { return l < r }
+                // `fileName` breaks the remaining tie: multi-device duplication can
+                // leave two rows sharing one `id` (SeasonDetailView's partition guards
+                // the same case), and id alone would leave those two unordered.
+                if lhs.id != rhs.id { return lhs.id.uuidString < rhs.id.uuidString }
+                return lhs.fileName < rhs.fileName
             }
     }
 }

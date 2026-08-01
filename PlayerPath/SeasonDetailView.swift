@@ -24,11 +24,24 @@ struct SeasonDetailView: View {
     @Environment(\.ppAccent) private var ppAccent
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
 
-    /// Live reel rows, watched only so the golf highlight union recomputes when a
-    /// birdie reel is created or demoted — that changes the Videos/Highlights split
-    /// without touching games, clips, or practices.
+    /// Live reel rows. Watched so the golf highlight union recomputes when a birdie
+    /// reel is created or demoted — that changes the Videos/Highlights split without
+    /// touching games, clips, or practices — and fed straight into the union so it
+    /// doesn't re-fetch what this query already holds.
     @Query(filter: #Predicate<HighlightReel> { !$0.isDeletedRemotely })
     private var allReels: [HighlightReel]
+
+    /// Content key, not `.count`: one save can insert one reel and demote another
+    /// (net zero), and re-tagging a clip onto a birdie hole grows an existing reel's
+    /// `clipIDs` without changing the count. Either would leave the split stale.
+    private var reelChangeKey: Int {
+        var hasher = Hasher()
+        for reel in allReels {
+            hasher.combine(reel.id)
+            hasher.combine(reel.clipIDs)
+        }
+        return hasher.finalize()
+    }
 
     @State private var showingDeleteConfirmation = false
     @State private var showingReactivateConfirmation = false
@@ -390,7 +403,7 @@ struct SeasonDetailView: View {
         .onChange(of: season.practices) { _, _ in
             updateFilteredContent()
         }
-        .onChange(of: allReels.count) { _, _ in
+        .onChange(of: reelChangeKey) { _, _ in
             updateFilteredContent()
         }
         .fullScreenCover(isPresented: $showingReel) {
@@ -526,11 +539,20 @@ struct SeasonDetailView: View {
         if (season.sport ?? .baseball) == .golf {
             // `union` is chronological; this list is newest-first by convention
             // (`reelClips` reverses it back for playback order).
-            filteredHighlights = GolfHighlightUnion.seasonHighlightClips(for: season, in: modelContext).reversed()
+            filteredHighlights = GolfHighlightUnion.seasonHighlightClips(for: season, reels: allReels).reversed()
         } else {
+            // Tiebreak mirrors GolfHighlightUnion's (reversed, since this list is
+            // newest-first) so `reelClips` matches SeasonRecapView's order exactly —
+            // both stitch under `season_<id>`, and `sorted(by:)` isn't stable.
             filteredHighlights = (season.videoClips ?? [])
                 .filter { $0.isHighlight }
-                .sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
+                .sorted { lhs, rhs in
+                    let l = lhs.createdAt ?? .distantPast
+                    let r = rhs.createdAt ?? .distantPast
+                    if l != r { return l > r }
+                    if lhs.id != rhs.id { return lhs.id.uuidString > rhs.id.uuidString }
+                    return lhs.fileName > rhs.fileName
+                }
         }
 
         // Keyed on object identity, not `id`: multi-device duplication can leave two

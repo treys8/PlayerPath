@@ -33,8 +33,30 @@ struct GameDetailView: View {
     /// highlight clips (see `reelClips`). Free taps route to the paywall instead.
     @State private var showingReel = false
     @State private var showingReelPaywall = false
-    /// Golf only — see `reelClips`. Resolved on appear / on clip+score change.
+    /// Golf only — see `reelClips`. Resolved on appear and whenever `golfReelKey` moves.
     @State private var golfReelClips: [VideoClip] = []
+
+    /// Live reels, watched so the golf union recomputes when one is created or
+    /// demoted. `HighlightReel` has NO relationship to `Game` (it carries a
+    /// denormalized `gameID`), and `GolfScoreWriter.upsertHole` mutates an existing
+    /// `HoleScore` IN PLACE — so re-scoring a hole to a birdie changes neither
+    /// `game.holeScores` nor `game.videoClips` by array equality. Observing those
+    /// two alone left the reel CTA stale in both directions.
+    @Query(filter: #Predicate<HighlightReel> { !$0.isDeletedRemotely })
+    private var allReels: [HighlightReel]
+
+    /// Content key for this round's reels — membership AND clip payload, since
+    /// re-tagging a clip onto a birdie hole grows `clipIDs` without changing the
+    /// reel count.
+    private var golfReelKey: Int {
+        guard isGolf else { return 0 }
+        var hasher = Hasher()
+        for reel in allReels where reel.gameID == game.id {
+            hasher.combine(reel.id)
+            hasher.combine(reel.clipIDs)
+        }
+        return hasher.finalize()
+    }
 
     private var isGolf: Bool { game.season?.sport == .golf }
     // A single golf game is a "Round" — "Tournament" now means the multi-round
@@ -60,7 +82,13 @@ struct GameDetailView: View {
     /// whenever the clips or scores change — never per body evaluation, which is read
     /// three times a pass here (list CTA, toolbar CTA, sheet).
     private var reelClips: [VideoClip] {
-        if isGolf { return golfReelClips }
+        if isGolf {
+            // The snapshot can outlive a clip: a SOFT delete (`isDeletedRemotely` set
+            // by sync) doesn't shrink `game.videoClips`, so no refresh fires. Reading
+            // a stored property off an invalidated @Model traps, and these go straight
+            // to the stitcher.
+            return golfReelClips.filter { !$0.isDeleted && $0.modelContext != nil }
+        }
         return (game.videoClips ?? [])
             .filter { $0.isHighlight }
             .sorted { ($0.createdAt ?? .distantPast) < ($1.createdAt ?? .distantPast) }
@@ -69,7 +97,7 @@ struct GameDetailView: View {
     private func refreshGolfReelClips() {
         guard isGolf else { return }
         golfReelClips = GolfHighlightUnion.highlightClips(
-            from: game.videoClips ?? [], gameID: game.id, practiceID: nil, in: modelContext
+            from: game.videoClips ?? [], gameID: game.id, practiceID: nil, reels: allReels
         )
     }
 
@@ -597,10 +625,7 @@ struct GameDetailView: View {
             if gameService == nil { gameService = GameService(modelContext: modelContext) }
             refreshGolfReelClips()
         }
-        // Scoring a hole birdie-or-better creates the reel this union reads, and it
-        // touches neither of the collections below — so watch scores too, or the CTA
-        // stays hidden until the screen is re-entered.
-        .onChange(of: game.holeScores) { _, _ in refreshGolfReelClips() }
+        .onChange(of: golfReelKey) { _, _ in refreshGolfReelClips() }
         .onChange(of: game.videoClips) { _, _ in refreshGolfReelClips() }
     }
 

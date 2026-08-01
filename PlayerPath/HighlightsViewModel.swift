@@ -84,12 +84,24 @@ final class HighlightsViewModel {
     private static let searchDateFormatter = DateFormatter.mediumDate
     private static let searchShortFormatter = DateFormatter.compactDate
 
+    /// Parent lookups for reels, which hold a denormalized `gameID`/`practiceID`
+    /// rather than a relationship. Built ONCE per `update()` — both the season
+    /// picker and the feed filter need them, and each rebuild faults two SwiftData
+    /// relationships per clip.
+    ///
+    /// Values are `Season?`, NOT `Season`: writing a nil through a `[UUID: Season]`
+    /// subscript REMOVES the key, which would make a seasonless parent
+    /// indistinguishable from an unknown one — and those two resolve differently.
+    private var seasonByGameID: [UUID: Season?] = [:]
+    private var seasonByPracticeID: [UUID: Season?] = [:]
+
     // MARK: - Public API
 
     /// Call when source data changes.
     func update(videoClips: [VideoClip], reels: [HighlightReel] = []) {
         allVideoClips = videoClips
         allReels = reels
+        rebuildParentLookups()
         updateAvailableSeasons()
         refilter()
     }
@@ -144,38 +156,11 @@ final class HighlightsViewModel {
         //   .practice passes practice-parented ones (golf practice rounds create
         //   reels too; they used to be excluded from .practice outright).
         // - Search: match on displayName / course / hole label.
-        // Multiple clips share the same parent, so the id repeats across
-        // `allVideoClips`. `Dictionary(uniqueKeysWithValues:)` traps on duplicate
-        // keys ("Fatal error: Duplicate values for key"), so collapse duplicates
-        // by keeping the first occurrence — every clip of a game points to the
-        // same Game, so the winner is irrelevant.
-        let gamesByID: [UUID: Game] = Dictionary(
-            allVideoClips.compactMap { clip -> (UUID, Game)? in
-                guard let game = clip.game else { return nil }
-                return (game.id, game)
-            },
-            uniquingKeysWith: { existing, _ in existing }
-        )
-        let practicesByID: [UUID: Practice] = Dictionary(
-            allVideoClips.compactMap { clip -> (UUID, Practice)? in
-                guard let practice = clip.practice else { return nil }
-                return (practice.id, practice)
-            },
-            uniquingKeysWith: { existing, _ in existing }
-        )
-
         var filteredReels: [HighlightReel] = allReels.filter { !$0.isDeletedRemotely }
 
         if let seasonFilter = selectedSeasonFilter {
             filteredReels = filteredReels.filter { reel in
-                let parentSeason: Season?
-                if let gameID = reel.gameID {
-                    parentSeason = gamesByID[gameID]?.season
-                } else if let practiceID = reel.practiceID {
-                    parentSeason = practicesByID[practiceID]?.season
-                } else {
-                    return seasonFilter == "no_season"
-                }
+                let parentSeason = resolvedSeason(for: reel)
                 if seasonFilter == "no_season" {
                     return parentSeason == nil
                 }
@@ -276,6 +261,32 @@ final class HighlightsViewModel {
         onItemAppear(.clip(clip))
     }
 
+    /// Multiple clips share a parent, so ids repeat across `allVideoClips`; keeping
+    /// the first occurrence is fine because every clip of a game points at the same
+    /// Game. (`Dictionary(uniqueKeysWithValues:)` would trap on the duplicates.)
+    private func rebuildParentLookups() {
+        seasonByGameID.removeAll(keepingCapacity: true)
+        seasonByPracticeID.removeAll(keepingCapacity: true)
+        for clip in allVideoClips {
+            if let game = clip.game, seasonByGameID.index(forKey: game.id) == nil {
+                seasonByGameID[game.id] = game.season
+            }
+            if let practice = clip.practice, seasonByPracticeID.index(forKey: practice.id) == nil {
+                seasonByPracticeID[practice.id] = practice.season
+            }
+        }
+    }
+
+    /// The season a reel belongs to, or nil when it has no parent, the parent isn't
+    /// locatable, or the parent itself has no season. THE single definition — the
+    /// season picker and the feed filter must agree on it, or the picker offers a
+    /// bucket the filter can't fill (or hides one it can).
+    private func resolvedSeason(for reel: HighlightReel) -> Season? {
+        if let gameID = reel.gameID { return seasonByGameID[gameID] ?? nil }
+        if let practiceID = reel.practiceID { return seasonByPracticeID[practiceID] ?? nil }
+        return nil
+    }
+
     /// Seasons offered in the filter menu. Derived from BOTH feed sources: starred
     /// clips and the parent seasons of the reels. A golf athlete whose highlights are
     /// all birdie reels has no starred clips at all, so a starred-only derivation left
@@ -285,29 +296,11 @@ final class HighlightsViewModel {
         var seasons = highlightClips.compactMap { $0.season }
 
         let liveReels = allReels.filter { !$0.isDeletedRemotely }
-        if !liveReels.isEmpty {
-            var seasonByGameID: [UUID: Season] = [:]
-            var seasonByPracticeID: [UUID: Season] = [:]
-            for clip in allVideoClips {
-                if let game = clip.game, seasonByGameID[game.id] == nil {
-                    seasonByGameID[game.id] = game.season
-                }
-                if let practice = clip.practice, seasonByPracticeID[practice.id] == nil {
-                    seasonByPracticeID[practice.id] = practice.season
-                }
-            }
-            for reel in liveReels {
-                if let gameID = reel.gameID, let season = seasonByGameID[gameID] {
-                    seasons.append(season)
-                } else if let practiceID = reel.practiceID, let season = seasonByPracticeID[practiceID] {
-                    seasons.append(season)
-                }
-            }
-        }
+        seasons.append(contentsOf: liveReels.compactMap { resolvedSeason(for: $0) })
 
-        let uniqueSeasons = Array(Set(seasons))
-        availableSeasons = uniqueSeasons.sorted { ($0.startDate ?? .distantPast) > ($1.startDate ?? .distantPast) }
-        hasNoSeasonClips = highlightClips.contains(where: { $0.season == nil })
-            || liveReels.contains(where: { $0.gameID == nil && $0.practiceID == nil })
+        availableSeasons = Array(Set(seasons))
+            .sorted { ($0.startDate ?? .distantPast) > ($1.startDate ?? .distantPast) }
+        hasNoSeasonClips = highlightClips.contains { $0.season == nil }
+            || liveReels.contains { resolvedSeason(for: $0) == nil }
     }
 }

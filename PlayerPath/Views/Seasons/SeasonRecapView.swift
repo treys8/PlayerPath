@@ -29,9 +29,9 @@ struct SeasonRecapView: View {
 
     /// GOLF ONLY: the season's starred ∪ birdie-reel clips, resolved once on appear
     /// because that union has to fetch `HighlightReel` rows and three separate pieces
-    /// of this view read it. Baseball/softball keeps reading `season.highlights`
-    /// live (see `highlightClips`) — no fetch, no first-frame flash, and no parked
-    /// `@Model` references.
+    /// of this view read it. Baseball/softball keeps reading `season.highlights` live
+    /// (see `highlightClips`) — no fetch and no parked `@Model` references there.
+    /// Golf does render one frame at count 0 before `.onAppear` lands.
     @State private var golfHighlights: [VideoClip] = []
 
     var body: some View {
@@ -273,10 +273,24 @@ struct SeasonRecapView: View {
     /// (sync tombstone, a delete in another tab) before anything reads a stored
     /// property off it — that traps on an invalidated `@Model`.
     private var highlightClips: [VideoClip] {
-        let base = isGolf
-            ? golfHighlights
-            : season.highlights.sorted { ($0.createdAt ?? .distantPast) < ($1.createdAt ?? .distantPast) }
-        return base.filter { !$0.isDeleted && $0.modelContext != nil }
+        guard isGolf else {
+            // Live relationship — SwiftData has already dropped deleted rows, so no
+            // invalidation guard is needed. The tiebreak matches GolfHighlightUnion's
+            // so this and SeasonDetailView produce one identical ordered set (they
+            // share the `season_<id>` reel cache); `sorted(by:)` isn't stable, and
+            // bulk import stamps clips with identical timestamps.
+            return season.highlights.sorted { lhs, rhs in
+                let l = lhs.createdAt ?? .distantPast
+                let r = rhs.createdAt ?? .distantPast
+                if l != r { return l < r }
+                if lhs.id != rhs.id { return lhs.id.uuidString < rhs.id.uuidString }
+                return lhs.fileName < rhs.fileName
+            }
+        }
+        // Golf holds an .onAppear snapshot, so drop anything deleted since — reading
+        // a stored property off an invalidated @Model traps. `isDeleted` and
+        // `modelContext` are metadata accessors, safe on an invalidated model.
+        return golfHighlights.filter { !$0.isDeleted && $0.modelContext != nil }
     }
 
     /// Already chronological (playback) order.

@@ -30,14 +30,13 @@ struct TierGateModifier: ViewModifier {
     @State private var showingPaywall = false
 
     func body(content: Content) -> some View {
-        // Take the higher of the auth manager's tier and `effectiveAthleteTier`
-        // (max of the live StoreKit entitlement and the comp mirror). The two can
-        // disagree during the launch window before the auth manager first publishes
-        // a tier, and this modifier REPLACES the whole screen — so a paying user
-        // could be shown "Plus Feature" on a screen they own, while the CTAs inside
-        // features that gate on `effectiveAthleteTier` worked fine. Never under-gate
-        // someone holding a live entitlement.
-        if max(authManager.currentTier, SubscriptionGate.effectiveAthleteTier) >= requiredTier {
+        // `authManager.currentTier` is the ONLY source here on purpose. It already
+        // floors at the live StoreKit entitlement (the StoreKit sink raises it) while
+        // being reset on sign-out — whereas `StoreKitManager.currentTier` is the
+        // device's Apple-ID entitlement and SURVIVES sign-out. Folding
+        // `SubscriptionGate.effectiveAthleteTier` in here (as this briefly did) hands
+        // a shared device's next account the previous owner's Plus screens.
+        if authManager.currentTier >= requiredTier {
             content
         } else {
             LockedFeatureView(

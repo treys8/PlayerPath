@@ -13,13 +13,6 @@ struct HighlightsView: View {
     let athlete: Athlete?
     let currentTier: SubscriptionTier
 
-    /// Tier for this screen's Plus gates. `currentTier` comes from the auth manager
-    /// (comp-aware) while every reel CTA gates on `SubscriptionGate.effectiveAthleteTier`
-    /// (max of the live StoreKit entitlement and the comp mirror). Taking the max of both
-    /// keeps this screen from hiding the hero card / settings while the Game and Season
-    /// reel CTAs happily open — the two sources can disagree during the launch window
-    /// before the comp mirror is populated, or for a comped athlete.
-    private var effectiveTier: SubscriptionTier { max(currentTier, SubscriptionGate.effectiveAthleteTier) }
 
     @Environment(\.modelContext) private var modelContext
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -298,7 +291,7 @@ struct HighlightsView: View {
             // today's highlight set crosses the ≥2 threshold — a gentle slide-in
             // for the celebratory prompt (skipped under Reduce Motion).
             Group {
-                if effectiveTier >= .plus,
+                if currentTier >= .plus,
                    let athlete = athlete,
                    athlete.sport != .golf,
                    viewModel.todaysHighlightClips.count >= 2 {
@@ -410,7 +403,7 @@ struct HighlightsView: View {
 
         // Auto-highlight settings (Plus+, baseball/softball only — the panel
         // is batting/pitching rules; golf is manual-highlights-only).
-        if effectiveTier >= .plus && athlete?.sport != .golf {
+        if currentTier >= .plus && athlete?.sport != .golf {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     Haptics.light()
