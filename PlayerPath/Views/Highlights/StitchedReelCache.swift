@@ -13,6 +13,12 @@
 //  source set changes (the old mtime-vs-createdAt check could not detect a
 //  *removed* clip). The orphaned file ages out via cleanupOlderThan(days:).
 //
+//  `duration` is part of the hash because a RE-TRIM (ClipTrimService.applyTrim)
+//  overwrites the clip's file in place and keeps both its id and createdAt — only
+//  duration changes. Without it, a reel built before the trim stayed a cache hit
+//  and served the pre-trim footage until it aged out, with no way for the user
+//  to bust it.
+//
 
 import Foundation
 import CryptoKit
@@ -32,9 +38,10 @@ nonisolated enum StitchedReelCache {
     /// Stable 16-hex-char fingerprint of the ordered clip set. Deterministic across
     /// launches (SHA-256 over a canonical string), unlike Swift's per-process-seeded
     /// `Hasher`, which would never produce a cache hit on a later launch.
+    /// Keyed on id + createdAt + duration-in-ms — see the header note on re-trims.
     static func contentHash(for clips: [VideoClip]) -> String {
         let canonical = clips
-            .map { "\($0.id.uuidString):\(Int(($0.createdAt ?? .distantPast).timeIntervalSince1970))" }
+            .map { "\($0.id.uuidString):\(Int(($0.createdAt ?? .distantPast).timeIntervalSince1970)):\(Int(($0.duration ?? 0) * 1000))" }
             .joined(separator: ",")
         let digest = SHA256.hash(data: Data(canonical.utf8))
         return digest.prefix(8).map { String(format: "%02x", $0) }.joined()
