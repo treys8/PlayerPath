@@ -544,7 +544,7 @@ enum HelpArticle: HelpArticleProtocol {
             While a round is open, use the hole stepper to tag clips to the hole you're playing, so your swings stay organized by hole.
 
             **Auto Highlight Reels:**
-            Post a birdie or better in a round and PlayerPath automatically bundles that round's clips into a highlight reel — no setup needed.
+            Score a birdie or better on a hole and PlayerPath automatically bundles that hole's clips into a highlight reel — no setup needed.
 
             **Tips:**
             • Film down-the-line and face-on for the most useful swing review
