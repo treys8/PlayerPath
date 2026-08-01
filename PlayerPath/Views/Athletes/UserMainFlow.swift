@@ -472,9 +472,11 @@ struct UserMainFlow: View {
         }()
 
         if isGolf {
-            guard let clipIDs = golfReelClipIDs(gameID: eventID, practiceID: nil,
-                                                in: game.modelContext, allClips: game.videoClips ?? []),
-                  clipIDs.count >= 2 else { return nil }
+            guard let context = game.modelContext else { return nil }
+            let clipIDs = GolfHighlightUnion.highlightClips(
+                from: game.videoClips ?? [], gameID: eventID, practiceID: nil, in: context
+            ).map(\.id)
+            guard clipIDs.count >= 2 else { return nil }
             return .init(id: eventID, eventKind: .round, scopeKey: "round_\(eventID.uuidString)",
                          title: title, clipIDs: clipIDs, count: clipIDs.count)
         } else {
@@ -498,9 +500,11 @@ struct UserMainFlow: View {
         }()
 
         if isGolf {
-            guard let clipIDs = golfReelClipIDs(gameID: nil, practiceID: eventID,
-                                                in: practice.modelContext, allClips: practice.videoClips ?? []),
-                  clipIDs.count >= 2 else { return nil }
+            guard let context = practice.modelContext else { return nil }
+            let clipIDs = GolfHighlightUnion.highlightClips(
+                from: practice.videoClips ?? [], gameID: nil, practiceID: eventID, in: context
+            ).map(\.id)
+            guard clipIDs.count >= 2 else { return nil }
             return .init(id: eventID, eventKind: .practice, scopeKey: "round_practice_\(eventID.uuidString)",
                          title: title, clipIDs: clipIDs, count: clipIDs.count)
         } else {
@@ -520,6 +524,9 @@ struct UserMainFlow: View {
     /// an auto-set true from a deliberate removal) and would write to the store
     /// inside a notification observer. Counting the flag keeps the banner, the reel,
     /// and the Highlights folder showing exactly the same set.
+    ///
+    /// Golf takes the `GolfHighlightUnion` path instead (starred ∪ birdie-reel clips)
+    /// because golf never auto-sets `isHighlight`.
     private func highlightClipIDs(from clips: [VideoClip]) -> [UUID] {
         clips
             .filter { !$0.isDeleted && !$0.isDeletedRemotely && $0.isHighlight }
@@ -527,32 +534,4 @@ struct UserMainFlow: View {
             .map { $0.id }
     }
 
-    /// Golf curation lives in per-hole `HighlightReel` objects (birdie-or-better),
-    /// not the `isHighlight` flag. Unions the round's reels' clips into one
-    /// chronological set. `HighlightReel.clipIDs` are uuidStrings. Returns nil if
-    /// the context is unavailable.
-    private func golfReelClipIDs(gameID: UUID?, practiceID: UUID?,
-                                 in context: ModelContext?, allClips: [VideoClip]) -> [UUID]? {
-        guard let context else { return nil }
-        let reels: [HighlightReel]
-        do {
-            // #Predicate can't equate optional UUIDs cleanly — fetch flat, filter
-            // in memory (feedback_swiftdata_predicate_no_transforms).
-            let all = try context.fetch(FetchDescriptor<HighlightReel>())
-            reels = all.filter { reel in
-                guard !reel.isDeletedRemotely else { return false }
-                if let gameID { return reel.gameID == gameID }
-                if let practiceID { return reel.practiceID == practiceID }
-                return false
-            }
-        } catch {
-            return nil
-        }
-        let wanted = Set(reels.flatMap { $0.clipIDs })
-        guard !wanted.isEmpty else { return [] }
-        return allClips
-            .filter { !$0.isDeleted && !$0.isDeletedRemotely && wanted.contains($0.id.uuidString) }
-            .sorted { ($0.createdAt ?? .distantPast) < ($1.createdAt ?? .distantPast) }
-            .map { $0.id }
-    }
 }

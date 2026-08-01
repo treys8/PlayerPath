@@ -21,10 +21,18 @@ struct SeasonRecapView: View {
     let athlete: Athlete
 
     @Environment(\.ppAccent) private var ppAccent
+    @Environment(\.modelContext) private var modelContext
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
 
     @State private var showingReel = false
     @State private var showingReelPaywall = false
+
+    /// GOLF ONLY: the season's starred ∪ birdie-reel clips, resolved once on appear
+    /// because that union has to fetch `HighlightReel` rows and three separate pieces
+    /// of this view read it. Baseball/softball keeps reading `season.highlights`
+    /// live (see `highlightClips`) — no fetch, no first-frame flash, and no parked
+    /// `@Model` references.
+    @State private var golfHighlights: [VideoClip] = []
 
     var body: some View {
         ScrollView {
@@ -40,7 +48,12 @@ struct SeasonRecapView: View {
         .ppDetailBackground()
         .navigationTitle("Season Recap")
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear { AnalyticsService.shared.trackScreenView(screenName: "SeasonRecap", screenClass: "SeasonRecapView") }
+        .onAppear {
+            AnalyticsService.shared.trackScreenView(screenName: "SeasonRecap", screenClass: "SeasonRecapView")
+            if isGolf {
+                golfHighlights = GolfHighlightUnion.seasonHighlightClips(for: season, in: modelContext)
+            }
+        }
         .fullScreenCover(isPresented: $showingReel) {
             GenerateReelView(
                 clips: reelClips,
@@ -96,7 +109,7 @@ struct SeasonRecapView: View {
     private var glanceStats: [RecapStat] {
         [
             RecapStat(label: season.gameUnitNounPlural, value: "\(season.completedGames)", icon: season.gameUnitIcon),
-            RecapStat(label: "Highlights", value: "\(season.highlights.count)", icon: "star.fill"),
+            RecapStat(label: "Highlights", value: "\(highlightClips.count)", icon: "star.fill"),
             RecapStat(label: "Videos", value: "\(season.totalVideos)", icon: "video.fill"),
             RecapStat(label: "Practices", value: "\(season.practicesCount)", icon: "figure.run")
         ]
@@ -221,7 +234,7 @@ struct SeasonRecapView: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Recap Reel").smallCapsLabel(color: ppAccent)
             if reelEligible {
-                Text("Stitch this season's \(season.highlights.count) starred clips into one shareable reel.")
+                Text("Stitch this season's \(highlightClips.count) highlight clips into one shareable reel.")
                     .font(.ppSubheadline)
                     .foregroundStyle(Theme.textSecondary)
                 Button {
@@ -236,7 +249,9 @@ struct SeasonRecapView: View {
                 }
                 .buttonStyle(.plain)
             } else {
-                Text("Star at least two clips from this season to build a recap reel.")
+                Text(isGolf
+                     ? "Star at least two clips from this season — or film two or more shots on a birdie hole — to build a recap reel."
+                     : "Star at least two clips from this season to build a recap reel.")
                     .font(.ppSubheadline)
                     .foregroundStyle(Theme.textSecondary)
             }
@@ -246,13 +261,29 @@ struct SeasonRecapView: View {
         .ppCard()
     }
 
-    /// Starred clips for this season in chronological (playback) order.
-    private var reelClips: [VideoClip] {
-        season.highlights.sorted { ($0.createdAt ?? .distantPast) < ($1.createdAt ?? .distantPast) }
+    private var isGolf: Bool { (season.sport ?? .baseball) == .golf }
+
+    /// The season's highlight clips in chronological (playback) order. Golf unions
+    /// starred clips with the season's birdie-reel clips (it never auto-sets
+    /// `isHighlight`, so this screen used to report "0 highlights" for a season full
+    /// of birdies); every other sport is the plain starred set. Ordering matches
+    /// `SeasonDetailView.reelClips`, so both screens share one `season_<id>` reel
+    /// cache file rather than stitching the same reel twice.
+    /// The golf set was snapshotted at `.onAppear`, so drop any clip deleted since
+    /// (sync tombstone, a delete in another tab) before anything reads a stored
+    /// property off it — that traps on an invalidated `@Model`.
+    private var highlightClips: [VideoClip] {
+        let base = isGolf
+            ? golfHighlights
+            : season.highlights.sorted { ($0.createdAt ?? .distantPast) < ($1.createdAt ?? .distantPast) }
+        return base.filter { !$0.isDeleted && $0.modelContext != nil }
     }
 
+    /// Already chronological (playback) order.
+    private var reelClips: [VideoClip] { highlightClips }
+
     /// A reel needs at least two clips.
-    private var reelEligible: Bool { season.highlights.count >= 2 }
+    private var reelEligible: Bool { highlightClips.count >= 2 }
 
     /// Plus-gated: open the generator, or route free users to the paywall.
     private func generateReelTapped() {

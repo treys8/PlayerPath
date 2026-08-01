@@ -24,6 +24,12 @@ struct SeasonDetailView: View {
     @Environment(\.ppAccent) private var ppAccent
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
 
+    /// Live reel rows, watched only so the golf highlight union recomputes when a
+    /// birdie reel is created or demoted — that changes the Videos/Highlights split
+    /// without touching games, clips, or practices.
+    @Query(filter: #Predicate<HighlightReel> { !$0.isDeletedRemotely })
+    private var allReels: [HighlightReel]
+
     @State private var showingDeleteConfirmation = false
     @State private var showingReactivateConfirmation = false
     @State private var showingEndSeasonConfirmation = false
@@ -384,6 +390,9 @@ struct SeasonDetailView: View {
         .onChange(of: season.practices) { _, _ in
             updateFilteredContent()
         }
+        .onChange(of: allReels.count) { _, _ in
+            updateFilteredContent()
+        }
         .fullScreenCover(isPresented: $showingReel) {
             GenerateReelView(
                 clips: reelClips,
@@ -490,7 +499,7 @@ struct SeasonDetailView: View {
         }
     }
 
-    /// Starred clips for this season in chronological (playback) order.
+    /// Highlight clips for this season in chronological (playback) order.
     /// `filteredHighlights` is newest-first, so reverse for the reel.
     private var reelClips: [VideoClip] { Array(filteredHighlights.reversed()) }
 
@@ -510,11 +519,27 @@ struct SeasonDetailView: View {
     private func updateFilteredContent() {
         filteredGames = (season.games ?? [])
             .sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
+
+        // Golf's highlight set is starred ∪ birdie-reel clips (golf never auto-sets
+        // `isHighlight`), so the Videos/Highlights split can't key on the flag alone —
+        // a reel clip that isn't starred would otherwise show up in BOTH sections.
+        if (season.sport ?? .baseball) == .golf {
+            // `union` is chronological; this list is newest-first by convention
+            // (`reelClips` reverses it back for playback order).
+            filteredHighlights = GolfHighlightUnion.seasonHighlightClips(for: season, in: modelContext).reversed()
+        } else {
+            filteredHighlights = (season.videoClips ?? [])
+                .filter { $0.isHighlight }
+                .sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
+        }
+
+        // Keyed on object identity, not `id`: multi-device duplication can leave two
+        // rows sharing one UUID, and an id-set test would drop the non-highlight twin
+        // from this list while the Highlights section only shows its twin — the clip
+        // would vanish from the screen entirely.
+        let highlighted = Set(filteredHighlights.map(ObjectIdentifier.init))
         filteredVideos = (season.videoClips ?? [])
-            .filter { !$0.isHighlight }
-            .sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
-        filteredHighlights = (season.videoClips ?? [])
-            .filter { $0.isHighlight }
+            .filter { !highlighted.contains(ObjectIdentifier($0)) }
             .sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
         filteredPractices = (season.practices ?? [])
             .sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }

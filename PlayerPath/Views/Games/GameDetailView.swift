@@ -30,9 +30,11 @@ struct GameDetailView: View {
     /// the user opens different holes back-to-back.
     @State private var scoreHoleTarget: ScoreHoleTarget? = nil
     /// Reel export (Plus+): generate a shareable highlight reel from this game's
-    /// starred clips. Free taps route to the paywall instead.
+    /// highlight clips (see `reelClips`). Free taps route to the paywall instead.
     @State private var showingReel = false
     @State private var showingReelPaywall = false
+    /// Golf only — see `reelClips`. Resolved on appear / on clip+score change.
+    @State private var golfReelClips: [VideoClip] = []
 
     private var isGolf: Bool { game.season?.sport == .golf }
     // A single golf game is a "Round" — "Tournament" now means the multi-round
@@ -49,11 +51,26 @@ struct GameDetailView: View {
         (game.videoClips ?? []).sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
     }
 
-    /// Starred clips for this game in chronological (playback) order.
+    /// Highlight clips for this game in chronological (playback) order.
+    ///
+    /// Golf unions the starred clips with the round's birdie-reel clips (golf never
+    /// auto-sets `isHighlight`, so a starred-only filter showed nothing for a round
+    /// full of birdies, and disagreed with the post-round banner). That union needs a
+    /// `HighlightReel` fetch, so it's resolved into `golfReelClips` on appear and
+    /// whenever the clips or scores change — never per body evaluation, which is read
+    /// three times a pass here (list CTA, toolbar CTA, sheet).
     private var reelClips: [VideoClip] {
-        (game.videoClips ?? [])
+        if isGolf { return golfReelClips }
+        return (game.videoClips ?? [])
             .filter { $0.isHighlight }
             .sorted { ($0.createdAt ?? .distantPast) < ($1.createdAt ?? .distantPast) }
+    }
+
+    private func refreshGolfReelClips() {
+        guard isGolf else { return }
+        golfReelClips = GolfHighlightUnion.highlightClips(
+            from: game.videoClips ?? [], gameID: game.id, practiceID: nil, in: modelContext
+        )
     }
 
     /// A reel needs at least two clips — one clip is just a clip.
@@ -564,7 +581,10 @@ struct GameDetailView: View {
         .fullScreenCover(isPresented: $showingReel) {
             GenerateReelView(
                 clips: reelClips,
-                scopeKey: "game_\(game.id.uuidString)",
+                // Golf shares the post-round banner's "round_" scope so both build
+                // (and cache) exactly one reel per round. Guaranteed to be the same
+                // ordered clip set because both go through GolfHighlightUnion.
+                scopeKey: isGolf ? "round_\(game.id.uuidString)" : "game_\(game.id.uuidString)",
                 title: reelTitle
             )
         }
@@ -575,7 +595,13 @@ struct GameDetailView: View {
         }
         .onAppear {
             if gameService == nil { gameService = GameService(modelContext: modelContext) }
+            refreshGolfReelClips()
         }
+        // Scoring a hole birdie-or-better creates the reel this union reads, and it
+        // touches neither of the collections below — so watch scores too, or the CTA
+        // stays hidden until the screen is re-entered.
+        .onChange(of: game.holeScores) { _, _ in refreshGolfReelClips() }
+        .onChange(of: game.videoClips) { _, _ in refreshGolfReelClips() }
     }
 
     @ToolbarContentBuilder
