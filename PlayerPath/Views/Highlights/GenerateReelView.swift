@@ -40,6 +40,18 @@ struct GenerateReelView: View {
         }
         .onAppear {
             guard !clips.isEmpty else { return }
+            // Sub-Plus exports always carry the "▶ PlayerPath" watermark and can't
+            // remove it — the sheet that toggles it is itself Plus-gated
+            // (`canCustomize`), while Save/Share stays open to every tier.
+            //
+            // INERT TODAY, deliberately: every presenter already gates on the same
+            // `effectiveAthleteTier.hasAutoHighlights` and routes free users to the
+            // paywall instead, and the one "ungated" surface (the golf reel player)
+            // sits inside the `.plusRequired()` Highlights tab. This is here so that
+            // opening any CTA to free users brands the export by construction rather
+            // than by remembering to. The "-wm" cacheSuffix keeps the watermarked
+            // variant in its own file, so upgrading to Plus still yields a clean default.
+            if !canCustomize { options.watermarkEnabled = true }
             coordinator.generate(clips: clips, scopeKey: scopeKey, options: options)
         }
         .onChange(of: coordinator.state) { _, newState in
