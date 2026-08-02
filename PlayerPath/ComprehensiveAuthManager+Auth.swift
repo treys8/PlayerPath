@@ -399,6 +399,9 @@ extension ComprehensiveAuthManager {
         CoachSessionManager.shared.stopListeningActiveSession()
         SyncCoordinator.shared.stopPeriodicSync()
         SharedFolderManager.shared.clearAllData()
+        CoachDowngradeManager.shared.reset()
+        NeedsReviewQueueViewModel.shared.reset()
+        CoachTemplateService.shared.reset()
 
         SecureURLManager.shared.clearCache()
 

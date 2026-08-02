@@ -139,6 +139,11 @@ struct CoachFolderDetailView: View {
             .onChange(of: viewModel.allVideos) { _, _ in refreshAvailableTags() }
             .onChange(of: viewModel.sharedVideos) { _, _ in refreshAvailableTags() }
             .onChange(of: viewModel.reviewVideos) { _, _ in refreshAvailableTags() }
+            .onChange(of: selectedTagFilter) { _, _ in
+                // Never leave clips selected that the filter has since hidden —
+                // bulk actions would act on clips the coach can't see.
+                selectedClipIDs = []
+            }
             .disabled(isLeaving)
             .overlay { leavingOverlay }
     }
@@ -381,9 +386,17 @@ struct CoachFolderDetailView: View {
 
     @ViewBuilder
     private var reviewContent: some View {
-        let clips = viewModel.reviewVideos
+        // The tag filter bar renders above this tab too, so the list must honour it —
+        // otherwise selecting a tag visibly highlights and changes nothing.
+        let clips = filterByTag(viewModel.reviewVideos)
         if viewModel.isLoading && clips.isEmpty {
             VStack { Spacer(); ProgressView("Loading clips..."); Spacer() }
+        } else if clips.isEmpty && selectedTagFilter != nil {
+            EmptyFolderView(
+                icon: "line.3.horizontal.decrease.circle",
+                title: "No Matching Clips",
+                message: "No clips to review match this tag."
+            )
         } else if clips.isEmpty {
             EmptyFolderView(
                 icon: "checkmark.circle",
@@ -528,7 +541,9 @@ struct CoachFolderDetailView: View {
     }
 
     private func shareAllReviewClips() {
-        publishClips(viewModel.reviewVideos, context: "shareAll")
+        // "All" means all the coach can currently see — publishing tag-filtered-out
+        // clips they never looked at would be a nasty surprise.
+        publishClips(filterByTag(viewModel.reviewVideos), context: "shareAll")
     }
 
     private func publishSelectedClips() {

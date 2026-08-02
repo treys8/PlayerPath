@@ -341,11 +341,29 @@ extension FirestoreManager {
     /// Revokes coach access from folders owned by the specified athletes.
     /// Collects errors per-batch so that a single failure doesn't halt the entire operation.
     /// Returns silently on full success; throws an aggregate error if any batch failed.
+    /// Outcome of a revocation sweep. Revocation commits in chunks, so a failure
+    /// partway through still leaves earlier chunks committed — callers must run their
+    /// per-folder follow-ups (ending live sessions, notifying the athlete) for
+    /// `revokedFolderIDs` even when `errors` is non-empty, or those athletes lose
+    /// access silently while a coach keeps recording into a folder they no longer have.
+    struct CoachRevocationResult {
+        /// Folders whose revoke batch actually committed.
+        let revokedFolderIDs: Set<String>
+        let errors: [Error]
+        var fullySucceeded: Bool { errors.isEmpty }
+    }
+
+    /// - Throws: only for failures BEFORE anything is mutated (folder/coach lookup).
+    ///   Once batches start committing, partial outcomes are reported via the return
+    ///   value instead, so the caller can still finish the committed work.
+    @discardableResult
     func batchRevokeCoachAccess(
         coachID: String,
         athleteIDsToRevoke: [String]
-    ) async throws {
-        guard !athleteIDsToRevoke.isEmpty else { return }
+    ) async throws -> CoachRevocationResult {
+        guard !athleteIDsToRevoke.isEmpty else {
+            return CoachRevocationResult(revokedFolderIDs: [], errors: [])
+        }
 
         let revokeSet = Set(athleteIDsToRevoke)
         // Query Firestore directly rather than reading from
@@ -384,6 +402,7 @@ extension FirestoreManager {
         let coachEmail = coachSnapshot.data()?["email"] as? String ?? ""
 
         var batchErrors: [Error] = []
+        var revokedFolderIDs = Set<String>()
 
         // 1. Revoke folder access
         if !folders.isEmpty {
@@ -391,6 +410,7 @@ extension FirestoreManager {
             for startIndex in stride(from: 0, to: folders.count, by: batchSize) {
                 let chunk = folders[startIndex..<min(startIndex + batchSize, folders.count)]
                 let batch = db.batch()
+                var chunkFolderIDs = Set<String>()
 
                 for folder in chunk {
                     guard let folderID = folder.id else { continue }
@@ -416,10 +436,13 @@ extension FirestoreManager {
                         "emailSent": false,
                         "reason": "downgrade"
                     ], forDocument: revocationRef, merge: true)
+
+                    chunkFolderIDs.insert(folderID)
                 }
 
                 do {
                     try await batch.commit()
+                    revokedFolderIDs.formUnion(chunkFolderIDs)
                 } catch {
                     firestoreLog.error("Batch revocation failed for chunk starting at \(startIndex): \(error.localizedDescription)")
                     batchErrors.append(error)
@@ -490,11 +513,8 @@ extension FirestoreManager {
         }
 
         if !batchErrors.isEmpty {
-            throw NSError(
-                domain: "PlayerPath",
-                code: -1,
-                userInfo: [NSLocalizedDescriptionKey: "\(batchErrors.count) operation(s) failed during coach access revocation. Some folders may not have been revoked."]
-            )
+            firestoreLog.error("\(batchErrors.count) operation(s) failed during coach access revocation; \(revokedFolderIDs.count) folder(s) did revoke")
         }
+        return CoachRevocationResult(revokedFolderIDs: revokedFolderIDs, errors: batchErrors)
     }
 }

@@ -49,6 +49,25 @@ final class CoachDowngradeManager {
 
     private init() {}
 
+    // MARK: - Teardown
+
+    /// Clears in-memory downgrade state on sign-out. Without this, a coach who
+    /// resolved a downgrade (`markResolved` sets `locallyResolved`) leaves that flag
+    /// set for the NEXT account signed in on the same device — `feedbackBlocked`
+    /// then returns false while the server still has them flagged
+    /// `downgradeUnresolved`, so every feedback write hits a raw permission-denied
+    /// from firestore.rules, which is exactly what this class exists to prevent.
+    ///
+    /// The per-coach UserDefaults grace timestamps are deliberately left alone —
+    /// they're already keyed by coach ID (`graceKey(for:)`) and must survive
+    /// sign-out so a returning coach resumes their original grace window.
+    func reset() {
+        state = .none
+        currentLimit = 0
+        connectedCount = 0
+        locallyResolved = false
+    }
+
     // MARK: - Evaluation
 
     /// Call on app launch, after tier changes, and after folder list updates.

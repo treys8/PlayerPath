@@ -467,6 +467,12 @@ struct CoachDashboardView: View {
 
     @ViewBuilder
     private var needsReviewQueueSection: some View {
+        // Surfaced whenever a fetch failed, not only when the queue renders empty:
+        // if 1 of 20 folders fails the other 19 still produce a card, and the coach
+        // would see a normal-looking queue that is silently missing an athlete.
+        if needsReviewQueue.lastRefreshFailed && !needsReviewQueue.isLoading {
+            reviewQueueFailureRow
+        }
         if needsReviewQueue.totalCount > 0 {
             ClipQueueCard(
                 style: .needsReview,
@@ -490,6 +496,24 @@ struct CoachDashboardView: View {
                 }
             )
         }
+    }
+
+    /// Shown when any folder's review fetch failed — otherwise the failure is
+    /// indistinguishable from "nothing to review", on the primary coach value prop.
+    private var reviewQueueFailureRow: some View {
+        HStack(spacing: 8) {
+            Label("Couldn't check for clips to review", systemImage: "exclamationmark.triangle.fill")
+                .font(.subheadline)
+                .foregroundStyle(Theme.warning)
+            Spacer(minLength: 8)
+            Button("Retry") {
+                Task { await reloadData() }
+            }
+            .font(.subheadline.weight(.semibold))
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.warning.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
     }
 
     // MARK: - Upcoming Sessions

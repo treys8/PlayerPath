@@ -46,6 +46,12 @@ struct CoachVideoPlayerView: View {
     /// Drill card awaiting delete confirmation.
     @State private var drillCardPendingDelete: DrillCard?
     @State private var markReviewedError: String?
+
+    /// Telestration failures get their own channel. Routing them through
+    /// `viewModel.errorMessage` replaced the whole video surface with the
+    /// player's "Try Again → reload video" state (wrong recovery, tears down
+    /// playback) and simultaneously mislabelled the Drawings tab as a load failure.
+    @State private var telestrationError: String?
     // Draft publish/discard state (only used when `isOwnPrivateDraft`).
     @State private var isPublishingDraft = false
     @State private var isDiscardingDraft = false
@@ -338,6 +344,14 @@ struct CoachVideoPlayerView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(markReviewedError ?? "")
+        }
+        .alert("Can't Draw on This Clip", isPresented: .init(
+            get: { telestrationError != nil },
+            set: { if !$0 { telestrationError = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(telestrationError ?? "")
         }
         .confirmationDialog("Playback Speed", isPresented: $showingSpeedPicker) {
             ForEach([0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0], id: \.self) { rate in
@@ -1014,13 +1028,13 @@ struct CoachVideoPlayerView: View {
             do {
                 let latest = try await SharedFolderManager.shared.verifyFolderAccess(folderID: folderID, coachID: userID)
                 guard latest.getPermissions(for: userID)?.canComment ?? false else {
-                    viewModel.errorMessage = "You no longer have permission to draw on this folder."
+                    telestrationError = "You no longer have permission to draw on this folder."
                     return
                 }
                 telestrationFrame = await captureFrame(asset: asset, atSeconds: atTime)
                 showingTelestration = true
             } catch {
-                viewModel.errorMessage = "Unable to verify permissions. Please try again."
+                telestrationError = "Unable to verify permissions. Please try again."
             }
         }
     }

@@ -260,14 +260,20 @@ struct CoachDowngradeSelectionView: View {
         let athleteIDsToRevoke = Array(revokeSet)
 
         do {
-            try await FirestoreManager.shared.batchRevokeCoachAccess(
+            let result = try await FirestoreManager.shared.batchRevokeCoachAccess(
                 coachID: coachID,
                 athleteIDsToRevoke: athleteIDsToRevoke
             )
 
-            // End active sessions and notify affected athletes
+            // End active sessions and notify affected athletes. Revocation commits in
+            // chunks, so this runs for every folder that ACTUALLY revoked even when a
+            // later chunk failed — otherwise those athletes lose access with no
+            // notification and the coach keeps recording into a dead folder.
             let affectedFolders = sharedFolderManager.coachFolders.filter { folder in
-                SubscriptionGate.personMatches(
+                guard let folderID = folder.id, result.revokedFolderIDs.contains(folderID) else {
+                    return false
+                }
+                return SubscriptionGate.personMatches(
                     personGroupID: folder.personGroupID,
                     athleteUUID: folder.athleteUUID,
                     accountID: folder.ownerAthleteID,
@@ -290,6 +296,18 @@ struct CoachDowngradeSelectionView: View {
                 )
             }
 
+            guard result.fullySucceeded else {
+                // Partial shed: the coach is still over limit, so don't mark resolved —
+                // the selection sheet stays up for a retry.
+                errorMessage = "Some athletes couldn't be removed. Please try again."
+                for error in result.errors {
+                    ErrorHandlerService.shared.handle(error, context: "CoachDowngradeSelectionView.submit", showAlert: false)
+                }
+                selectionLog.error("Partial revocation: \(result.errors.count) failure(s), \(result.revokedFolderIDs.count) folder(s) revoked")
+                isSubmitting = false
+                return
+            }
+
             CoachDowngradeManager.shared.markResolved(coachID: coachID)
             Haptics.success()
             selectionLog.info("Revoked access for \(athleteIDsToRevoke.count) athletes")
@@ -297,6 +315,7 @@ struct CoachDowngradeSelectionView: View {
             dismiss()
             return
         } catch {
+            // Pre-mutation failure (folder/coach lookup) — nothing was revoked.
             errorMessage = "Failed to update. Please try again."
             ErrorHandlerService.shared.handle(error, context: "CoachDowngradeSelectionView.submit", showAlert: false)
             selectionLog.error("Revocation failed: \(error.localizedDescription)")
