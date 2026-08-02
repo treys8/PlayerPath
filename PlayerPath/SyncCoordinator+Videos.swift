@@ -137,7 +137,8 @@ extension SyncCoordinator {
                     practiceId: clip.practice?.id.uuidString,
                     practiceDate: clip.practiceDate ?? clip.practice?.date,
                     athleteId: clip.athlete.map { $0.firestoreId ?? $0.id.uuidString },
-                    athleteName: clip.athlete?.name
+                    athleteName: clip.athlete?.name,
+                    sharedCoachVideoID: clip.sharedCoachVideoID
                 )
                 clip.needsSync = false
                 syncedClips.append(clip)
@@ -336,6 +337,10 @@ extension SyncCoordinator {
                 if let sourceCoachVideoID = remoteVideo.sourceCoachVideoID {
                     localClip.sourceCoachVideoID = sourceCoachVideoID
                 }
+                // Same immutable-once-set rule for the outbound share link.
+                if let sharedCoachVideoID = remoteVideo.sharedCoachVideoID {
+                    localClip.sharedCoachVideoID = sharedCoachVideoID
+                }
                 // Annotation counters are authoritative on the server side (coach
                 // writes increment them). Mirror into SwiftData so the athlete's
                 // local grid can render coach-feedback badges without querying.
@@ -427,6 +432,7 @@ extension SyncCoordinator {
                 newClip.duration = remoteVideo.duration
                 newClip.firestoreId = remoteVideo.id.uuidString
                 newClip.sourceCoachVideoID = remoteVideo.sourceCoachVideoID
+                newClip.sharedCoachVideoID = remoteVideo.sharedCoachVideoID
                 newClip.annotationCount = remoteVideo.annotationCount ?? 0
                 newClip.drawingCount = remoteVideo.drawingCount ?? 0
                 newClip.needsSync = false
@@ -641,6 +647,15 @@ extension SyncCoordinator {
         // the read-before-write skips the upload — stranding the change locally.
         let remoteHoleNumber = data["holeNumber"] as? Int
         if remoteHoleNumber != clip.holeNumber { return false }
+
+        // Sharing a clip to a coach folder mutates ONLY this field, so without a
+        // comparison here the read-before-write reads as "matches" and the link
+        // never reaches Firestore. Asymmetric on purpose: the writer never
+        // nil-clears this, so a nil-local/set-remote pair is already converged —
+        // a plain `!=` would mark such a clip dirty forever and re-upload on every
+        // sync without ever converging.
+        if let localSharedCoachVideoID = clip.sharedCoachVideoID,
+           data["sharedCoachVideoID"] as? String != localSharedCoachVideoID { return false }
 
         let remoteGameId = data["gameId"] as? String
         let localGameId = clip.game.map { $0.firestoreId ?? $0.id.uuidString }

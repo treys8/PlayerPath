@@ -645,12 +645,31 @@ enum SchemaV35: VersionedSchema {
     }
 }
 
+// MARK: - Schema V36 (2026-08-02 — Shared-clip coach feedback link)
+//
+//  Changes from V35:
+//    • VideoClip.sharedCoachVideoID (String? = nil) — the Firestore doc ID of the
+//      shared-folder copy created when the athlete shares an EXISTING local clip to
+//      a coach folder. Coach feedback lands on that copy, so without this link the
+//      athlete's clip can't resolve it (no Journal card, no in-player annotations)
+//      and the feedback is effectively write-only. Mirror of sourceCoachVideoID,
+//      which covers the opposite direction (clip originated in a coach folder).
+//
+//  A single new optional column → lightweight migration is sufficient; existing
+//  rows read back sharedCoachVideoID == nil. No new model, no relationship change.
+enum SchemaV36: VersionedSchema {
+    static var versionIdentifier = Schema.Version(36, 0, 0)
+    static var models: [any PersistentModel.Type] {
+        SchemaV1.models + [HoleScore.self, HighlightReel.self, GolfTournament.self, Shot.self]
+    }
+}
+
 // MARK: - Migration Plan
 
 enum PlayerPathMigrationPlan: SchemaMigrationPlan {
     /// All schema versions in chronological order (oldest first).
     static var schemas: [any VersionedSchema.Type] {
-        [SchemaV1.self, SchemaV2.self, SchemaV3.self, SchemaV4.self, SchemaV5.self, SchemaV6.self, SchemaV7.self, SchemaV8.self, SchemaV9.self, SchemaV10.self, SchemaV11.self, SchemaV12.self, SchemaV13.self, SchemaV14.self, SchemaV15.self, SchemaV16.self, SchemaV17.self, SchemaV18.self, SchemaV19.self, SchemaV20.self, SchemaV21.self, SchemaV22.self, SchemaV23.self, SchemaV24.self, SchemaV25.self, SchemaV26.self, SchemaV27.self, SchemaV28.self, SchemaV29.self, SchemaV30.self, SchemaV31.self, SchemaV32.self, SchemaV33.self, SchemaV34.self, SchemaV35.self]
+        [SchemaV1.self, SchemaV2.self, SchemaV3.self, SchemaV4.self, SchemaV5.self, SchemaV6.self, SchemaV7.self, SchemaV8.self, SchemaV9.self, SchemaV10.self, SchemaV11.self, SchemaV12.self, SchemaV13.self, SchemaV14.self, SchemaV15.self, SchemaV16.self, SchemaV17.self, SchemaV18.self, SchemaV19.self, SchemaV20.self, SchemaV21.self, SchemaV22.self, SchemaV23.self, SchemaV24.self, SchemaV25.self, SchemaV26.self, SchemaV27.self, SchemaV28.self, SchemaV29.self, SchemaV30.self, SchemaV31.self, SchemaV32.self, SchemaV33.self, SchemaV34.self, SchemaV35.self, SchemaV36.self]
     }
 
     /// Migration stages between consecutive versions.
@@ -689,7 +708,8 @@ enum PlayerPathMigrationPlan: SchemaMigrationPlan {
             .lightweight(fromVersion: SchemaV31.self, toVersion: SchemaV32.self),
             .lightweight(fromVersion: SchemaV32.self, toVersion: SchemaV33.self),
             .lightweight(fromVersion: SchemaV33.self, toVersion: SchemaV34.self),
-            .lightweight(fromVersion: SchemaV34.self, toVersion: SchemaV35.self)
+            .lightweight(fromVersion: SchemaV34.self, toVersion: SchemaV35.self),
+            .lightweight(fromVersion: SchemaV35.self, toVersion: SchemaV36.self)
         ]
     }
 }

@@ -510,6 +510,7 @@ struct VideoClipMetadata {
     let thumbnailURL: String?
     let isDeleted: Bool
     let sourceCoachVideoID: String?
+    let sharedCoachVideoID: String?
     let annotationCount: Int?
     let drawingCount: Int?
 
@@ -556,6 +557,7 @@ struct VideoClipMetadata {
         self.thumbnailURL = data["thumbnailURL"] as? String
         self.isDeleted = data["isDeleted"] as? Bool ?? false
         self.sourceCoachVideoID = data["sourceCoachVideoID"] as? String
+        self.sharedCoachVideoID = data["sharedCoachVideoID"] as? String
         // Firestore stores integers as Int64 after atomic increments; accept either
         // representation so counts survive the FieldValue.increment round-trip.
         self.annotationCount = (data["annotationCount"] as? Int)

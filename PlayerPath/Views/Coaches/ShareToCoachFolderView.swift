@@ -7,11 +7,13 @@
 //
 
 import SwiftUI
+import SwiftData
 
 struct ShareToCoachFolderView: View {
     let clip: VideoClip
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     private var folderManager: SharedFolderManager { .shared }
 
@@ -244,7 +246,7 @@ struct ShareToCoachFolderView: View {
         }
 
         do {
-            _ = try await SharedFolderManager.shared.uploadVideo(
+            let sharedVideoID = try await SharedFolderManager.shared.uploadVideo(
                 from: videoURL,
                 fileName: clip.fileName,
                 toFolder: folderID,
@@ -269,6 +271,25 @@ struct ShareToCoachFolderView: View {
                     }
                 }
             )
+
+            // Remember which shared-folder doc this clip became. Coach feedback
+            // attaches to THAT doc, not to the clip's own `videos/{firestoreId}`
+            // record — without this link the athlete's Journal feed and player can't
+            // resolve it, so the coach's comments and drawings never surface.
+            //
+            // Guard the model first: the upload above is a multi-second await
+            // (compression + Storage + thumbnail), and a sync-down delete during it
+            // invalidates the row — writing to a deleted @Model traps, and the trap
+            // would bypass the enclosing catch.
+            guard !clip.isDeleted, clip.modelContext != nil else {
+                isUploading = false
+                dismiss()
+                return
+            }
+            clip.sharedCoachVideoID = sharedVideoID
+            clip.needsSync = true
+            _ = ErrorHandlerService.shared.saveContext(modelContext, caller: "ShareToCoachFolderView.share")
+
             isUploading = false
             Haptics.success()
             dismiss()

@@ -66,6 +66,29 @@ final class VideoClip {
     /// and camera-roll-imported clips.
     var sourceCoachVideoID: String? = nil
 
+    /// The opposite direction of `sourceCoachVideoID` (SchemaV36): when the athlete
+    /// shares THIS already-local clip to a coach's folder, `SharedFolderManager
+    /// .uploadVideo` creates a separate `videos/{autoID}` doc for the folder copy,
+    /// and that is the doc coach comments/annotations/drill cards attach to. Storing
+    /// its ID lets the athlete's Journal feed and player resolve that feedback back
+    /// to this clip — without it, coach feedback on athlete-shared clips is
+    /// write-only. Distinct from `firestoreId`, which is this clip's own private
+    /// sync doc. Never nil-cleared (un-sharing is not a product flow).
+    ///
+    /// KNOWN LIMITATIONS (single scalar slot, deliberate for now):
+    ///  • Sharing the same clip to a SECOND coach overwrites this, so the first
+    ///    coach's feedback silently stops resolving in the feed and player. Making
+    ///    this a list is the real fix if multi-coach sharing becomes common.
+    ///  • The link only reaches Firestore for clips that are themselves uploaded
+    ///    (`isUploaded` + `firestoreId`); sharing does not require that, so on a
+    ///    never-uploaded clip the link stays device-local and the athlete's other
+    ///    devices won't surface the coach's feedback.
+    ///
+    /// NOTE: this must NOT be treated as "clip came from a coach" — the untagged-clip
+    /// nudges in GameService/PracticeService/ClipTaggingReminderService key off
+    /// `sourceCoachVideoID` for that meaning, and a shared clip IS the athlete's own.
+    var sharedCoachVideoID: String? = nil
+
     /// Mirrored from the Firestore `videos/{id}` doc's annotationCount on
     /// pull sync — used by the athlete grid to render coach-feedback badges
     /// without re-querying the annotations subcollection per cell.

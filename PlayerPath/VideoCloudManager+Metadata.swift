@@ -40,6 +40,7 @@ extension VideoCloudManager {
         let seasonId = videoClip.season.map { $0.firestoreId ?? $0.id.uuidString }
         let seasonName = videoClip.seasonName ?? videoClip.season?.displayName
         let sourceCoachVideoID = videoClip.sourceCoachVideoID
+        let sharedCoachVideoID = videoClip.sharedCoachVideoID
         let athleteStableId = athlete.firestoreId ?? athlete.id.uuidString
         let athleteName = athlete.name
 
@@ -115,6 +116,9 @@ extension VideoCloudManager {
         if let sourceCoachVideoID {
             data["sourceCoachVideoID"] = sourceCoachVideoID
         }
+        if let sharedCoachVideoID {
+            data["sharedCoachVideoID"] = sharedCoachVideoID
+        }
 
         // Upload thumbnail to Storage if exists, then add URL to metadata
         if let thumbnailPath = clipThumbnailPath,
@@ -165,6 +169,7 @@ extension VideoCloudManager {
         let seasonId = videoClip.season.map { $0.firestoreId ?? $0.id.uuidString }
         let seasonName = videoClip.seasonName ?? videoClip.season?.displayName
         let sourceCoachVideoID = videoClip.sourceCoachVideoID
+        let sharedCoachVideoID = videoClip.sharedCoachVideoID
         let athleteStableId = athlete.firestoreId ?? athlete.id.uuidString
         let athleteName = athlete.name
 
@@ -238,6 +243,9 @@ extension VideoCloudManager {
         if let sourceCoachVideoID {
             data["sourceCoachVideoID"] = sourceCoachVideoID
         }
+        if let sharedCoachVideoID {
+            data["sharedCoachVideoID"] = sharedCoachVideoID
+        }
 
         try await db.collection(FC.videos).document(clipId.uuidString).setData(data)
     }
@@ -304,7 +312,7 @@ extension VideoCloudManager {
     }
 
     /// Updates mutable video metadata fields in Firestore (isHighlight, note).
-    func updateVideoMetadata(clipId: String, isHighlight: Bool, note: String?, playResultType: PlayResultType?, pitchSpeed: Double?, pitchType: String? = nil, club: String? = nil, holeNumber: Int? = nil, gameId: String?, gameOpponent: String?, gameDate: Date?, seasonId: String?, seasonName: String?, practiceId: String?, practiceDate: Date? = nil, athleteId: String? = nil, athleteName: String? = nil) async throws {
+    func updateVideoMetadata(clipId: String, isHighlight: Bool, note: String?, playResultType: PlayResultType?, pitchSpeed: Double?, pitchType: String? = nil, club: String? = nil, holeNumber: Int? = nil, gameId: String?, gameOpponent: String?, gameDate: Date?, seasonId: String?, seasonName: String?, practiceId: String?, practiceDate: Date? = nil, athleteId: String? = nil, athleteName: String? = nil, sharedCoachVideoID: String? = nil) async throws {
         let db = Firestore.firestore()
         var data: [String: Any] = [
             "isHighlight": isHighlight,
@@ -341,6 +349,14 @@ extension VideoCloudManager {
         data["seasonName"] = seasonName ?? NSNull()
         data["practiceId"] = practiceId ?? NSNull()
         data["practiceDate"] = practiceDate.map { Timestamp(date: $0) } ?? NSNull()
+        // Sharing an existing clip to a coach folder happens AFTER the clip already
+        // has a firestoreId, so this update path — not the create writers — is the
+        // one that carries the link. Written only when non-nil: unlike the fields
+        // above it is never nil-cleared (un-sharing isn't a flow), and an NSNull
+        // here would wipe the link on every unrelated retag.
+        if let sharedCoachVideoID {
+            data["sharedCoachVideoID"] = sharedCoachVideoID
+        }
         try await db.collection(FC.videos).document(clipId).updateData(data)
     }
 

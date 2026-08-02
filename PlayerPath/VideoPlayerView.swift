@@ -38,10 +38,9 @@ struct VideoPlayerView: View {
     /// once the local file is confirmed present. nil hides Share.
     @State private var shareURL: URL?
 
-    // Coach-annotation playback state — only populated when
-    // `clip.sourceCoachVideoID` is set (clip was saved from a coach's shared
-    // folder). Loads the original coach doc's annotations so saved-in-app
-    // playback preserves drawings + coach notes.
+    // Coach-annotation playback state — only populated when `coachFeedbackVideoID`
+    // resolves (clip was saved FROM a coach's shared folder, or shared TO one).
+    // Loads that doc's annotations so in-app playback preserves drawings + coach notes.
     @State private var coachAnnotations: [VideoAnnotation] = []
     @State private var coachAnnotationsListener: ListenerRegistration?
     @State private var activeDrawingOverlay: ActiveDrawingOverlay?
@@ -305,10 +304,13 @@ struct VideoPlayerView: View {
                 preloadedDuration: videoDuration,
                 onClose: { dismiss() },
                 clipIsLandscape: clipIsLandscape,
-                // Coach-sourced clips can carry telestration drawings whose
-                // overlay fits to the true aspect — force aspect-fit so the
-                // rendered video rect matches the overlay's coordinate space.
-                forceAspectFit: clip.sourceCoachVideoID != nil
+                // Any clip with a coach-folder counterpart can carry telestration
+                // drawings whose overlay fits to the true aspect — force aspect-fit
+                // so the rendered video rect matches the overlay's coordinate space.
+                // Must track whatever gates loadCoachAnnotationsIfNeeded(): a
+                // portrait clip on a portrait phone otherwise renders
+                // .resizeAspectFill and the drawing lands offset from the video.
+                forceAspectFit: coachFeedbackVideoID != nil
             )
                 .accessibilityLabel("Video player")
 
@@ -425,12 +427,35 @@ struct VideoPlayerView: View {
         }
     }
 
-    /// Writes the athlete's view receipt against the source coach video so
-    /// the coach folder grid can show a "Viewed" pill. Only runs for clips
-    /// derived from a coach folder (`sourceCoachVideoID` set), once per open.
+    /// Writes the athlete's view receipt against the coach-feedback video doc so
+    /// the coach folder grid can show a "Viewed" pill. Only runs for clips with a
+    /// coach-folder counterpart, once per open.
+    /// The Firestore video doc that carries coach feedback for this clip. Either the
+    /// coach-folder original this clip was saved FROM (`sourceCoachVideoID`), or the
+    /// shared-folder copy created when the athlete shared this clip TO a coach
+    /// (`sharedCoachVideoID`) — coach comments and drawings attach to that copy, not
+    /// to the clip's own `videos/{firestoreId}` doc.
+    private var coachFeedbackVideoID: String? {
+        if let sourceID = clip.sourceCoachVideoID, !sourceID.isEmpty { return sourceID }
+        if let sharedID = clip.sharedCoachVideoID, !sharedID.isEmpty { return sharedID }
+        return nil
+    }
+
+    /// The "Viewed" pill in the coach's grid means "the athlete saw my feedback", so
+    /// the receipt is only honest once feedback exists. A `sourceCoachVideoID` clip
+    /// was saved out of a coach folder, so that's true on open. A clip the athlete
+    /// shared TO a coach usually has NO feedback yet — writing a receipt then would
+    /// permanently mark it Viewed before the coach ever opened it, so that branch
+    /// waits until a note or annotation has actually loaded.
+    private var isEligibleForViewReceipt: Bool {
+        if let sourceID = clip.sourceCoachVideoID, !sourceID.isEmpty { return true }
+        return !coachAnnotations.isEmpty || !coachNoteText.isEmpty
+    }
+
     private func markCoachClipViewedIfNeeded() {
         guard !hasMarkedViewed,
-              let sourceID = clip.sourceCoachVideoID, !sourceID.isEmpty,
+              isEligibleForViewReceipt,
+              let sourceID = coachFeedbackVideoID,
               let athleteID = authManager.userID else { return }
         hasMarkedViewed = true
         Task {
@@ -445,13 +470,13 @@ struct VideoPlayerView: View {
         }
     }
 
-    /// Loads coach-authored annotations for this clip from the original coach
-    /// video doc (pointed at by `clip.sourceCoachVideoID`). Also attaches a
+    /// Loads coach-authored annotations for this clip from its coach-folder
+    /// counterpart (see `coachFeedbackVideoID`). Also attaches a
     /// live listener so new coach drawings appear without a refetch.
     /// One-shot fetch of the source doc populates the plain coach note so the
     /// athlete sees it below the player (matches CoachVideoPlayerView).
     private func loadCoachAnnotationsIfNeeded() {
-        guard let sourceID = clip.sourceCoachVideoID, !sourceID.isEmpty else { return }
+        guard let sourceID = coachFeedbackVideoID else { return }
 
         // Seed the displayed note/author/cues from the durable local snapshot
         // immediately, so they show on open — even offline or after the source
@@ -465,7 +490,12 @@ struct VideoPlayerView: View {
 
         Task {
             if let fetched = try? await FirestoreManager.shared.fetchAnnotations(forVideo: sourceID) {
-                await MainActor.run { coachAnnotations = fetched.sorted { $0.timestamp < $1.timestamp } }
+                await MainActor.run {
+                    coachAnnotations = fetched.sorted { $0.timestamp < $1.timestamp }
+                    // Feedback just arrived — a clip the athlete shared to a coach
+                    // becomes receipt-eligible only now (see isEligibleForViewReceipt).
+                    markCoachClipViewedIfNeeded()
+                }
             }
             // Refresh from the live source doc ONLY when it returns usable data,
             // then persist the fresh values back into the snapshot. A failed or
@@ -653,7 +683,7 @@ struct VideoPlayerView: View {
             // Coach annotations + auto-show are only meaningful for clips saved
             // from a coach's shared folder — gated internally / below.
             loadCoachAnnotationsIfNeeded()
-            if clip.sourceCoachVideoID != nil {
+            if coachFeedbackVideoID != nil {
                 markCoachClipViewedIfNeeded()
                 // Auto-show the earliest coach drawing now that aspect ratio
                 // is resolved. Annotations may still be loading via the

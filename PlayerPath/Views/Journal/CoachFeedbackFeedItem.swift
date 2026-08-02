@@ -34,10 +34,11 @@ struct CoachFeedbackFeedItem: Identifiable {
     ///
     /// Filters to `.coachComment` video notifications, then matches each to a
     /// clip by the same key the existing "New Feedback" badge uses — the
-    /// shared-folder/coach video doc ID — which on a local clip is either
-    /// `firestoreId` (the athlete's own uploaded clip a coach annotated) or
+    /// shared-folder/coach video doc ID — which on a local clip is one of
+    /// `firestoreId` (the athlete's own uploaded clip a coach annotated),
     /// `sourceCoachVideoID` (a coach session clip the athlete saved to My
-    /// Videos). Collapses to one item per clip (latest delivery wins) and drops
+    /// Videos), or `sharedCoachVideoID` (the folder copy created when the athlete
+    /// shared this clip to a coach). Collapses to one item per clip (latest delivery wins) and drops
     /// any notification with no matching local clip — feedback on an unsaved
     /// coach-folder clip stays in the folder browser, already badged there.
     ///
@@ -53,11 +54,12 @@ struct CoachFeedbackFeedItem: Identifiable {
         notifications: [ActivityNotification],
         clips: [VideoClip]
     ) -> [CoachFeedbackFeedItem] {
-        // Index clips by both keys a feedback notification can carry.
+        // Index clips by every key a feedback notification can carry.
         var byKey: [String: VideoClip] = [:]
         for clip in clips {
             if let fid = clip.firestoreId { byKey[fid] = clip }
             if let src = clip.sourceCoachVideoID { byKey[src] = clip }
+            if let shared = clip.sharedCoachVideoID { byKey[shared] = clip }
         }
         guard !byKey.isEmpty else { return [] }
 
