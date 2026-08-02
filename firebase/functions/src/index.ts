@@ -447,6 +447,34 @@ export const onSharedFolderDeleted = functions.firestore
       { type: 'access_revoked', folderID },
       'ACCESS_REVOKED'
     );
+
+    // Self-heal coachAthleteCount for every coach who just lost this folder.
+    // The counter otherwise only decrements via sendCoachAccessRevokedEmail, which
+    // requires a coach_access_revocations doc — absent on console deletes, failed
+    // client loops, and cleanupUserDataOnDelete's recursiveDelete. A stale-high
+    // counter is durable and blocks the coach from accepting new athletes forever,
+    // because the accept transactions trust it. This trigger fires AFTER the folder
+    // doc is gone, so the recompute naturally excludes it.
+    //
+    // Race note: if this write lands between an in-flight accept transaction's read
+    // and its commit, Firestore aborts and retries that accept — it stays correct.
+    // The reverse interleave can leave the counter one low until the next accept,
+    // revocation, or the daily auditCoachDowngrades recompute. Under-blocking for
+    // one slot is acceptable; over-blocking permanently is not.
+    const db = admin.firestore();
+    await Promise.allSettled(
+      coachIDs
+        .filter((coachID) => coachID !== athleteID)
+        .map(async (coachID) => {
+          try {
+            const count = await computeCoachConnectionCount(db, coachID);
+            await db.collection('users').doc(coachID).update({ coachAthleteCount: count });
+            await clearCoachDowngradeFlagsIfResolved(db, coachID, count);
+          } catch (err) {
+            console.warn(`onSharedFolderDeleted: count self-heal failed for ${coachID}:`, err);
+          }
+        })
+    );
   });
 
 /**
@@ -2333,6 +2361,17 @@ export const acceptAthleteToCoachInvitation = functions.https.onCall(async (data
       throw new functions.https.HttpsError('permission-denied', 'You are not the intended recipient of this invitation.');
     }
 
+    // Firestore transactions require ALL reads before ANY write. The legacy-folder
+    // join below runs after the coachAthleteCount write, so its read must be
+    // hoisted here — otherwise every legacy (folderID-carrying) acceptance throws
+    // "Firestore transactions require all reads to be executed before all writes."
+    const legacyFolderRef = inv.folderID
+      ? db.collection('sharedFolders').doc(inv.folderID)
+      : null;
+    const legacyFolderSnap = legacyFolderRef
+      ? await transaction.get(legacyFolderRef)
+      : null;
+
     // Atomic limit check inside transaction. coachAthleteCount is maintained by
     // acceptance/revocation functions. Falls back to pre-check count for migration.
     // Connection key prefers personGroupID (dual-sport person = one slot), then
@@ -2364,26 +2403,23 @@ export const acceptAthleteToCoachInvitation = functions.https.onCall(async (data
     }
 
     // If invitation has a legacy folderID, join the existing folder
-    if (inv.folderID) {
-      const folderRef = db.collection('sharedFolders').doc(inv.folderID);
-      const folderSnap = await transaction.get(folderRef);
-      if (folderSnap.exists) {
-        const permissions = inv.permissions || { canUpload: false, canComment: true, canDelete: false };
-        const coachDisplayName = coachDoc.data()?.displayName || coachEmail?.split('@')[0] || 'Coach';
-        transaction.update(folderRef, {
-          sharedWithCoachIDs: admin.firestore.FieldValue.arrayUnion(coachID),
-          [`sharedWithCoachNames.${coachID}`]: coachDisplayName,
-          [`permissions.${coachID}`]: permissions,
-          // Backfill/refresh the dual-sport key on this legacy/client-made folder.
-          ...(resolvedPersonGroupID ? { personGroupID: resolvedPersonGroupID } : {}),
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-        // Clear any prior revocation so canAccessFolder doesn't deny the re-added coach.
-        // Deterministic doc ID: "<folderID>_<coachID>".
-        const revocationRef = db.collection('coach_access_revocations')
-          .doc(`${inv.folderID}_${coachID}`);
-        transaction.delete(revocationRef);
-      }
+    // (read hoisted above the writes — see legacyFolderSnap).
+    if (legacyFolderRef && legacyFolderSnap?.exists) {
+      const permissions = inv.permissions || { canUpload: false, canComment: true, canDelete: false };
+      const coachDisplayName = coachDoc.data()?.displayName || coachEmail?.split('@')[0] || 'Coach';
+      transaction.update(legacyFolderRef, {
+        sharedWithCoachIDs: admin.firestore.FieldValue.arrayUnion(coachID),
+        [`sharedWithCoachNames.${coachID}`]: coachDisplayName,
+        [`permissions.${coachID}`]: permissions,
+        // Backfill/refresh the dual-sport key on this legacy/client-made folder.
+        ...(resolvedPersonGroupID ? { personGroupID: resolvedPersonGroupID } : {}),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      // Clear any prior revocation so canAccessFolder doesn't deny the re-added coach.
+      // Deterministic doc ID: "<folderID>_<coachID>".
+      const revocationRef = db.collection('coach_access_revocations')
+        .doc(`${inv.folderID}_${coachID}`);
+      transaction.delete(revocationRef);
     }
 
     transaction.update(invRef, {
@@ -3839,6 +3875,17 @@ export const auditCoachDowngrades = functions.pubsub
         continue;
       }
 
+      // Persist the authoritative count as a daily drift backstop. Paths that
+      // delete a folder without writing a revocation doc (console deletes, failed
+      // client loops, account-deletion recursiveDelete) leave the cached counter
+      // stale-high, and the accept transactions trust it — so a drifted coach can
+      // be permanently blocked from accepting athletes. We already computed the
+      // true value here; writing it back costs nothing.
+      if (data.coachAthleteCount !== count) {
+        await doc.ref.update({ coachAthleteCount: count })
+          .catch(e => console.warn(`auditCoachDowngrades: count persist failed for ${coachID}:`, e));
+      }
+
       const graceStartedAt = data.coachDowngradeGraceStartedAt as admin.firestore.Timestamp | undefined;
       const unresolved = data.downgradeUnresolved === true;
 
@@ -4460,14 +4507,46 @@ export const dailyStorageCleanup = functions
     // --- 3. Delete expired invitations older than 30 days past expiry ---
     let expiredCount = 0;
     try {
-      const expiredSnap = await db.collection('invitations')
-        .where('expiresAt', '<=', admin.firestore.Timestamp.fromDate(thirtyDaysAgo))
-        .limit(500)
-        .get();
+      // Accepted invitations are living connection records, not stale invites:
+      // computeCoachConnectionKeys() counts accepted coach_to_athlete invites, and
+      // they are the sole record of Flow-B connections whose folder creation
+      // partially failed. Deleting them 30 days after nominal expiry silently
+      // shifts coach seat counts, so they are skipped below.
+      //
+      // They are skipped in CODE, not by the query (an `in` on status plus the
+      // expiresAt range needs a composite index that doesn't exist) — and because
+      // an accepted invite KEEPS its original expiresAt, the retained docs pile up
+      // at the oldest end of this range scan. A single limit(500) window would
+      // eventually hold nothing but retained accepted docs and quietly stop
+      // deleting anything ever again, so page past them with a cursor.
+      const PAGE_SIZE = 500;
+      const MAX_PAGES = 10; // bounds the run against the 60s default timeout
+      let cursor: admin.firestore.QueryDocumentSnapshot | undefined;
 
-      for (const doc of expiredSnap.docs) {
-        await doc.ref.delete();
-        expiredCount++;
+      for (let page = 0; page < MAX_PAGES; page++) {
+        let query = db.collection('invitations')
+          .where('expiresAt', '<=', admin.firestore.Timestamp.fromDate(thirtyDaysAgo))
+          .orderBy('expiresAt')
+          .limit(PAGE_SIZE);
+        if (cursor) query = query.startAfter(cursor);
+
+        const pageSnap = await query.get();
+        if (pageSnap.empty) break;
+        cursor = pageSnap.docs[pageSnap.docs.length - 1];
+
+        const batch = db.batch();
+        let pageDeletes = 0;
+        for (const doc of pageSnap.docs) {
+          if (doc.data().status === 'accepted') continue;
+          batch.delete(doc.ref);
+          pageDeletes++;
+        }
+        if (pageDeletes > 0) {
+          await batch.commit();
+          expiredCount += pageDeletes;
+        }
+
+        if (pageSnap.size < PAGE_SIZE) break; // reached the end of the range
       }
 
       console.log(`✅ Deleted ${expiredCount} expired invitations`);

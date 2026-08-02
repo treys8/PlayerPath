@@ -767,6 +767,15 @@ service cloud.firestore {
       // Must reference a valid folder where the creator is a party.
       allow create: if isAuthenticated()
                     && 'folderID' in request.resource.data
+                    && 'coachID' in request.resource.data
+                    && request.resource.data.folderID is string
+                    && request.resource.data.coachID is string
+                    // Pin the doc ID to the body. isCoachRevokedFromFolder() is a bare
+                    // exists() on "<folderID>_<coachID>", so without this any folder
+                    // owner could create a doc named for a VICTIM folder/coach pair
+                    // while the body references their own folder — permanently denying
+                    // that coach access, with no way for the victim to delete it.
+                    && revocationID == request.resource.data.folderID + '_' + request.resource.data.coachID
                     && (
                       // Athlete removing a coach: must be folder owner
                       (request.resource.data.athleteID == request.auth.uid
