@@ -1,6 +1,6 @@
 # PlayerPath — Priorities & Roadmap
 
-**Last verified:** 2026-06-27 (statuses checked against current `main`)
+**Last verified:** 2026-08-01 (statuses checked against current `main`)
 
 The prioritization lens: **for a shipped app with paying users, trust and money come before growth, growth comes before polish, and polish comes before future bets.** Re-verify statuses against code before acting — they drift as work lands outside tracked sessions.
 
@@ -9,6 +9,8 @@ The prioritization lens: **for a shipped app with paying users, trust and money 
 ## The next needle mover
 
 **The recruiting profile** (public, video-first athlete page — `docs/RECRUITING_PROFILE_PLAN.md`).
+
+> **Status 2026-08-01: SHIPPED to prod, pending device QA.** The rest of this section is the *why* — it still holds, and it's the yardstick for whether the bet paid. What it no longer describes is work to be done; see #6.
 
 It's the only item that *moves* the growth curve rather than protecting it. It changes *why* people use the app — from "track my kid's stats" (a retention product that competes on features against GameChanger) to "help my kid get seen" (the highest willingness-to-pay motivation in youth sports). It hits all three levers at once:
 
@@ -36,7 +38,7 @@ Trust / revenue / legal. Mostly closing loops already opened — which is why th
 
 ## Tier 2 — The growth bet
 
-6. **Video-first recruiting profile** — see "next needle mover" above. The most important *new* thing on the list. Was gated on "post-V2"; **V2 server side is now closed (2026-06-27), so this is unblocked** — the highest-value next code work.
+6. **Video-first recruiting profile** — ✅ **BUILT AND DEPLOYED.** Phases 1–3 are live in prod, and the 40-finding implementation review (`docs/RECRUITING_PROFILE_REVIEW_2026-07-25.md`) is fully closed in code. **This is no longer "next code work" — it is ship-and-verify.** The blocker is **device QA: ~1 of 14 critical tests run.** Highest-value open tests: published link in Firefox/Windows (the film is the whole product and fails silently), Reset Link (irreversible), dual-athlete push deep-link, Delete Profile Data → leave editor (headshot-resurrection regression), lapsed-Pro page dark + Unpublish still reachable, and the over-the-top V34→V35 migration. Two product calls also sit open: no notice when a lapsed subscription darkens a live page, and the "done recruiting" closed state (#13).
 
 ## Tier 3 — Core UX that improves daily use / retention
 
@@ -49,15 +51,16 @@ Trust / revenue / legal. Mostly closing loops already opened — which is why th
 10. **Celebration animation** — cheap, bounded, real brand value. Two low-frequency, high-meaning moments only: **highlight-reel-ready reveal** + **personal-best / record stamp**. One consistent, sport-aware motion language. Keep the Journal feed calm (don't undo scroll-perf work). Build small as an experiment, not a framework. *(Brand/hero animation is a later, self-contained follow-up using the same motion language.)*
 11. **iPad coach tooling** — sidebar → split comparison → filmstrip → slow-mo. Valuable for the segment that now pays per seat, smaller audience than athletes.
 12. **Live Activities + notification toggles** — engagement surface, not load-bearing.
+13. **Recruiting "done recruiting" closed state** — designed 2026-07-26, not started. `unpublish`'s 404 says *"unpublished or the link is incorrect"* — right for a leaked link, wrong for an athlete who committed, so every coach holding the link gets a message implying the athlete's link is broken. Fix is a `closedAt` field + a 410 closed page served **before** the Pro check (done-recruiting and cancelled-Pro are the same week). No rules change needed. Server half designed and approved; client half sketched only. Spec: `docs/superpowers/specs/2026-07-26-recruiting-closed-state-design.md`.
 
 ## Tier 5 — Future bets & big refactors (important eventually, not urgent)
 
-13. **Golf sport-abstraction refactor (~262 sites)** — real tech debt that slows every future sport feature, but invisible to users. Do it when it actively blocks you.
-14. **Family/Fan viewer role** — strong long-term retention play, but a net-new audience; can wait.
-15. **Multi-device dup-games / per-device quota, photo quota, scorecard-scan Phase 2, Strokes Gained v2** — edge cases and enhancements; pick up opportunistically.
+14. **Golf sport-abstraction refactor (~262 sites)** — real tech debt that slows every future sport feature, but invisible to users. Do it when it actively blocks you.
+15. **Family/Fan viewer role** — strong long-term retention play, but a net-new audience; can wait.
+16. **Multi-device dup-games / per-device quota, photo quota, scorecard-scan Phase 2, Strokes Gained v2** — edge cases and enhancements; pick up opportunistically.
 
 ---
 
-**If you only touch three things next:** Tier 1 is fully cleared and the athlete-facing core of Tier 3 shipped (2026-06-27, commit `bea2d87`), so the lens shifts from *protecting* to *growing*. (1) Start the **recruiting profile (#6)** — the needle mover and clear highest-value next code work, now unblocked by V2. (2) Pick up the deferred Tier-3 follow-ups when convenient — the coach session-picker sport sub-picker (#7) and cross-athlete search (#9). (3) Then Tier 4 polish (celebration animation #10). Trust + revenue are handled; swing at growth.
+**If you only touch three things next:** Tier 1 is fully cleared, the athlete-facing core of Tier 3 shipped (2026-06-27, commit `bea2d87`), and the needle mover itself is **built and deployed** — so the lens shifts from *protecting* to *growing*, and from *writing* to *shipping*. (1) Finish the **recruiting profile's device QA (#6)** — the code is done; what's left is proving the film plays for a coach who isn't holding an iPhone. (2) Pick up the deferred Tier-3 follow-ups when convenient — the coach session-picker sport sub-picker (#7) and cross-athlete search (#9). (3) Then Tier 4 polish (celebration animation #10). Trust + revenue are handled; swing at growth.
 
 The bias to watch in this ranking: it's *strategic importance*, not *what's fun*. Tier 1 is tedious; Tier 2 is exciting. Discipline is doing Tier 1 first anyway.

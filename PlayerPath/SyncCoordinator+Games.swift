@@ -121,8 +121,8 @@ extension SyncCoordinator {
         let allLocalTournaments = athletes.flatMap { $0.golfTournaments ?? [] }
 
         // Detect games deleted on another device. Cascade matches GameService.deleteGameDeep:
-        // videoClips, photos, and gameStats are removed locally. Firestore deletion is not
-        // needed (remote already gone). Safety: skip deletion pass if remote count is
+        // videoClips, photos, gameStats, and holeScores are removed locally. Firestore deletion
+        // is not needed (remote already gone). Safety: skip deletion pass if remote count is
         // suspiciously low compared to local synced games (transient fetch failure).
         // Dedup by UUID because a game may appear in both athlete.games and season.games.
         let remoteGameIds = Set(remoteGames.compactMap { $0.id })
@@ -153,6 +153,9 @@ extension SyncCoordinator {
                 for clip in localGame.videoClips ?? [] { clip.delete(in: context, cleanupReels: false) }
                 for photo in localGame.photos ?? [] { photo.delete(in: context) }
                 if let gameStats = localGame.gameStats { context.delete(gameStats) }
+                // No deleteRule on Game.holeScores — the default nullify would
+                // orphan the rows (and their cascading Shot children) locally.
+                for hole in localGame.holeScores ?? [] { context.delete(hole) }
                 context.delete(localGame)
             }
         }

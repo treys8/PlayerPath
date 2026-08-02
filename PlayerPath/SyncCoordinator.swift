@@ -32,6 +32,13 @@ final class SyncCoordinator {
     var lastSyncDate: Date?
     var syncErrors: [SyncError] = []
 
+    /// Photos skipped by the cloud-storage ceiling on the last photo-sync pass.
+    /// Non-zero means uploads were dropped, so PhotosView can say so instead of
+    /// leaving the athlete believing everything is backed up (the video path
+    /// throws a visible error; the photo path used to skip in silence).
+    /// Recomputed every pass — 0 clears the banner.
+    var photosBlockedByQuota: Int = 0
+
     // MARK: - Active Athlete Scoping
 
     /// UUID string of the currently selected athlete. Set by UserMainFlow on
@@ -391,6 +398,10 @@ final class SyncCoordinator {
         // sign-out path also calls stopPeriodicSync(), but account deletion does not.
         pendingDownloadTasks.values.forEach { $0.cancel() }
         pendingDownloadTasks.removeAll()
+        // Drop the quota banner with the account that earned it — unconditionally,
+        // ahead of the guard below, so the next user can't be told that photos
+        // belonging to the previous one failed to back up.
+        photosBlockedByQuota = 0
 
         guard let context = modelContext ?? fallbackContext else {
             syncLog.warning("clearLocalData: no modelContext available")

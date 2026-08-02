@@ -126,9 +126,9 @@ enum JournalEntry: Identifiable {
     /// representatives). Reading `clips`/`photos` faults each to-many
     /// relationship exactly once and derives every value from that single walk,
     /// instead of re-walking the relationship per derived value as the card
-    /// scrolls into view (a CPU spike on clip/photo-heavy events). Representative
-    /// clip prefers the first highlight in relationship order, else the newest;
-    /// representative photo is the newest.
+    /// scrolls into view (a CPU spike on clip/photo-heavy events). Both
+    /// representatives prefer the first starred item in relationship order, else
+    /// the newest — a favorited photo is the event's cover, matching the clip rule.
     struct MediaSummary {
         var clipCount: Int
         var photoCount: Int
@@ -149,13 +149,22 @@ enum JournalEntry: Identifiable {
             }
         }
 
-        let representativePhoto = photos.max { ($0.createdAt ?? .distantPast) < ($1.createdAt ?? .distantPast) }
+        // Same shape as the clip walk above, and deliberately still ONE pass —
+        // `mediaSummary` exists to fault each to-many relationship exactly once.
+        var newestPhoto: Photo?
+        var highlightPhoto: Photo?
+        for photo in photos {
+            if highlightPhoto == nil, photo.isHighlight { highlightPhoto = photo }
+            if newestPhoto == nil || (photo.createdAt ?? .distantPast) > (newestPhoto?.createdAt ?? .distantPast) {
+                newestPhoto = photo
+            }
+        }
 
         return MediaSummary(
             clipCount: clips.count,
             photoCount: photos.count,
             representativeClip: highlightClip ?? newestClip,
-            representativePhoto: representativePhoto
+            representativePhoto: highlightPhoto ?? newestPhoto
         )
     }
 

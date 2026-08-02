@@ -5,9 +5,10 @@
 //  Visual overhaul — the Journal landing tab.
 //  A calm, reverse-chronological feed of the athlete's games, practices, and
 //  standalone clips. A compact "Live Now" strip pins to the top when an
-//  activity is live (tap opens the existing detail screen, where End/Score/
-//  Record already live — no duplicated state machine here). Filter pills scope
-//  the feed: All / Games / Golf / Highlights.
+//  activity is live: tapping a card opens its detail screen, and the card's own
+//  pills run the activity in place (Score Hole / Record / End) via the shared
+//  `LiveActivityController`. Filter pills scope the feed: All / Games / Golf /
+//  Highlights.
 //
 //  This is a NEW screen; DashboardView is preserved and reachable elsewhere.
 //
@@ -62,15 +63,11 @@ struct JournalView: View {
     /// Nil = closed. Keyed by day so re-tapping the same group is idempotent.
     @State private var selectedPhotoDay: JournalPhotoDay?
 
-    /// Live game whose "Record" pill was tapped — drives a full-screen camera
-    /// cover that captures straight into the game (no tab change). Nil = closed.
-    @State private var recordingGame: Game?
-    /// Game ids currently being ended, so the card's End pill can show a spinner
-    /// and ignore double-taps while `GameService.end` runs.
-    @State private var isEndingGame: Set<UUID> = []
-    /// Guards the async permission check behind Record so a double-tap can't open
-    /// two camera covers.
-    @State private var isCheckingPermissions = false
+    /// Score / End / Record behavior for the live strip's cards, shared with
+    /// DashboardView so both surfaces drive a live activity identically. Owns the
+    /// in-flight end spinners, the hole-scoring sheet target, and the recorder
+    /// cover targets.
+    @State private var live = LiveActivityController()
 
     init(user: User, athlete: Athlete) {
         self.user = user
@@ -363,8 +360,21 @@ struct JournalView: View {
         .sheet(item: $selectedPhotoDay) { selection in
             JournalPhotoDaySheet(athlete: athlete, day: selection.day, sport: selection.sport)
         }
-        .fullScreenCover(item: $recordingGame) { game in
+        .fullScreenCover(item: $live.recordingGame) { game in
             DirectCameraRecorderView(athlete: athlete, game: game)
+        }
+        .fullScreenCover(item: $live.recordingPractice) { practice in
+            DirectCameraRecorderView(athlete: athlete, practice: practice)
+        }
+        // "Score Hole X" from a live card — opens the same sheet the detail
+        // screens use, on the hole the card labelled.
+        .sheet(item: $live.scoreTarget) { target in
+            switch target.parent {
+            case .game(let game):
+                HoleScoringSheet(game: game, holeNumber: target.holeNumber)
+            case .practice(let practice):
+                HoleScoringSheet(practice: practice, holeNumber: target.holeNumber)
+            }
         }
         .sheet(isPresented: $showingSearch) {
             AdvancedSearchView(athlete: athlete)
@@ -474,41 +484,6 @@ struct JournalView: View {
         }
     }
 
-    // MARK: - Live game actions
-
-    /// End a live baseball game from its card. Mirrors DashboardView.endLiveGame:
-    /// optimistic spinner via `isEndingGame`, single-flight guard, delegate to
-    /// GameService so end-of-game side effects (stats finalize, sync) stay in one
-    /// place.
-    private func endLiveGame(_ game: Game) {
-        guard !isEndingGame.contains(game.id) else { return }
-        isEndingGame.insert(game.id)
-        Haptics.light()
-
-        Task { @MainActor in
-            defer { isEndingGame.remove(game.id) }
-            await GameService(modelContext: modelContext).end(game)
-        }
-    }
-
-    /// Open the camera straight over the Journal, bound to the live game so the
-    /// captured clip attaches to it (clip→game wiring lives in the recorder /
-    /// ClipPersistenceService). Permission check gates the present so we never
-    /// show a black camera; `isCheckingPermissions` blocks a double-tap.
-    private func recordIntoGame(_ game: Game) {
-        Task { @MainActor in
-            guard !isCheckingPermissions else { return }
-            isCheckingPermissions = true
-            defer { isCheckingPermissions = false }
-
-            let status = await RecorderPermissions.ensureCapturePermissions(context: "JournalLiveRecord")
-            guard status == .granted else { return }
-
-            recordingGame = game
-            Haptics.medium()
-        }
-    }
-
     // MARK: - Live strip
 
     @ViewBuilder
@@ -521,19 +496,24 @@ struct JournalView: View {
             }
             .padding(.horizontal, 18)
 
-            // Tap opens detail; the card's own Record/End pills capture into the
-            // live game and end it without leaving the Journal. Golf live games
-            // route scoring through the detail screen, so they get no Record pill
-            // here (only End) — `onRecord` is baseball-only.
+            // Tap opens detail; the card's own pills drive the activity without
+            // leaving the Journal. Golf gets Score Hole (scoring is the on-course
+            // action, and clip attribution depends on it), baseball gets Record —
+            // the two never coexist on one card.
             ForEach(liveGames) { game in
                 NavigationLink {
                     GameDetailView(game: game)
                 } label: {
                     LiveGameCard(
                         game: game,
-                        isEnding: isEndingGame.contains(game.id),
-                        onRecord: game.season?.sport == .golf ? nil : { recordIntoGame(game) },
-                        onEnd: { endLiveGame(game) }
+                        isEnding: live.isEnding(game),
+                        onScore: game.season?.sport == .golf
+                            ? { live.presentScoreHole(for: game) }
+                            : nil,
+                        onRecord: game.season?.sport == .golf
+                            ? nil
+                            : { live.recordInto(game: game, context: "JournalLiveRecord") },
+                        onEnd: { live.endGame(game, in: modelContext) }
                     )
                     .padding(.horizontal, 18)
                     .contentShape(Rectangle())
@@ -546,16 +526,38 @@ struct JournalView: View {
                     PracticeDetailView(practice: practice)
                 } label: {
                     // Range sessions have no holes/scoring — they get the
-                    // lighter RANGE SESSION card, practice rounds the fuller
-                    // tournament-style card. Mirrors DashboardView's split;
-                    // without it every live practice mislabels as "PRACTICE
-                    // ROUND". Cards stay display-only here (no End/Score
-                    // closures) — tap opens the detail, where End lives.
+                    // lighter RANGE SESSION card (Record + End), practice rounds
+                    // the fuller round card (Score Hole + End). Mirrors
+                    // DashboardView's split; without it every live practice
+                    // mislabels as "PRACTICE ROUND".
+                    //
+                    // The round card is the catch-all so a live practice of any
+                    // other type still surfaces (Dashboard filters those rows out
+                    // entirely, which can strand a live activity off-screen) — but
+                    // Score Hole is offered only for a real practice round, since
+                    // LiveHoleTracker returns nil for every other type and the CTA
+                    // would do nothing.
                     Group {
                         if practice.practiceType == PracticeType.rangeSession.rawValue {
-                            LiveRangeCard(practice: practice)
+                            LiveRangeCard(
+                                practice: practice,
+                                isEnding: live.isEnding(practice),
+                                onRecord: { live.recordInto(practice: practice, context: "JournalRangeRecord") },
+                                onEnd: { live.endPractice(practice, in: modelContext) }
+                            )
                         } else {
-                            LiveGameCard(practiceRound: practice)
+                            LiveGameCard(
+                                practiceRound: practice,
+                                isEnding: live.isEnding(practice),
+                                onScore: practice.practiceType == PracticeType.practiceRound.rawValue
+                                    ? { live.presentScoreHole(for: practice) }
+                                    : nil,
+                                // Filming a shot mid-round is as central as
+                                // scoring one — the range card has offered this
+                                // since it shipped; rounds were the gap.
+                                onRecord: { live.recordInto(practice: practice, context: "JournalRoundRecord") },
+                                onEnd: { live.endPractice(practice, in: modelContext) }
+                            )
                         }
                     }
                     .padding(.horizontal, 18)

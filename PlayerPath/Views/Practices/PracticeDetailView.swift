@@ -28,6 +28,10 @@ struct PracticeDetailView: View {
     @State private var scoreHoleTarget: ScoreHoleTarget?
     /// Presents the full-round scorecard grid (practice rounds only).
     @State private var showingScorecard = false
+    /// Type change held pending confirmation because leaving a practice round
+    /// discards its scored holes. Nil when no change is awaiting an answer.
+    @State private var pendingTypeChange: PracticeType?
+    @State private var showingTypeChangeConfirmation = false
 
     // Bulk import from Photos — state owned by BulkImportAttach modifier.
     @State private var importTrigger = false
@@ -58,19 +62,25 @@ struct PracticeDetailView: View {
         return PracticeType.cases(for: sport)
     }
 
+    /// Live hole rows only. Tombstoned holes keep a score of 0, so leaving them
+    /// in renders a phantom "Albatross" cell in the grid and a bogus diff label
+    /// on the hole rows — same filter the model's `holeScoreSum` applies.
     private var sortedHoleScores: [HoleScore] {
-        (practice.holeScores ?? []).sorted { $0.holeNumber < $1.holeNumber }
+        (practice.holeScores ?? [])
+            .filter { !$0.isDeletedRemotely }
+            .sorted { $0.holeNumber < $1.holeNumber }
     }
 
-    /// Next unscored hole (capped at Practice.holes ?? 18). Used to label the
-    /// "Score Hole X" button. Derived inline (matching GameDetailView) rather
-    /// than via LiveHoleTracker.currentHole, because the detail screen scores
-    /// rounds regardless of live state, while currentHole is gated on `isLive`
-    /// for clip attribution.
-    private var nextHoleNumber: Int {
-        let total = practice.holes ?? 18
-        let scoredMax = sortedHoleScores.last?.holeNumber ?? 0
-        return min(scoredMax + 1, total)
+    /// First unscored hole, or nil once every hole is scored — the "Score Hole X"
+    /// button hides then, matching GameDetailView, and the Scorecard row below it
+    /// stays the way to edit a hole that's already in. Uses the static
+    /// `nextUnscoredHole` (which drops tombstoned holes) rather than the instance
+    /// `currentHole` for two reasons: this screen scores rounds regardless of live
+    /// state, and `currentHole` answers a different question — the clip-attribution
+    /// hole (highest scored + 1), not the one still needing a score.
+    private var nextHoleNumber: Int? {
+        LiveHoleTracker.nextUnscoredHole(holeScores: sortedHoleScores,
+                                         totalHoles: practice.holes ?? 18)
     }
 
     var videoClips: [VideoClip] {
@@ -146,18 +156,7 @@ struct PracticeDetailView: View {
                     Menu {
                         ForEach(typeMenuOptions) { type in
                             Button {
-                                practice.practiceType = type.rawValue
-                                // Practice rounds want a hole count; range
-                                // sessions and any baseball type clear it so
-                                // LiveHoleTracker's gate stays clean.
-                                if type == .practiceRound {
-                                    if practice.holes == nil { practice.holes = 18 }
-                                } else {
-                                    practice.holes = nil
-                                }
-                                practice.needsSync = true
-                                ErrorHandlerService.shared.saveContext(modelContext, caller: "PracticesView.changePracticeType")
-                                Haptics.light()
+                                requestTypeChange(to: type)
                             } label: {
                                 Label(type.displayName, systemImage: type.icon)
                             }
@@ -318,7 +317,23 @@ struct PracticeDetailView: View {
                 deletePractice()
             }
         } message: {
-            Text("This will delete all videos and notes.")
+            Text(isPracticeRound
+                 ? "This will permanently delete this round and all its videos, photos, notes, hole scores, and highlights."
+                 : "This will permanently delete this practice and all its videos, photos, and notes.")
+        }
+        .confirmationDialog(
+            "Switch Practice Type?",
+            isPresented: $showingTypeChangeConfirmation,
+            presenting: pendingTypeChange
+        ) { newType in
+            Button("Switch and Remove Scores", role: .destructive) {
+                applyTypeChange(to: newType)
+                pendingTypeChange = nil
+            }
+            Button("Cancel", role: .cancel) { pendingTypeChange = nil }
+        } message: { newType in
+            let count = sortedHoleScores.count
+            Text("This round has \(count) scored hole\(count == 1 ? "" : "s"). Switching to \(newType.displayName) will remove its hole scores and any birdie highlights.")
         }
         .alert(endLabel, isPresented: $showingEndConfirmation) {
             Button("Cancel", role: .cancel) { }
@@ -345,11 +360,13 @@ struct PracticeDetailView: View {
             // Score Hole — golf practice rounds only. Promoted first so the
             // primary on-course action is the top tap target.
             if isPracticeRound {
-                Button {
-                    Haptics.medium()
-                    scoreHoleTarget = ScoreHoleTarget(holeNumber: nextHoleNumber)
-                } label: {
-                    Label("Score Hole \(nextHoleNumber)", systemImage: "flag.fill")
+                if let nextHoleNumber {
+                    Button {
+                        Haptics.medium()
+                        scoreHoleTarget = ScoreHoleTarget(holeNumber: nextHoleNumber)
+                    } label: {
+                        Label("Score Hole \(nextHoleNumber)", systemImage: "flag.fill")
+                    }
                 }
                 Button {
                     Haptics.light()
@@ -440,7 +457,7 @@ struct PracticeDetailView: View {
                     }
                 }
 
-                if isPracticeRound {
+                if isPracticeRound, let nextHoleNumber {
                     Button(action: {
                         Haptics.medium()
                         scoreHoleTarget = ScoreHoleTarget(holeNumber: nextHoleNumber)
@@ -485,8 +502,11 @@ struct PracticeDetailView: View {
     }
 
     private func deleteNotes(offsets: IndexSet) {
-        // Capture Firestore IDs before deletion
-        let userId = practice.athlete?.user?.firebaseAuthUid ?? practice.athlete?.user?.id.uuidString
+        // Capture Firestore IDs before deletion. Strict `firebaseAuthUid`: the
+        // `id.uuidString` fallback points at a path that doesn't exist, so the
+        // tombstone throws and sync re-inserts the note (same bug the practice
+        // delete path just shed).
+        let userId = practice.athlete?.user?.firebaseAuthUid
         let practiceFirestoreId = practice.firestoreId
         var deletedNoteIds: [(String, String)] = [] // (noteFirestoreId, practiceFirestoreId)
 
@@ -524,7 +544,8 @@ struct PracticeDetailView: View {
 
     private func delete(note: PracticeNote) {
         let noteFirestoreId = note.firestoreId
-        let userId = practice.athlete?.user?.firebaseAuthUid ?? practice.athlete?.user?.id.uuidString
+        // Strict `firebaseAuthUid` — see deleteNotes(offsets:).
+        let userId = practice.athlete?.user?.firebaseAuthUid
         let practiceFirestoreId = practice.firestoreId
 
         modelContext.delete(note)
@@ -566,33 +587,141 @@ struct PracticeDetailView: View {
         }
     }
 
-    private func deletePractice() {
-        // Sync deletion to Firestore if practice was synced
-        if let firestoreId = practice.firestoreId,
-           let athlete = practice.athlete,
-           let user = athlete.user {
-            let userId = user.id.uuidString
-            Task {
-                await retryAsync {
-                    try await FirestoreManager.shared.deletePractice(userId: userId, practiceId: firestoreId)
+    // MARK: - Type change
+
+    /// Gate the type change behind a confirmation when it would discard scored
+    /// holes; otherwise apply it straight away.
+    private func requestTypeChange(to type: PracticeType) {
+        guard type.rawValue != practice.practiceType else { return }
+
+        let leavingPracticeRound = isPracticeRound && type != .practiceRound
+        // Confirm only against holes the user can actually see — `sortedHoleScores`
+        // already drops tombstones.
+        if leavingPracticeRound && !sortedHoleScores.isEmpty {
+            pendingTypeChange = type
+            showingTypeChangeConfirmation = true
+        } else {
+            applyTypeChange(to: type)
+        }
+    }
+
+    /// Apply the type change and clean up any practice-round-only state it
+    /// leaves behind. Order matters: capture remote refs, mutate locally, save,
+    /// then fire the remote tombstones.
+    private func applyTypeChange(to type: PracticeType) {
+        let leavingPracticeRound = isPracticeRound && type != .practiceRound
+
+        // Capture hole/shot doc refs BEFORE the local rows go away. Tombstoned
+        // rows are included deliberately: once `practiceType` stops being
+        // "practice_round" this practice drops out of syncHoleScores/syncShots
+        // entirely, and updatePracticeHoleScore's field allowlist strips
+        // `isDeleted` anyway — so this direct call is a stuck tombstone's only
+        // way out. Re-tombstoning an already-deleted doc is harmless.
+        var syncedHoleNumbers: [Int] = []
+        var syncedShotRefs: [(holeNumber: Int, shotId: String)] = []
+        if leavingPracticeRound {
+            let allHoles: [HoleScore] = practice.holeScores ?? []
+            syncedHoleNumbers = allHoles
+                .filter { $0.firestoreId != nil }
+                .map { $0.holeNumber }
+            for hole in allHoles {
+                let holeNumber = hole.holeNumber
+                for shot in (hole.shots ?? []) where shot.firestoreId != nil {
+                    syncedShotRefs.append((holeNumber: holeNumber, shotId: shot.id.uuidString))
+                }
+            }
+        }
+        let userId = practice.athlete?.user?.firebaseAuthUid
+        let practiceFirestoreId = practice.firestoreId
+
+        practice.practiceType = type.rawValue
+        // Practice rounds want a hole count; range sessions and any baseball
+        // type clear it so LiveHoleTracker's gate stays clean.
+        if type == .practiceRound {
+            if practice.holes == nil { practice.holes = 18 }
+        } else {
+            practice.holes = nil
+        }
+
+        if leavingPracticeRound {
+            // Hard-delete the hole rows (Shot rows ride along via .cascade).
+            // Tombstoning locally instead would strand needsSync rows behind the
+            // practice_round sync gate; the remote tombstone fires directly below.
+            for hole in practice.holeScores ?? [] {
+                modelContext.delete(hole)
+            }
+
+            // Round-scan artifacts and shot tracking are practice-round concepts.
+            // `course` deliberately survives — it's the "Location" field for a
+            // range session.
+            practice.tracksShotByShot = false
+            practice.selectedTee = nil
+            practice.scorecardData = nil
+
+            // Clips were attributed to holes that no longer exist; a range
+            // session's clips are grouped by club instead, and a stale
+            // holeNumber would keep showing "Hole 7" in the Videos filters.
+            for clip in practice.videoClips ?? [] where clip.holeNumber != nil {
+                clip.holeNumber = nil
+                clip.needsSync = true
+            }
+
+            // Birdie reels only soft-delete: reel sync is type-independent, and
+            // its tombstone branch issues the remote delete itself.
+            let practiceID = practice.id
+            if let allReels = try? modelContext.fetch(FetchDescriptor<HighlightReel>()) {
+                for reel in allReels where reel.practiceID == practiceID && !reel.isDeletedRemotely {
+                    reel.isDeletedRemotely = true
+                    reel.version += 1
+                    reel.needsSync = true
                 }
             }
         }
 
-        // Capture athlete before deletion — accessing SwiftData object properties after
-        // context.delete() is undefined behavior.
-        let practiceAthlete = practice.athlete
+        practice.needsSync = true
+        let saved = ErrorHandlerService.shared.saveContext(modelContext, caller: "PracticeDetailView.changePracticeType")
 
-        practice.delete(in: modelContext)
-
-        if ErrorHandlerService.shared.saveContext(modelContext, caller: "PracticeDetailView.deletePractice") {
-            if let athlete = practiceAthlete {
-                try? StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext)
+        // Only tombstone remotely once the local state is committed, so remote
+        // can't get ahead of a save that failed.
+        if saved, leavingPracticeRound, let userId, let practiceFirestoreId,
+           !(syncedHoleNumbers.isEmpty && syncedShotRefs.isEmpty) {
+            Task {
+                for holeNumber in syncedHoleNumbers {
+                    await retryAsync {
+                        try await FirestoreManager.shared.deletePracticeHoleScore(
+                            userId: userId,
+                            practiceFirestoreId: practiceFirestoreId,
+                            holeNumber: holeNumber
+                        )
+                    }
+                }
+                for ref in syncedShotRefs {
+                    await retryAsync {
+                        try await FirestoreManager.shared.deletePracticeShot(
+                            userId: userId,
+                            practiceFirestoreId: practiceFirestoreId,
+                            holeNumber: ref.holeNumber,
+                            shotId: ref.shotId
+                        )
+                    }
+                }
             }
-            Haptics.success()
-            dismiss()
-        } else {
-            Haptics.error()
+        }
+
+        Haptics.light()
+    }
+
+    private func deletePractice() {
+        // PracticeService owns the whole cascade — local rows + files, the
+        // Firestore tombstones (practice, holes, shots, reels), reminder
+        // cancellation, and the stats recalc.
+        Task {
+            if await PracticeService(modelContext: modelContext).deleteDeep(practice) {
+                Haptics.success()
+                dismiss()
+            } else {
+                Haptics.error()
+            }
         }
     }
 }

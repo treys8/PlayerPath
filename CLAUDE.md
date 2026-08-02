@@ -78,17 +78,7 @@ Some services live in `PlayerPath/Services/`, others at the `PlayerPath/` top le
 
 ### FirestoreManager
 
-`FirestoreManager` is a `@MainActor` singleton split into domain-specific extension files:
-
-- `FirestoreManager.swift` — Shell (singleton, `db`, `errorMessage`, init)
-- `FirestoreManager+SharedFolders.swift` — Folder CRUD + permissions
-- `FirestoreManager+VideoMetadata.swift` — Video CRUD + thumbnails
-- `FirestoreManager+Annotations.swift` — Comments + real-time listener
-- `FirestoreManager+Invitations.swift` — Both invitation flows (athlete→coach, coach→athlete)
-- `FirestoreManager+UserProfile.swift` — Profile CRUD + GDPR deletion + subscription sync
-- `FirestoreManager+EntitySync.swift` — Athletes/Seasons/Games/Practices/Notes/Photos/Coaches CRUD
-- `FirestoreManager+DrillCards.swift` — Drill card CRUD for videos
-- `FirestoreModels.swift` — All Firestore data types (SharedFolder, FirestoreVideoMetadata, CoachInvitation, UserProfile, CoachSession, etc.)
+`FirestoreManager` is a `@MainActor` singleton split into domain-specific `FirestoreManager+*.swift` extension files (`ls PlayerPath/FirestoreManager*.swift`). All Firestore data types live in `FirestoreModels.swift`.
 
 ### Video Pipeline
 
@@ -139,35 +129,19 @@ Product IDs and feature gates are in `SubscriptionModels.swift`. StoreKit config
 
 ## View Organization
 
-Views are organized by feature in `PlayerPath/Views/` — one line per directory; `ls` the directory for exact filenames:
+Views are organized by feature in `PlayerPath/Views/` — `ls PlayerPath/Views/` for the directory list, and `ls` a directory for its filenames. Most map to their name; these are the ones that don't:
 
 - `Views/Journal/` — **athlete Home tab**: JournalView feed (games + practices + orphan clips/photos), feed builder, coach-feedback feed items
 - `Views/Athletes/` — profile selection & creation, dual-sport Person Card grouping (`AthletePersonGroup`), sport split tool, EditAthleteView
-- `Views/Games/` — game/tournament CRUD **plus all golf scoring UI**: scorecard, hole scoring, shot-by-shot, scorecard OCR scan flow, manual batting/pitching entry (~35 files)
-- `Views/Practices/` — practice CRUD, practice types/focus pickers, practice clip rows
-- `Views/Stats/` — batting/pitching sections, golf stats/strokes-gained/score-distribution sections, milestones list, season comparisons, hero cards
+- `Views/Games/` — game/tournament CRUD **plus all golf scoring UI**: scorecard, hole scoring, shot-by-shot, scorecard OCR scan flow, manual batting/pitching entry
 - `Views/Highlights/` — highlight cards **plus the reel pipeline**: generation, stitching coordinator, card/overlay renderers, export options, stitched-reel cache
-- `Views/Photos/` — photo grid, fullscreen swipe viewer, batch event-tagging, bulk import
-- `Views/Videos/` — bulk video import sheet + view model
-- `Views/Coach/` — coach-role UI: tab bar, sessions, review queue/sequence, telestration, filmstrip scrubber, drill cards, tag editing, billing/limit banners (~35 files)
-- `Views/Coaches/` — athlete-side coach management: invite, share-to-folder, coach detail, pending invitations
-- `Views/Profile/` — settings, account management, subscription, storage, data export
+- `Views/Coach/` — coach-role UI: tab bar, sessions, review queue/sequence, telestration, filmstrip scrubber, drill cards, tag editing, billing/limit banners
+- `Views/Coaches/` — **athlete-side** coach management: invite, share-to-folder, coach detail, pending invitations
 - `Views/Components/` — shared reusables: video player, clip cards, trimmer, play-result editor, banners, TipKit tips
 - `Views/Shared/` — app-wide primitives: empty/error/skeleton states, notification inbox + banners, text fields, button styles
-- `Views/Search/` — AdvancedSearchView (single-athlete scope)
-- `Views/Navigation/` — MainTabView, AuthenticatedFlow, keyboard shortcuts
-- `Views/Auth/` — sign-in, welcome flow, email verification, force update, what's new
-- `Views/Onboarding/` — athlete/coach onboarding flows, tutorial
-- `Views/Help/` — role- and sport-aware Help/FAQ articles
-- `Views/Legal/` — privacy policy, terms
-- `Views/Seasons/` — season recap
-- `Views/Settings/` — video quality comparison components
-- `Views/Player/` — athlete clip review detail
 - `Views/Dashboard/` — **retired for athletes** (Home = Journal); some components still reused
 
-Main tab root views remain at the top level: `GamesView.swift`, `PracticesView.swift`, `ProfileView.swift`, `HighlightsView.swift`, `VideoClipsView.swift`, `StatisticsView.swift` (+ their ViewModels).
-
-Top-level coach views: `CoachDashboardView.swift`, `CoachFolderDetailView.swift`, `CoachInvitationsView.swift`, `CoachPaywallView.swift`, `CoachProfileView.swift`, `CoachVideoPlayerView.swift`, `CoachVideoUploadView.swift`, `CoachesView.swift`, `DirectCameraRecorderView.swift`.
+Main tab root views remain at the top level, NOT under `Views/`: `GamesView.swift`, `PracticesView.swift`, `ProfileView.swift`, `HighlightsView.swift`, `VideoClipsView.swift`, `StatisticsView.swift` (+ their ViewModels). The top-level `Coach*.swift` files are likewise outside `Views/`.
 
 ## Key Conventions
 

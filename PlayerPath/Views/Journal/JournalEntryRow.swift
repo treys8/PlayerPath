@@ -273,10 +273,11 @@ struct JournalEntryRow: View {
             // so the tile passes no glyph of its own.
             photoTile(photo)
         } else if case .photoGroup = entry, let photo = summary.representativePhoto {
-            // A multi-photo day collapses to one card: the most recent photo as
-            // the cover, with a stack glyph marking it as a set (the headline
-            // carries the exact count). Tapping opens the day-scoped grid sheet
-            // (see JournalView). JournalPhotoThumbnail owns its own loading glyph.
+            // A multi-photo day collapses to one card: the favorited photo as the
+            // cover, else the most recent (see JournalEntry.mediaSummary), with a
+            // stack glyph marking it as a set (the headline carries the exact
+            // count). Tapping opens the day-scoped grid sheet (see JournalView).
+            // JournalPhotoThumbnail owns its own loading glyph.
             photoTile(photo, stacked: true)
         } else if let clip = summary.representativeClip {
             // Only a single orphan clip card promises inline playback — its ▶

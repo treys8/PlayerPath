@@ -56,7 +56,7 @@ struct AutoHighlightSettingsView: View {
                             }
                         }
                     }
-                    .disabled(isScanningLibrary)
+                    .disabled(isScanningLibrary || !settings.enabled)
 
                     if let result = scanResult {
                         Text(result)
@@ -64,7 +64,12 @@ struct AutoHighlightSettingsView: View {
                             .foregroundStyle(.secondary)
                     }
                 } footer: {
-                    Text("Re-applies your current rules to all existing clips. Previously tagged highlights will be updated to match.")
+                    // The scan only touches play types the toggles above describe, so say
+                    // so plainly — the old "will be updated to match" read as though a scan
+                    // could rewrite every highlight, which is exactly what it must not do.
+                    Text(settings.enabled
+                         ? "Re-applies your rules to clips that match them. Clips you starred by hand that no rule covers are left alone."
+                         : "Turn on Auto-Highlight to scan your library.")
                 }
             }
             .navigationTitle("Auto-Highlight Rules")

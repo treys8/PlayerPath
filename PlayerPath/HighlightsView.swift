@@ -109,8 +109,19 @@ struct HighlightsView: View {
         .fullScreenCover(item: $selectedReel) { reel in
             ReelPlayerView(reel: reel)
         }
-        .alert("Delete Highlight", isPresented: $showingDeleteAlert) {
+        // Titled for what this actually does. The action behind it is the full
+        // `clip.delete(in:)` — local file, thumbnail, cloud copy, play result, stats —
+        // but "Delete Highlight" read as though it merely unstarred the clip. The
+        // non-destructive option is offered inline because un-starring is the far more
+        // likely intent when someone reaches for Delete from the Highlights grid.
+        .alert("Delete Video", isPresented: $showingDeleteAlert) {
             Button("Cancel", role: .cancel) {
+                clipToDelete = nil
+            }
+            Button("Remove from Highlights") {
+                if let clip = clipToDelete {
+                    removeFromHighlights(clip)
+                }
                 clipToDelete = nil
             }
             Button("Delete", role: .destructive) {
@@ -120,7 +131,7 @@ struct HighlightsView: View {
                 clipToDelete = nil
             }
         } message: {
-            Text("Are you sure you want to delete this highlight?")
+            Text("This permanently deletes the video, its cloud copy, and its stats. This can't be undone.")
         }
         .sheet(isPresented: $showingAutoHighlightSettings) {
             if let athlete = athlete {
@@ -228,10 +239,17 @@ struct HighlightsView: View {
         return nil
     }
 
-    // Check if we have any highlights at all (before filtering)
+    /// True when the athlete has ANY highlight content, before filtering — starred clips
+    /// OR live reels. Reel-only is the normal golf state (birdie-or-better holes bundle
+    /// into reels and golf never auto-stars), so a starred-only check dropped those users
+    /// into the "No Highlights Yet" empty state whenever a filter excluded their reels,
+    /// instead of offering "clear filters". Mirrors the same union in
+    /// HighlightsViewModel.updateAvailableSeasons. `allReels` is already filtered to
+    /// non-deleted at the @Query level.
     private var hasAnyHighlights: Bool {
-        guard let athlete = athlete, let videoClips = athlete.videoClips else { return false }
-        return videoClips.contains(where: { $0.isHighlight })
+        guard let athlete = athlete else { return false }
+        if (athlete.videoClips ?? []).contains(where: { $0.isHighlight }) { return true }
+        return allReels.contains { $0.athleteID == athlete.id }
     }
 
     @ViewBuilder
@@ -486,6 +504,23 @@ struct HighlightsView: View {
         .disabled(selection.isEmpty)
     }
     
+    /// Non-destructive counterpart to `deleteHighlight`, offered from the delete alert.
+    /// Single-clip mirror of `batchRemoveFromHighlights` — the clip leaves this grid but
+    /// the video, its cloud copy, and its stats all survive.
+    private func removeFromHighlights(_ clip: VideoClip) {
+        withAnimation {
+            clip.isHighlight = false
+            clip.needsSync = true
+
+            do {
+                try modelContext.save()
+                Haptics.success()
+            } catch {
+                ErrorHandlerService.shared.handle(error, context: "HighlightsView.removeFromHighlights", showAlert: false)
+            }
+        }
+    }
+
     private func deleteHighlight(_ clip: VideoClip) {
         Haptics.medium()
 

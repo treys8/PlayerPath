@@ -474,9 +474,11 @@ final class Practice {
             "isDeleted": false
         ]
         // Golf practice-round hole count (v6.1 PR3). Only practice rounds set
-        // this; baseball practices and range sessions stay nil and the key
-        // is omitted from the doc.
-        if let holes = holes { data["holes"] = holes }
+        // this. Written as null rather than omitted when nil: `updatePractice`
+        // merges, so an omitted key leaves the old value on the doc and the
+        // next download hands it back — switching a round to a range session
+        // has to actually clear the hole count. Same reasoning as `drillTypes`.
+        data["holes"] = holes ?? NSNull()
         // Live-activity state (SchemaV26). Synced so a round/session started on
         // one device surfaces as live on another; cleared on End.
         data["isLive"] = isLive
@@ -484,8 +486,11 @@ final class Practice {
         if let course = course { data["course"] = course }
         data["tracksShotByShot"] = tracksShotByShot
         // Scorecard scan (SchemaV32) — round-level tee + confirmed card JSON.
-        if let selectedTee = selectedTee { data["selectedTee"] = selectedTee }
-        if let scorecardData = scorecardData { data["scorecardData"] = scorecardData }
+        // Null-when-nil for the same merge reason as `holes` above: leaving a
+        // practice round must drop its scanned card, not leave it on the doc to
+        // be re-seeded on the next sync.
+        data["selectedTee"] = selectedTee ?? NSNull()
+        data["scorecardData"] = scorecardData ?? NSNull()
         // Drill/focus tags (SchemaV33). Always present (null when cleared) so
         // deselecting every focus propagates on the merge update, not just create.
         if let drillTypes, !drillTypes.isEmpty {
@@ -518,6 +523,16 @@ final class Practice {
             videoClip.delete(in: context, cleanupReels: false)
         }
 
+        // Photos cascade too — the inverse only nullifies, so without this the sole
+        // caller (SyncCoordinator+Practices' remote-delete pass) leaves them behind
+        // as loose Journal entries until the photo sync pass catches up. Mirrors
+        // PracticeService.deleteDeep and the game half in SyncCoordinator+Games.
+        // Re-deleting an already-gone Storage object is safe — deleteAthletePhoto
+        // treats objectNotFound as success.
+        for photo in (self.photos ?? []) {
+            photo.delete(in: context)
+        }
+
         // Delete notes
         for note in (self.notes ?? []) {
             context.delete(note)
@@ -533,9 +548,11 @@ final class Practice {
         // v6.1 PR3: HighlightReels generated for practice-round birdies
         // carry a denormalized `practiceID` FK (no SwiftData relationship),
         // so they don't cascade automatically. Mirror Athlete.delete's
-        // pattern: flat fetch, filter, hard-delete locally. Firestore
-        // orphans are picked up by the same daily cleanup that handles the
-        // Athlete-delete path.
+        // pattern: flat fetch, filter, hard-delete locally. Remote tombstones
+        // are the deleting device's job (PracticeService.deleteDeep /
+        // performDeleteAthlete) — there is no server-side sweep, so this
+        // local-only cascade is correct for its remaining caller, the sync
+        // path that ingests an already-tombstoned practice.
         let practiceID = self.id
         do {
             let allReels = try context.fetch(FetchDescriptor<HighlightReel>())

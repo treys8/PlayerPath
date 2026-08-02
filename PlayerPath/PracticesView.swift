@@ -55,6 +55,11 @@ struct PracticesView: View {
     /// Quick-create aborted because the default season couldn't be saved —
     /// surfaced instead of silently filing a seasonless practice.
     @State private var showingSeasonSetupError = false
+    /// Swipe-to-delete target, held until the confirmation resolves. Deleting a
+    /// practice is a deep, irreversible cascade (clips, photos, hole scores,
+    /// highlights), so it confirms like the games list does.
+    @State private var practiceToDelete: Practice?
+    @State private var showingDeletePracticeConfirmation = false
 
     /// True when this athlete has seasons in more than one sport. Drives
     /// sport-aware empty-state copy ("No Golf Practices Yet") so single-sport
@@ -122,7 +127,8 @@ struct PracticesView: View {
                 )
             } else {
                 EmptyPracticesView(
-                    sportTitle: isMultiSport ? activeSport.displayName : nil
+                    sportTitle: isMultiSport ? activeSport.displayName : nil,
+                    sport: activeSport
                 ) {
                     if activeSport == .golf {
                         showingNewPracticeTypePicker = true
@@ -176,7 +182,8 @@ struct PracticesView: View {
                     .buttonStyle(.plain)
                     .swipeActions {
                         Button(role: .destructive) {
-                            deleteSinglePractice(practice)
+                            practiceToDelete = practice
+                            showingDeletePracticeConfirmation = true
                         } label: {
                             Label("Delete", systemImage: "trash")
                         }
@@ -317,6 +324,23 @@ struct PracticesView: View {
         } message: {
             Text("Setting up a season failed. Please try again, or create a season from the Seasons screen.")
         }
+        .confirmationDialog(
+            "Delete Practice",
+            isPresented: $showingDeletePracticeConfirmation,
+            presenting: practiceToDelete
+        ) { practice in
+            // Golf type names already read as nouns ("Practice Round"), so
+            // appending "Practice" would stutter.
+            Button("Delete \(practice.type.displayName)", role: .destructive) {
+                deleteSinglePractice(practice)
+                practiceToDelete = nil
+            }
+            Button("Cancel", role: .cancel) { practiceToDelete = nil }
+        } message: { practice in
+            Text(practice.practiceType == PracticeType.practiceRound.rawValue
+                 ? "This will permanently delete this round and all its videos, photos, notes, hole scores, and highlights."
+                 : "This will permanently delete this practice and all its videos, photos, and notes.")
+        }
         .sheet(isPresented: $showingAddPractice) {
             if let athlete {
                 AddPracticeView(athlete: athlete, initialType: preselectedType) { created in
@@ -370,6 +394,13 @@ struct PracticesView: View {
 
     // MARK: - Quick Create
 
+    /// One-tap create for baseball practice types. Golf must NOT route here:
+    /// a golf practice created today on an active season is supposed to go live
+    /// (single-live guard, hole count, course, stale-session reminder), and all
+    /// of that lives in `AddPracticeView.performCreate`. Golf entry points —
+    /// the "+" and the empty state — go through `NewPracticeTypePicker` into
+    /// AddPracticeView for exactly that reason; sending a golf type here would
+    /// silently file a historical log instead of starting a session.
     private func quickCreatePractice(type: PracticeType) {
         guard let athlete = athlete else { return }
 
@@ -419,41 +450,22 @@ struct PracticesView: View {
     }
 
     private func deleteSinglePractice(_ practice: Practice) {
-        // Sync deletion to Firestore if practice was synced
-        if let firestoreId = practice.firestoreId,
-           let athlete = practice.athlete,
-           let user = athlete.user {
-            let userId = user.id.uuidString
-            Task {
-                await retryAsync {
-                    try await FirestoreManager.shared.deletePractice(userId: userId, practiceId: firestoreId)
-                }
+        // PracticeService owns the whole cascade — local rows + files, the
+        // Firestore tombstones (practice, holes, shots, reels), reminder
+        // cancellation, and the stats recalc.
+        Task {
+            let deleted = await PracticeService(modelContext: modelContext).deleteDeep(practice)
+
+            withAnimation {
+                viewModel.update(practices: athlete?.practices ?? [])
             }
-        }
 
-        let practiceAthlete = practice.athlete
-
-        withAnimation {
-            practice.delete(in: modelContext)
-        }
-
-        let saved = ErrorHandlerService.shared.saveContext(modelContext, caller: "PracticesView.deleteSinglePractice")
-
-        if saved, let athlete = practiceAthlete {
-            do {
-                try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext)
-            } catch {
-                ErrorHandlerService.shared.handle(error, context: "PracticesView.recalculateAthleteStatistics", showAlert: false)
+            if deleted {
+                Haptics.success()
+                log.info("Successfully deleted practice")
+            } else {
+                Haptics.error()
             }
-        }
-
-        viewModel.update(practices: athlete?.practices ?? [])
-
-        if saved {
-            Haptics.success()
-            log.info("Successfully deleted practice")
-        } else {
-            Haptics.error()
         }
     }
 

@@ -124,8 +124,13 @@ struct GameDetailView: View {
     }
 
     /// Per-hole rows for this game, ascending by hole. Empty when none entered.
+    /// Tombstoned rows are dropped — they keep a score of 0, so leaving them in
+    /// renders a phantom "Albatross" grid cell and inflates the scored-hole
+    /// count. Same filter the model's `holeScoreSum` applies.
     private var holeScores: [HoleScore] {
-        (game.holeScores ?? []).sorted { $0.holeNumber < $1.holeNumber }
+        (game.holeScores ?? [])
+            .filter { !$0.isDeletedRemotely }
+            .sorted { $0.holeNumber < $1.holeNumber }
     }
 
     /// Hole numbers (ascending) that have at least one clip — drives the golf
@@ -151,12 +156,13 @@ struct GameDetailView: View {
 
     /// First unscored hole in 1…holes, or nil once every hole is scored. Drives
     /// the live "Score Hole X" CTA, which is hidden when this is nil so a
-    /// finished round can't gain a 19th hole. Returns the first *gap* (not
-    /// max+1) so a skipped middle hole is offered before the round is done.
+    /// finished round can't gain a 19th hole. Shares `LiveHoleTracker`'s CTA
+    /// derivation with the live cards, so the label and the sheet it opens can't
+    /// disagree; it also drops tombstoned holes, so a deleted hole is re-offered
+    /// rather than skipped. Note this is the first *gap*, NOT the clip-attribution
+    /// hole (`currentHole`, highest scored + 1) — see LiveHoleTracker.
     private var nextHoleNumber: Int? {
-        let total = game.holes ?? 18
-        let scored = Set(holeScores.map(\.holeNumber))
-        return (1...total).first { !scored.contains($0) }
+        LiveHoleTracker.nextUnscoredHole(holeScores: holeScores, totalHoles: game.holes ?? 18)
     }
 
     /// Current per-hole par/yardage, so a re-scan pre-fills cells the new scan

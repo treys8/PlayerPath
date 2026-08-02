@@ -69,9 +69,13 @@ final class AutoHighlightSettings: ObservableObject {
 
     // MARK: - Rule Evaluation
 
-    /// Whether a given play result + role should be auto-tagged as a highlight at record time.
-    func shouldAutoHighlight(playType: PlayResultType, role: AthleteRole) -> Bool {
-        guard enabled else { return false }
+    /// The toggle governing this (role, play type) pair, or nil when no rule covers it.
+    ///
+    /// The nil case is load-bearing: `scanLibrary` must never demote a clip whose play
+    /// type isn't governed by a toggle (a hand-starred walk, sac fly, wild pitch, or any
+    /// `.both`-role clip), because a star there can only have been deliberate. Collapsing
+    /// nil into `false` — as this switch used to — is what let a rescan wipe manual curation.
+    private func rule(for playType: PlayResultType, role: AthleteRole) -> Bool? {
         switch (role, playType) {
         case (.batter, .single):     return includeSingles
         case (.batter, .double):     return includeDoubles
@@ -80,33 +84,72 @@ final class AutoHighlightSettings: ObservableObject {
         case (.pitcher, .strikeout), (.pitcher, .pitchingStrikeout): return includePitcherStrikeouts
         case (.pitcher, .groundOut): return includePitcherGroundOuts
         case (.pitcher, .flyOut):    return includePitcherFlyOuts
-        default:                     return false
+        default:                     return nil
         }
+    }
+
+    /// Whether a given play result + role should be auto-tagged as a highlight at record time.
+    func shouldAutoHighlight(playType: PlayResultType, role: AthleteRole) -> Bool {
+        guard enabled else { return false }
+        return rule(for: playType, role: role) ?? false
+    }
+
+    /// Pitcher-mode marker for an already-saved clip. Tiered the same way
+    /// `PlayResultEditorView`'s `initialMode` is, so the two agree on what a clip's role was.
+    ///
+    /// 1. `pitchType` is authoritative: it's set for EVERY pitcher-mode clip
+    ///    (PlayResultOverlayView's `parsedPitchType` returns a value whenever
+    ///    `recordingMode == .pitcher`), whereas `pitchSpeed` only lands when the user typed
+    ///    a radar reading. Inferring from speed alone mislabeled every gun-less pitcher clip
+    ///    as a batter, so a rescan demoted the very strikeouts the save path had just
+    ///    auto-starred using the explicit role.
+    /// 2. `pitchSpeed` covers clips saved before `pitchType` existed.
+    /// 3. A pitcher-side play type covers the rest of those legacy clips.
+    ///    `isPitchingResult` is `rawValue >= 10` — all unambiguously pitcher-perspective
+    ///    (a batter's HBP is the separate `.batterHitByPitch`), so this can't mislabel a
+    ///    batter. It does NOT catch a pitcher's induced groundout/flyout, which reuse the
+    ///    batting cases; nothing distinguishes those on a legacy clip, and inferring
+    ///    `.batter` there is the safe answer — those pairs aren't governed by any rule,
+    ///    so the scan skips them rather than demoting.
+    private static func inferredRole(for clip: VideoClip) -> AthleteRole {
+        if clip.pitchType != nil || clip.pitchSpeed != nil { return .pitcher }
+        if clip.playResult?.type.isPitchingResult == true { return .pitcher }
+        return .batter
     }
 
     // MARK: - Library Scan
 
-    /// Retroactively applies current rules to every clip for the given athlete.
+    /// Retroactively applies the current rules to the given athlete's clips.
     /// Returns the number of clips whose `isHighlight` flag was changed.
+    ///
+    /// Scope is the *governed set*: a clip is only touched when its own (role, play type)
+    /// pair is one the toggles actually describe. Everything else — untagged clips, golf,
+    /// and play types no rule covers — is left exactly as the user left it. That boundary
+    /// is what reconciles this with the promote-only rule the rest of the app follows
+    /// (ClipPersistenceService / PlayResultEditorView both `||=` rather than assign,
+    /// because nothing distinguishes an auto-set `true` from a deliberate star). Within
+    /// the governed set an assignment is safe and expected: unchecking "Singles" and
+    /// scanning has to actually clear singles or the toggle means nothing.
     @MainActor
     @discardableResult
     func scanLibrary(for athlete: Athlete, context: ModelContext) throws -> Int {
+        // Auto-highlight off means every rule evaluates false; scanning in that state
+        // would mass-unstar the whole governed set. Treat it as a no-op instead.
+        guard enabled else { return 0 }
         guard let clips = athlete.videoClips else { return 0 }
         var changed = 0
         var newlyHighlighted: [VideoClip] = []
         for clip in clips {
-            guard let playResult = clip.playResult else {
-                // No play result. Golf clips are manual-only highlights (golf
-                // never sets playResult), so a rescan must NOT clear them —
-                // skip without touching isHighlight/needsSync. Baseball clips
-                // with no play result still get unmarked as before.
-                if Self.clipIsGolf(clip) { continue }
-                if clip.isHighlight { clip.isHighlight = false; clip.needsSync = true; changed += 1 }
-                continue
-            }
-            // Infer role: clips with a recorded pitch speed were in pitcher mode
-            let inferredRole: AthleteRole = clip.pitchSpeed != nil ? .pitcher : .batter
-            let shouldTag = shouldAutoHighlight(playType: playResult.type, role: inferredRole)
+            // No play result → no rule to evaluate. These used to be blanket-unstarred,
+            // which silently destroyed hand-starred bulk imports (which land untagged)
+            // and drill footage — the same failure the golf guard below was added for.
+            guard let playResult = clip.playResult else { continue }
+            // Defensive: golf clips carry `club`, never `playResult`, so the guard above
+            // already exempts them. Kept so the exemption survives if that ever changes.
+            if Self.clipIsGolf(clip) { continue }
+            // No toggle governs this play type (walk, HBP, sac fly, `.both` role...) —
+            // a star here can only be deliberate, so leave the user's curation alone.
+            guard let shouldTag = rule(for: playResult.type, role: Self.inferredRole(for: clip)) else { continue }
             if clip.isHighlight != shouldTag {
                 clip.isHighlight = shouldTag
                 clip.needsSync = true

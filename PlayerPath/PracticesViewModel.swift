@@ -99,7 +99,15 @@ final class PracticesViewModel {
         let matchesSeason = practice.season?.displayName.lowercased().contains(q) ?? false
         let matchesNotes = (practice.notes ?? []).contains { $0.content.lowercased().contains(q) }
         let matchesType = practice.type.displayName.lowercased().contains(q)
+        // Course doubles as the range session's location — both are how a
+        // golfer remembers a session.
+        let matchesCourse = practice.course?.lowercased().contains(q) ?? false
+        // Match the display name ("Short Game") and the raw value
+        // ("short_game") so either phrasing finds the session.
+        let matchesFocus = practice.drillFocusDisplayNames.contains { $0.lowercased().contains(q) }
+            || practice.drillFocusRawValues.contains { $0.lowercased().contains(q) }
         return matchesDate || matchesSeason || matchesNotes || matchesType
+            || matchesCourse || matchesFocus
     }
 
     private func computeSummary(from practices: [Practice]) -> String {

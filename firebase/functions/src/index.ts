@@ -3061,6 +3061,16 @@ export const enforceStorageQuota = functions.storage
     const isPhoto = filePath.startsWith('athlete_photos/');
     if (!isVideo && !isPhoto) return;
 
+    // Files DERIVED from a master — the recruiting web rendition and the cloud
+    // thumbnail — are skipped outright. They have no `videos` doc, so they never
+    // appear in videosTotal below; but their own onFinalize would still add
+    // object.size on top of that total, and near the cap the over-quota branch
+    // would then delete the very file it just received. That reads as a published
+    // recruiting page silently losing its film or its link-preview image, while
+    // the athlete's in-app preview still shows both. The usage write-back they
+    // would trigger carries nothing the master's own upload didn't.
+    if (/^athlete_videos\/[^/]+\/(recruiting|thumbnails)\//.test(filePath)) return;
+
     const newFileSize = parseInt(object.size, 10) || 0;
     // Extract ownerUID from path: athlete_{videos|photos}/{ownerUID}/{fileName}
     const parts = filePath.split('/');
@@ -4340,26 +4350,35 @@ export const dailyStorageCleanup = functions
         const fileName = data.fileName;
 
         if (ownerUID && fileName) {
-          // The recruiting web rendition is derived from this master
-          // (RecruitingWebRenditionService.renditionPath — same base name, under
-          // a `recruiting/` subfolder, always .mp4) and has no life of its own.
-          // Nothing else deletes it: the client only ever writes it, and this
-          // purge matched the master by exact name. Left behind it outlives the
-          // clip permanently — leaked bytes that never counted against the
-          // athlete's quota, and worse, a published recruiting page that goes on
-          // serving a clip whose owner deleted it. serveRecruitingProfile's
-          // existence probe drops the tile once this is gone.
+          // TWO files are derived from this master by convention and have no life
+          // of their own — the recruiting web rendition
+          // (RecruitingWebRenditionService.renditionPath: same base name, under a
+          // `recruiting/` subfolder, always .mp4) and the cloud thumbnail
+          // (VideoCloudManager.athleteThumbnailPath). This purge matched the
+          // master by exact name and missed both, so each outlived the clip
+          // permanently: leaked bytes that never counted against the athlete's
+          // quota, and worse, a published recruiting page that went on serving a
+          // clip whose owner deleted it — the rendition as playable film, the
+          // thumbnail as the og:image and /poster frame in every link preview
+          // already shared. The client deletes all three at delete time; this is
+          // the backstop for when that failed.
           //
-          // The two deletes run CONCURRENTLY, deliberately. This loop is serial
-          // over as many as 500 documents inside a 60 s default timeout, and
-          // sections 2 and 3 below only run if it finishes — so a third blocking
-          // round-trip per document is not free, especially when the rendition
-          // 404s for every clip that was never published (the common case).
-          const renditionBase = String(fileName).replace(/\.[^./]+$/, '');
-          const [masterResult, renditionResult] = await Promise.allSettled([
+          // The deletes run CONCURRENTLY, deliberately. This loop is serial over
+          // as many as 500 documents, and sections 2 and 3 below only run if it
+          // finishes — so an extra BLOCKING round-trip per document is not free,
+          // especially when the derived files 404 for every clip that was never
+          // published (the common case). Adding one to this array is fine; adding
+          // an awaited step to the loop is a scaling change.
+          const derivedBase = String(fileName).replace(/\.[^./]+$/, '');
+          const [masterResult, ...derivedResults] = await Promise.allSettled([
             bucket.file(`athlete_videos/${ownerUID}/${fileName}`).delete(),
-            renditionBase
-              ? bucket.file(`athlete_videos/${ownerUID}/recruiting/${renditionBase}.mp4`).delete()
+            derivedBase
+              ? bucket.file(`athlete_videos/${ownerUID}/recruiting/${derivedBase}.mp4`).delete()
+              : Promise.resolve(),
+            derivedBase
+              ? bucket
+                  .file(`athlete_videos/${ownerUID}/thumbnails/${derivedBase}_thumbnail.jpg`)
+                  .delete()
               : Promise.resolve(),
           ]);
           if (masterResult.status === 'fulfilled') {
@@ -4368,15 +4387,16 @@ export const dailyStorageCleanup = functions
             // File may already be gone — that's fine
             console.error(`Failed to delete Storage file for ${doc.id}:`, masterResult.reason);
           }
-          if (
-            renditionResult.status === 'rejected' &&
-            (renditionResult.reason as any)?.code !== 404
-          ) {
-            console.error(
-              `Failed to delete recruiting rendition for ${doc.id}:`,
-              renditionResult.reason
-            );
-          }
+          // Same order as the array above.
+          const derivedLabels = ['recruiting rendition', 'thumbnail'];
+          derivedResults.forEach((result, index) => {
+            if (result.status === 'rejected' && (result.reason as any)?.code !== 404) {
+              console.error(
+                `Failed to delete ${derivedLabels[index]} for ${doc.id}:`,
+                result.reason
+              );
+            }
+          });
         }
 
         // Remove the Firestore document

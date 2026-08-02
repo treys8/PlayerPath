@@ -2,6 +2,7 @@ import Foundation
 import SwiftData
 import FirebaseAuth
 import UIKit
+import UserNotifications
 import os
 
 // `nonisolated` so the logger can be used from the `Task.detached` thumbnail-encoding
@@ -10,6 +11,16 @@ nonisolated private let syncLog = Logger(subsystem: "com.playerpath.app", catego
 
 extension SyncCoordinator {
 
+    /// Ceiling on how many missing-file photos one sync pass re-queues for download,
+    /// so a large gap (fresh install mid-restore, partial disk cleanup) can't flood
+    /// the drain. The remainder is picked up by the next pass.
+    static let maxPhotoRedownloadsPerPass = 100
+
+    /// Throttle key for the "cloud storage full" photo notice. Deliberately separate
+    /// from UploadQueueManager's `lastStorageWarningDate` (its 80%-full video warning)
+    /// so neither can starve the other's 24-hour window.
+    private static let photoQuotaNoticeKey = "lastPhotoQuotaFullNoticeDate"
+
     // MARK: - Photos Sync
 
     func syncPhotos(for user: User) async throws {
@@ -17,6 +28,13 @@ extension SyncCoordinator {
         guard let ownerUID = Auth.auth().currentUser?.uid else { return }
 
         let athletes = user.athletes ?? []
+
+        // Uploads dropped by the storage ceiling this pass. Published on the way
+        // out (via `defer`, so a mid-pass throw still reports what was counted) to
+        // drive the PhotosView banner — a silent `continue` left the athlete
+        // believing photos were backed up when they never left the device.
+        var blockedByQuota = 0
+        defer { photosBlockedByQuota = blockedByQuota }
 
         var syncedPhotos: [Photo] = []
         // Photo files to download, collected across all athletes and drained with
@@ -59,6 +77,8 @@ extension SyncCoordinator {
                 let tier = SubscriptionGate.effectiveAthleteTier
                 let limitBytes = Int64(tier.storageLimitGB) * StorageConstants.bytesPerGB
                 guard user.cloudStorageUsedBytes + fileSize <= limitBytes else {
+                    blockedByQuota += 1
+                    syncLog.warning("Photo upload skipped — cloud storage full (\(user.cloudStorageUsedBytes) + \(fileSize) > \(limitBytes) bytes)")
                     continue
                 }
                 do {
@@ -262,6 +282,53 @@ extension SyncCoordinator {
             }
         }
 
+        // Re-enqueue photos that exist in Storage but whose local file is gone — a
+        // download that failed on an earlier pass, or a file lost to a partial disk
+        // cleanup. The download loop above can't catch these: the row is already in
+        // `localPhotoIds`, so it's skipped forever. Runs AFTER the save so rows the
+        // delete pass just removed are out of the relationship. Capped per pass so a
+        // large gap can't queue thousands at once; the rest rides the next sync.
+        let alreadyQueued = Set(pendingPhotoDownloads.map(\.photoID))
+        var missingFileCount = 0
+        for photo in athletes.flatMap({ $0.photos ?? [] }) {
+            guard let cloudURL = photo.cloudURL, !cloudURL.isEmpty,
+                  !alreadyQueued.contains(photo.id),
+                  !photo.isAvailableOffline else { continue }
+            missingFileCount += 1
+            guard pendingPhotoDownloads.count < Self.maxPhotoRedownloadsPerPass + alreadyQueued.count else { continue }
+            pendingPhotoDownloads.append((photoID: photo.id, url: cloudURL, path: photo.resolvedFilePath))
+        }
+        if missingFileCount > Self.maxPhotoRedownloadsPerPass {
+            syncLog.info("Re-queued \(Self.maxPhotoRedownloadsPerPass) of \(missingFileCount) photos with missing local files — remainder next sync")
+        } else if missingFileCount > 0 {
+            syncLog.info("Re-queued \(missingFileCount) photo(s) with missing local files")
+        }
+
+        // Tell the athlete their photos aren't backing up. The PhotosView banner
+        // only lands if they open that screen, so mirror UploadQueueManager's
+        // storage-warning pattern with a once-a-day local notification. The
+        // "storage_warning" type already routes to More ▸ Storage Settings
+        // (PushNotificationService), so this needs no new deep-link handling.
+        if blockedByQuota > 0 {
+            let last = UserDefaults.standard.object(forKey: Self.photoQuotaNoticeKey) as? Date
+            if last == nil || Date().timeIntervalSince(last!) > 86400 {
+                UserDefaults.standard.set(Date(), forKey: Self.photoQuotaNoticeKey)
+                let tier = SubscriptionGate.effectiveAthleteTier
+                _ = await PushNotificationService.shared.scheduleLocalNotification(
+                    identifier: "photo_storage_full",
+                    title: "Cloud Storage Full",
+                    // States the fact rather than urging an upgrade: Pro IS the top
+                    // athlete tier, so "upgrade for more space" is a dead end for the
+                    // athlete most likely to fill 100 GB. Storage Settings (where the
+                    // tap lands) offers whatever remedy actually applies.
+                    body: "\(blockedByQuota) photo\(blockedByQuota == 1 ? "" : "s") couldn't back up — your \(tier.storageLimitGB) GB of cloud storage is full.",
+                    categoryIdentifier: "CLOUD_BACKUP",
+                    userInfo: ["type": "storage_warning"],
+                    trigger: UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
+                )
+            }
+        }
+
         // Drain queued downloads in the background with bounded concurrency. One
         // wrapper task is registered in pendingDownloadTasks so sign-out cancels the
         // whole batch (cancellation propagates to the TaskGroup children).
@@ -312,13 +379,16 @@ extension SyncCoordinator {
                 ErrorHandlerService.shared.saveContext(context, caller: "SyncCoordinator.syncPhotos.downloaded")
             }
         } catch {
+            // Log ONLY — do not flip `needsSync`. This row already carries cloudURL
+            // + firestoreId, so a dirty flag routes it into the metadata-UPDATE
+            // branch of syncPhotos, which writes gameId/practiceId/seasonId from
+            // local state and NULLs each one whose parent hasn't synced down yet
+            // (see updatableFirestoreData) — silently untagging the photo for every
+            // device. It also never re-downloaded the file: the row is already in
+            // `localPhotoIds`, so the download loop skips it. Recovery is the
+            // missing-file re-enqueue pass in syncPhotos, plus PhotoThumbnailLoader's
+            // lazy cloud fallback when the photo is displayed.
             syncLog.error("Failed to download photo \(job.photoID): \(error.localizedDescription)")
-            // Mark for re-download next sync — only if the row still exists.
-            guard let photo = fetchPhoto(by: job.photoID) else { return }
-            photo.needsSync = true
-            if let context = modelContext {
-                ErrorHandlerService.shared.saveContext(context, caller: "SyncCoordinator.syncPhotos.downloadFailed")
-            }
         }
     }
 

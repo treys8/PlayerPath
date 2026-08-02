@@ -754,6 +754,46 @@ type ImageKind = 'avatar' | 'poster';
 const IMAGE_KINDS = new Set<string>(['avatar', 'poster']);
 
 /**
+ * The thumbnail of the first highlight whose VIDEO is still in Storage, or null.
+ *
+ * Not `highlights[0]`. The published `highlights` array is a publish-time
+ * snapshot that nothing prunes when a clip is later deleted, and the thumbnail is
+ * a separate object from the video — so keying the preview image off entry zero
+ * kept serving a frame from a clip the athlete had deleted, on the one surface
+ * that reaches people who never opened the page: the link unfurl. The page body
+ * had dropped that clip; the preview had not.
+ *
+ * "First one whose video survives" is deliberately the SAME rule the page applies
+ * to its film, so the picture in the unfurl is always the picture at the top of
+ * the page. Answering that question needs the same existence probes the page
+ * already runs, which is why this exists as a function rather than an index: the
+ * route has no `resolved[]` to consult and has to earn the answer itself.
+ *
+ * Returns the RAW stored value. Every caller still passes it through ownedPath()
+ * — keeping one choke point for the client-authored-path check is the whole
+ * reason this function doesn't do it here.
+ */
+async function heroThumbnail(
+  bucket: Bucket,
+  data: Record<string, unknown>,
+  ownerUID: string
+): Promise<unknown> {
+  const highlights = Array.isArray(data.highlights)
+    ? (data.highlights as Record<string, unknown>[]).slice(0, MAX_HIGHLIGHTS)
+    : [];
+  if (highlights.length === 0) return null;
+  const present = await Promise.all(
+    highlights.map(async (h) => {
+      const videoPath = ownedPath(h.videoStoragePath, ownerUID);
+      if (!videoPath) return false;
+      return !(await objectMissing(bucket, videoPath));
+    })
+  );
+  const index = present.findIndex(Boolean);
+  return index < 0 ? null : highlights[index]?.thumbnailStoragePath ?? null;
+}
+
+/**
  * `/p/{token}/avatar` and `/p/{token}/poster` — profile images, proxied.
  *
  * og:image used to be the signed URL itself, which dies within the hour while
@@ -774,6 +814,12 @@ const IMAGE_KINDS = new Set<string>(['avatar', 'poster']);
  * this function signs with the Admin SDK, so skipping that check on the new
  * route would reopen the bucket-wide oracle the avatar route was careful to
  * close.
+ *
+ * The poster branch resolves the hero itself rather than trusting `highlights[0]`
+ * (see heroThumbnail). Doing it here and not only in the og:image tag is what
+ * makes the fix reach anybody: this URL is permanent by design, so every unfurl
+ * cache that already holds it re-fetches THIS route — correcting only the tag
+ * would leave every preview ever shared still showing the deleted clip.
  */
 async function serveProxiedImage(
   res: functions.Response,
@@ -786,11 +832,7 @@ async function serveProxiedImage(
     if (kind === 'avatar') {
       raw = profile.data.headshotPath;
     } else {
-      // The hero clip's poster — the same highlight the page renders first.
-      const highlights = Array.isArray(profile.data.highlights)
-        ? (profile.data.highlights as Record<string, unknown>[])
-        : [];
-      raw = highlights[0]?.thumbnailStoragePath ?? null;
+      raw = await heroThumbnail(admin.storage().bucket(), profile.data, profile.ownerUID);
     }
   }
   const path = profile ? ownedPath(raw, profile.ownerUID) : null;
@@ -967,14 +1009,24 @@ export const serveRecruitingProfile = functions
     // og:image gets the stable proxy, because unfurl caches outlive the signature.
     //
     // Falls back to the hero clip's poster when there's no headshot, so a profile
-    // without one still unfurls as a picture rather than a grey text row. Keyed
-    // on `rawHighlights[0]` — the same highlight `serveProxiedImage` re-derives —
-    // rather than on the rendered `clips[0]`, so the tag and the route can't
-    // disagree. If that thumbnail happens to be missing the route 404s and the
-    // unfurl degrades exactly as it does today; the null branch stays because the
-    // thumbnail path is derived by convention and may never have existed.
+    // without one still unfurls as a picture rather than a grey text row. Keyed on
+    // the first highlight that is not GONE — the same clip this page renders as
+    // its hero, and the same one heroThumbnail() will independently resolve for
+    // the route. It used to key on `rawHighlights[0]` unconditionally, which
+    // agreed with the route but with neither the film nor reality: a deleted hero
+    // left tag and route both pointing at a frame from a clip that no longer
+    // exists, which is the one thing a link preview must never do.
+    //
+    // `!== 'gone'`, not `=== 'ok'`: a `failed` highlight's object IS present —
+    // only its signature failed — which is exactly what the route's probe will
+    // conclude. Keeping the two predicates equivalent is what stops them drifting
+    // apart again. If the chosen thumbnail is itself missing the route 404s and
+    // the unfurl degrades exactly as it does today; the null branch stays because
+    // the thumbnail path is derived by convention and may never have existed.
     const imageBase = `${PUBLIC_ORIGIN}/p/${encodeURIComponent(token)}`;
-    const heroPosterPath = ownedPath(rawHighlights[0]?.thumbnailStoragePath, ownerUID);
+    const heroIndex = resolved.findIndex((r) => r.state !== 'gone');
+    const heroPosterPath =
+      heroIndex < 0 ? null : ownedPath(rawHighlights[heroIndex]?.thumbnailStoragePath, ownerUID);
     const ogImage = headshot
       ? `${imageBase}/avatar`
       : heroPosterPath

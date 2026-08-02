@@ -316,7 +316,10 @@ struct StatisticsView: View {
     private func hasGolfRounds(_ ath: Athlete) -> Bool {
         (ath.games ?? []).contains { $0.season?.sport == .golf && $0.isGolfRoundScored }
             || (ath.practices ?? []).contains {
-                $0.practiceType == PracticeType.practiceRound.rawValue && !($0.holeScores ?? []).isEmpty
+                // Tombstoned holes don't count as scored — a round whose only
+                // holes were deleted elsewhere must not unlock the golf export.
+                $0.practiceType == PracticeType.practiceRound.rawValue
+                    && ($0.holeScores ?? []).contains { !$0.isDeletedRemotely }
             }
     }
 

@@ -16,6 +16,7 @@ struct UserMainFlow: View {
     let isNewUserFlag: Bool
     let hasCompletedOnboarding: Bool
     @Query(sort: \Athlete.createdAt) private var allAthletes: [Athlete]
+    @Environment(\.modelContext) private var modelContext
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     private var sharedFolderManager: SharedFolderManager { .shared }
     @State private var selectedAthlete: Athlete?
@@ -442,18 +443,7 @@ struct UserMainFlow: View {
     private func handleReelBannerTap(_ summary: HighlightReelBannerService.Summary) {
         Haptics.light()
         if SubscriptionGate.effectiveAthleteTier.hasAutoHighlights {
-            let byID = Dictionary(
-                (resolvedAthlete?.videoClips ?? []).map { ($0.id, $0) },
-                uniquingKeysWith: { existing, _ in existing }
-            )
-            // Order comes from `summary.clipIDs`, which GolfHighlightUnion built —
-            // replaying it preserves that order. `isDeletedRemotely` matters too: the
-            // union filters on it, so without it a clip soft-deleted by sync between
-            // round end and this tap would land in the reel here but not in the one
-            // GameDetailView builds under the same `round_<id>` cache scope.
-            reelClips = summary.clipIDs
-                .compactMap { byID[$0] }
-                .filter { !$0.isDeleted && !$0.isDeletedRemotely }
+            reelClips = fetchReelClips(ids: summary.clipIDs)
             reelScope = summary.scopeKey
             reelTitle = summary.title
             showingReel = true
@@ -461,6 +451,50 @@ struct UserMainFlow: View {
             showingReelPaywall = true
         }
         HighlightReelBannerService.shared.dismiss()
+    }
+
+    /// Resolves the banner snapshot's clip IDs against the store rather than against the
+    /// selected athlete's `videoClips` relationship.
+    ///
+    /// `.gameEnded` can fire for an athlete that isn't the selected one — AthleteCard's
+    /// "End Live" context action ends a live game straight from AthleteSelectionView — and
+    /// `resolvedAthlete` falls back to `athletesForUser.first` when nothing is selected.
+    /// Either way every ID missed the relationship lookup and the banner opened an empty
+    /// reel ("Star some clips first…") right after announcing N highlights.
+    ///
+    /// Order comes from `summary.clipIDs`, which GolfHighlightUnion built — replaying it
+    /// preserves that order. `isDeletedRemotely` matters too: the union filters on it, so
+    /// without it a clip soft-deleted by sync between round end and this tap would land in
+    /// the reel here but not in the one GameDetailView builds under the same `round_<id>`
+    /// cache scope. Mirrors ReelPlayerView.fetchOrderedClips, including its tolerance for
+    /// duplicate ids from multi-device row duplication.
+    private func fetchReelClips(ids: [UUID]) -> [VideoClip] {
+        guard !ids.isEmpty else { return [] }
+        let fetched: [VideoClip]
+        do {
+            // UUID-to-UUID comparison — no `.uuidString` or other transform on a model
+            // keypath inside #Predicate, which traps fatally at fetch.
+            let descriptor = FetchDescriptor<VideoClip>(
+                predicate: #Predicate<VideoClip> { clip in
+                    ids.contains(clip.id)
+                }
+            )
+            fetched = try modelContext.fetch(descriptor)
+        } catch {
+            ErrorHandlerService.shared.handle(
+                error,
+                context: "UserMainFlow.fetchReelClips",
+                showAlert: false
+            )
+            return []
+        }
+        let byID: [UUID: VideoClip] = Dictionary(
+            fetched.map { ($0.id, $0) },
+            uniquingKeysWith: { existing, _ in existing }
+        )
+        return ids
+            .compactMap { byID[$0] }
+            .filter { !$0.isDeleted && !$0.isDeletedRemotely }
     }
 
     /// Builds a banner summary for a just-ended game (or golf round). Fully

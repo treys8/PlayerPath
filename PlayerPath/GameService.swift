@@ -16,7 +16,10 @@ class GameService {
     // MARK: - Deep Game Deletion
 
     func deleteGameDeep(_ game: Game) async {
-        // Capture primitive values before SwiftData deletion removes access
+        // Capture primitive values before SwiftData deletion removes access.
+        // Strict `firebaseAuthUid`: firestore.rules' isOwner denies writes to
+        // users/{local-uuid}, so no docs can exist under a fallback path —
+        // nil authUid means nothing synced, and there's nothing to tombstone.
         let firestoreId = game.firestoreId
         let userId = game.athlete?.user?.firebaseAuthUid
         let gameAthlete = game.athlete
@@ -24,7 +27,9 @@ class GameService {
         let gameID = game.id
         // Capture hole numbers BEFORE deletion so we can soft-delete the
         // matching Firestore subcollection docs after the local save commits.
-        let holeNumbers = (game.holeScores ?? []).map(\.holeNumber)
+        // Synced rows only — the hole delete uses updateData, which throws on
+        // a missing doc and would burn the retry budget per never-synced hole.
+        let holeNumbers = (game.holeScores ?? []).filter { $0.firestoreId != nil }.map(\.holeNumber)
 
         // v6.1 PR2: collect HighlightReel doc IDs for this game so we can
         // soft-delete the Firestore docs after local delete + save. Reels
@@ -106,8 +111,9 @@ class GameService {
                     try await FirestoreManager.shared.deleteGame(userId: userId, gameId: firestoreId)
                 }
                 // Soft-delete each hole subcollection doc so cross-device sync
-                // doesn't resurrect them. Fire-and-forget per hole — failures
-                // are caught by the daily server-side cleanup.
+                // doesn't resurrect them. Fire-and-forget per hole — there is
+                // no server-side sweep under users/{uid}, so a doc that misses
+                // its tombstone here resurrects the hole on the next sync pull.
                 for holeNumber in holeNumbers {
                     await retryAsync {
                         try await FirestoreManager.shared.deleteGameHoleScore(
@@ -201,6 +207,10 @@ class GameService {
         if isLive && (resolvedSeason?.isActive ?? true) {
             (athlete.games ?? []).filter { $0.isLive }.forEach {
                 $0.isLive = false
+                // Clear the start stamp with the flag — a row that is no longer
+                // live must not keep claiming a start time. `isComplete` is
+                // deliberately left alone: this game was abandoned, not finished.
+                $0.liveStartDate = nil
                 $0.needsSync = true
                 GameAlertService.shared.cancelEndGameReminder(for: $0)
             }
@@ -395,9 +405,11 @@ class GameService {
             return
         }
 
-        // End other live games of this athlete
+        // End other live games of this athlete. Abandoned, not finished — so the
+        // live flags clear but `isComplete` stays as-is.
         for otherGame in athlete.games ?? [] where otherGame.isLive && otherGame != game {
             otherGame.isLive = false
+            otherGame.liveStartDate = nil
             otherGame.needsSync = true
             GameAlertService.shared.cancelEndGameReminder(for: otherGame)
         }
@@ -527,9 +539,11 @@ class GameService {
             return
         }
 
-        // End other live games of this athlete
+        // End other live games of this athlete. Abandoned, not finished — so the
+        // live flags clear but `isComplete` stays as-is.
         for otherGame in athlete.games ?? [] where otherGame.isLive && otherGame != game {
             otherGame.isLive = false
+            otherGame.liveStartDate = nil
             otherGame.needsSync = true
             GameAlertService.shared.cancelEndGameReminder(for: otherGame)
         }
@@ -569,6 +583,14 @@ class GameService {
 
     func complete(_ game: Game) async {
         game.isComplete = true
+        // Completing also clears the live flags. In practice "Mark Complete" is
+        // only offered on a non-live game (`displayStatus` prefers `.live`), but
+        // without this a game that ever reached here while live would match BOTH
+        // the live and completed queries forever, with no way back short of a
+        // manual restart+end.
+        game.isLive = false
+        game.liveStartDate = nil
+        GameAlertService.shared.cancelEndGameReminder(for: game)
         game.needsSync = true
 
         // Recalculate game stats first (they feed into athlete stats)

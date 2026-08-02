@@ -2,16 +2,30 @@
 //  LiveHoleTracker.swift
 //  PlayerPath
 //
-//  Pure-derivation helper that answers "what hole is the user currently on?"
-//  for a live golf round. The current hole is the next unscored hole — i.e.
-//  (max scored holeNumber) + 1, capped at total holes. Storing this as a
-//  separate persisted field would invite drift between the pointer and the
-//  actual HoleScore rows, so it's always computed.
+//  Pure-derivation helpers for "which hole?" on a golf round. Storing either as
+//  a persisted field would invite drift between the pointer and the actual
+//  HoleScore rows, so both are always computed.
+//
+//  There are TWO questions here and they are NOT the same — collapsing them
+//  mis-stamps clips:
+//
+//    • `nextUnscoredHole` — "which hole still needs a score?" = the first GAP in
+//      1...total. Drives every "Score Hole N" CTA, so a skipped or deleted middle
+//      hole is offered again rather than stranded.
+//    • `currentPlayingHole` — "which hole is the golfer standing on?" = highest
+//      scored + 1, because golf is played in order. Drives clip attribution only.
+//      A gap behind the player (hole 3 deleted while they're on hole 10) must NOT
+//      drag a hole-10 clip back onto hole 3.
+//
+//  Both ignore soft-deleted holes, and both return nil rather than clamping once
+//  the round is complete — a finished round has no current hole, so the CTA hides
+//  and a post-round clip can't mis-stamp onto the last hole.
 //
 //  Consumed by:
-//    • ClipPersistenceService.saveClip — stamps VideoClip.holeNumber at save
-//    • ScoreHoleSheet — picks the default hole when launched from a card
-//    • LiveGameCard / Dashboard — labels the "Score Hole X" CTA
+//    • nextUnscoredHole → LiveGameCard / Journal / Dashboard CTAs,
+//      GameDetailView / PracticeDetailView, and the sheet each one opens
+//    • currentPlayingHole → ClipPersistenceService.saveClip and
+//      BulkVideoImportViewModel, via `currentHole(for:)`
 //
 
 import Foundation
@@ -21,33 +35,80 @@ final class LiveHoleTracker {
     static let shared = LiveHoleTracker()
     private init() {}
 
-    /// Returns the next-unscored hole number for a live golf tournament, or
-    /// nil if the game is not live-and-golf. Capped at `holes` so a 19th tap
-    /// can't escape the round.
-    func currentHole(for game: Game?) -> Int? {
-        guard let game else { return nil }
-        guard game.isLive, game.season?.sport == .golf else { return nil }
-        let totalHoles = game.holes ?? 18
-        let scoredMax = (game.holeScores ?? []).map(\.holeNumber).max() ?? 0
-        // Round is complete — no live hole. Returning the last hole here would
-        // mis-tag any post-round clip onto hole `totalHoles` and flip its reel.
+    /// First unscored hole in 1...totalHoles, or nil once every hole carries a
+    /// live score.
+    ///
+    /// Soft-deleted (tombstoned) holes do NOT count as scored. `ShotByShotContent`
+    /// deletes a synced hole by zeroing its score and flagging `isDeletedRemotely`
+    /// until the next reconcile drops the row — counting those would both skip the
+    /// deleted hole (it's still the max) and let a 0-stroke row poison any running
+    /// total derived from the same list.
+    ///
+    /// Returns nil rather than clamping to the last hole: a finished round has no
+    /// hole left to score, so the CTA hides instead of offering a tap that does
+    /// nothing.
+    static func nextUnscoredHole(holeScores: [HoleScore], totalHoles: Int) -> Int? {
+        guard totalHoles > 0 else { return nil }
+        let scored = Set(holeScores.lazy.filter { !$0.isDeletedRemotely }.map(\.holeNumber))
+        return (1...totalHoles).first { !scored.contains($0) }
+    }
+
+    /// The hole the golfer is playing right now: one past the highest scored hole,
+    /// or nil once the round is complete. Tombstoned holes are excluded, so
+    /// deleting the hole you just scored puts you back ON it rather than skipping
+    /// ahead.
+    ///
+    /// Deliberately NOT first-gap. A gap behind the player (they deleted hole 3
+    /// while standing on hole 10) means hole 3 needs a score — it does not mean
+    /// they walked backwards, and a clip filmed on 10 must not land in hole 3's
+    /// reel.
+    static func currentPlayingHole(holeScores: [HoleScore], totalHoles: Int) -> Int? {
+        guard totalHoles > 0 else { return nil }
+        let scoredMax = holeScores.lazy.filter { !$0.isDeletedRemotely }.map(\.holeNumber).max() ?? 0
         guard scoredMax < totalHoles else { return nil }
         return scoredMax + 1
     }
 
-    /// Practice-round next-unscored hole. Activated in PR3 by the PracticeType
-    /// enum extension that introduces the `practice_round` raw value; range
-    /// sessions and baseball practices return nil. Hole count is read from
-    /// the Practice's `holes` field (PR3); falls back to 18 when unset to
-    /// keep older / unmigrated rows usable.
+    // MARK: - Clip attribution
+
+    /// The hole a clip captured right now belongs to, or nil if the game isn't
+    /// live-and-golf (or is fully scored). The live gate is what makes this safe:
+    /// a clip only inherits a hole while a round is actually running.
+    func currentHole(for game: Game?) -> Int? {
+        guard let game else { return nil }
+        guard game.isLive, game.season?.sport == .golf else { return nil }
+        return Self.currentPlayingHole(holeScores: game.holeScores ?? [],
+                                       totalHoles: game.holes ?? 18)
+    }
+
+    /// Practice-round variant. Range sessions and baseball practices return nil —
+    /// they have no holes to attribute to. Hole count falls back to 18 when unset
+    /// so older / unmigrated rows stay usable.
     func currentHole(for practice: Practice?) -> Int? {
         guard let practice else { return nil }
         guard practice.isLive else { return nil }
         guard practice.practiceType == PracticeType.practiceRound.rawValue else { return nil }
-        let totalHoles = practice.holes ?? 18
-        let scoredMax = (practice.holeScores ?? []).map(\.holeNumber).max() ?? 0
-        // Round is complete — no live hole (see game variant above).
-        guard scoredMax < totalHoles else { return nil }
-        return scoredMax + 1
+        return Self.currentPlayingHole(holeScores: practice.holeScores ?? [],
+                                       totalHoles: practice.holes ?? 18)
+    }
+
+    // MARK: - "Score Hole N" CTA
+
+    /// The hole a live round's "Score Hole N" CTA should open, or nil when there's
+    /// nothing left to score. Live-gated twins of `currentHole` so a card's label
+    /// and the sheet it opens are always the same hole.
+    func nextUnscoredHole(for game: Game?) -> Int? {
+        guard let game else { return nil }
+        guard game.isLive, game.season?.sport == .golf else { return nil }
+        return Self.nextUnscoredHole(holeScores: game.holeScores ?? [],
+                                     totalHoles: game.holes ?? 18)
+    }
+
+    func nextUnscoredHole(for practice: Practice?) -> Int? {
+        guard let practice else { return nil }
+        guard practice.isLive else { return nil }
+        guard practice.practiceType == PracticeType.practiceRound.rawValue else { return nil }
+        return Self.nextUnscoredHole(holeScores: practice.holeScores ?? [],
+                                     totalHoles: practice.holes ?? 18)
     }
 }

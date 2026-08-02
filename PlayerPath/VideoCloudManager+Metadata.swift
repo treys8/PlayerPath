@@ -398,14 +398,18 @@ extension VideoCloudManager {
         videoFileName: String,
         athleteStableId: String
     ) async throws -> String {
-        let storage = Storage.storage()
-        let storageRef = storage.reference()
-
-        let thumbnailFileName = (videoFileName as NSString).deletingPathExtension + "_thumbnail.jpg"
         guard let ownerUID = Auth.auth().currentUser?.uid else {
             throw VideoCloudError.uploadFailed("User session expired — please sign in again to upload")
         }
-        let thumbnailRef = storageRef.child("athlete_videos/\(ownerUID)/thumbnails/\(thumbnailFileName)")
+        // Shared with the delete path and the recruiting publish path — see
+        // VideoCloudManager.athleteThumbnailPath for why this is one function.
+        guard let thumbnailPath = VideoCloudManager.athleteThumbnailPath(
+            ownerUID: ownerUID,
+            videoFileName: videoFileName
+        ) else {
+            throw VideoCloudError.uploadFailed("Video has no usable filename for its thumbnail")
+        }
+        let thumbnailRef = Storage.storage().reference(withPath: thumbnailPath)
 
         let metadata = StorageMetadata()
         metadata.contentType = "image/jpeg"

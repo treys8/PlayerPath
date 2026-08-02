@@ -123,6 +123,16 @@ struct PhotosView: View {
             // Filter chips
             filterBar
 
+            // Cloud storage is full and the last sync skipped photo uploads. Reading
+            // the count here (SyncCoordinator is @Observable) refreshes the banner
+            // automatically as passes run, and clears it once uploads resume.
+            if SyncCoordinator.shared.photosBlockedByQuota > 0 {
+                PhotoBackupBlockedBanner(count: SyncCoordinator.shared.photosBlockedByQuota) {
+                    NotificationCenter.default.post(name: .navigateToCloudStorage, object: nil)
+                }
+                .padding(.bottom, 8)
+            }
+
             if cachedPhotos.isEmpty {
                 ScrollView {
                     emptyState

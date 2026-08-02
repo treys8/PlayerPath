@@ -140,21 +140,23 @@ enum GolfExportData {
     /// par is derived from the per-hole pars.
     static func practiceRounds(for athlete: Athlete, season: Season?) -> [GolfRoundRow] {
         let pool: [Practice] = season?.practices ?? athlete.practices ?? []
+        // Tombstoned holes keep a score of 0, so they'd both keep an emptied
+        // round in the export and drag its total down. Drop them up front.
         let scored = pool.filter { (p: Practice) -> Bool in
             p.practiceType == PracticeType.practiceRound.rawValue
-                && !(p.holeScores ?? []).isEmpty
+                && (p.holeScores ?? []).contains { !$0.isDeletedRemotely }
         }
         let sorted = scored.sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
         // Explicit typed closure keeps the type-checker fast (see tournamentRounds).
         return sorted.map { (practice: Practice) -> GolfRoundRow in
-            let holes = practice.holeScores ?? []
+            let holes = (practice.holeScores ?? []).filter { !$0.isDeletedRemotely }
             return GolfRoundRow(
                 date: practice.date,
                 course: practice.course ?? "Practice Round",
                 holes: practice.holes ?? holes.count,
-                par: parTotal(practice.holeScores),
+                par: parTotal(holes),
                 score: holes.reduce(0) { $0 + $1.score },
-                putts: puttsTotal(practice.holeScores),
+                putts: puttsTotal(holes),
                 girPct: girRate(holes),
                 firPct: firRate(holes),
                 strokesGained: ShotStrokesGained.roundSGTotal(holes: holes)

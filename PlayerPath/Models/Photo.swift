@@ -243,6 +243,17 @@ final class Photo {
                 }
             }
         }
+        // Clear the athlete's headshot pointer when THIS photo is the headshot.
+        // Otherwise `Athlete.headshotPhotoId` keeps naming a row that no longer
+        // exists and that stale UUID rides the athlete doc out to every other
+        // device. `needsSync` is what SyncCoordinator+Athletes gates the upload on,
+        // so without it the cleared pointer never reaches Firestore. Lives here
+        // rather than in PhotoPersistenceService because four call sites (game /
+        // practice / athlete cascades, remote-delete sync) bypass that service.
+        if let owner = athlete, owner.headshotPhotoId == id {
+            owner.headshotPhotoId = nil
+            owner.needsSync = true
+        }
         context.delete(self)
     }
 }

@@ -62,13 +62,18 @@ struct LiveGameCard: View {
     }
 
     /// Per-hole rows for this activity, sorted ascending. Empty when none yet.
+    ///
+    /// Tombstoned holes are filtered out. A soft-deleted hole keeps its `par` but
+    /// has its `score` zeroed (see ShotByShotContent's delete path), so counting
+    /// one here would report the round several strokes UNDER its real to-par and
+    /// would keep the deleted hole as the "last scored" one.
     private var scoredHoles: [HoleScore] {
         let holes: [HoleScore]
         switch parent {
         case .game(let g):          holes = g.holeScores ?? []
         case .practiceRound(let p): holes = p.holeScores ?? []
         }
-        return holes.sorted { $0.holeNumber < $1.holeNumber }
+        return holes.filter { !$0.isDeletedRemotely }.sorted { $0.holeNumber < $1.holeNumber }
     }
 
     private var totalHoles: Int {
@@ -109,9 +114,13 @@ struct LiveGameCard: View {
 
     private var iconName: String { isGolf ? "figure.golf" : "baseball.fill" }
 
+    /// A golf `Game` is a ROUND — "Tournament" belongs to the multi-round
+    /// `GolfTournament` container, so a standalone 18 must never claim it.
+    /// Routed through `Game.eventNoun` so this stays in step with every other
+    /// single-event label site.
     private var typeLabel: String {
         switch parent {
-        case .game:            return isGolf ? "TOURNAMENT" : "GAME"
+        case .game(let g):     return g.eventNoun.uppercased()
         case .practiceRound:   return "PRACTICE ROUND"
         }
     }
@@ -133,10 +142,12 @@ struct LiveGameCard: View {
 
     private var endLabel: String { isGolf ? "End Round" : "End" }
 
-    /// Next unscored hole, capped at total. Used to label the "Score Hole X" CTA.
-    private var nextHoleNumber: Int {
-        let scoredMax = scoredHoles.last?.holeNumber ?? 0
-        return min(scoredMax + 1, totalHoles)
+    /// Next unscored hole, or nil once the round is fully scored. Shares the ONE
+    /// derivation with the sheet the CTA opens (`LiveHoleTracker`) — deriving it
+    /// separately here previously let the card offer "Score Hole 18" on a finished
+    /// round while the tracker returned nil, so the button did nothing.
+    private var nextHoleNumber: Int? {
+        LiveHoleTracker.nextUnscoredHole(holeScores: scoredHoles, totalHoles: totalHoles)
     }
 
     /// Sum of per-hole strokes — used for the live progress label when at
@@ -149,9 +160,11 @@ struct LiveGameCard: View {
         return runningDiff > 0 ? "+\(runningDiff)" : "\(runningDiff)"
     }
 
-    /// True when the card has at least one CTA to render in its action row.
+    /// True when the card has at least one CTA to render in its action row. The
+    /// score half must match the CTA's own `nextHoleNumber != nil` gate, else a
+    /// fully-scored round with no End closure renders an empty action row.
     private var hasActions: Bool {
-        (isGolf && onScore != nil) || onRecord != nil || onEnd != nil
+        (isGolf && onScore != nil && nextHoleNumber != nil) || onRecord != nil || onEnd != nil
     }
 
     var body: some View {
@@ -289,9 +302,11 @@ struct LiveGameCard: View {
             // crowd the title. Side-by-side and equal width when both present.
             if hasActions {
                 HStack(spacing: 10) {
-                    if isGolf, let onScore {
+                    if isGolf, let onScore, let nextHoleNumber {
                         // Primary CTA for live golf activities — score the
                         // current hole without navigating into the detail screen.
+                        // Absent once every hole is scored: there is no next hole
+                        // to open, so the round is left with just End.
                         Button {
                             Haptics.medium()
                             onScore()

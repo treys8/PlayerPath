@@ -33,6 +33,37 @@ func performDeleteAthlete(_ athlete: Athlete, selectedAthlete: Binding<Athlete?>
             }
         }
     }
+    let tournamentFirestoreIds = (athlete.golfTournaments ?? []).compactMap { $0.firestoreId }
+
+    // Hole docs key on holeNumber under their parent game/practice doc.
+    // Tombstone only rows that actually uploaded — the hole deletes use
+    // updateData, which throws on a missing doc and would burn the whole
+    // retry budget per never-synced hole.
+    var gameHoleIds: [(gameId: String, holeNumbers: [Int])] = []
+    for game in athlete.games ?? [] {
+        guard let gId = game.firestoreId else { continue }
+        let holes = (game.holeScores ?? []).filter { $0.firestoreId != nil }.map(\.holeNumber)
+        if !holes.isEmpty { gameHoleIds.append((gameId: gId, holeNumbers: holes)) }
+    }
+    var practiceHoleIds: [(practiceId: String, holeNumbers: [Int])] = []
+    for practice in athlete.practices ?? [] {
+        guard let pId = practice.firestoreId else { continue }
+        let holes = (practice.holeScores ?? []).filter { $0.firestoreId != nil }.map(\.holeNumber)
+        if !holes.isEmpty { practiceHoleIds.append((practiceId: pId, holeNumbers: holes)) }
+    }
+
+    // Reels carry only a denormalized athleteID (no SwiftData relationship),
+    // so flat-fetch and filter BEFORE Athlete.delete hard-deletes the rows.
+    var reelFirestoreIds: [String] = []
+    do {
+        reelFirestoreIds = try modelContext.fetch(FetchDescriptor<HighlightReel>())
+            .filter { $0.athleteID == athleteID }
+            .compactMap(\.firestoreId)
+    } catch {
+        // Reel docs orphan (unreachable, not resurrected) rather than
+        // blocking the athlete delete.
+        ErrorHandlerService.shared.handle(error, context: "performDeleteAthlete.reelCapture", showAlert: false)
+    }
 
     if athleteID == selectedAthlete.wrappedValue?.id {
         let remaining = (user.athletes ?? []).filter { $0.id != athleteID }
@@ -66,6 +97,9 @@ func performDeleteAthlete(_ athlete: Athlete, selectedAthlete: Binding<Athlete?>
         for id in practiceFirestoreIds {
             await retryAsync { try await FirestoreManager.shared.deletePractice(userId: userId, practiceId: id) }
         }
+        for id in tournamentFirestoreIds {
+            await retryAsync { try await FirestoreManager.shared.deleteGolfTournament(userId: userId, tournamentId: id) }
+        }
         for id in seasonFirestoreIds {
             await retryAsync { try await FirestoreManager.shared.deleteSeason(userId: userId, seasonId: id) }
         }
@@ -80,6 +114,26 @@ func performDeleteAthlete(_ athlete: Athlete, selectedAthlete: Binding<Athlete?>
         // doc that serves a PUBLIC page, so it's worth the retry: a page that
         // outlives its athlete is a privacy problem, not a stale record.
         await retryAsync { try await RecruitingProfileService.shared.deleteProfileDoc(athleteId: athleteID) }
+
+        // Hygiene last: hole and reel docs are unreachable once their parents
+        // are tombstoned (sync fetches holes per live game/practice and reels
+        // per live athlete), so a kill mid-Task costs orphan docs, not
+        // resurrection. Front-loading these potentially hundreds of serial
+        // writes would push the resurrection-critical tombstones above
+        // minutes away on a flaky network.
+        for (gameId, holeNumbers) in gameHoleIds {
+            for holeNumber in holeNumbers {
+                await retryAsync { try await FirestoreManager.shared.deleteGameHoleScore(userId: userId, gameFirestoreId: gameId, holeNumber: holeNumber) }
+            }
+        }
+        for (practiceId, holeNumbers) in practiceHoleIds {
+            for holeNumber in holeNumbers {
+                await retryAsync { try await FirestoreManager.shared.deletePracticeHoleScore(userId: userId, practiceFirestoreId: practiceId, holeNumber: holeNumber) }
+            }
+        }
+        for id in reelFirestoreIds {
+            await retryAsync { try await FirestoreManager.shared.deleteHighlightReel(userId: userId, reelId: id) }
+        }
     }
 }
 

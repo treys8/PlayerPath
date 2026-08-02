@@ -325,48 +325,48 @@ class VideoCloudManager: ObservableObject {
 
     // MARK: - Athlete Video Delete
 
-    /// Deletes a video clip from Firebase Storage for an athlete
-    func deleteVideo(_ videoClip: VideoClip, athlete: Athlete) async throws {
-        // Capture values from SwiftData model before async boundary (Sendable compliance)
-        let clipFileName = videoClip.fileName
-
-        guard let ownerUID = Auth.auth().currentUser?.uid else {
-            throw VideoCloudError.uploadFailed("User session expired — please sign in again to upload")
-        }
-        let storage = Storage.storage()
-        let storageRef = storage.reference()
-        let videoRef = storageRef.child("athlete_videos/\(ownerUID)/\(clipFileName)")
-
-        return try await withCheckedThrowingContinuation { continuation in
-            videoRef.delete { error in
-                if let error = error {
-                    // Check if file doesn't exist (not really an error in deletion context)
-                    let nsError = error as NSError
-                    if nsError.domain == "FIRStorageErrorDomain" && nsError.code == StorageErrorCode.objectNotFound.rawValue {
-                        continuation.resume()
-                    } else {
-                        continuation.resume(throwing: error)
-                    }
-                } else {
-                    continuation.resume()
-                }
-            }
-        }
+    /// Storage path of the cloud thumbnail for `videoFileName`, or nil if the name
+    /// has no usable base.
+    ///
+    /// Derived by convention from the video's name, exactly like
+    /// `RecruitingWebRenditionService.renditionPath` — and for the same reason it
+    /// is a single function: the uploader, the deleter and the recruiting publish
+    /// path all have to agree on this string forever. They didn't. Three copies of
+    /// the convention existed and only the uploader ever ran, so every deleted clip
+    /// left its thumbnail behind and the public recruiting page went on serving that
+    /// frame as its link-preview image.
+    static func athleteThumbnailPath(ownerUID: String, videoFileName: String) -> String? {
+        let base = (videoFileName as NSString).deletingPathExtension
+        guard !base.isEmpty, !ownerUID.isEmpty else { return nil }
+        return "athlete_videos/\(ownerUID)/thumbnails/\(base)_thumbnail.jpg"
     }
 
-    /// Deletes an athlete's video from Firebase Storage by filename.
-    /// Use this instead of deleteVideo(_:athlete:) when the VideoClip SwiftData object
-    /// may already be deleted (avoids use-after-free on the model object).
+    /// Deletes an athlete's video from Firebase Storage by filename, along with the
+    /// two files derived from it.
+    ///
+    /// Takes a filename rather than the model because the `VideoClip` may already be
+    /// deleted by the time this runs (avoids use-after-free on the model object).
     func deleteAthleteVideo(fileName: String) async throws {
         guard let ownerUID = Auth.auth().currentUser?.uid else {
             throw VideoCloudError.uploadFailed("User session expired — please sign in again to upload")
         }
-        // A published clip also has a web-safe .mp4 rendition beside it
-        // (RecruitingWebRenditionService). Best-effort: it's a derived file, so
-        // failing to remove it must never block deleting the master, and an
-        // orphan is only wasted bytes.
+        // Two derived files sit beside the master: the web-safe .mp4 rendition a
+        // published recruiting page serves (RecruitingWebRenditionService) and the
+        // cloud thumbnail (uploadAthleteVideoThumbnail). Both are best-effort — a
+        // derived file must never block deleting the master — but neither is merely
+        // wasted bytes: the recruiting page's og:image and /poster route are built
+        // from the THUMBNAIL, so an orphan there keeps a deleted clip's frame in
+        // every link preview the athlete ever shared. Two things cover a failure
+        // here, and neither is unconditional: serveRecruitingProfile refuses to
+        // serve a poster whose video is gone (always, and it covers the orphans
+        // that already exist), and dailyStorageCleanup sweeps both by name after
+        // 30 days — but only for a clip that reached Firestore, since it walks
+        // soft-deleted `videos` docs.
         if let renditionPath = RecruitingWebRenditionService.renditionPath(ownerUID: ownerUID, fileName: fileName) {
             try? await Storage.storage().reference(withPath: renditionPath).delete()
+        }
+        if let thumbnailPath = Self.athleteThumbnailPath(ownerUID: ownerUID, videoFileName: fileName) {
+            try? await Storage.storage().reference(withPath: thumbnailPath).delete()
         }
         let videoRef = Storage.storage().reference().child("athlete_videos/\(ownerUID)/\(fileName)")
         return try await withCheckedThrowingContinuation { continuation in

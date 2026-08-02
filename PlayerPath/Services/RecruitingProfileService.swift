@@ -584,11 +584,14 @@ final class RecruitingProfileService {
             "videoStoragePath": "athlete_videos/\(ownerUID)/\(clip.fileName)",
             "label": clip.recruitingLabel
         ]
-        // Thumbnail path mirrors uploadAthleteVideoThumbnail's naming. The CF drops
-        // the poster if the object isn't there, so an un-thumbnailed clip is fine.
-        let base = (clip.fileName as NSString).deletingPathExtension
-        if !base.isEmpty {
-            payload["thumbnailStoragePath"] = "athlete_videos/\(ownerUID)/thumbnails/\(base)_thumbnail.jpg"
+        // Same derivation the uploader and the deleter use, so the three can't
+        // drift (VideoCloudManager.athleteThumbnailPath). The CF drops the poster
+        // if the object isn't there, so an un-thumbnailed clip is fine.
+        if let thumbnailPath = VideoCloudManager.athleteThumbnailPath(
+            ownerUID: ownerUID,
+            videoFileName: clip.fileName
+        ) {
+            payload["thumbnailStoragePath"] = thumbnailPath
         }
         if let duration = clip.duration {
             payload["durationSeconds"] = duration

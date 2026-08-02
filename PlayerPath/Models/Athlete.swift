@@ -220,8 +220,9 @@ final class Athlete {
         // v6.1 PR2: hard-delete this athlete's HighlightReels locally before
         // games/practices go away. Reels carry only a denormalized athleteID
         // FK, so a single in-memory filter is enough — they don't cascade
-        // via SwiftData relationships. Firestore cleanup is best-effort and
-        // backstopped by the daily cleanup function.
+        // via SwiftData relationships. Firestore tombstones are
+        // performDeleteAthlete's job (it captures the reel doc IDs before
+        // this hard-delete) — there is no server-side sweep under users/{uid}.
         do {
             let allReels = try context.fetch(FetchDescriptor<HighlightReel>())
             for reel in allReels where reel.athleteID == athleteId {
@@ -240,6 +241,11 @@ final class Athlete {
             if let gameStats = game.gameStats {
                 context.delete(gameStats)
             }
+            // No deleteRule on Game.holeScores — the default nullify would
+            // orphan the rows (and their cascading Shot children) locally.
+            for hole in game.holeScores ?? [] {
+                context.delete(hole)
+            }
             context.delete(game)
         }
 
@@ -251,6 +257,10 @@ final class Athlete {
             }
             for note in practice.notes ?? [] {
                 context.delete(note)
+            }
+            // Same nullify trap as the games loop above.
+            for hole in practice.holeScores ?? [] {
+                context.delete(hole)
             }
             context.delete(practice)
         }

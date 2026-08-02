@@ -59,12 +59,13 @@ struct DataExportView: View {
                     ExportDataRow(icon: "baseball.diamond.bases", title: "Games & Tournaments", description: "Game and tournament details and results")
                     ExportDataRow(icon: "chart.bar.fill", title: "Statistics", description: "All calculated statistics")
                     ExportDataRow(icon: "video", title: "Video Metadata", description: "Video tags and timestamps (files not included)")
+                    ExportDataRow(icon: "photo", title: "Photo Metadata", description: "Captions, tags and timestamps (files not included)")
                     ExportDataRow(icon: "figure.run", title: "Practice Sessions", description: "Practice logs and notes")
                 }
             }
 
             Section {
-                Text("Video files are not included in the export due to their large size. To backup videos, save them to your Photos app individually.")
+                Text("Video and photo files are not included in the export due to their large size. To back them up, save them to your Photos app individually.")
                     .font(.bodySmall)
                     .foregroundColor(.secondary)
             }
@@ -376,6 +377,27 @@ struct DataExportView: View {
                 "filePath": video.resolvedFilePath,
                 "thumbnailPath": video.resolvedThumbnailPath ?? "",
                 "playResult": video.playResult?.type.displayName ?? ""
+            ]
+        }
+
+        // Photo Metadata (not actual files). Mirrors the video block above — the
+        // athlete's own captions and tags are user-authored content, so leaving
+        // them out of a GDPR export was a real gap, not a size decision.
+        let photoDescriptor = FetchDescriptor<Photo>()
+        let allPhotos = try modelContext.fetch(photoDescriptor)
+        exportData["photos"] = allPhotos.map { photo -> [String: Any] in
+            return [
+                "id": photo.id.uuidString,
+                "athleteId": photo.athlete?.id.uuidString ?? "",
+                "gameId": photo.game?.id.uuidString ?? "",
+                "practiceId": photo.practice?.id.uuidString ?? "",
+                "seasonId": photo.season?.id.uuidString ?? "",
+                "caption": photo.caption ?? "",
+                "createdAt": Self.isoFormatter.string(from: photo.createdAt ?? Date()),
+                "filePath": photo.resolvedFilePath,
+                "isFavorite": photo.isHighlight,
+                "isScorecardPhoto": photo.isScorecardPhoto,
+                "cloudURL": photo.cloudURL ?? ""
             ]
         }
 

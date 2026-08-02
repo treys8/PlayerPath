@@ -95,10 +95,28 @@ final class RecruitingWebRenditionService {
         }
         let ref = Storage.storage().reference(withPath: path)
 
-        // A clip's fileName is unique and its bytes never change in place, so an
-        // existing rendition is always current — republishing skips the encode.
-        if (try? await ref.getMetadata()) != nil {
-            return path
+        // A clip's fileName is stable, but its BYTES are not — which is what the
+        // previous version of this check assumed. `ClipTrimService.applyTrim`
+        // re-trims in place: it overwrites the master at the same
+        // `athlete_videos/{uid}/{fileName}` path and regenerates the thumbnail
+        // over the old one. So "a rendition exists" was never the same question as
+        // "the rendition is current", and a re-trimmed clip republished with its
+        // PRE-TRIM footage — captioned with the new duration and postered with the
+        // new frame, so every signal on the page agreed except the video itself.
+        //
+        // Deliberately checked here and not at trim time. Deleting the rendition
+        // when the clip is trimmed would take effect immediately on the LIVE page:
+        // serveRecruitingProfile's existence probe would find the object gone and
+        // drop that clip, so trimming a clip would silently shorten a published
+        // profile. The published page is a snapshot — it should keep serving what
+        // was published until the athlete republishes, and republishing is exactly
+        // when this runs.
+        if let existing = try? await ref.getMetadata() {
+            if await renditionIsCurrent(existing, ownerUID: ownerUID, fileName: source.fileName) {
+                return path
+            }
+            // No delete needed — putFileAsync below overwrites in place.
+            renditionLog.info("Rendition for \(source.fileName, privacy: .public) predates the master — re-encoding")
         }
 
         guard let localURL = await localSource(for: source, ownerUID: ownerUID) else {
@@ -129,6 +147,27 @@ final class RecruitingWebRenditionService {
             renditionLog.error("Web rendition upload failed: \(error.localizedDescription, privacy: .public)")
             return nil
         }
+    }
+
+    /// Whether an existing rendition still reflects the master's current bytes.
+    ///
+    /// Compares Storage's own `updated` stamps rather than anything local: the
+    /// master may have been re-trimmed on another device, and the local copy may
+    /// not exist at all ("Auto-delete After Upload"), so the bucket is the only
+    /// source of truth both sides share.
+    ///
+    /// Errs toward REUSE whenever the comparison can't be made. A false "stale"
+    /// costs the athlete a download plus a hardware transcode per clip on a
+    /// publish they're watching a progress bar for; a false "current" costs a
+    /// re-trimmed clip until the next publish. Neither is free, but only one of
+    /// them fires on every publish when Storage metadata is briefly unavailable.
+    private func renditionIsCurrent(_ rendition: StorageMetadata,
+                                    ownerUID: String,
+                                    fileName: String) async -> Bool {
+        guard let renditionUpdated = rendition.updated else { return true }
+        let masterRef = Storage.storage().reference(withPath: "athlete_videos/\(ownerUID)/\(fileName)")
+        guard let masterUpdated = (try? await masterRef.getMetadata())?.updated else { return true }
+        return renditionUpdated >= masterUpdated
     }
 
     // MARK: - Source file
