@@ -668,12 +668,16 @@ extension SyncCoordinator {
         if let localSharedCoachVideoID = clip.sharedCoachVideoID,
            data["sharedCoachVideoID"] as? String != localSharedCoachVideoID { return false }
 
-        // Same asymmetry for the V37 share history: compare only when the local
-        // list has entries. A set-remote/empty-local pair is already converged
-        // (the pull unions the remote list in), so a plain `!=` would mark such a
-        // clip dirty forever and re-upload on every sync without converging.
-        if !clip.sharedCoachVideoIDs.isEmpty,
-           (data["sharedCoachVideoIDs"] as? [String] ?? []) != clip.sharedCoachVideoIDs { return false }
+        // V37 share history: converged once the remote CONTAINS everything local
+        // has — the writer unions, and the pull unions the other way, so neither
+        // side's order is meaningful. An `!=` here would report dirty forever on
+        // two devices that appended in different orders ([X,Y] vs [Y,X]), and a
+        // remote superset (a share this device hasn't pulled yet) is not a reason
+        // to write either.
+        if !clip.sharedCoachVideoIDs.isEmpty {
+            let remoteIDs = Set(data["sharedCoachVideoIDs"] as? [String] ?? [])
+            if !remoteIDs.isSuperset(of: Set(clip.sharedCoachVideoIDs)) { return false }
+        }
 
         let remoteGameId = data["gameId"] as? String
         let localGameId = clip.game.map { $0.firestoreId ?? $0.id.uuidString }

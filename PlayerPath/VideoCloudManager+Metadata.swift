@@ -365,11 +365,15 @@ extension VideoCloudManager {
         if let sharedCoachVideoID {
             data["sharedCoachVideoID"] = sharedCoachVideoID
         }
-        // Same asymmetry as the scalar above: append-only, so an empty local list
-        // must never clear a remote one (that would strand a share made on
-        // another device that this device hasn't pulled yet).
+        // arrayUnion, NOT a plain array: the field is an append-only history, and a
+        // wholesale replace loses links this device hasn't pulled yet. (Device A
+        // shares to folder1; B pulls and shares to folder2 → remote [X, Y]; A then
+        // retags the clip before its next pull and would push its stale [X],
+        // deleting Y and orphaning that coach's feedback.) Union is atomic
+        // server-side, so it also can't lose a concurrent share.
+        // Still guarded on non-empty: an empty union is a pointless write.
         if !sharedCoachVideoIDs.isEmpty {
-            data["sharedCoachVideoIDs"] = sharedCoachVideoIDs
+            data["sharedCoachVideoIDs"] = FieldValue.arrayUnion(sharedCoachVideoIDs)
         }
         try await db.collection(FC.videos).document(clipId).updateData(data)
     }
