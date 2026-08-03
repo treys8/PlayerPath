@@ -300,11 +300,16 @@ export const onNewSharedVideo = functions.firestore
       // Notify the folder owner (athlete)
       const athleteID = folder.ownerAthleteID;
       if (athleteID) {
+        // videoID lets the tap land on the clip itself, matching the in-app
+        // record below (targetType: video). Without it the push could only
+        // open the folder. The coach-direction push above deliberately omits
+        // it — that record targets the folder, so the folder IS the
+        // destination there.
         await sendPushNotification(
           athleteID,
           'New Coach Video',
           `${uploaderName} uploaded a video for you`,
-          { type: 'new_video', folderID },
+          { type: 'new_video', folderID, videoID },
           'COACH_VIDEO'
         );
         // Matches client postCoachSharedClipNotification: targetType: video, targetID: videoID.
@@ -356,11 +361,13 @@ export const onVideoPublished = functions.firestore
       if (!athleteID) return;
       const folderName: string = folder.name || 'a folder';
 
+      // videoID so the tap opens the clip, matching the in-app record below
+      // (targetType: video) rather than stopping at the folder.
       await sendPushNotification(
         athleteID,
         'New Session Video',
         `${coachName} shared a lesson clip with you`,
-        { type: 'new_video', folderID },
+        { type: 'new_video', folderID, videoID },
         'COACH_VIDEO'
       );
       // Matches client postCoachSharedClipNotification. Shares the newvideo_{videoID}_{athleteID}

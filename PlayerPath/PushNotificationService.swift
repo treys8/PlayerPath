@@ -853,6 +853,17 @@ extension PushNotificationService: UNUserNotificationCenterDelegate {
         )
     }
 
+    /// Forwards the pushed `videoID` (when present) as NotificationCenter userInfo
+    /// so a folder-navigation tap lands on the specific clip — the folder views
+    /// scroll to and highlight `targetVideoID`. Without this the push dropped the
+    /// ID the Cloud Functions already send, and a lock-screen tap landed on the
+    /// folder while the in-app banner and inbox (ActivityNotificationRouter, which
+    /// uses the same key) opened the clip.
+    private func folderVideoUserInfo(from userInfo: [AnyHashable: Any]) -> [AnyHashable: Any]? {
+        guard let videoID = userInfo["videoID"] as? String, !videoID.isEmpty else { return nil }
+        return ["videoID": videoID]
+    }
+
     /// Handle notification response actions
     private func handleNotificationResponse(actionIdentifier: String, userInfo: [AnyHashable: Any]) {
         // TODO: Replace NotificationCenter navigation with deep linking/coordinator pattern
@@ -884,8 +895,9 @@ extension PushNotificationService: UNUserNotificationCenterDelegate {
                 // Post both role-scoped notifications — only the active tab bar observes its own.
                 // Don't mark-read here — that's reserved for inbox tap or opening the
                 // specific video. Tapping a push only navigates.
-                NotificationCenter.default.post(name: .navigateToCoachFolder, object: folderID)
-                NotificationCenter.default.post(name: .navigateToSharedFolder, object: folderID)
+                let info = folderVideoUserInfo(from: userInfo)
+                NotificationCenter.default.post(name: .navigateToCoachFolder, object: folderID, userInfo: info)
+                NotificationCenter.default.post(name: .navigateToSharedFolder, object: folderID, userInfo: info)
             }
 
         case "VIEW_INVITATION":
@@ -939,8 +951,9 @@ extension PushNotificationService: UNUserNotificationCenterDelegate {
                     // Post both role-scoped notifications — only the active tab bar observes its own.
                     // Don't mark-read here — that's reserved for inbox tap or opening the
                     // specific video. Tapping a push only navigates.
-                    NotificationCenter.default.post(name: .navigateToCoachFolder, object: folderID)
-                    NotificationCenter.default.post(name: .navigateToSharedFolder, object: folderID)
+                    let info = folderVideoUserInfo(from: userInfo)
+                    NotificationCenter.default.post(name: .navigateToCoachFolder, object: folderID, userInfo: info)
+                    NotificationCenter.default.post(name: .navigateToSharedFolder, object: folderID, userInfo: info)
                 }
             case "invitation_received", "invitation_accepted":
                 NotificationCenter.default.post(name: .openInvitations, object: nil)
