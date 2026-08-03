@@ -419,6 +419,13 @@ struct CoachVideoPlayerView: View {
         // stale if the athlete watched after the coach opened the folder.
         refreshViewReceipt()
 
+        // Re-attempt the athlete's view receipt now that annotations, the coach
+        // note, and drill cards have loaded. The .onAppear call fires before any
+        // of that exists, so on a clip the athlete shared TO a coach the
+        // eligibility check there sees no feedback yet. Idempotent via
+        // `hasMarkedViewed`.
+        markViewedIfFolderOwnerAthlete()
+
         // Auto-show the earliest coach drawing once everything is loaded.
         // Aspect ratio (videoNaturalSize) is set by loadVideoNaturalSize
         // above; annotations populated by loadAnnotations. No-op when the
@@ -1275,11 +1282,30 @@ struct CoachVideoPlayerView: View {
         }
     }
 
+    /// Whether a view receipt on this clip would be honest. The coach's "Seen" pill
+    /// means "the athlete saw my feedback", so:
+    ///  • a coach-uploaded clip IS the deliverable → opening it is a real receipt
+    ///    (this is also what gates the folder-grid pill in CoachFolderComponents);
+    ///  • a clip the athlete shared TO a coach has nothing to have been seen until
+    ///    the coach leaves something, so writing on open would permanently mark it
+    ///    Seen before the coach ever reviewed.
+    /// Mirrors `VideoPlayerView.isEligibleForViewReceipt`, which had this guard while
+    /// this path did not. Cues count — every writer of `video.tags` is coach-gated.
+    private var isEligibleForViewReceipt: Bool {
+        if video.uploadedByType == .coach { return true }
+        return !viewModel.annotations.isEmpty
+            || !(viewModel.coachNoteText ?? "").isEmpty
+            || !drillCards.isEmpty
+            || !video.tags.isEmpty
+    }
+
     /// Writes the athlete's view receipt the first time they play a clip in
-    /// their own folder. Coaches reviewing their own uploads do not write —
-    /// the field tracks athlete-side viewership only.
+    /// their own folder, once there is feedback to have been seen. Coaches
+    /// reviewing their own uploads do not write — the field tracks athlete-side
+    /// viewership only.
     private func markViewedIfFolderOwnerAthlete() {
         guard !hasMarkedViewed else { return }
+        guard isEligibleForViewReceipt else { return }
         guard isFolderOwner, let athleteID = authManager.userID else { return }
         hasMarkedViewed = true
         Task {
