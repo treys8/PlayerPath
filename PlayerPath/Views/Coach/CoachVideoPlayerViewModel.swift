@@ -938,6 +938,12 @@ class CoachVideoPlayerViewModel {
         clip.coachNoteAuthorSnapshot = coachNoteAuthorName
         clip.coachNoteUpdatedAtSnapshot = coachNoteUpdatedAt
         clip.coachCueTagsSnapshot = video.tags
+        // Seed the annotation counters from the coach doc so the saved clip shows a
+        // feedback badge (and matches the Videos tab's "Coach" filter) immediately.
+        // Pull-sync can't supply these — they live on the coach's copy, which the
+        // athlete's video query never returns.
+        clip.annotationCount = video.annotationCount ?? 0
+        clip.drawingCount = video.drawingCount ?? 0
         clip.needsSync = true
         modelContext.insert(clip)
 

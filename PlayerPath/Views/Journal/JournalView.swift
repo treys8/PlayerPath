@@ -59,6 +59,12 @@ struct JournalView: View {
     /// push) so it matches how clips open everywhere else in the app.
     @State private var selectedClip: VideoClip?
 
+    /// Set alongside `selectedClip` when the tap came from a coach-feedback card,
+    /// so the player loads THAT coach's feedback doc. A clip shared to two coaches
+    /// has one doc per folder; without this the player would always show the most
+    /// recent share. Always cleared on a plain clip tap.
+    @State private var selectedFeedbackVideoID: String?
+
     /// Photo-group row tapped in the feed — drives the day-scoped photo grid sheet.
     /// Nil = closed. Keyed by day so re-tapping the same group is idempotent.
     @State private var selectedPhotoDay: JournalPhotoDay?
@@ -354,8 +360,8 @@ struct JournalView: View {
         }
         .bulkImportAttach(athlete: athlete, trigger: $videoImportTrigger)
         .bulkPhotoImportAttach(athlete: athlete, trigger: $photoImportTrigger)
-        .fullScreenCover(item: $selectedClip) { clip in
-            VideoPlayerView(clip: clip)
+        .fullScreenCover(item: $selectedClip, onDismiss: { selectedFeedbackVideoID = nil }) { clip in
+            VideoPlayerView(clip: clip, feedbackVideoIDOverride: selectedFeedbackVideoID)
         }
         .sheet(item: $selectedPhotoDay) { selection in
             JournalPhotoDaySheet(athlete: athlete, day: selection.day, sport: selection.sport)
@@ -589,7 +595,12 @@ struct JournalView: View {
             // Clips open in the immersive full-screen player as a cover — matching
             // every other entry point in the app — so the player's own ✕ is the
             // single dismiss control, with no stacked nav back chevron.
-            Button { selectedClip = clip } label: { feedRow(entry, milestone: milestone) }
+            Button {
+                // Clear any coach-doc target left by a feedback card — a plain clip
+                // tap must resolve feedback the default way (most recent share).
+                selectedFeedbackVideoID = nil
+                selectedClip = clip
+            } label: { feedRow(entry, milestone: milestone) }
                 .buttonStyle(.plain)
         case .photoGroup(let photos):
             // A day's set of photos opens a day-scoped grid sheet (no multi-photo
@@ -601,6 +612,9 @@ struct JournalView: View {
             // and clears the unread dot.
             Button {
                 markFeedbackRead(item)
+                // Open the coach doc this card is about, not the clip's most recent
+                // share — they differ once a clip is shared to a second coach.
+                selectedFeedbackVideoID = item.videoID
                 selectedClip = item.clip
             } label: { feedRow(entry, milestone: milestone) }
                 .buttonStyle(.plain)

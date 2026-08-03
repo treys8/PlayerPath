@@ -16,6 +16,12 @@ import FirebaseFirestore
 
 struct VideoPlayerView: View {
     let clip: VideoClip
+    /// Which coach-feedback doc to load, when the caller knows. Set by surfaces
+    /// that open the player from a specific coach's feedback (the Journal
+    /// feedback card), because a clip shared to several coaches has one feedback
+    /// doc per folder and the default below would otherwise always show the most
+    /// recent share's coach. nil everywhere else.
+    var feedbackVideoIDOverride: String? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var player: AVPlayer?
     @State private var errorMessage = ""
@@ -435,7 +441,14 @@ struct VideoPlayerView: View {
     /// shared-folder copy created when the athlete shared this clip TO a coach
     /// (`sharedCoachVideoID`) — coach comments and drawings attach to that copy, not
     /// to the clip's own `videos/{firestoreId}` doc.
+    ///
+    /// `feedbackVideoIDOverride` wins when the caller opened the player from a
+    /// specific coach's feedback. Without it a clip shared to two coaches would
+    /// always show the most recent share's feedback, even when the athlete tapped
+    /// the other coach's card. One doc at a time is deliberate — see
+    /// `VideoClip.sharedCoachVideoIDs`.
     private var coachFeedbackVideoID: String? {
+        if let override = feedbackVideoIDOverride, !override.isEmpty { return override }
         if let sourceID = clip.sourceCoachVideoID, !sourceID.isEmpty { return sourceID }
         if let sharedID = clip.sharedCoachVideoID, !sharedID.isEmpty { return sharedID }
         return nil
@@ -470,6 +483,35 @@ struct VideoPlayerView: View {
         }
     }
 
+    /// Mirrors the coach doc's annotation counts onto the local clip so the Videos
+    /// grid badge and the "Coach" filter (`VideoClipFilter.hasCoachFeedback`) see
+    /// this feedback.
+    ///
+    /// Pull-sync can't do this: the counters live on the coach-folder copy, which
+    /// carries no `athleteId` and so never comes back from `syncVideos`. Note-only
+    /// feedback already self-heals through the `coachNoteSnapshot` refresh below;
+    /// drawing-only feedback had no path at all and stayed invisible forever.
+    ///
+    /// Writes on zero too, so a coach deleting their drawings self-heals — matching
+    /// how the note snapshot mirrors deletions. Deliberately does NOT set
+    /// `needsSync`: these counts describe the coach's copy, and no writer puts them
+    /// on the athlete's own doc (see `updateVideoFileFields`), which is also why
+    /// pull-sync's `if let` guards can never clobber what we write here.
+    private func persistCoachAnnotationCounts(_ fetched: [VideoAnnotation]) {
+        // A sync-down delete during the fetch await can invalidate the clip, and
+        // touching a deleted @Model traps — see the snapshot write below.
+        guard !clip.isDeleted, clip.modelContext != nil else { return }
+        let total = fetched.count
+        let drawings = fetched.filter { $0.isDrawing }.count
+        guard clip.annotationCount != total || clip.drawingCount != drawings else { return }
+        clip.annotationCount = total
+        clip.drawingCount = drawings
+        ErrorHandlerService.shared.saveContext(
+            modelContext,
+            caller: "VideoPlayerView.persistCoachAnnotationCounts"
+        )
+    }
+
     /// Loads coach-authored annotations for this clip from its coach-folder
     /// counterpart (see `coachFeedbackVideoID`). Also attaches a
     /// live listener so new coach drawings appear without a refetch.
@@ -495,6 +537,7 @@ struct VideoPlayerView: View {
                     // Feedback just arrived — a clip the athlete shared to a coach
                     // becomes receipt-eligible only now (see isEligibleForViewReceipt).
                     markCoachClipViewedIfNeeded()
+                    persistCoachAnnotationCounts(fetched)
                 }
             }
             // Refresh from the live source doc ONLY when it returns usable data,

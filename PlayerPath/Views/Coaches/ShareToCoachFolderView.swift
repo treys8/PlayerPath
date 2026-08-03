@@ -286,6 +286,13 @@ struct ShareToCoachFolderView: View {
                 dismiss()
                 return
             }
+            // Append rather than replace: a second share used to overwrite the
+            // scalar, which silently stopped the FIRST coach's feedback from
+            // resolving in the Journal feed and the player. The scalar stays as
+            // "most recent share" (the player's default target).
+            if !clip.sharedCoachVideoIDs.contains(sharedVideoID) {
+                clip.sharedCoachVideoIDs.append(sharedVideoID)
+            }
             clip.sharedCoachVideoID = sharedVideoID
             clip.needsSync = true
             _ = ErrorHandlerService.shared.saveContext(modelContext, caller: "ShareToCoachFolderView.share")

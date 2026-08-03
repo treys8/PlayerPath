@@ -138,7 +138,8 @@ extension SyncCoordinator {
                     practiceDate: clip.practiceDate ?? clip.practice?.date,
                     athleteId: clip.athlete.map { $0.firestoreId ?? $0.id.uuidString },
                     athleteName: clip.athlete?.name,
-                    sharedCoachVideoID: clip.sharedCoachVideoID
+                    sharedCoachVideoID: clip.sharedCoachVideoID,
+                    sharedCoachVideoIDs: clip.sharedCoachVideoIDs
                 )
                 clip.needsSync = false
                 syncedClips.append(clip)
@@ -341,6 +342,15 @@ extension SyncCoordinator {
                 if let sharedCoachVideoID = remoteVideo.sharedCoachVideoID {
                     localClip.sharedCoachVideoID = sharedCoachVideoID
                 }
+                // The share history is append-only on every device, so UNION rather
+                // than replace: a share made here but not yet pushed must not be
+                // dropped by a remote list that predates it, and vice versa.
+                if let remoteIDs = remoteVideo.sharedCoachVideoIDs, !remoteIDs.isEmpty {
+                    let missing = remoteIDs.filter { !localClip.sharedCoachVideoIDs.contains($0) }
+                    if !missing.isEmpty {
+                        localClip.sharedCoachVideoIDs.append(contentsOf: missing)
+                    }
+                }
                 // Annotation counters are authoritative on the server side (coach
                 // writes increment them). Mirror into SwiftData so the athlete's
                 // local grid can render coach-feedback badges without querying.
@@ -433,6 +443,7 @@ extension SyncCoordinator {
                 newClip.firestoreId = remoteVideo.id.uuidString
                 newClip.sourceCoachVideoID = remoteVideo.sourceCoachVideoID
                 newClip.sharedCoachVideoID = remoteVideo.sharedCoachVideoID
+                newClip.sharedCoachVideoIDs = remoteVideo.sharedCoachVideoIDs ?? []
                 newClip.annotationCount = remoteVideo.annotationCount ?? 0
                 newClip.drawingCount = remoteVideo.drawingCount ?? 0
                 newClip.needsSync = false
@@ -656,6 +667,13 @@ extension SyncCoordinator {
         // sync without ever converging.
         if let localSharedCoachVideoID = clip.sharedCoachVideoID,
            data["sharedCoachVideoID"] as? String != localSharedCoachVideoID { return false }
+
+        // Same asymmetry for the V37 share history: compare only when the local
+        // list has entries. A set-remote/empty-local pair is already converged
+        // (the pull unions the remote list in), so a plain `!=` would mark such a
+        // clip dirty forever and re-upload on every sync without converging.
+        if !clip.sharedCoachVideoIDs.isEmpty,
+           (data["sharedCoachVideoIDs"] as? [String] ?? []) != clip.sharedCoachVideoIDs { return false }
 
         let remoteGameId = data["gameId"] as? String
         let localGameId = clip.game.map { $0.firestoreId ?? $0.id.uuidString }

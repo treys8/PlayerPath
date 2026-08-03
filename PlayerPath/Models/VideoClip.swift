@@ -75,10 +75,12 @@ final class VideoClip {
     /// write-only. Distinct from `firestoreId`, which is this clip's own private
     /// sync doc. Never nil-cleared (un-sharing is not a product flow).
     ///
-    /// KNOWN LIMITATIONS (single scalar slot, deliberate for now):
-    ///  • Sharing the same clip to a SECOND coach overwrites this, so the first
-    ///    coach's feedback silently stops resolving in the feed and player. Making
-    ///    this a list is the real fix if multi-coach sharing becomes common.
+    /// Holds the MOST RECENT share (SchemaV37 moved the full history to
+    /// `sharedCoachVideoIDs`). Kept as its own column because it is what the player
+    /// falls back to when no specific coach doc is requested, and because older
+    /// builds and every already-written Firestore doc still carry only this key.
+    ///
+    /// KNOWN LIMITATION:
     ///  • The link only reaches Firestore for clips that are themselves uploaded
     ///    (`isUploaded` + `firestoreId`); sharing does not require that, so on a
     ///    never-uploaded clip the link stays device-local and the athlete's other
@@ -88,6 +90,32 @@ final class VideoClip {
     /// nudges in GameService/PracticeService/ClipTaggingReminderService key off
     /// `sourceCoachVideoID` for that meaning, and a shared clip IS the athlete's own.
     var sharedCoachVideoID: String? = nil
+
+    /// EVERY shared-folder copy this clip has been shared to (SchemaV37), oldest
+    /// first. Append-only: un-sharing is not a product flow, and the scalar above
+    /// used to be overwritten by a second share — which silently stopped the first
+    /// coach's feedback from resolving in the Journal feed and the player.
+    ///
+    /// DEFERRED: playback still resolves ONE doc at a time (the caller's requested
+    /// doc, else the most recent share). Merging N coaches into a single timeline —
+    /// N live listeners, per-coach note attribution, a coach switcher — is a
+    /// separate feature, not part of this field.
+    var sharedCoachVideoIDs: [String] = []
+
+    /// Every Firestore doc that can carry coach feedback for this clip: the coach
+    /// folder original it was saved FROM, plus every folder copy it was shared TO.
+    /// Ordered-unique, and unions the legacy scalar so pre-V37 rows (and rows
+    /// synced down from an older build) keep resolving. Used by lookup surfaces
+    /// that map a feedback notification back to a clip.
+    var allCoachFeedbackVideoIDs: [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+        for id in [sourceCoachVideoID].compactMap({ $0 }) + sharedCoachVideoIDs + [sharedCoachVideoID].compactMap({ $0 }) {
+            guard !id.isEmpty, seen.insert(id).inserted else { continue }
+            result.append(id)
+        }
+        return result
+    }
 
     /// Mirrored from the Firestore `videos/{id}` doc's annotationCount on
     /// pull sync — used by the athlete grid to render coach-feedback badges

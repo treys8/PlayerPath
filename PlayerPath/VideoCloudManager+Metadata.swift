@@ -41,6 +41,7 @@ extension VideoCloudManager {
         let seasonName = videoClip.seasonName ?? videoClip.season?.displayName
         let sourceCoachVideoID = videoClip.sourceCoachVideoID
         let sharedCoachVideoID = videoClip.sharedCoachVideoID
+        let sharedCoachVideoIDs = videoClip.sharedCoachVideoIDs
         let athleteStableId = athlete.firestoreId ?? athlete.id.uuidString
         let athleteName = athlete.name
 
@@ -119,6 +120,9 @@ extension VideoCloudManager {
         if let sharedCoachVideoID {
             data["sharedCoachVideoID"] = sharedCoachVideoID
         }
+        if !sharedCoachVideoIDs.isEmpty {
+            data["sharedCoachVideoIDs"] = sharedCoachVideoIDs
+        }
 
         // Upload thumbnail to Storage if exists, then add URL to metadata
         if let thumbnailPath = clipThumbnailPath,
@@ -170,6 +174,7 @@ extension VideoCloudManager {
         let seasonName = videoClip.seasonName ?? videoClip.season?.displayName
         let sourceCoachVideoID = videoClip.sourceCoachVideoID
         let sharedCoachVideoID = videoClip.sharedCoachVideoID
+        let sharedCoachVideoIDs = videoClip.sharedCoachVideoIDs
         let athleteStableId = athlete.firestoreId ?? athlete.id.uuidString
         let athleteName = athlete.name
 
@@ -246,6 +251,9 @@ extension VideoCloudManager {
         if let sharedCoachVideoID {
             data["sharedCoachVideoID"] = sharedCoachVideoID
         }
+        if !sharedCoachVideoIDs.isEmpty {
+            data["sharedCoachVideoIDs"] = sharedCoachVideoIDs
+        }
 
         try await db.collection(FC.videos).document(clipId.uuidString).setData(data)
     }
@@ -312,7 +320,7 @@ extension VideoCloudManager {
     }
 
     /// Updates mutable video metadata fields in Firestore (isHighlight, note).
-    func updateVideoMetadata(clipId: String, isHighlight: Bool, note: String?, playResultType: PlayResultType?, pitchSpeed: Double?, pitchType: String? = nil, club: String? = nil, holeNumber: Int? = nil, gameId: String?, gameOpponent: String?, gameDate: Date?, seasonId: String?, seasonName: String?, practiceId: String?, practiceDate: Date? = nil, athleteId: String? = nil, athleteName: String? = nil, sharedCoachVideoID: String? = nil) async throws {
+    func updateVideoMetadata(clipId: String, isHighlight: Bool, note: String?, playResultType: PlayResultType?, pitchSpeed: Double?, pitchType: String? = nil, club: String? = nil, holeNumber: Int? = nil, gameId: String?, gameOpponent: String?, gameDate: Date?, seasonId: String?, seasonName: String?, practiceId: String?, practiceDate: Date? = nil, athleteId: String? = nil, athleteName: String? = nil, sharedCoachVideoID: String? = nil, sharedCoachVideoIDs: [String] = []) async throws {
         let db = Firestore.firestore()
         var data: [String: Any] = [
             "isHighlight": isHighlight,
@@ -356,6 +364,12 @@ extension VideoCloudManager {
         // here would wipe the link on every unrelated retag.
         if let sharedCoachVideoID {
             data["sharedCoachVideoID"] = sharedCoachVideoID
+        }
+        // Same asymmetry as the scalar above: append-only, so an empty local list
+        // must never clear a remote one (that would strand a share made on
+        // another device that this device hasn't pulled yet).
+        if !sharedCoachVideoIDs.isEmpty {
+            data["sharedCoachVideoIDs"] = sharedCoachVideoIDs
         }
         try await db.collection(FC.videos).document(clipId).updateData(data)
     }

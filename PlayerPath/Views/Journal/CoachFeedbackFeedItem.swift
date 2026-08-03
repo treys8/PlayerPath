@@ -16,7 +16,9 @@ struct CoachFeedbackFeedItem: Identifiable {
     /// The notification's document ID — the stable feed-row identity.
     let notifID: String
     /// The notification's `targetID` (the shared-folder/coach video doc ID).
-    /// Used to mark the notification read when the card is opened.
+    /// Used to mark the notification read when the card is opened, and passed to
+    /// the player as `feedbackVideoIDOverride` so the card opens THIS coach's
+    /// feedback rather than the clip's most recent share.
     let videoID: String
     /// The local clip the feedback is on (its thumbnail + the player target).
     let clip: VideoClip
@@ -34,12 +36,13 @@ struct CoachFeedbackFeedItem: Identifiable {
     ///
     /// Filters to `.coachComment` video notifications, then matches each to a
     /// clip by the same key the existing "New Feedback" badge uses — the
-    /// shared-folder/coach video doc ID — which on a local clip is one of
-    /// `firestoreId` (the athlete's own uploaded clip a coach annotated),
-    /// `sourceCoachVideoID` (a coach session clip the athlete saved to My
-    /// Videos), or `sharedCoachVideoID` (the folder copy created when the athlete
-    /// shared this clip to a coach). Collapses to one item per clip (latest delivery wins) and drops
-    /// any notification with no matching local clip — feedback on an unsaved
+    /// shared-folder/coach video doc ID — which on a local clip is either
+    /// `firestoreId` (the athlete's own uploaded clip a coach annotated) or any of
+    /// `VideoClip.allCoachFeedbackVideoIDs` (the coach session clip it was saved
+    /// FROM, plus every folder copy it was shared TO). Collapses to one item per
+    /// (clip, coach doc) — latest delivery wins — so a clip shared to two coaches
+    /// yields one card per coach instead of silently dropping one. Drops any
+    /// notification with no matching local clip — feedback on an unsaved
     /// coach-folder clip stays in the folder browser, already badged there.
     ///
     /// `clips` should be the athlete-scoped feed clips; passing another athlete's
@@ -58,8 +61,7 @@ struct CoachFeedbackFeedItem: Identifiable {
         var byKey: [String: VideoClip] = [:]
         for clip in clips {
             if let fid = clip.firestoreId { byKey[fid] = clip }
-            if let src = clip.sourceCoachVideoID { byKey[src] = clip }
-            if let shared = clip.sharedCoachVideoID { byKey[shared] = clip }
+            for id in clip.allCoachFeedbackVideoIDs { byKey[id] = clip }
         }
         guard !byKey.isEmpty else { return [] }
 
@@ -68,13 +70,16 @@ struct CoachFeedbackFeedItem: Identifiable {
             .filter { $0.type == .coachComment && $0.targetType == .video }
             .sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
 
-        var seenClipIDs = Set<UUID>()
+        // Keyed by (clip, coach doc), not by clip: two coaches on the same clip are
+        // two separate pieces of feedback living in two separate Firestore docs, and
+        // collapsing per clip dropped whichever arrived second.
+        var seenClipDocs = Set<String>()
         var items: [CoachFeedbackFeedItem] = []
         for n in feedback {
             guard let targetID = n.targetID,
                   let notifID = n.id,
                   let clip = byKey[targetID],
-                  seenClipIDs.insert(clip.id).inserted else { continue }
+                  seenClipDocs.insert("\(clip.id.uuidString)_\(targetID)").inserted else { continue }
             items.append(
                 CoachFeedbackFeedItem(
                     notifID: notifID,
