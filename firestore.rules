@@ -39,6 +39,25 @@ service cloud.firestore {
              && get(/databases/$(database)/documents/recruitingTokens/$(shareToken)).data.athleteId == athleteID;
     }
 
+    // True when the caller owns the athlete this UUID identifies.
+    //
+    // Rules cannot check this directly: athlete docs are created with auto-IDs
+    // and the canonical UUID lives only in the `id` FIELD, so
+    // exists(/users/$(uid)/athletes/$(athleteID)) matches nothing and a rule
+    // can't query by field. `athleteOwners/{athleteUUID}` is that missing index —
+    // written ONLY by the claimAthleteOwnership trigger (Admin SDK), so a claim
+    // can exist only because code saw the athlete doc under that uid.
+    //
+    // Without it, `recruitingProfiles/{athleteID}` was squattable: any Pro account
+    // that knew a UUID (every connected coach reads sharedFolders.athleteUUID)
+    // could create the doc first and lock the real family out of publishing
+    // forever — create denied (doc exists), update denied (userId frozen), read
+    // denied, so even the pre-read in publish() throws.
+    function ownsAthlete(athleteID) {
+      return exists(/databases/$(database)/documents/athleteOwners/$(athleteID))
+             && get(/databases/$(database)/documents/athleteOwners/$(athleteID)).data.userId == request.auth.uid;
+    }
+
     // A recruiting profile may only carry a headshot from the caller's own
     // Storage namespace. serveRecruitingProfile signs this path with the Admin
     // SDK, which bypasses storage.rules, so an unconstrained value would return a
@@ -468,10 +487,16 @@ service cloud.firestore {
       //         OR shared folder video (uploader has permission; coaches must have active subscription)
       // Visibility must be "shared" or "private" if specified.
       // uploadStatus "pending" is allowed for metadata-first uploads (firebaseStorageURL may be empty).
+      // canAccessFolder is required alongside hasPermission: hasPermission only
+      // reads the permissions map, which a partial revoke can leave behind. Without
+      // the membership + revocation check a removed coach could still write new
+      // videos into the folder. (The comments subcollection has always done this;
+      // this brings video create in line.)
       allow create: if isAuthenticated() && (
         (request.resource.data.uploadedBy == request.auth.uid &&
          !('sharedFolderID' in request.resource.data)) ||
         (hasPermission(request.resource.data.sharedFolderID, "upload") &&
+         canAccessFolder(request.resource.data.sharedFolderID) &&
          request.resource.data.uploadedBy == request.auth.uid &&
          (isFolderOwner(request.resource.data.sharedFolderID) || hasCoachTier()))
       ) && (!('visibility' in request.resource.data) || request.resource.data.visibility in ['shared', 'private']);
@@ -638,6 +663,10 @@ service cloud.firestore {
                       && request.resource.data.userID == request.auth.uid
                       && request.resource.data.keys().hasAll(['userID', 'text', 'timestamp'])
                       && 'sharedFolderID' in getVideoData(videoID)
+                      // Membership + revocation check. hasPermission below only reads
+                      // the permissions map, so on its own a partial revoke that left
+                      // permissions.{coachID} behind would still admit telestration.
+                      && canAccessFolder(getVideoData(videoID).sharedFolderID)
                       && hasPermission(getVideoData(videoID).sharedFolderID, "comment")
                       && (isFolderOwner(getVideoData(videoID).sharedFolderID)
                           || hasCoachTier())
@@ -651,10 +680,27 @@ service cloud.firestore {
                       && (!('shapes' in request.resource.data)
                           || request.resource.data.shapes.size() < 50000);
 
-        // Users can edit their own annotations, userID must remain unchanged
+        // Users can edit their own annotations, userID must remain unchanged.
+        // The author check alone left update far weaker than create: no folder
+        // access, no downgrade gate, and no size caps — so a removed or
+        // over-limit coach could still rewrite a drawing, or balloon the doc
+        // toward Firestore's 1MB limit. Mirror create's guards.
+        //
+        // The only writer today is setAnnotationMirrorCommentID
+        // (FirestoreManager+Annotations.swift), which the coach calls right
+        // after createAnnotation — it passes all four. Note the size caps read
+        // the MERGED document, so an unrelated field update re-checks the
+        // existing (already capped) drawing rather than exempting itself.
         allow update: if isAuthenticated()
                       && resource.data.userID == request.auth.uid
-                      && request.resource.data.userID == resource.data.userID;
+                      && request.resource.data.userID == resource.data.userID
+                      && 'sharedFolderID' in getVideoData(videoID)
+                      && canAccessFolder(getVideoData(videoID).sharedFolderID)
+                      && !coachDowngradeBlocked()
+                      && (!('drawingData' in request.resource.data)
+                          || request.resource.data.drawingData.size() < 300000)
+                      && (!('shapes' in request.resource.data)
+                          || request.resource.data.shapes.size() < 50000);
 
         // Users can delete their own annotations; folder owner can delete any
         allow delete: if isAuthenticated()
@@ -1038,6 +1084,28 @@ service cloud.firestore {
     }
 
     // ========================================================================
+    // ATHLETE OWNERSHIP CLAIMS
+    // ========================================================================
+
+    // `athleteOwners/{athleteUUID} → { userId }`: the index that lets ownsAthlete()
+    // bind an athlete UUID to an account (see that helper for why rules can't do
+    // it directly).
+    //
+    // Closed to clients in EVERY direction, and that is the entire security
+    // property. A claim is authoritative precisely because only the
+    // claimAthleteOwnership trigger can mint one, having read the athlete doc at
+    // `users/{uid}/athletes/*` under the Admin SDK. Let a client create one and the
+    // squat this collection exists to stop simply moves one collection over.
+    //
+    // Denying read costs nothing: the get()/exists() calls inside ownsAthlete()
+    // are rule-internal and are NOT subject to these rules. The catch-all at the
+    // bottom would deny this collection anyway — it is spelled out so the next
+    // person sees the closure is deliberate.
+    match /athleteOwners/{athleteUUID} {
+      allow read, write: if false;
+    }
+
+    // ========================================================================
     // RECRUITING SHARE TOKENS
     // ========================================================================
 
@@ -1067,7 +1135,12 @@ service cloud.firestore {
                     && request.resource.data.keys().hasAll(['userId', 'athleteId'])
                     && request.resource.data.userId == request.auth.uid
                     && request.resource.data.athleteId is string
-                    && request.resource.data.athleteId.size() < 64;
+                    && request.resource.data.athleteId.size() < 64
+                    // The athlete must be the caller's own. Defence in depth —
+                    // recruitingProfiles enforces this too — but claims here are
+                    // permanent and undeletable, so keeping foreign UUIDs out
+                    // keeps the collection from accruing junk nobody can reclaim.
+                    && ownsAthlete(request.resource.data.athleteId);
       allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
       allow update, delete: if false;
     }
@@ -1117,6 +1190,13 @@ service cloud.firestore {
                     && request.resource.data.athleteId == athleteID
                     && hasProTier()
                     && ownsShareToken(request.resource.data.shareToken, athleteID)
+                    // The doc ID is an athlete UUID, and until this check existed
+                    // nothing proved it was the caller's. See ownsAthlete().
+                    // CREATE only, deliberately: `update` is how unpublish works,
+                    // and a kill switch a missing claim can disable is the same
+                    // failure as one behind a paywall. Squatting is create-time;
+                    // the update rule already freezes userId.
+                    && ownsAthlete(athleteID)
                     && request.resource.data.highlights is list
                     && request.resource.data.highlights.size() <= 8
                     && isOwnHeadshotPath();

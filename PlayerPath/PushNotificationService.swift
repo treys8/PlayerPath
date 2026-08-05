@@ -461,15 +461,14 @@ final class PushNotificationService: NSObject, ObservableObject {
         await scheduleReviewReminder(hour: hour, minute: minute)
     }
 
-    /// Schedule weekly performance summary with real stats.
-    /// Uses a one-shot trigger for next Sunday 6 PM so stats stay fresh
-    /// when re-scheduled on each app foreground.
-    func scheduleWeeklySummary(
-        athleteId: String,
-        gamesThisWeek: Int = 0,
-        videosThisWeek: Int = 0,
-        battingAverage: Double? = nil
-    ) async {
+    /// Schedule the weekly performance summary. Uses a one-shot trigger for next
+    /// Sunday 6 PM so stats stay fresh when re-scheduled on each app foreground.
+    ///
+    /// `body` is built by `WeeklySummaryScheduler`, which owns the sport-aware
+    /// copy — golf gets rounds + best score, baseball/softball gets games +
+    /// batting average. Same split as `ClipTaggingReminderService`: the domain
+    /// service words it, this layer only schedules it.
+    func scheduleWeeklySummary(athleteId: String, body: String) async {
         guard canScheduleNotifications else { return }
 
         // Cancel any existing weekly summary so we replace it with fresh stats
@@ -488,19 +487,6 @@ final class PushNotificationService: NSObject, ObservableObject {
 
         let triggerComponents = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: nextSunday)
         let trigger = UNCalendarNotificationTrigger(dateMatching: triggerComponents, repeats: false)
-
-        // Build a data-aware message
-        let body: String
-        if gamesThisWeek > 0, let avg = battingAverage, avg > 0 {
-            let avgFormatted = StatisticsService.shared.formatBattingAverage(avg)
-            body = "You logged \(gamesThisWeek) game\(gamesThisWeek == 1 ? "" : "s") this week. Batting \(avgFormatted). Keep it up!"
-        } else if gamesThisWeek > 0 {
-            body = "You logged \(gamesThisWeek) game\(gamesThisWeek == 1 ? "" : "s") this week. Open the app to see your stats!"
-        } else if videosThisWeek > 0 {
-            body = "You recorded \(videosThisWeek) video\(videosThisWeek == 1 ? "" : "s") this week. Review your clips and track your progress!"
-        } else {
-            body = "No games logged this week. Record your next game to keep your stats up to date!"
-        }
 
         let success = await scheduleLocalNotification(
             identifier: "weekly_summary_\(athleteId)",

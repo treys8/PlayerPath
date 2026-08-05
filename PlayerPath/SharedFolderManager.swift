@@ -108,8 +108,15 @@ class SharedFolderManager {
             throw SharedFolderError.invalidEmail
         }
 
-        // Fix N: Guard against duplicate invitations for the same (folder, coach) pair
-        if try await firestore.hasPendingInvitation(athleteID: athleteID, coachEmail: cleanEmail) {
+        // Fix N: Guard against duplicate invitations for the same (person, coach) pair.
+        // Keyed on the person (personGroupID ?? athleteUUID), not the account, so
+        // siblings on one account and a dual-sport athlete's second profile each get
+        // their own connection — matching how the server charges coach seats.
+        if try await firestore.hasPendingInvitation(
+            athleteID: athleteID,
+            personKey: personGroupID ?? athleteUUID,
+            coachEmail: cleanEmail
+        ) {
             throw SharedFolderError.duplicateInvitation
         }
 

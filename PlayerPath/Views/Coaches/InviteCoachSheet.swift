@@ -247,10 +247,17 @@ struct InviteCoachSheet: View {
                     ])
                 }
 
-                // Check for existing pending invitation to this coach from this athlete
-                if try await FirestoreManager.shared.hasPendingInvitation(athleteID: userID, coachEmail: coachEmail) {
+                // Check for an existing invitation between THIS PROFILE and this coach.
+                // Keyed per person, not per account: a parent's other child — and this
+                // athlete's other sport profile — are separate connections and must each
+                // be able to invite the same coach.
+                if try await FirestoreManager.shared.hasPendingInvitation(
+                    athleteID: userID,
+                    personKey: (athlete.personGroupID ?? athlete.id).uuidString,
+                    coachEmail: coachEmail
+                ) {
                     throw NSError(domain: "InviteCoach", code: -2, userInfo: [
-                        NSLocalizedDescriptionKey: "An invitation has already been sent to this coach."
+                        NSLocalizedDescriptionKey: "You've already invited this coach for \(athlete.name)."
                     ])
                 }
 

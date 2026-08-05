@@ -135,11 +135,19 @@ service firebase.storage {
       // Read: owner only
       allow read: if isAuthenticated() && request.auth.uid == userID;
 
-      // Write: owner only; max 10MB; must be image (headshots are downscaled client-side)
+      // Write: owner only; max 10MB; JPEG only (headshots are downscaled and
+      // re-encoded client-side — uploadRecruitingHeadshot has always set
+      // contentType 'image/jpeg' and a '.jpg' name, so this rejects nothing a
+      // shipped client sends). Narrower than 'image/.*' on purpose: this object is
+      // the one piece of user-uploaded content the public page streams, and an
+      // 'image/*' allowance accepts SVG — script-bearing markup that the proxy
+      // only neutralises because it forces image/jpeg + nosniff on the way out.
+      // Don't make a response header the only thing standing between a stored SVG
+      // and a browser.
       allow write: if isAuthenticated() &&
                       request.auth.uid == userID &&
                       request.resource.size < 10 * 1024 * 1024 &&
-                      request.resource.contentType.matches('image/.*');
+                      request.resource.contentType == 'image/jpeg';
 
       // Delete: owner only
       allow delete: if isAuthenticated() && request.auth.uid == userID;

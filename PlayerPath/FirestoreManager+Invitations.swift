@@ -25,6 +25,13 @@ enum InvitationErrorCode: Int {
 /// Expiration constant for invitations (30 days)
 private let invitationExpirationInterval: TimeInterval = 30 * 24 * 60 * 60
 
+/// How many account-scoped invitation rows the duplicate check inspects before
+/// deciding this PERSON has no existing invitation with a coach. Sized for a
+/// parent account hosting several athlete profiles; a miss here only allows a
+/// duplicate invite, which the server's accept pre-check reconciles without
+/// charging a second seat.
+private let personMatchWindow = 25
+
 /// Apple "Hide My Email" proxy domain. Sign in with Apple users who hide their
 /// address get a `<random>@privaterelay.appleid.com` email that never matches the
 /// real address a coach typed into an invitation.
@@ -81,21 +88,51 @@ extension FirestoreManager {
         }
     }
 
+    /// True when an existing invitation doc refers to the SAME PERSON as `personKey`.
+    ///
+    /// The queries below are account-scoped (`athleteID` / `athleteEmail` are the
+    /// owning account, not the profile), but a coach seat is charged per PERSON —
+    /// `personGroupID ?? athleteUUID`, matching `computeCoachConnectionKeys` on the
+    /// server. Without this filter a parent's second child, and a dual-sport
+    /// athlete's second sport profile, both get told "already invited" while the
+    /// seat math counts them as separate connections.
+    ///
+    /// Docs carrying neither key predate dual-sport support. They're treated as a
+    /// match so legacy data keeps today's (stricter) behavior — this filter only
+    /// ever relaxes the check where we have a real per-person key to compare.
+    private func invitationMatchesPerson(_ doc: QueryDocumentSnapshot, personKey: String) -> Bool {
+        let data = doc.data()
+        let docKey = (data["personGroupID"] as? String) ?? (data["athleteUUID"] as? String)
+        guard let docKey, !docKey.isEmpty else { return true }
+        return docKey == personKey
+    }
+
     /// Checks if the current athlete already has a pending or accepted invitation with this coach
     /// in EITHER direction (athlete→coach or coach→athlete).
-    func hasPendingInvitation(athleteID: String, coachEmail: String) async throws -> Bool {
+    ///
+    /// - Parameters:
+    ///   - athleteID: the owning ACCOUNT UID (the `athleteID` field on A2C invitations).
+    ///   - personKey: `personGroupID ?? athleteUUID` for the profile being invited —
+    ///     the same key `createInvitation` writes, so the comparison lines up.
+    func hasPendingInvitation(athleteID: String, personKey: String, coachEmail: String) async throws -> Bool {
         let normalizedCoachEmail = normalizeInvitationEmail(coachEmail)
         let currentEmail = Auth.auth().currentUser?.email.map(normalizeInvitationEmail)
 
         // Fire all three checks in parallel rather than serially — on cellular,
         // three sequential round trips was the bulk of the perceived latency.
         // Any one match means "already invited," so we still OR the results.
+        //
+        // The limit is a small window rather than 1: these queries are
+        // account-scoped, so on a multi-athlete account the first doc returned
+        // may belong to a SIBLING. We need enough rows to find this person's own
+        // doc, if any. One account rarely has more than a handful of invitations
+        // outstanding to a single coach address.
         async let acceptedA2C = db.collection(FC.invitations)
             .whereField("athleteID", isEqualTo: athleteID)
             .whereField("coachEmail", isEqualTo: normalizedCoachEmail)
             .whereField("status", isEqualTo: "accepted")
             .whereField("type", isEqualTo: "athlete_to_coach")
-            .limit(to: 1)
+            .limit(to: personMatchWindow)
             .getDocuments()
 
         async let pendingA2C = db.collection(FC.invitations)
@@ -104,7 +141,7 @@ extension FirestoreManager {
             .whereField("status", isEqualTo: "pending")
             .whereField("type", isEqualTo: "athlete_to_coach")
             .whereField("expiresAt", isGreaterThan: Timestamp(date: Date()))
-            .limit(to: 1)
+            .limit(to: personMatchWindow)
             .getDocuments()
 
         // Third query is conditional on having the current user's email. When
@@ -117,13 +154,18 @@ extension FirestoreManager {
                 .whereField("coachEmail", isEqualTo: normalizedCoachEmail)
                 .whereField("status", isEqualTo: "accepted")
                 .whereField("type", isEqualTo: "coach_to_athlete")
-                .limit(to: 1)
+                .limit(to: personMatchWindow)
                 .getDocuments()
             return snap.documents
         }()
 
+        // Accepted coach→athlete invitations carry the person keys too: the accept
+        // Cloud Function stamps athleteUUID + personGroupID onto the doc, so the
+        // same person filter applies to all three result sets.
         let (a1, a2, a3) = try await (acceptedA2C, pendingA2C, acceptedC2ADocs)
-        return !a1.documents.isEmpty || !a2.documents.isEmpty || !a3.isEmpty
+        return a1.documents.contains { invitationMatchesPerson($0, personKey: personKey) }
+            || a2.documents.contains { invitationMatchesPerson($0, personKey: personKey) }
+            || a3.contains { invitationMatchesPerson($0, personKey: personKey) }
     }
 
     /// Fetches pending invitations for a coach (by email)

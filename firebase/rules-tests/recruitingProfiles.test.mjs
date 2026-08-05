@@ -52,6 +52,19 @@ async function seedTokenClaim(uid, token = TOKEN, athleteId = ATHLETE_ID) {
   });
 }
 
+/**
+ * Binds an athlete UUID to `uid`, the way the claimAthleteOwnership trigger does.
+ *
+ * Always seeded with rules disabled because that is the production reality: the
+ * collection is closed to clients in every direction, and only the Admin SDK
+ * writes it. A test that could create one through rules would be testing a hole.
+ */
+async function seedAthleteOwner(uid, athleteId = ATHLETE_ID) {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'athleteOwners', athleteId), { userId: uid, athleteId });
+  });
+}
+
 before(async () => {
   testEnv = await initializeTestEnvironment({
     projectId: 'demo-playerpath-rules',
@@ -76,6 +89,13 @@ beforeEach(async () => {
     await setDoc(doc(db, 'users', PRO_UID), { subscriptionTier: 'pro' });
     await setDoc(doc(db, 'users', FREE_UID), { subscriptionTier: 'free' });
     await setDoc(doc(db, 'users', OTHER_UID), { subscriptionTier: 'pro' });
+    // The suite's baseline: ATHLETE_ID is PRO_UID's athlete. Publishing now also
+    // requires proving that, so without this every create case would fail for the
+    // wrong reason.
+    await setDoc(doc(db, 'athleteOwners', ATHLETE_ID), {
+      userId: PRO_UID,
+      athleteId: ATHLETE_ID,
+    });
   });
 });
 
@@ -101,6 +121,8 @@ describe('recruitingProfiles — create', () => {
   });
 
   it('denies a free-tier owner (publishing is the Pro hook)', async () => {
+    // Give FREE_UID the athlete too, so the tier gate is the ONLY thing failing.
+    await seedAthleteOwner(FREE_UID);
     await seedTokenClaim(FREE_UID, 'token-free');
     await assertFails(
       setDoc(doc(dbFor(FREE_UID), PROFILE), profileData(FREE_UID, { shareToken: 'token-free' }))
@@ -216,6 +238,9 @@ describe('recruitingTokens — the uniqueness claim', () => {
   });
 
   it('denies a free-tier account claiming a token', async () => {
+    // Same isolation as the create case: FREE_UID owns the athlete here, so tier
+    // is the only reason left to deny.
+    await seedAthleteOwner(FREE_UID);
     await assertFails(
       setDoc(doc(dbFor(FREE_UID), CLAIM), { userId: FREE_UID, athleteId: ATHLETE_ID })
     );
@@ -401,6 +426,104 @@ describe('recruitingProfiles — update', () => {
       label: `Clip ${i}`,
     }));
     await assertFails(updateDoc(doc(dbFor(PRO_UID), PROFILE), { highlights }));
+  });
+});
+
+// The doc ID of a recruiting profile is an athlete UUID, and for a long time
+// nothing proved that UUID was the caller's. Every connected coach can read one
+// (`sharedFolders.athleteUUID`), so a Pro account could create the doc first and
+// lock the real family out of publishing FOREVER — create denied (the doc
+// exists), update denied (userId frozen), read denied, so even publish()'s
+// pre-read throws. `athleteOwners` is the missing proof.
+describe('athleteOwners — the squat gate', () => {
+  const OWNERS = `athleteOwners/${ATHLETE_ID}`;
+
+  it('denies publishing an athlete UUID with no ownership claim', async () => {
+    const orphan = 'athlete-uuid-unclaimed';
+    await seedTokenClaim(PRO_UID, 'token-orphan', orphan);
+    await assertFails(
+      setDoc(
+        doc(dbFor(PRO_UID), `recruitingProfiles/${orphan}`),
+        profileData(PRO_UID, { athleteId: orphan, shareToken: 'token-orphan' })
+      )
+    );
+  });
+
+  it('denies publishing an athlete UUID owned by another account (THE squat)', async () => {
+    // The attacker holds a legitimate token claim of their own — every other gate
+    // on the create path is satisfied. Only ownership stops this.
+    await seedAthleteOwner(PRO_UID);
+    await seedTokenClaim(OTHER_UID, 'token-squat');
+    await assertFails(
+      setDoc(
+        doc(dbFor(OTHER_UID), PROFILE),
+        profileData(OTHER_UID, { shareToken: 'token-squat' })
+      )
+    );
+  });
+
+  it('denies the attacker even claiming a token for an athlete they do not own', async () => {
+    // The squat starts one step earlier, at the token claim. Blocking it here
+    // keeps foreign UUIDs out of a collection whose docs are undeletable.
+    await assertFails(
+      setDoc(doc(dbFor(OTHER_UID), 'recruitingTokens/token-squat'), {
+        userId: OTHER_UID,
+        athleteId: ATHLETE_ID,
+      })
+    );
+  });
+
+  it('allows the real owner to publish once the claim is theirs', async () => {
+    await seedTokenClaim(PRO_UID);
+    await assertSucceeds(setDoc(doc(dbFor(PRO_UID), PROFILE), profileData(PRO_UID)));
+  });
+
+  // Update is deliberately NOT gated on ownership. Legacy profiles published
+  // before the backfill ran may have no claim, and a kill switch that a missing
+  // index row can disable is the same failure as one behind a paywall.
+  it('ALLOWS unpublishing a profile whose athlete has no ownership claim', async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await deleteDoc(doc(ctx.firestore(), OWNERS));
+    });
+    await seedProfile(PRO_UID);
+    await assertSucceeds(updateDoc(doc(dbFor(PRO_UID), PROFILE), { isPublished: false }));
+  });
+
+  it('ALLOWS deleting a profile whose athlete has no ownership claim', async () => {
+    // Athlete deletion cascades into this doc. If ownership gated delete, a
+    // legacy athlete's page would outlive the athlete.
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await deleteDoc(doc(ctx.firestore(), OWNERS));
+    });
+    await seedProfile(PRO_UID);
+    await assertSucceeds(deleteDoc(doc(dbFor(PRO_UID), PROFILE)));
+  });
+
+  // The collection is authoritative only because clients can't touch it. If any
+  // of these four ever passes, the squat has just moved one collection over.
+  it('denies a client creating an ownership claim', async () => {
+    await assertFails(
+      setDoc(doc(dbFor(PRO_UID), 'athleteOwners/athlete-uuid-2'), {
+        userId: PRO_UID,
+        athleteId: 'athlete-uuid-2',
+      })
+    );
+  });
+
+  it('denies a client overwriting an existing claim', async () => {
+    await assertFails(
+      setDoc(doc(dbFor(OTHER_UID), OWNERS), { userId: OTHER_UID, athleteId: ATHLETE_ID })
+    );
+  });
+
+  it('denies a client deleting a claim', async () => {
+    await assertFails(deleteDoc(doc(dbFor(PRO_UID), OWNERS)));
+  });
+
+  it('denies a client reading a claim, even its own', async () => {
+    // Nothing client-side needs it — ownsAthlete()'s get() is rule-internal and
+    // is not subject to these rules.
+    await assertFails(getDoc(doc(dbFor(PRO_UID), OWNERS)));
   });
 });
 

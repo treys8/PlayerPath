@@ -7,3 +7,8 @@
 build/
 DerivedData/
 *.xcuserstate
+
+# Firebase CLI writes this on every deploy / emulator run
+firebase-debug.log
+firestore-debug.log
+ui-debug.log

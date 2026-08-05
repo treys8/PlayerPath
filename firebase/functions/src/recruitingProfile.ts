@@ -50,14 +50,23 @@ import { sendPushNotification } from './push';
 
 /**
  * Signed media URLs live long enough to survive a triage session, short enough
- * that a scraped page rots. One hour was too short: grid clips are
- * `preload="none"`, so their URL is first fetched on click — a coach who opened
- * the link at 9:05 and clicked the third clip at 10:40 got a black box with no
- * explanation (the page has no JS to recover with; CSP forbids it). The share
- * token in the URL is the real gate, and the page is `no-store`, so the marginal
- * exposure of a longer window is small.
+ * that a scraped page rots. Two constraints pull against each other:
+ *
+ * • FLOOR — one hour was too short and shipped broken. Grid clips are
+ *   `preload="none"`, so a clip's URL is first fetched on CLICK: a coach who
+ *   opened the link at 9:05 and clicked the third clip at 10:40 got a black box
+ *   with no explanation (the page has no JS to recover with; CSP forbids it).
+ *   Any value here must clear that ~95-minute browse-then-click gap with margin.
+ * • CEILING — this is the real residual window on an unpublish. Nothing revokes a
+ *   signed URL already handed out; the render-time isPublished/tier check takes
+ *   down the PAGE, not links already in a browser. These profiles belong to
+ *   minors, so the window is a privacy number, not just a caching one.
+ *
+ * 3 h is ~2× the known failure case and 5 h less exposure than the 8 h it
+ * replaces. Note that no expiry revokes an issued URL — only rotating the
+ * object's path would, which is a bigger change than this constant.
  */
-const SIGNED_URL_HOURS = 8;
+const SIGNED_URL_HOURS = 3;
 
 /**
  * How long a profile must go un-notified before a view earns an INSTANT push;

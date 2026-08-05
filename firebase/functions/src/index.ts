@@ -14,6 +14,12 @@ admin.initializeApp();
 // ordering is safe either way, but keep it here rather than at the top.
 export { serveRecruitingProfile, recruitingViewDigest } from './recruitingProfile';
 
+// Athlete-UUID ownership claims. `athleteOwners` is what lets firestore.rules
+// prove an athlete UUID belongs to the caller before it becomes a published
+// profile — rules cannot, because athlete docs carry auto-IDs and the UUID is
+// only a field. Same re-export placement rule as above.
+export { claimAthleteOwnership, backfillAthleteOwners } from './athleteOwnership';
+
 // Lazy-initialize Resend so deploy analysis doesn't crash when env var is absent
 let _resend: Resend | null = null;
 function getResend(): Resend {
@@ -1347,6 +1353,13 @@ export const cleanupUserDataOnDelete = functions.auth.user().onDelete(async (use
   // the Admin SDK is the only thing that can reclaim them for a deleted account.
   await step('recruiting tokens', () =>
     deleteByQuery(db.collection('recruitingTokens').where('userId', '==', uid))
+  );
+  // Athlete-UUID ownership claims, same reasoning: written only by the Admin SDK
+  // (clients are denied the collection outright), so nothing else can reclaim
+  // them for a deleted account. Step 1's recursiveDelete removes the athlete docs
+  // themselves; these live in a top-level collection and survive it.
+  await step('athlete ownership claims', () =>
+    deleteByQuery(db.collection('athleteOwners').where('userId', '==', uid))
   );
 
   if (errors.length > 0) {
