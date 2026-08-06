@@ -1070,9 +1070,13 @@ final class UploadQueueManager {
                         localURL: localURL,
                         fileName: upload.fileName,
                         folderID: folderID,
-                        progressHandler: { [weak self] progress in
-                            Task { @MainActor [weak self] in
-                                self?.publishProgress(progress, for: upload.clipId)
+                        progressHandler: { progress in
+                            // Strong `self`: this is the `.shared` singleton, and the
+                            // enclosing addTask closure has to capture it strongly
+                            // anyway to form a weak one — so `[weak self]` here was
+                            // never actually weak.
+                            Task { @MainActor in
+                                self.publishProgress(progress, for: upload.clipId)
                             }
                         }
                     )

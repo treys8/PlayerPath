@@ -7,9 +7,14 @@
 
 import Foundation
 
+// Every formatter here is `nonisolated` on purpose: the module's default
+// MainActor isolation would otherwise make these main-actor-only, locking out
+// off-main callers like the nonisolated recruiting snapshot types. Each one is
+// configured once at init and only ever read afterwards, which is what makes
+// sharing it safe — never mutate one of these after creation.
 extension DateFormatter {
     /// Medium date, no time (e.g., "Jan 15, 2026")
-    static let mediumDate: DateFormatter = {
+    nonisolated static let mediumDate: DateFormatter = {
         let f = DateFormatter()
         f.dateStyle = .medium
         f.timeStyle = .none
@@ -17,7 +22,7 @@ extension DateFormatter {
     }()
 
     /// Short date, no time (e.g., "1/15/26")
-    static let shortDate: DateFormatter = {
+    nonisolated static let shortDate: DateFormatter = {
         let f = DateFormatter()
         f.dateStyle = .short
         f.timeStyle = .none
@@ -25,7 +30,7 @@ extension DateFormatter {
     }()
 
     /// Short time, no date (e.g., "3:30 PM")
-    static let shortTime: DateFormatter = {
+    nonisolated static let shortTime: DateFormatter = {
         let f = DateFormatter()
         f.timeStyle = .short
         f.dateStyle = .none
@@ -33,7 +38,7 @@ extension DateFormatter {
     }()
 
     /// Short date + short time (e.g., "1/15/26, 3:30 PM")
-    static let shortDateTime: DateFormatter = {
+    nonisolated static let shortDateTime: DateFormatter = {
         let f = DateFormatter()
         f.dateStyle = .short
         f.timeStyle = .short
@@ -41,28 +46,28 @@ extension DateFormatter {
     }()
 
     /// Month and day only (e.g., "Jan 15")
-    static let monthDay: DateFormatter = {
+    nonisolated static let monthDay: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "MMM d"
         return f
     }()
 
     /// Compact short date (e.g., "1/15/26")
-    static let compactDate: DateFormatter = {
+    nonisolated static let compactDate: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "M/d/yy"
         return f
     }()
 
     /// Month only (e.g., "Jan") — the open end of a same-year date range.
-    static let monthOnly: DateFormatter = {
+    nonisolated static let monthOnly: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "MMM"
         return f
     }()
 
     /// Month and year (e.g., "Jan 2026")
-    static let monthYear: DateFormatter = {
+    nonisolated static let monthYear: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "MMM yyyy"
         return f

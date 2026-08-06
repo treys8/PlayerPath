@@ -341,7 +341,10 @@ struct RecruitingPublishView: View {
 
     /// Natural-language name for a PII kind, for the sentence above. `.gpa` stays
     /// uppercase; the rest read as an English noun phrase.
-    private static func consentPhrase(for kind: RecruitingStatItem.Kind) -> String {
+    ///
+    /// `nonisolated` because it is passed to `map` as a bare function reference,
+    /// which is a synchronous nonisolated context — a pure switch needs no actor.
+    nonisolated private static func consentPhrase(for kind: RecruitingStatItem.Kind) -> String {
         switch kind {
         case .phone: return "phone number"
         case .email: return "email address"

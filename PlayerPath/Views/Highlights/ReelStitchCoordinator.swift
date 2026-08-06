@@ -73,8 +73,10 @@ final class ReelStitchCoordinator {
                     sourceURLs: sourceURLs,
                     outputURL: outputURL,
                     options: options
-                ) { [weak self] p in
-                    guard let self else { return }
+                ) { p in
+                    // Strong `self` on purpose: the enclosing Task already holds it
+                    // for the whole stitch, so a `[weak self]` here buys nothing and
+                    // only reads as if it did. Teardown runs through `task.cancel()`.
                     if case .generating = self.state { self.state = .generating(progress: p) }
                 }
                 guard !Task.isCancelled else { return }

@@ -150,14 +150,17 @@ extension Color {
 // MARK: - Gradients
 
 extension LinearGradient {
-    /// Brand navy gradient
-    static let brandNavy = LinearGradient(
+    /// Brand navy gradient. `@MainActor` because it is built from the
+    /// trait-reactive `Color.brandNavy`, which the dynamic-provider `UIColor`
+    /// init pins to the main actor; a gradient token is only ever read from a
+    /// view body, so matching that isolation costs nothing.
+    @MainActor static let brandNavy = LinearGradient(
         colors: [.brandNavy, .brandNavy.opacity(0.85)],
         startPoint: .topLeading, endPoint: .bottomTrailing
     )
 
-    /// Brand gold gradient
-    static let brandGold = LinearGradient(
+    /// Brand gold gradient (main-actor for the same reason as `brandNavy`).
+    @MainActor static let brandGold = LinearGradient(
         colors: [.brandGold, .brandGold.opacity(0.8)],
         startPoint: .topLeading, endPoint: .bottomTrailing
     )
