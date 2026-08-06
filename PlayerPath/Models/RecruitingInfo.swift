@@ -335,10 +335,50 @@ extension RecruitingInfo {
         return items
     }
 
+    /// True when `gradYear` implies the athlete is under 13.
+    ///
+    /// A US athlete graduating in year G turns 18 that year, so the implied age is
+    /// `18 - (G - thisYear)` and under-13 works out to `G >= thisYear + 6`. That
+    /// isn't a hypothetical boundary: `RecruitingProfileEditorView.gradYearOptions`
+    /// offers exactly `currentYear + 6`, so the picker's top entry describes a
+    /// 12-year-old.
+    ///
+    /// Why it earns a gate. COPPA treats a child's photograph, video, email address
+    /// and phone number as personal information, and a public profile page
+    /// discloses all four. The consent toggle is a self-attestation — "I'm this
+    /// athlete's parent or guardian, or I'm 13 or older" — which is not verifiable
+    /// parental consent, and there is no age gate anywhere else in the app to fall
+    /// back on. So the *reply channels*, the fields a stranger would use to contact
+    /// a child directly, are withheld below this line no matter what was toggled
+    /// on. Film, measurables, headshot and bio still publish; that scope was a
+    /// deliberate product call, not an oversight.
+    ///
+    /// A nil `gradYear` is UNKNOWN, never "under 13" — the same
+    /// silent-when-unknown rule `newlyPublicContactKinds` follows. Guessing here
+    /// would quietly strip a 17-year-old's email.
+    var gradYearImpliesUnder13: Bool {
+        guard let gradYear else { return false }
+        return gradYear >= Calendar.current.component(.year, from: Date()) + 6
+    }
+
     /// Contact/academic rows the athlete opted into publishing. A value that was
     /// entered but left private must never appear here — presence alone is not
     /// consent, which is why each field carries an explicit `include*` flag.
     var visibleContactItems: [RecruitingStatItem] {
+        // Withheld entirely for an implied-under-13 athlete (see
+        // gradYearImpliesUnder13). Enforced HERE rather than at the call sites
+        // because this property is the only route a PUBLISH has to these fields, so
+        // one guard covers the snapshot and the in-app preview together and the two
+        // can't disagree. The editor also disables the toggles, but that is the
+        // courtesy; this is the client-side guarantee.
+        //
+        // ⚠️ Client-side is NOT the whole guarantee, and don't read it as one: this
+        // runs only on the device doing the publishing. A second device on an older
+        // build publishes the same synced blob with the contact array intact, and
+        // every profile published before this shipped still has one at rest. The
+        // retroactive, version-proof half is `contactSection` in
+        // recruitingProfile.ts, which withholds the card at render time.
+        guard !gradYearImpliesUnder13 else { return [] }
         var items: [RecruitingStatItem] = []
         if includeGPA, let gpa {
             items.append(.init(kind: .gpa, label: "GPA", value: String(format: "%.2f", gpa)))
@@ -376,7 +416,11 @@ extension RecruitingInfo {
     /// into, so this only matters for the channels that don't: a scanned QR code,
     /// a link in a social bio, and any forwarded link.
     var hasPublicReplyChannel: Bool {
-        (includeContactEmail && contactEmail?.isEmpty == false)
+        // False under the under-13 gate, because the page genuinely won't carry one
+        // — `visibleContactItems` drops them. Saying otherwise would make the
+        // readiness checklist tick a row the published page contradicts.
+        guard !gradYearImpliesUnder13 else { return false }
+        return (includeContactEmail && contactEmail?.isEmpty == false)
             || (includeContactPhone && contactPhone?.isEmpty == false)
     }
 

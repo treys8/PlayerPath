@@ -281,7 +281,7 @@ struct RecruitingProfileEditorView: View {
 
     private var basicsSection: some View {
         Section("Basics") {
-            Picker("Grad Year", selection: $working.gradYear) {
+            Picker("Grad Year", selection: gradYearBinding) {
                 Text("—").tag(Int?.none)
                 ForEach(gradYearOptions, id: \.self) { year in
                     Text(String(year)).tag(Int?.some(year))
@@ -313,6 +313,32 @@ struct RecruitingProfileEditorView: View {
     }
 
     // MARK: - Bindings / data
+
+    /// Grad year, plus the contact opt-ins it gates.
+    ///
+    /// Picking a year that implies the athlete is under 13 forces the GPA, email and
+    /// phone toggles off (see `RecruitingInfo.gradYearImpliesUnder13`). Done on the
+    /// WRITE rather than in an `.onChange` inside `RecruitingPIISection`: that's a
+    /// different section of this Form, and its modifiers aren't guaranteed to be
+    /// active in a lazily materialised List while the athlete is up here in Basics.
+    ///
+    /// The published page is safe either way — `visibleContactItems` withholds those
+    /// fields, and `contactSection` in the Cloud Function withholds them again at
+    /// render time. This exists so the editor never shows an armed toggle that
+    /// silently does nothing, which was the whole complaint the `include*` flags were
+    /// added to answer.
+    private var gradYearBinding: Binding<Int?> {
+        Binding(
+            get: { working.gradYear },
+            set: { newValue in
+                working.gradYear = newValue
+                guard working.gradYearImpliesUnder13 else { return }
+                working.includeGPA = false
+                working.includeContactEmail = false
+                working.includeContactPhone = false
+            }
+        )
+    }
 
     /// Grad-year choices: this year through +6, plus any already-saved year that
     /// falls outside that window (so editing an older profile can't drop it).

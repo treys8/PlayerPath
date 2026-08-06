@@ -65,6 +65,12 @@ enum RecruitingPublishError: LocalizedError {
     /// this, so it must not reuse the "still uploading" copy.
     case highlightsMissingFromCloud
     case couldNotClaimLink
+    /// The share-token claim was DENIED rather than failing to reach the server.
+    /// Distinct from `couldNotClaimLink` for the same reason `tierNotSyncedYet`
+    /// is distinct from it: a denial is not a connectivity problem, and telling
+    /// someone to check their connection sends them to fix the one thing that
+    /// isn't wrong. See `claimShareToken` for how a denial is identified.
+    case athleteNotReadyYet
     case offline
     case tierNotSyncedYet
 
@@ -80,6 +86,15 @@ enum RecruitingPublishError: LocalizedError {
             return "These clips are no longer in your cloud backup. Pick different clips, or re-upload them from the Videos tab."
         case .couldNotClaimLink:
             return "Couldn't reserve a link for your profile. Check your connection and try again."
+        case .athleteNotReadyYet:
+            // Deliberately action-NEUTRAL ("try again", not "tap Publish again"):
+            // resetLink hits this path too, and telling someone who tapped Reset Link
+            // to tap Publish names the wrong control. Also deliberately does NOT
+            // promise seconds — the dominant cause after launch is an athlete whose
+            // ownership claim the trigger missed, and re-tapping cannot mint one
+            // (see claimShareToken). That case clears on the nightly reconcile, which
+            // is what "on its own" is carrying.
+            return "We're still finishing setup for this athlete profile. Try again in a moment — this clears on its own."
         case .offline:
             return "You need a connection to change your published profile."
         case .tierNotSyncedYet:
@@ -411,7 +426,25 @@ final class RecruitingProfileService {
     /// one rather than surfacing an error the user can't act on. (An abandoned
     /// claim — a network failure between the claim and the profile write — leaves
     /// a tiny orphan doc; the next attempt mints a new token, so nothing is stuck.)
+    ///
+    /// **Every way this write can be refused produces `permissionDenied`**, which
+    /// is why the outcome is decided by counting attempts rather than by reading
+    /// one error:
+    ///
+    /// * a token COLLISION — `setData` over an existing doc is an UPDATE, and
+    ///   `recruitingTokens` sets `allow update: if false`
+    /// * no `athleteOwners` claim for this athlete yet, so rules can't prove the
+    ///   UUID is the caller's (the squat gate)
+    /// * `hasProTier()` not yet true on the server
+    ///
+    /// Nothing tells them apart from here: the collection's read rule denies a
+    /// non-owned doc and a missing one alike, and `athleteOwners` denies client
+    /// reads outright, so there is nothing to probe. Probability settles it
+    /// instead — a slug carries ~50 bits, so three collisions in a row is ~2⁻¹⁵⁰.
+    /// If every attempt was DENIED it was a gate, not a collision, and the caller
+    /// gets copy that says so.
     private func claimShareToken(athleteId: UUID, ownerUID: String) async throws -> String {
+        var deniedEveryAttempt = true
         for _ in 0..<3 {
             let token = Self.makeShareSlug()
             do {
@@ -422,11 +455,23 @@ final class RecruitingProfileService {
                 ])
                 return token
             } catch {
-                recruitingLog.warning("Share-token claim collided, retrying: \(error.localizedDescription, privacy: .public)")
+                let nsError = error as NSError
+                let denied = nsError.domain == FirestoreErrorDomain
+                    && nsError.code == FirestoreErrorCode.permissionDenied.rawValue
+                if !denied { deniedEveryAttempt = false }
+                recruitingLog.warning("Share-token claim failed (denied: \(denied, privacy: .public)): \(error.localizedDescription, privacy: .public)")
                 continue
             }
         }
-        throw RecruitingPublishError.couldNotClaimLink
+        // A denial is recoverable and usually resolves itself within seconds — the
+        // caller re-syncs the athlete, which is what fires claimAthleteOwnership.
+        // The one case that does NOT self-heal on retry is an athlete whose claim
+        // the trigger missed outright: `before.id === after.id` means re-writing
+        // the doc won't mint one either, so reconcileAthleteOwners (nightly) is the
+        // repair path. Hence "wait a few seconds", not "this will work".
+        throw deniedEveryAttempt
+            ? RecruitingPublishError.athleteNotReadyYet
+            : RecruitingPublishError.couldNotClaimLink
     }
 
     // MARK: - Reset link

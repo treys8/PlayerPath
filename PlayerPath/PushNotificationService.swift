@@ -788,11 +788,15 @@ extension PushNotificationService: UNUserNotificationCenterDelegate {
             return
         }
 
-        // recruiting_view is exempt from the activity suppression: it writes no
-        // notifications/ doc, so there is no in-app ActivityNotificationBanner
-        // mirror — suppressing it would lose the event entirely. (The user
-        // toggle for it was already checked above.)
-        if isActive && isActivityFCM && notifType != "recruiting_view" {
+        // Both recruiting pushes are exempt from the activity suppression: neither
+        // writes a notifications/ doc, so there is no in-app
+        // ActivityNotificationBanner mirror — suppressing them would lose the event
+        // entirely. (recruiting_view's user toggle was already checked above;
+        // recruiting_offline deliberately has none — it reports that the athlete's
+        // public page has gone dark, which is the one thing they need to hear even
+        // with activity alerts off. See push.ts.)
+        let isRecruitingPush = notifType == "recruiting_view" || notifType == "recruiting_offline"
+        if isActive && isActivityFCM && !isRecruitingPush {
             completionHandler([])
         } else {
             completionHandler([.banner, .list, .sound, .badge])
@@ -952,10 +956,19 @@ extension PushNotificationService: UNUserNotificationCenterDelegate {
                 }
             case "coach_review_reminder":
                 NotificationCenter.default.post(name: .switchCoachTab, object: 1)
-            case "recruiting_view":
+            case "recruiting_view", "recruiting_offline":
                 // Server key is `athleteId` (lowercase d — the recruiting doc ID,
                 // which IS the athlete UUID), unlike milestone's `athleteID`.
-                // Older pushes without the key still land on the More tab root.
+                // Older pushes without the key still land on the More tab root, and
+                // so do the multi-athlete digests and lapse notices, which
+                // deliberately send no id because there is no single page to open.
+                //
+                // `recruiting_offline` shares this destination: it lands on the
+                // recruiting editor, one tap short of the Share Profile screen whose
+                // upgradeSection explains the page is offline and that the link
+                // survives a renewal. The push body already carries both facts, so
+                // this is a shortcut worth taking — deep-linking a tier-lapse push
+                // straight onto a paywall would be a different decision.
                 NotificationCenter.default.post(name: .navigateToRecruiting,
                                                 object: userInfo["athleteId"] as? String)
             default:

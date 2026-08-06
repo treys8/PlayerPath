@@ -274,11 +274,20 @@ const MARKETING_HREF =
  * Storage URLs for video and posters, and same-origin for the avatar route.
  * `no-referrer` matters on its own: without it every media request leaks the page
  * URL — which contains the share token — to Google in the Referer header.
+ *
+ * `X-Robots-Tag` is here rather than only in the page's `<meta name="robots">`
+ * because a meta tag cannot protect a JPEG. `/p/{token}/avatar` and
+ * `/p/{token}/poster` are permanent by design (unfurl caches outlive a signed
+ * URL) and they serve a minor's face, so the one surface where the meta tag has
+ * no reach is the one that most needs the directive. `noimageindex` is the half
+ * that keeps the headshot out of image search; a crawler only has to reach the
+ * URL once — a link pasted into a public bio is enough.
  */
 const SECURITY_HEADERS: Record<string, string> = {
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'no-referrer',
   'Strict-Transport-Security': 'max-age=31536000',
+  'X-Robots-Tag': 'noindex, nofollow, noimageindex',
   'Content-Security-Policy': [
     "default-src 'none'",
     "img-src 'self' https://storage.googleapis.com data:",
@@ -438,7 +447,45 @@ function golfSection(golf: Record<string, unknown> | undefined): string {
   return `<section class="card"><h2>Golf</h2>${lead}${detailed}${rounds}${note}</section>`;
 }
 
-function contactSection(contact: unknown): string {
+/**
+ * Whether the published `gradYear` implies the athlete is under 13.
+ *
+ * Mirrors `RecruitingInfo.gradYearImpliesUnder13`: a US athlete graduating in year
+ * G turns 18 that year, so under-13 is `G >= thisYear + 6`. A missing or
+ * non-numeric value is UNKNOWN and never counts — the same rule the client
+ * applies, so the two agree by construction. (They can disagree for a few hours
+ * at a New Year boundary, since this is UTC and the client is local. On a
+ * threshold derived from a graduation year that is not worth machinery.)
+ */
+function impliesUnder13(gradYear: unknown): boolean {
+  return typeof gradYear === 'number' && gradYear >= new Date().getUTCFullYear() + 6;
+}
+
+/**
+ * The contact card, withheld entirely for an athlete whose grad year implies they
+ * are under 13.
+ *
+ * 🚨 **This check has to live HERE, not only on the client.** The client's
+ * `visibleContactItems` is the single choke point through which a *publish* can
+ * reach contact PII, and that is genuinely true — but it only governs the device
+ * doing the publishing, and this function renders `data.contact` verbatim. Two
+ * things fall through a client-only gate:
+ *
+ * • **A second device on an older build.** The blob syncs; an iPad still on the
+ *   previous release publishes the same profile and writes the `contact` array,
+ *   and the page would serve a 12-year-old's email and phone as live
+ *   `mailto:`/`tel:` links.
+ * • **Everything already published.** This feature has been live in production,
+ *   so profiles with a far-future grad year are serving contact details right now
+ *   and would keep doing so until their owner happens to republish — which for a
+ *   family that published once and stopped is never.
+ *
+ * Filtering at render time is retroactive and version-proof: it fixes the existing
+ * corpus on the next page view and cannot be outrun by an old client. See
+ * `RecruitingInfo.gradYearImpliesUnder13` for the COPPA reasoning.
+ */
+function contactSection(contact: unknown, gradYear: unknown): string {
+  if (impliesUnder13(gradYear)) return '';
   if (!Array.isArray(contact) || contact.length === 0) return '';
   const rows = (contact as Record<string, unknown>[])
     .map((item) => {
@@ -753,6 +800,18 @@ async function loadPublishedProfile(token: string): Promise<LoadedProfile | null
   }
 
   const owner = await db.collection('users').doc(ownerUID).get();
+  // Distinguished from a lapsed tier on purpose. `get()` on a missing document
+  // returns undefined, which fails the tier test below and lands the visitor on
+  // "this profile has been unpublished or the link is incorrect" — permanently,
+  // for a link that is neither. An account doc that has gone missing under a live
+  // profile is a data bug, and without this branch it is indistinguishable in the
+  // logs from the thousands of legitimately-lapsed renders.
+  if (!owner.exists) {
+    console.error(
+      'serveRecruitingProfile: profile', doc.id, 'points at missing user doc', ownerUID
+    );
+    return null;
+  }
   if (owner.get('subscriptionTier') !== 'pro') return null;
 
   return { doc, data, ownerUID };
@@ -1087,7 +1146,7 @@ ${film}
 ${golfSection(golf)}
 ${measurables ? `<section class="card"><h2>Measurables</h2>${measurables}<p class="note">Self-reported by the athlete.</p></section>` : ''}
 ${bio ? `<section class="card"><h2>About</h2><p class="bio">${esc(bio)}</p></section>` : ''}
-${contactSection(data.contact)}
+${contactSection(data.contact, data.gradYear)}
 <footer>${updatedLabel(data.updatedAt)}<a href="${MARKETING_HREF}">PlayerPath</a></footer>
 </div>`;
 

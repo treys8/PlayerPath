@@ -44,12 +44,17 @@ export async function sendPushNotification(
       console.log(`Suppressing ${pushType} push for ${userID} — athleteActivity off`);
       return;
     }
-    // Recruiting profile-view pushes. No client toggle exists yet; the key is
-    // honored here so shipping one later needs no server change.
+    // Recruiting profile-view pushes, gated by the "Profile View Alerts" toggle.
     if (pushType === 'recruiting_view' && prefs.recruitingViews === false) {
       console.log(`Suppressing ${pushType} push for ${userID} — recruitingViews off`);
       return;
     }
+    // NOTE: `recruiting_offline` is deliberately absent from this list.
+    // `recruitingViews` means "tell me when a coach looks at the page"; going dark
+    // because Pro lapsed is a status change with consequences the athlete is
+    // paying for — closer to an invitation than to activity, and the one message
+    // they most need even with activity alerts off. The omission is a decision,
+    // not an oversight; see recruitingLapseNotice.ts.
 
     const message: admin.messaging.MulticastMessage = {
       tokens: fcmTokens,

@@ -754,6 +754,33 @@ struct RecruitingPublishView: View {
             } else {
                 errorMessage = message
             }
+            // A DENIED token claim is the one publish failure this device can help
+            // clear, so don't just report it and leave the athlete to retry into the
+            // same wall. Both server-side gates have a client-side nudge:
+            //  • the athlete doc may not have reached Firestore yet, and its arrival
+            //    is what fires claimAthleteOwnership — which mints the ownership
+            //    claim rules now require before a token can be claimed. Most likely
+            //    right after Add Athlete, or when the athlete was created offline.
+            //  • the tier may not have landed server-side (publish already tries
+            //    this once up front; a second attempt is cheap insurance).
+            // Fire-and-forget: the athlete has already been told to try again, and
+            // neither sync should hold the screen.
+            if let publishError = error as? RecruitingPublishError,
+               case .athleteNotReadyYet = publishError,
+               let user, !user.isDeleted, user.modelContext != nil {
+                Task {
+                    try? await authManager.syncSubscriptionTierToFirestoreAndWait()
+                    // Re-checked AFTER the await, not just before the Task: the tier
+                    // sync is a full network round trip, and `syncAthletes` reads
+                    // properties off this @Model. A sign-out wipe landing during that
+                    // suspension deletes the User row on the MainActor and the resumed
+                    // read would trap. The success path above gets away with a single
+                    // pre-Task guard only because its syncAthletes is the first
+                    // statement in the Task.
+                    guard !user.isDeleted, user.modelContext != nil else { return }
+                    try? await SyncCoordinator.shared.syncAthletes(for: user)
+                }
+            }
             ErrorHandlerService.shared.handle(error, context: "RecruitingPublishView.publish", showAlert: false)
         }
     }

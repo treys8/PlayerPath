@@ -18,7 +18,12 @@ export { serveRecruitingProfile, recruitingViewDigest } from './recruitingProfil
 // prove an athlete UUID belongs to the caller before it becomes a published
 // profile — rules cannot, because athlete docs carry auto-IDs and the UUID is
 // only a field. Same re-export placement rule as above.
-export { claimAthleteOwnership, backfillAthleteOwners } from './athleteOwnership';
+export { claimAthleteOwnership, reconcileAthleteOwners } from './athleteOwnership';
+
+// Daily "your recruiting page is offline" notice for a lapsed Pro. Its own module
+// rather than part of recruitingProfile.ts, which is already the page renderer,
+// the view counter and the digest. Same re-export placement rule as above.
+export { recruitingLapseNotice } from './recruitingLapseNotice';
 
 // Lazy-initialize Resend so deploy analysis doesn't crash when env var is absent
 let _resend: Resend | null = null;
