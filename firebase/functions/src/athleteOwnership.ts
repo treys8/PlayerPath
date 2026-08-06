@@ -241,10 +241,25 @@ const DEADLINE_MS = 480 * 1000;
  * When the audit pass gives up, measured on the SAME clock as the sweep above.
  *
  * The audit runs after the sweep inside one invocation, so it inherits whatever
- * time the sweep left — which on a slow night is very little. Leaves ~20 s under
- * the 540 s timeout to print its own summary.
+ * time the sweep left — which on a slow night is very little.
+ *
+ * ⚠️ A deadline checked once per page bounds the run at `deadline + one page`, not
+ * at the deadline, so this number is only as good as AUDIT_PAGE is small. With the
+ * sweep's 500-doc page that headroom was larger than the headroom itself: hand over
+ * at 479 s, finish a page at 514 s, pass the check, start another and get killed at
+ * 540 s with no summary — the exact silent truncation this exists to prevent, plus a
+ * timeout ERROR that pages.
  */
-const AUDIT_DEADLINE_MS = 520 * 1000;
+const AUDIT_DEADLINE_MS = 500 * 1000;
+
+/**
+ * Profiles per audit page — deliberately smaller than the sweep's PAGE.
+ *
+ * Each one costs a Firestore get AND a GCS metadata call, so a page is far slower
+ * per document than the sweep's, and the deadline above can only stop the audit at a
+ * page boundary. 100 keeps that granularity ~5× finer.
+ */
+const AUDIT_PAGE = 100;
 const PAGE = 500;
 
 /**
@@ -484,7 +499,10 @@ async function auditExistingProfiles(
   let truncated = false;
 
   for (;;) {
-    let q = db.collection('recruitingProfiles').orderBy(admin.firestore.FieldPath.documentId()).limit(PAGE);
+    let q = db
+      .collection('recruitingProfiles')
+      .orderBy(admin.firestore.FieldPath.documentId())
+      .limit(AUDIT_PAGE);
     if (cursor) q = q.startAfter(cursor);
     const snap = await q.get();
     if (snap.empty) break;
@@ -495,14 +513,25 @@ async function auditExistingProfiles(
     const findings = await mapWithConcurrency(snap.docs, RECONCILE_CONCURRENCY, async (doc) => {
       let squat = false;
       let wrongType = false;
-      const profileOwner = doc.data()?.userId;
+      // One decode, reused. Every check below reads this doc, and `doc.data()`
+      // decodes the proto on each call.
+      const data = doc.data() ?? {};
+      const profileOwner = data.userId;
       const owner = await db.collection(OWNERS).doc(doc.id).get().catch(() => null);
       const holder = owner?.exists ? owner.data()?.userId : null;
       if (!holder) {
         squat = true;
-        console.error(`recruitingProfiles AUDIT: ${doc.id} has no ownership claim (published by ${profileOwner})`);
+        // WARN: the sweep ran immediately before this and would have claimed any
+        // athlete it could find, so reaching here means the athlete doc is gone or
+        // malformed — permanent, unrepairable from a cron, and therefore not
+        // something to page on nightly (same rule as reconcileOne). The aggregate
+        // `suspicious` count in the summary is where this escalates.
+        console.warn(`recruitingProfiles AUDIT: ${doc.id} has no ownership claim (published by ${profileOwner})`);
       } else if (holder !== profileOwner) {
         squat = true;
+        // ERROR stays: a LIVE profile published by an account that does not own the
+        // athlete is the actual security finding this audit exists for, and it is
+        // worth waking someone for however many nights it takes.
         console.error(
           `recruitingProfiles AUDIT: ${doc.id} was published by ${profileOwner} but the athlete belongs to ${holder} — SQUAT`
         );
@@ -523,7 +552,7 @@ async function auditExistingProfiles(
       // inlined rather than imported to keep this module free of that dependency.
       // Without it a crafted path would turn this sweep into a probe that logs
       // the content type of arbitrary bucket objects.
-      const headshotPath = doc.data()?.headshotPath;
+      const headshotPath = data.headshotPath;
       if (
         typeof headshotPath === 'string' &&
         typeof profileOwner === 'string' &&
@@ -534,7 +563,10 @@ async function auditExistingProfiles(
           const [metadata] = await bucket.file(headshotPath).getMetadata();
           if (metadata.contentType !== 'image/jpeg') {
             wrongType = true;
-            console.error(
+            // WARN for the same reason as the two below: a stored content type is
+            // permanent until the athlete replaces the photo, and the proxy already
+            // forces image/jpeg + nosniff on the way out.
+            console.warn(
               `recruitingProfiles AUDIT: ${doc.id} headshot is ${metadata.contentType}, ` +
                 `not image/jpeg — ${headshotPath}`
             );
@@ -550,14 +582,20 @@ async function auditExistingProfiles(
       // card for these at render time, so the exposure is closed either way — this
       // exists to say how many there were, because a silent retroactive fix leaves
       // nobody able to answer "was a child's phone number ever public, and whose".
-      const gradYear = doc.data()?.gradYear;
+      const gradYear = data.gradYear;
       const staleUnder13 =
         typeof gradYear === 'number' &&
         gradYear >= new Date().getUTCFullYear() + 6 &&
-        Array.isArray(doc.data()?.contact) &&
-        doc.data()?.contact.length > 0;
+        Array.isArray(data.contact) &&
+        data.contact.length > 0;
       if (staleUnder13) {
-        console.error(
+        // WARN, not ERROR. The message says it itself: this persists until a
+        // republish, which for a family that published once and stopped is forever —
+        // so ERROR here would page nightly for the whole legacy population and get
+        // the alert muted, taking the genuine SQUAT and `claimed > 0` pages with it.
+        // That is exactly the damage the conflict downgrade in reconcileOne avoids,
+        // and this log was doing it in the same function.
+        console.warn(
           `recruitingProfiles AUDIT: ${doc.id} (grad ${gradYear}, published by ${profileOwner}) ` +
             'still stores contact PII for an implied-under-13 athlete — withheld at render, ' +
             'cleared on the next republish'
@@ -572,7 +610,7 @@ async function auditExistingProfiles(
     under13Contact += findings.filter((f) => f.staleUnder13).length;
 
     cursor = snap.docs[snap.docs.length - 1];
-    if (snap.size < PAGE) break;
+    if (snap.size < AUDIT_PAGE) break;
     // Shares the SWEEP's clock, not its own. The sweep is allowed to run to
     // DEADLINE_MS and then hand over, so measuring from zero here would let the two
     // together blow the 540 s timeout — and being killed mid-audit means this

@@ -59,7 +59,26 @@ struct RecruitingProfileEditorView: View {
 
     init(athlete: Athlete) {
         self.athlete = athlete
-        _working = State(initialValue: athlete.recruiting)
+        // Normalized at SEED as well as on the picker (gradYearBinding), because the
+        // two cover different populations and the seed one is the bigger: an athlete
+        // whose grad year was ALREADY under-13 — set on another device, or before this
+        // shipped — never passes through the picker's setter, so its contact opt-ins
+        // would render ON-and-disabled indefinitely. That is the armed-switch state
+        // the `include*` flags exist to rule out, and at launch it is the majority of
+        // affected profiles.
+        //
+        // The published page is safe either way (`visibleContactItems` plus the Cloud
+        // Function's `contactSection`); this is about the editor never showing a
+        // state that isn't true. `persistIfChanged`'s `working != athlete.recruiting`
+        // check sees the difference, so it persists on the way out — deliberately
+        // dirtying those profiles once.
+        var seeded = athlete.recruiting
+        if seeded.gradYearImpliesUnder13 {
+            seeded.includeGPA = false
+            seeded.includeContactEmail = false
+            seeded.includeContactPhone = false
+        }
+        _working = State(initialValue: seeded)
         _seededAthleteID = State(initialValue: athlete.id)
     }
 

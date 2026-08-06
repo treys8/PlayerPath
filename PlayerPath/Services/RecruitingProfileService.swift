@@ -87,14 +87,19 @@ enum RecruitingPublishError: LocalizedError {
         case .couldNotClaimLink:
             return "Couldn't reserve a link for your profile. Check your connection and try again."
         case .athleteNotReadyYet:
-            // Deliberately action-NEUTRAL ("try again", not "tap Publish again"):
-            // resetLink hits this path too, and telling someone who tapped Reset Link
-            // to tap Publish names the wrong control. Also deliberately does NOT
-            // promise seconds — the dominant cause after launch is an athlete whose
-            // ownership claim the trigger missed, and re-tapping cannot mint one
-            // (see claimShareToken). That case clears on the nightly reconcile, which
-            // is what "on its own" is carrying.
-            return "We're still finishing setup for this athlete profile. Try again in a moment — this clears on its own."
+            // Three constraints, and getting any of them wrong sends someone to fix
+            // the wrong thing:
+            //  • Action-NEUTRAL ("try again", not "tap Publish again") — resetLink
+            //    hits this path too, and naming the wrong control is its own bug.
+            //  • No promise of SECONDS — the dominant cause after launch is an
+            //    ownership claim the trigger missed, and re-tapping cannot mint one
+            //    (see claimShareToken); that clears on the nightly reconcile.
+            //  • No promise it clears AT ALL. `hasProTier()` is one of the three
+            //    denials, and it is false for a genuinely ENDED subscription as well
+            //    as an unsynced one — most likely of all for resetLink, where
+            //    ownership is long established. "This clears on its own" would leave
+            //    a lapsed account retrying forever and never seeing the paywall.
+            return "We're still finishing setup for this athlete profile. Try again in a moment — if it keeps failing, check that your Pro subscription is active."
         case .offline:
             return "You need a connection to change your published profile."
         case .tierNotSyncedYet:
@@ -463,12 +468,13 @@ final class RecruitingProfileService {
                 continue
             }
         }
-        // A denial is recoverable and usually resolves itself within seconds — the
-        // caller re-syncs the athlete, which is what fires claimAthleteOwnership.
-        // The one case that does NOT self-heal on retry is an athlete whose claim
-        // the trigger missed outright: `before.id === after.id` means re-writing
-        // the doc won't mint one either, so reconcileAthleteOwners (nightly) is the
-        // repair path. Hence "wait a few seconds", not "this will work".
+        // Two of the three denials clear without the athlete doing anything: an
+        // unsynced athlete doc (the caller re-syncs it, which fires
+        // claimAthleteOwnership) and an unsynced tier. The other two do NOT — a
+        // claim the trigger missed outright needs the nightly reconcile, because
+        // `before.id === after.id` means re-writing the doc won't mint one either;
+        // and an actually-ended subscription needs a purchase. That spread is why
+        // the error copy neither names a control nor promises this fixes itself.
         throw deniedEveryAttempt
             ? RecruitingPublishError.athleteNotReadyYet
             : RecruitingPublishError.couldNotClaimLink

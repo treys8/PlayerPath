@@ -171,11 +171,16 @@ export const recruitingLapseNotice = functions
       // `sendPushNotification` returns silently on an empty `fcmTokens`, so stamping
       // first would consume the one-shot for a send that never had a recipient —
       // and because this push type writes no `notifications/` doc, there is no
-      // in-app mirror to fall back on. A family who declined notifications and
-      // later enables them would otherwise never be told at all. Leaving the
-      // episode open costs one read a night until they have a device.
-      // (This is NOT the delivery-failure case: an FCM error after a real send
-      // still burns the episode, deliberately.)
+      // in-app mirror to fall back on. Leaving the episode open costs one read a
+      // night until they have a device.
+      //
+      // ⚠️ Scope: this covers an account that NEVER registered a token (notifications
+      // declined at the prompt). It does NOT cover tokens that went dead — those are
+      // pruned by `sendPushNotification` only AFTER a failed send, so a stale array
+      // passes this guard, gets stamped, sends to nothing, and is empty by the time
+      // the next run's `alreadyToldThisLapse` short-circuits ahead of this check.
+      // That case sits inside the deliberate "a delivery failure burns the episode"
+      // line; don't read this guard as closing it.
       const tokens = data.fcmTokens;
       if (!Array.isArray(tokens) || tokens.length === 0) return false;
 
