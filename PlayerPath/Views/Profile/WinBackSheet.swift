@@ -180,8 +180,9 @@ struct WinBackSheet: View {
                 tierName: opportunity.tierName,
                 reason: opportunity.reason.rawValue,
                 cancellationReason: reason.rawValue,
-                hasFreeText: !trimmed.isEmpty,
-                feedbackText: trimmed
+                // Only whether they wrote something, never what. See
+                // trackWinBackReasonSubmitted — the verbatim text was PII about a minor.
+                hasFreeText: !trimmed.isEmpty
             )
         }
         StoreKitManager.shared.dismissWinBackOpportunity()

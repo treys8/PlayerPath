@@ -47,9 +47,10 @@ enum PhotoThumbnailLoader {
         let thumbPath = photo.resolvedThumbnailPath
         let filePath = photo.resolvedFilePath
         let cloudURL = photo.cloudURL
+        let fileName = photo.fileName
 
         let task = Task<UIImage?, Never> {
-            let image = await loadUncached(thumbPath: thumbPath, filePath: filePath, cloudURL: cloudURL, maxPixelSize: maxPixelSize)
+            let image = await loadUncached(thumbPath: thumbPath, filePath: filePath, cloudURL: cloudURL, fileName: fileName, maxPixelSize: maxPixelSize)
             if let image {
                 let cost = Int(image.size.width * image.scale * image.size.height * image.scale * 4)
                 cache.setObject(image, forKey: key, cost: cost)
@@ -71,9 +72,27 @@ enum PhotoThumbnailLoader {
     }
 
     /// The disk → cloud-download → disk decode chain, cache-free so `load` can wrap it.
-    private static func loadUncached(thumbPath: String?, filePath: String, cloudURL: String?, maxPixelSize: Int) async -> UIImage? {
+    private static func loadUncached(thumbPath: String?, filePath: String, cloudURL: String?, fileName: String, maxPixelSize: Int) async -> UIImage? {
         if let image = await decode(thumbPath: thumbPath, filePath: filePath, maxPixelSize: maxPixelSize) {
             return image
+        }
+
+        // Signed URL first, `cloudURL` only as fallback — the same ladder VideoPlayerView uses
+        // for personal videos. `cloudURL` is a permanent downloadURL() token that Firebase
+        // serves with no auth and without consulting storage.rules; the signed URL is
+        // short-lived and re-derives ownership from the caller's ID token server-side. The
+        // fallback stays until the athlete_photos/ tokens are rotated, because rotating them
+        // before this path is proven on device would break every photo in the app.
+        if !fileName.isEmpty {
+            do {
+                let signed = try await SecureURLManager.shared.getPersonalPhotoURL(fileName: fileName)
+                try await VideoCloudManager.shared.downloadPhoto(from: signed, to: filePath)
+                if let image = await decode(thumbPath: nil, filePath: filePath, maxPixelSize: maxPixelSize) {
+                    return image
+                }
+            } catch {
+                // Fall through to the legacy token URL below.
+            }
         }
 
         if let cloudURL, !cloudURL.isEmpty {

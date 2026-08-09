@@ -123,8 +123,22 @@ struct RecruitingPublishView: View {
     /// hides the upgrade path behind a dead control; the app's convention (see
     /// GameDetailView.generateReelTapped) is to keep the action live and let the
     /// tap open the paywall — the tap IS the conversion moment.
+    /// Whether a graduation year is set, read off the readiness row rather than the blob
+    /// (decoding `athlete.recruiting` here is the trap documented on `readiness` above —
+    /// this property is evaluated on every render through `canPublish`).
+    ///
+    /// Defaults to `true` when the row is somehow absent, which is the *don't block publish*
+    /// direction. That is deliberate and safe: withholding a minor's contact details does not
+    /// depend on this at all — `RecruitingInfo.contactPublishingBlocked` and the server's
+    /// `contactSection` both fail closed on a nil grad year independently. This gate exists so
+    /// the athlete is asked for the one age signal the product has, rather than silently
+    /// publishing a page with its contact card quietly withheld.
+    private var hasGradYear: Bool {
+        readiness.first(where: { $0.id == "gradYear" })?.isDone ?? true
+    }
+
     private var canPublish: Bool {
-        !selection.isEmpty && !isWorking && (!needsConsent || consentAcknowledged)
+        !selection.isEmpty && !isWorking && hasGradYear && (!needsConsent || consentAcknowledged)
     }
 
     var body: some View {
@@ -430,6 +444,11 @@ struct RecruitingPublishView: View {
         } footer: {
             if isWorking, renditionTotal > 0 {
                 Text("Your clips are being converted so they play in any web browser. This happens once per clip.")
+            } else if !hasGradYear {
+                // A disabled button with no reason reads as a broken app. This is the only
+                // requirement that isn't already visible as an unticked checklist row the
+                // athlete is looking at, so name it explicitly.
+                Text("Add a graduation year to publish. It's the recruiting class coaches filter on, and it's how we know which details are safe to show publicly.")
             } else if isPublished {
                 Text("Republishing refreshes your stats and clips. Your link stays the same.")
             }

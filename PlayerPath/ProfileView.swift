@@ -216,23 +216,28 @@ struct ProfileView: View {
                 )
             ))
 
-            items.append(SearchResult(
-                title: "Recruiting Profile",
-                icon: "graduationcap.fill",
-                keywords: ["recruiting", "profile", "college", "coach", "bio", "highlight", "commit", "scout"],
-                link: AnyView(
-                    NavigationLink {
-                        // `.id` per athlete: the editor snapshots the bio into
-                        // @State, and a switch under a pushed editor would write
-                        // one athlete's profile onto another. Same convention as
-                        // every athlete-scoped destination in MainTabView.
-                        RecruitingProfileEditorView(athlete: selectedAthlete)
-                            .id(selectedAthlete.id)
-                    } label: {
-                        Label("Recruiting Profile", systemImage: "graduationcap.fill")
-                    }
-                )
-            ))
+            // Gated with the row itself — an un-indexed feature is the point of
+            // the flag; leaving it searchable would surface a screen the UI
+            // otherwise has no route to. See RecruitingFeature.swift.
+            if RecruitingFeature.isEnabled {
+                items.append(SearchResult(
+                    title: "Recruiting Profile",
+                    icon: "graduationcap.fill",
+                    keywords: ["recruiting", "profile", "college", "coach", "bio", "highlight", "commit", "scout"],
+                    link: AnyView(
+                        NavigationLink {
+                            // `.id` per athlete: the editor snapshots the bio into
+                            // @State, and a switch under a pushed editor would write
+                            // one athlete's profile onto another. Same convention as
+                            // every athlete-scoped destination in MainTabView.
+                            RecruitingProfileEditorView(athlete: selectedAthlete)
+                                .id(selectedAthlete.id)
+                        } label: {
+                            Label("Recruiting Profile", systemImage: "graduationcap.fill")
+                        }
+                    )
+                ))
+            }
         }
 
         // Settings Section
@@ -355,6 +360,15 @@ struct ProfileView: View {
                     Label(authManager.currentTier == .free ? "Upgrade Plan" : "\(authManager.currentTier.displayName) Plan", systemImage: authManager.currentTier == .free ? "crown" : "crown.fill")
                 }
             )
+        ))
+
+        items.append(SearchResult(
+            title: "Redeem Code",
+            icon: "gift",
+            keywords: ["redeem", "code", "promo", "offer", "gift", "voucher", "free"],
+            // Self-contained button (not a NavigationLink) — it presents Apple's
+            // redemption sheet in place, which works the same from search.
+            link: AnyView(RedeemOfferCodeRow())
         ))
 
         items.append(SearchResult(
@@ -550,36 +564,38 @@ struct ProfileView: View {
                     .accessibilityLabel("Manage Seasons — select an athlete first")
             }
 
-            if let selectedAthlete = selectedAthlete {
-                // No `.proRequired()`: that gate replaces the screen, and this is the
-                // only route to the unpublish kill switch, which must stay reachable
-                // after Pro lapses. Publishing is gated on the action instead.
-                NavigationLink {
-                    // `.id` per athlete: the editor holds the bio in @State, and
-                    // PPAthleteSwitcher can change `selectedAthlete` while this
-                    // stack stays pushed — without a fresh identity the editor
-                    // would save one athlete's profile onto another.
-                    RecruitingProfileEditorView(athlete: selectedAthlete)
-                        .id(selectedAthlete.id)
-                } label: {
-                    HStack {
-                        Label("Recruiting Profile", systemImage: "graduationcap.fill")
-                        Spacer()
-                        // This row sits above the athlete list and otherwise reads as
-                        // account-level, but it publishes ONE athlete's photo, city,
-                        // and contact info. Name whose — with the sport when the
-                        // person has two profiles, since those are two separate
-                        // public pages under the same name.
-                        Text(selectedAthlete.nameWithSportIfShared)
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
+            if RecruitingFeature.isEnabled {
+                if let selectedAthlete = selectedAthlete {
+                    // No `.proRequired()`: that gate replaces the screen, and this is
+                    // the only route to the unpublish kill switch, which must stay
+                    // reachable after Pro lapses. Publishing is gated on the action.
+                    NavigationLink {
+                        // `.id` per athlete: the editor holds the bio in @State, and
+                        // PPAthleteSwitcher can change `selectedAthlete` while this
+                        // stack stays pushed — without a fresh identity the editor
+                        // would save one athlete's profile onto another.
+                        RecruitingProfileEditorView(athlete: selectedAthlete)
+                            .id(selectedAthlete.id)
+                    } label: {
+                        HStack {
+                            Label("Recruiting Profile", systemImage: "graduationcap.fill")
+                            Spacer()
+                            // This row sits above the athlete list and otherwise reads
+                            // as account-level, but it publishes ONE athlete's photo,
+                            // city, and contact info. Name whose — with the sport when
+                            // the person has two profiles, since those are two separate
+                            // public pages under the same name.
+                            Text(selectedAthlete.nameWithSportIfShared)
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                        }
                     }
+                    .accessibilityHint("Edit \(selectedAthlete.name)'s recruiting profile")
+                } else {
+                    Label("Recruiting Profile", systemImage: "graduationcap.fill")
+                        .foregroundColor(.secondary)
+                        .accessibilityLabel("Recruiting Profile — select an athlete first")
                 }
-                .accessibilityHint("Edit \(selectedAthlete.name)'s recruiting profile")
-            } else {
-                Label("Recruiting Profile", systemImage: "graduationcap.fill")
-                    .foregroundColor(.secondary)
-                    .accessibilityLabel("Recruiting Profile — select an athlete first")
             }
 
             ForEach(sortedAthletes) { athlete in

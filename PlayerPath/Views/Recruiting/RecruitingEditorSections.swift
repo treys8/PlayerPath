@@ -82,22 +82,38 @@ struct RecruitingPIISection: View {
     private var hasEmail: Bool { info.contactEmail?.isEmpty == false }
     private var hasPhone: Bool { info.contactPhone?.isEmpty == false }
     /// Publishing a child's contact details is gated on implied age — see
-    /// `RecruitingInfo.gradYearImpliesUnder13` for the COPPA reasoning and the
+    /// `RecruitingInfo.contactPublishingBlocked` for the COPPA reasoning and the
     /// arithmetic. `visibleContactItems` is what actually withholds them; these
     /// toggles are disabled so the athlete isn't left arming a switch that
     /// silently does nothing.
+    ///
+    /// Two distinct reasons to disable, and they need DIFFERENT copy: an athlete known
+    /// to be under 13, and an athlete whose grad year simply isn't set yet. Telling a
+    /// parent "this athlete is under 13" when they just haven't picked a year would be
+    /// both wrong and confusing, so `blocked` drives the control state while `under13`
+    /// drives only the sentence that names an age.
+    private var blocked: Bool { info.contactPublishingBlocked }
     private var under13: Bool { info.gradYearImpliesUnder13 }
+
+    /// Explains why the contact/GPA toggles are off, or nil when they're available.
+    private var blockedReason: String? {
+        guard blocked else { return nil }
+        return under13
+            ? "The graduation year you picked puts this athlete under 13, so contact details and GPA aren't published. Their film, measurables and headshot still appear on the page."
+            : "Add a graduation year to publish contact details. Until then they're withheld, because a page that shows a way to reach an athlete of unknown age isn't safe to publish."
+    }
 
     var body: some View {
         Section {
             RecruitingNumberField("GPA", value: $info.gpa)
             Toggle("Show GPA on profile", isOn: $info.includeGPA)
-                .disabled(!hasGPA || under13)
+                .disabled(!hasGPA || blocked)
         } header: {
             Text("Academics")
         } footer: {
-            Text(under13
-                 ? "GPA isn't published for an athlete under 13."
+            Text(blocked
+                 ? (under13 ? "GPA isn't published for an athlete under 13."
+                            : "Add a graduation year to publish GPA.")
                  : "Optional. Off by default.")
         }
         .onChange(of: info.gpa) { _, newValue in
@@ -110,20 +126,19 @@ struct RecruitingPIISection: View {
                                 keyboard: .emailAddress,
                                 autocapitalization: .never, autocorrect: false)
             Toggle("Show email on profile", isOn: $info.includeContactEmail)
-                .disabled(!hasEmail || under13)
+                .disabled(!hasEmail || blocked)
 
             RecruitingTextField("Phone", prompt: "(555) 555-5555",
                                 text: $info.contactPhone.orEmpty(),
                                 keyboard: .phonePad,
                                 autocapitalization: .never, autocorrect: false)
             Toggle("Show phone on profile", isOn: $info.includeContactPhone)
-                .disabled(!hasPhone || under13)
+                .disabled(!hasPhone || blocked)
         } header: {
             Text("Contact")
         } footer: {
-            Text(under13
-                 ? "The graduation year you picked puts this athlete under 13, so contact details and GPA aren't published. Their film, measurables and headshot still appear on the page."
-                 : "Each field appears on your profile only when its toggle is on. For a minor, the account owner controls what's shared.")
+            Text(blockedReason
+                 ?? "Each field appears on your profile only when its toggle is on. For a minor, the account owner controls what's shared.")
         }
         .onChange(of: info.contactEmail) { _, newValue in
             if newValue?.isEmpty != false { info.includeContactEmail = false }

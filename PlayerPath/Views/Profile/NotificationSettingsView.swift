@@ -152,7 +152,12 @@ struct NotificationSettingsView: View {
                 .disabled(authorizationStatus == .denied)
             }
 
-            if !isCoach {
+            // Hidden with the rest of recruiting (RecruitingFeature.swift). The
+            // stored preference is untouched — a profile published from an older
+            // TestFlight build still generates these pushes, and
+            // PushNotificationService keeps honouring whatever the toggle was
+            // last set to.
+            if !isCoach && RecruitingFeature.isEnabled {
                 Section {
                     Toggle("Profile View Alerts", isOn: $recruitingViews)
                 } header: {

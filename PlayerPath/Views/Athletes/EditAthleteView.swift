@@ -75,20 +75,22 @@ struct EditAthleteView: View {
             // The per-athlete home for recruiting. The Profile-tab row keys off
             // whichever athlete is selected and reads as account-level; in here
             // there's no ambiguity about whose photo and contact info goes public.
-            Section {
-                NavigationLink {
-                    // `.id` for the same reason as the Profile-tab route: the
-                    // editor holds the bio in @State, so it must be recreated
-                    // rather than re-rendered if the athlete underneath changes.
-                    RecruitingProfileEditorView(athlete: athlete)
-                        .id(athlete.id)
-                } label: {
-                    Label("Recruiting Profile", systemImage: "graduationcap.fill")
+            if RecruitingFeature.isEnabled {
+                Section {
+                    NavigationLink {
+                        // `.id` for the same reason as the Profile-tab route: the
+                        // editor holds the bio in @State, so it must be recreated
+                        // rather than re-rendered if the athlete underneath changes.
+                        RecruitingProfileEditorView(athlete: athlete)
+                            .id(athlete.id)
+                    } label: {
+                        Label("Recruiting Profile", systemImage: "graduationcap.fill")
+                    }
+                } header: {
+                    Text("Recruiting")
+                } footer: {
+                    Text("Build a profile page you can send to college coaches — film first, plus measurables and contact info you choose to share.")
                 }
-            } header: {
-                Text("Recruiting")
-            } footer: {
-                Text("Build a profile page you can send to college coaches — film first, plus measurables and contact info you choose to share.")
             }
 
             Section {

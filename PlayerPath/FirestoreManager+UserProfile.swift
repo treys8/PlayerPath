@@ -69,9 +69,12 @@ extension FirestoreManager {
         // must never be written by the client — dropped here to match the Firestore rules.
         // downgradeUnresolved/coachDowngradeGraceStartedAt are likewise CF-managed
         // (auditCoachDowngrades) — the client only reads them.
+        // coachTierSource is the coach-axis twin of athleteTierSource and was missing from
+        // both this list and the rules: it decides whether a lapsed coach subscription may be
+        // written back down, so a client-set value could make a refunded tier permanent.
         let defaultTierValues: Set<String> = ["free", "coach_free"]
         let cfManagedKeys: Set<String> = [
-            "coachAthleteLimit", "coachAthleteCount", "athleteTierSource",
+            "coachAthleteLimit", "coachAthleteCount", "athleteTierSource", "coachTierSource",
             "downgradeUnresolved", "coachDowngradeGraceStartedAt"
         ]
         let safeProfileData = profileData.filter { key, value in
@@ -441,17 +444,26 @@ extension FirestoreManager {
         }
 
         // MARK: Step 6 — Delete coach_access_revocations referencing this user
+        //
+        // ATHLETE side only. The coach is the SUBJECT of a revocation, and letting the
+        // subject delete their own deny-list entry was a real hole (a coach who regained
+        // array membership could erase the family's revocation), so firestore.rules now
+        // permits deletes from the athlete side alone. Querying the coachID axis here
+        // would therefore always throw for a coach deleting their account, recording a
+        // spurious "access revocations" failure on an otherwise clean deletion.
+        //
+        // Nothing is left behind: cleanupUserDataOnDelete step 9 (index.ts) sweeps BOTH
+        // axes with the Admin SDK, which bypasses rules, and it fires on Auth user
+        // deletion — which this flow performs. The server owns the coach axis.
         do {
-            for field in ["athleteID", "coachID"] {
-                let revocationsQuery = db.collection(FC.coachAccessRevocations)
-                    .whereField(field, isEqualTo: userID)
-                while true {
-                    let snap = try await revocationsQuery.limit(to: 400).getDocuments()
-                    guard !snap.documents.isEmpty else { break }
-                    let batch = db.batch()
-                    snap.documents.forEach { batch.deleteDocument($0.reference) }
-                    try await batch.commit()
-                }
+            let revocationsQuery = db.collection(FC.coachAccessRevocations)
+                .whereField("athleteID", isEqualTo: userID)
+            while true {
+                let snap = try await revocationsQuery.limit(to: 400).getDocuments()
+                guard !snap.documents.isEmpty else { break }
+                let batch = db.batch()
+                snap.documents.forEach { batch.deleteDocument($0.reference) }
+                try await batch.commit()
             }
         } catch {
             stepErrors.append("access revocations: \(error.localizedDescription)")

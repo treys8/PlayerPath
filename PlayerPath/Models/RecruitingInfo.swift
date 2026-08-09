@@ -353,21 +353,48 @@ extension RecruitingInfo {
     /// on. Film, measurables, headshot and bio still publish; that scope was a
     /// deliberate product call, not an oversight.
     ///
-    /// A nil `gradYear` is UNKNOWN, never "under 13" — the same
-    /// silent-when-unknown rule `newlyPublicContactKinds` follows. Guessing here
-    /// would quietly strip a 17-year-old's email.
+    /// A nil `gradYear` is UNKNOWN, never "under 13" — this property answers only the
+    /// narrow question it names, and it drives the *copy* that says "under 13". For the
+    /// question that actually matters — may contact details publish at all? — use
+    /// `contactPublishingBlocked`, which treats unknown as blocking.
     var gradYearImpliesUnder13: Bool {
         guard let gradYear else { return false }
         return gradYear >= Calendar.current.component(.year, from: Date()) + 6
+    }
+
+    /// Whether contact/academic details are withheld from the public page.
+    ///
+    /// Three states, not two: **known and 13+** publishes, **known and under 13** withholds,
+    /// and **unknown withholds too**. That last case is the one that matters, and it used to
+    /// fail OPEN on both sides of the wire.
+    ///
+    /// `gradYear` is optional, omitted from the published blob when nil, and offered as "—"
+    /// in the picker — so a parent could fill in a 10-year-old's profile, never touch the
+    /// year, and publish live `tel:`/`mailto:` links beside the child's face, city and
+    /// school with no gate firing anywhere. The readiness checklist made it worse by
+    /// actively prompting for contact info in exactly that state, because it keyed on
+    /// `!gradYearImpliesUnder13`, which is `true` when the year is nil.
+    ///
+    /// Unknown age is precisely when a child's reply channels must not go out: the whole
+    /// justification for publishing them is an age the app never actually verifies. Erring
+    /// the other way costs a 17-year-old one picker tap, and `canPublish` now requires the
+    /// year anyway, so in practice nobody reaches the published state without setting it.
+    ///
+    /// ⚠️ Client-side is only half the guarantee — see `visibleContactItems`. The retroactive,
+    /// version-proof half is `contactSection` in recruitingProfile.ts, which applies the same
+    /// three-state rule at render time and therefore also covers every profile already
+    /// published with no grad year.
+    var contactPublishingBlocked: Bool {
+        gradYear == nil || gradYearImpliesUnder13
     }
 
     /// Contact/academic rows the athlete opted into publishing. A value that was
     /// entered but left private must never appear here — presence alone is not
     /// consent, which is why each field carries an explicit `include*` flag.
     var visibleContactItems: [RecruitingStatItem] {
-        // Withheld entirely for an implied-under-13 athlete (see
-        // gradYearImpliesUnder13). Enforced HERE rather than at the call sites
-        // because this property is the only route a PUBLISH has to these fields, so
+        // Withheld entirely when the athlete is implied under 13 OR their age is
+        // unknown (see contactPublishingBlocked). Enforced HERE rather than at the call
+        // sites because this property is the only route a PUBLISH has to these fields, so
         // one guard covers the snapshot and the in-app preview together and the two
         // can't disagree. The editor also disables the toggles, but that is the
         // courtesy; this is the client-side guarantee.
@@ -378,7 +405,7 @@ extension RecruitingInfo {
         // every profile published before this shipped still has one at rest. The
         // retroactive, version-proof half is `contactSection` in
         // recruitingProfile.ts, which withholds the card at render time.
-        guard !gradYearImpliesUnder13 else { return [] }
+        guard !contactPublishingBlocked else { return [] }
         var items: [RecruitingStatItem] = []
         if includeGPA, let gpa {
             items.append(.init(kind: .gpa, label: "GPA", value: String(format: "%.2f", gpa)))
@@ -416,10 +443,11 @@ extension RecruitingInfo {
     /// into, so this only matters for the channels that don't: a scanned QR code,
     /// a link in a social bio, and any forwarded link.
     var hasPublicReplyChannel: Bool {
-        // False under the under-13 gate, because the page genuinely won't carry one
-        // — `visibleContactItems` drops them. Saying otherwise would make the
-        // readiness checklist tick a row the published page contradicts.
-        guard !gradYearImpliesUnder13 else { return false }
+        // False whenever contact publishing is blocked — under 13, or age unknown —
+        // because the page genuinely won't carry one: `visibleContactItems` drops them.
+        // Saying otherwise would make the readiness checklist tick a row the published
+        // page contradicts.
+        guard !contactPublishingBlocked else { return false }
         return (includeContactEmail && contactEmail?.isEmpty == false)
             || (includeContactPhone && contactPhone?.isEmpty == false)
     }

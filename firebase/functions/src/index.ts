@@ -40,7 +40,21 @@ function getResend(): Resend {
 const APP_STORE_URL = 'https://apps.apple.com/us/app/playerpath/id6754497342';
 
 // Maximum signed URL expiration (30 days)
-const MAX_EXPIRATION_HOURS = 720;
+// Ceiling for EVERY signed media URL this file mints. Was 720 (30 days).
+//
+// The three shared-folder endpoints take `expirationHours` straight from the caller and
+// only clamp, and they are plain HTTPS endpoints the app calls with a raw Bearer token —
+// so any value was reachable. A coach anticipating removal could script
+// getBatchSignedVideoURLs at 720h, 50 clips a call, and keep streaming a minor's whole
+// library for a month after the family revoked them. Rotating download tokens does
+// nothing about an already-issued signed URL, so this was the residual exposure left
+// behind by the finding-#5 remediation, not something it fixed.
+//
+// 24h is what every shipped client actually asks for (SecureURLManager passes 24
+// everywhere; thumbnails asked 168 and now get 24). SecureURLManager's cache is
+// in-memory and re-signs on each cold launch, so a shorter ceiling costs essentially no
+// extra invocations.
+const MAX_EXPIRATION_HOURS = 24;
 
 // Maximum batch size for signed URL requests
 const MAX_BATCH_SIZE = 50;
@@ -103,10 +117,138 @@ function sanitizeFileName(fileName: string): string {
 }
 
 /**
+ * Normalizes a `coachTierSource` value, failing CLOSED.
+ *
+ * The field carries a single bit of meaning: 'storekit' = this server wrote the tier from
+ * a validated receipt and may therefore write it back DOWN when the subscription lapses;
+ * absent = an admin comp (the Academy tier, which has no StoreKit product) that a lapse
+ * must never revoke.
+ *
+ * Everything else is neither, and the old `!== 'storekit'` tests read "neither" as "comp"
+ * — the permissive direction. `coachTierSource` was missing from the users-update deny
+ * list in firestore.rules, so a coach could write themselves an arbitrary value, request
+ * an Apple refund, and have the REFUND handler decline to downgrade them. The rules now
+ * block that write; this makes the server refuse to honour any such value already at rest.
+ *
+ * Absent/null is preserved because that IS the legitimate comp marker: 'storekit' is the
+ * only value this codebase ever writes, so a comp is signalled by absence, never by a
+ * sentinel. Any other value could have been client-written and collapses to 'storekit'.
+ *
+ * ⚠️ COACH AXIS ONLY — do NOT reuse this for `athleteTierSource`. See
+ * `readAthleteTierSource` below; applying it there was a real regression, not a
+ * hardening.
+ */
+function normalizeCoachTierSource(raw: unknown, uid?: string): string | undefined {
+  if (raw === undefined || raw === null) return undefined; // genuine admin comp
+  if (raw !== 'storekit') {
+    // Loud on purpose. If this ever fires for a real hand-granted comp, the fix is to
+    // CLEAR the field (absent is the comp marker this codebase uses) rather than to
+    // reintroduce a sentinel string — a sentinel cannot be told apart from one a client
+    // wrote. coach_academy is separately excluded at both write-down sites, so the
+    // realistic comp population cannot be silently downgraded by this.
+    console.warn(
+      `normalizeCoachTierSource: unrecognized value ${JSON.stringify(raw)} on ${uid ?? 'user'} — ` +
+      `treating as revocable 'storekit'.`
+    );
+  }
+  return 'storekit';
+}
+
+/**
+ * Reads `athleteTierSource` WITHOUT collapsing unrecognized values to 'storekit'.
+ *
+ * The asymmetry with the coach axis is deliberate and is the whole point of this function.
+ * `coachTierSource` was client-writable until 2026-08-06, so a value at rest there may be
+ * attacker-authored and failing closed is right. `athleteTierSource` was **never**
+ * client-writable — it has been in both the create-forbid list and the update deny-list in
+ * firestore.rules since long before that deploy (verified against the committed rules at
+ * 8e619b59). So there is no poisoned-by-client population on this axis, and every
+ * non-'storekit' value at rest can only have been typed by an admin granting a comp.
+ *
+ * Failing closed here therefore has zero security benefit and exactly one effect: it
+ * revokes a real comp. Worse, silently and irreversibly — the write-down also stamps
+ * `athleteTierSource: 'storekit'`, after which the doc is indistinguishable from a lapsed
+ * purchase, and the athlete simply finds their storage cap back at 2GB.
+ *
+ * Unrecognized values are still logged, because the canonical comp marker is ABSENCE and a
+ * sentinel string should be cleaned up — just not by destroying the entitlement first.
+ */
+function readAthleteTierSource(raw: unknown, uid?: string): string | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (raw !== 'storekit') {
+    console.warn(
+      `readAthleteTierSource: non-canonical value ${JSON.stringify(raw)} on ${uid ?? 'user'} — ` +
+      `treating as an admin comp (preserved). Clear the field to make the comp canonical.`
+    );
+  }
+  return raw as string;
+}
+
+/**
  * Clamps expiration hours to MAX_EXPIRATION_HOURS.
  */
 function clampExpiration(hours: number): number {
-  return Math.max(1, Math.min(hours, MAX_EXPIRATION_HOURS));
+  const n = typeof hours === 'number' && Number.isFinite(hours) ? hours : MAX_EXPIRATION_HOURS;
+  return Math.max(1, Math.min(n, MAX_EXPIRATION_HOURS));
+}
+
+/**
+ * Authorizes a caller against a shared folder before signing any of its media, and
+ * returns the folder data.
+ *
+ * Extracted because the identical block was copy-pasted into getSignedVideoURL,
+ * getSignedThumbnailURL and getBatchSignedVideoURLs — and all three were missing the same
+ * check. One function means a future signing endpoint cannot be written without it.
+ *
+ * The check that was missing: **coach_access_revocations**. These endpoints authorized on
+ * bare `sharedWithCoachIDs` membership, while `canAccessFolder()` in firestore.rules has
+ * always consulted the deny-list as well. Array membership is not access — a coach can be
+ * back in the array (a re-add, a partially-applied removal, an admin restore) while the
+ * family's revocation still stands, and the Admin SDK signs without consulting
+ * storage.rules, so nothing downstream would have caught it.
+ */
+async function assertFolderMediaAccess(
+  db: admin.firestore.Firestore,
+  folderID: string,
+  uid: string,
+): Promise<admin.firestore.DocumentData> {
+  const folderDoc = await db.collection('sharedFolders').doc(folderID).get();
+  if (!folderDoc.exists) {
+    throw new functions.https.HttpsError('not-found', 'Folder not found');
+  }
+
+  const folder = folderDoc.data()!;
+  const isOwner = uid === folder.ownerAthleteID;
+  const sharedCoachIDs: string[] = folder.sharedWithCoachIDs || [];
+  if (!isOwner && !sharedCoachIDs.includes(uid)) {
+    throw new functions.https.HttpsError('permission-denied', 'Access denied to this folder');
+  }
+
+  if (!isOwner) {
+    // Deterministic doc ID "<folderID>_<coachID>", same key the rules use.
+    const revoked = await db
+      .collection('coach_access_revocations')
+      .doc(`${folderID}_${uid}`)
+      .get();
+    if (revoked.exists) {
+      console.warn(
+        `assertFolderMediaAccess: refusing ${uid} on folder ${folderID} — ` +
+        `revocation record present despite array membership.`
+      );
+      throw new functions.https.HttpsError('permission-denied', 'Access to this folder has been revoked');
+    }
+
+    const userDoc = await db.collection('users').doc(uid).get();
+    if (!userDoc.exists) {
+      throw new functions.https.HttpsError('permission-denied', 'User profile not found');
+    }
+    const userData = userDoc.data()!;
+    if (userData.role === 'coach' && !userData.coachSubscriptionTier) {
+      throw new functions.https.HttpsError('permission-denied', 'Active coach subscription required');
+    }
+  }
+
+  return folder;
 }
 
 // Maximum emails a single user can trigger per hour
@@ -411,12 +553,34 @@ export const onVideoPublished = functions.firestore
  * Uses deterministic doc IDs matching the client path so duplicates overwrite
  * rather than producing two identical items in the coach's feed.
  */
-export const onSharedFolderDeleted = functions.firestore
+export const onSharedFolderDeleted = functions
+  // Raised from the 60s/256MB default: this trigger now deletes Storage objects, and a
+  // folder holding a season of clips can take real time to sweep.
+  .runWith({ timeoutSeconds: 300, memory: '512MB' })
+  .firestore
   .document('sharedFolders/{folderID}')
   .onDelete(async (snap) => {
     const folder = snap.data();
     const folderID = snap.id;
     const coachIDs: string[] = folder?.sharedWithCoachIDs || [];
+
+    // 🔒 Storage sweep FIRST, and deliberately above the no-coaches early return —
+    // a folder with no coaches still has bytes, and they still belong to a child.
+    //
+    // This is the catch-all for every route that destroys a folder doc: the client
+    // (SharedFolderManager.deleteFolder / FirestoreManager.deleteSharedFolder), the
+    // athlete-deletion cascade, cleanupUserDataOnDelete, and any direct console or
+    // admin delete. Firing here means no future delete path has to remember to clean
+    // up Storage — deleting the doc is now sufficient by construction.
+    //
+    // Idempotent and 404-tolerant, so overlapping with a caller that already swept
+    // (cleanupUserDataOnDelete does) costs nothing.
+    try {
+      await admin.storage().bucket().deleteFiles({ prefix: `shared_folders/${folderID}/` });
+    } catch (err) {
+      console.error(`onSharedFolderDeleted: failed to sweep shared_folders/${folderID}/ —`, err);
+    }
+
     if (coachIDs.length === 0) return;
 
     const athleteName = folder?.ownerAthleteName || 'The athlete';
@@ -1164,7 +1328,18 @@ export const backfillInvitationsOnSignup = functions.auth.user().onCreate(async 
  * references and Storage prefixes are hand-written. Every step is idempotent, so
  * running concurrently with the client purge — or firing more than once — is safe.
  */
-export const cleanupUserDataOnDelete = functions.auth.user().onDelete(async (user) => {
+export const cleanupUserDataOnDelete = functions
+  // Raised from the 60s/256MB default. This runs fourteen sequential steps — several
+  // recursiveDeletes over the whole user tree, three collectionGroup sweeps, and now a
+  // per-folder Storage sweep for every folder the user owned. At 60s a family with real
+  // data times out PART WAY THROUGH, and a half-finished account deletion is precisely
+  // the failure this function exists to prevent: the user is gone from Auth, so nothing
+  // re-triggers it, and whatever step it died on is simply never completed.
+  //
+  // 540s is the 1st-gen ceiling. Every step is idempotent, so the cost of overshooting
+  // is nothing; the cost of undershooting is a child's data left behind permanently.
+  .runWith({ timeoutSeconds: 540, memory: '512MB' })
+  .auth.user().onDelete(async (user) => {
   const uid = user.uid;
   const email = user.email ? user.email.toLowerCase().trim() : null;
   const db = admin.firestore();
@@ -1218,6 +1393,31 @@ export const cleanupUserDataOnDelete = functions.auth.user().onDelete(async (use
         for (const v of videos.docs) {
           await db.recursiveDelete(v.ref);
         }
+
+        // 🔒 Storage BEFORE the folder doc, and this order is the whole point.
+        //
+        // shared_folders/{folderID}/** holds a SEPARATE copy of every clip this athlete
+        // shared with a coach. Nothing used to delete it: step 13 sweeps only the
+        // athlete_*/ and recruiting_headshots/ prefixes, and the docs that name these
+        // objects are destroyed two lines below — so once that happened there was no
+        // query left that could even FIND the survivors. A family deleted their child's
+        // account, the app reported success, and every clip ever shared to a coach stayed
+        // in GCS permanently, still reachable through the non-expiring download token
+        // minted at upload time.
+        //
+        // Doc-last means a timeout here leaves a findable doc with missing bytes (ugly,
+        // recoverable, and the next run retries it). Doc-first would leave unfindable
+        // bytes — the exact failure being fixed.
+        //
+        // Per-folder try/catch: deleteFiles on one bad prefix must not abort the step and
+        // strand the remaining folders. onSharedFolderDeleted repeats this sweep as a
+        // backstop, and deletion is idempotent, so a miss here is recoverable.
+        try {
+          await bucket.deleteFiles({ prefix: `shared_folders/${folderDoc.id}/` });
+        } catch (err) {
+          errors.push(`storage shared folder ${folderDoc.id}: ${err instanceof Error ? err.message : String(err)}`);
+        }
+
         await db.recursiveDelete(folderDoc.ref);
       }
       if (folders.size < 50) break;
@@ -2397,6 +2597,40 @@ export const acceptAthleteToCoachInvitation = functions.https.onCall(async (data
       ? await transaction.get(legacyFolderRef)
       : null;
 
+    // 🔒 The invitation's `folderID` is CLIENT-WRITTEN and unvalidated. The invitations
+    // create rule pins `athleteID == request.auth.uid` and the email fields, but says
+    // nothing about folderID / athleteUUID / permissions / personGroupID — and hasAll()
+    // does not forbid extra keys. Nothing stops one person being both parties either.
+    // So without this check an invitation could name ANY folder in the database, and the
+    // join below would arrayUnion the coach into it AND delete the
+    // coach_access_revocations doc that was keeping them out — handing a previously
+    // revoked coach (the one party who actually knows a victim's folderID, having read it
+    // while they were a member) full access back, with the family's revocation erased.
+    //
+    // The two values that ARE trustworthy make the boundary: `inv.athleteID` is pinned to
+    // the sender's uid by rules, and a folder's `ownerAthleteID` is pinned to its creator's
+    // uid on create and immutable on every update branch. An athlete may therefore only
+    // hand out access to folders they own. Fails closed on a missing/non-string field.
+    //
+    // THROW rather than skip: skipping would still mark the invitation accepted, burn a
+    // coach seat, and return a phantom gamesFolderID pointing at a folder the coach cannot
+    // read. Throwing aborts the transaction, so the invitation status, coachAthleteCount,
+    // the folder and the revocation doc are all left untouched and the invite stays usable.
+    if (legacyFolderSnap?.exists) {
+      const folderOwnerID = legacyFolderSnap.data()?.ownerAthleteID;
+      if (typeof folderOwnerID !== 'string' || folderOwnerID !== inv.athleteID) {
+        console.error(
+          `acceptAthleteToCoachInvitation: invitation ${invitationID} names folder ` +
+          `${inv.folderID} owned by '${String(folderOwnerID)}' but was sent by athlete ` +
+          `'${String(inv.athleteID)}' — refusing to join (coach ${coachID}).`
+        );
+        throw new functions.https.HttpsError(
+          'permission-denied',
+          'This invitation refers to a folder its sender does not own.'
+        );
+      }
+    }
+
     // Atomic limit check inside transaction. coachAthleteCount is maintained by
     // acceptance/revocation functions. Falls back to pre-check count for migration.
     // Connection key prefers personGroupID (dual-sport person = one slot), then
@@ -2430,7 +2664,21 @@ export const acceptAthleteToCoachInvitation = functions.https.onCall(async (data
     // If invitation has a legacy folderID, join the existing folder
     // (read hoisted above the writes — see legacyFolderSnap).
     if (legacyFolderRef && legacyFolderSnap?.exists) {
-      const permissions = inv.permissions || { canUpload: false, canComment: true, canDelete: false };
+      // The athlete picked these toggles for their OWN folder (CreateFolderView), and the
+      // ownership check above is what makes "their own" true — so the VALUES are legitimately
+      // theirs to set and are deliberately not overridden here. Only the SHAPE is enforced:
+      // this map is raw client JSON, and without coercion a nested blob or a "true" string
+      // would land in the folder doc. (rules' hasPermission() compares `== true`, so a bad
+      // type could never have granted anything — this is document hygiene, not an escalation
+      // fix.) The absent-canComment default stays `true` to match the previous behaviour.
+      const rawPerms = (inv.permissions && typeof inv.permissions === 'object' && !Array.isArray(inv.permissions))
+        ? inv.permissions as Record<string, unknown>
+        : {};
+      const permissions = {
+        canUpload: rawPerms.canUpload === true,
+        canComment: rawPerms.canComment !== false,
+        canDelete: rawPerms.canDelete === true,
+      };
       const coachDisplayName = coachDoc.data()?.displayName || coachEmail?.split('@')[0] || 'Coach';
       transaction.update(legacyFolderRef, {
         sharedWithCoachIDs: admin.firestore.FieldValue.arrayUnion(coachID),
@@ -2474,13 +2722,34 @@ export const acceptAthleteToCoachInvitation = functions.https.onCall(async (data
   const athleteName = invData.athleteName || 'Athlete';
   const athleteID = invData.athleteID;
   const athleteUUID = invData.athleteUUID;
-  if (typeof athleteUUID !== 'string' || athleteUUID.length === 0) {
+  if (typeof athleteUUID !== 'string' || athleteUUID.length === 0 || athleteUUID.length > 128) {
     throw new functions.https.HttpsError(
       'failed-precondition',
       'Invitation is missing athleteUUID. Ask the athlete to resend from an updated app version.'
     );
   }
-  const permissions = invData.permissions || { canUpload: true, canComment: true, canDelete: false };
+  // athleteID is now a QUERY OPERAND in reuseOrCreateSharedFolders (the ownerAthleteID
+  // filter). An undefined operand throws "Invalid query" — and it would throw here, after
+  // the invitation is already accepted and the seat consumed, on a path that bypasses the
+  // rollback below. Guard it explicitly, mirroring the athleteUUID guard above.
+  if (typeof athleteID !== 'string' || athleteID.length === 0) {
+    throw new functions.https.HttpsError(
+      'failed-precondition',
+      'Invitation is missing athleteID. Ask the athlete to resend from an updated app version.'
+    );
+  }
+  // Same shape normalization as the legacy-join branch above — the folder is created for
+  // athleteID, which the invitations rule pins to the sender's uid, so the values are the
+  // owner's own to choose; only the shape is enforced. Default here is canUpload: true,
+  // matching this branch's historical default (the legacy branch defaults to false).
+  const rawInvitePerms = (invData.permissions && typeof invData.permissions === 'object' && !Array.isArray(invData.permissions))
+    ? invData.permissions as Record<string, unknown>
+    : {};
+  const permissions = {
+    canUpload: rawInvitePerms.canUpload !== false,
+    canComment: rawInvitePerms.canComment !== false,
+    canDelete: rawInvitePerms.canDelete === true,
+  };
   const coachDisplayName = coachDoc.data()?.displayName || coachEmail?.split('@')[0] || 'Coach';
 
   // Reuse the athlete's existing folders (and their clips) on re-invite; only
@@ -2551,8 +2820,17 @@ export const acceptCoachToAthleteInvitation = functions.https.onCall(async (data
   if (!invitationID || typeof invitationID !== 'string') {
     throw new functions.https.HttpsError('invalid-argument', 'invitationID is required');
   }
+  // The client-body value is deliberately preferred over invData.athleteUUID, and that is
+  // the SAFER order here: the coach's client never writes athleteUUID on a coach_to_athlete
+  // invitation, so a value present on the invitation doc could only have been put there by
+  // a malicious sender — preferring it would let the sender pin the recipient's folder key.
+  // Both sources trace back to the accepting athlete's own device otherwise. The blast
+  // radius is bounded by reuseOrCreateSharedFolders' ownerAthleteID filter, which is
+  // context.auth.uid on this path. Cap the length so a hostile value can't be written into
+  // folder documents as a multi-KB string.
   let athleteUUID: string | null =
-    typeof clientAthleteUUID === 'string' && clientAthleteUUID.length > 0 ? clientAthleteUUID : null;
+    typeof clientAthleteUUID === 'string' && clientAthleteUUID.length > 0 && clientAthleteUUID.length <= 128
+      ? clientAthleteUUID : null;
 
   const athleteUserID = context.auth.uid;
   const athleteEmail = context.auth.token.email?.toLowerCase();
@@ -2574,7 +2852,7 @@ export const acceptCoachToAthleteInvitation = functions.https.onCall(async (data
   // invitation doc already carries one, use it. Fail hard if neither source has a value.
   if (!athleteUUID) {
     const invAthleteUUID = invData.athleteUUID;
-    if (typeof invAthleteUUID === 'string' && invAthleteUUID.length > 0) {
+    if (typeof invAthleteUUID === 'string' && invAthleteUUID.length > 0 && invAthleteUUID.length <= 128) {
       athleteUUID = invAthleteUUID;
     }
   }
@@ -2892,29 +3170,7 @@ export const getSignedVideoURL = functions.https.onCall(async (data, context) =>
   const safeFileName = sanitizeFileName(fileName);
 
   const db = admin.firestore();
-  const folderDoc = await db.collection('sharedFolders').doc(folderID).get();
-  if (!folderDoc.exists) {
-    throw new functions.https.HttpsError('not-found', 'Folder not found');
-  }
-
-  const folder = folderDoc.data()!;
-  const sharedCoachIDs: string[] = folder.sharedWithCoachIDs || [];
-  const hasAccess = context.auth.uid === folder.ownerAthleteID || sharedCoachIDs.includes(context.auth.uid);
-  if (!hasAccess) {
-    throw new functions.https.HttpsError('permission-denied', 'Access denied to this folder');
-  }
-
-  // Enforce subscription tier for coaches accessing shared videos
-  if (context.auth.uid !== folder.ownerAthleteID) {
-    const userDoc = await db.collection('users').doc(context.auth.uid).get();
-    if (!userDoc.exists) {
-      throw new functions.https.HttpsError('permission-denied', 'User profile not found');
-    }
-    const userData = userDoc.data()!;
-    if (userData.role === 'coach' && !userData.coachSubscriptionTier) {
-      throw new functions.https.HttpsError('permission-denied', 'Active coach subscription required');
-    }
-  }
+  await assertFolderMediaAccess(db, folderID, context.auth.uid);
 
   const expiresAt = new Date();
   expiresAt.setHours(expiresAt.getHours() + clampExpiration(expirationHours));
@@ -2948,29 +3204,7 @@ export const getSignedThumbnailURL = functions.https.onCall(async (data, context
   const safeVideoFileName = sanitizeFileName(videoFileName);
 
   const db = admin.firestore();
-  const folderDoc = await db.collection('sharedFolders').doc(folderID).get();
-  if (!folderDoc.exists) {
-    throw new functions.https.HttpsError('not-found', 'Folder not found');
-  }
-
-  const folder = folderDoc.data()!;
-  const sharedCoachIDs: string[] = folder.sharedWithCoachIDs || [];
-  const hasAccess = context.auth.uid === folder.ownerAthleteID || sharedCoachIDs.includes(context.auth.uid);
-  if (!hasAccess) {
-    throw new functions.https.HttpsError('permission-denied', 'Access denied to this folder');
-  }
-
-  // Enforce subscription tier for coaches accessing shared content
-  if (context.auth.uid !== folder.ownerAthleteID) {
-    const userDoc = await db.collection('users').doc(context.auth.uid).get();
-    if (!userDoc.exists) {
-      throw new functions.https.HttpsError('permission-denied', 'User profile not found');
-    }
-    const userData = userDoc.data()!;
-    if (userData.role === 'coach' && !userData.coachSubscriptionTier) {
-      throw new functions.https.HttpsError('permission-denied', 'Active coach subscription required');
-    }
-  }
+  await assertFolderMediaAccess(db, folderID, context.auth.uid);
 
   const baseName = safeVideoFileName.replace(/\.[^/.]+$/, '');
   const thumbnailFileName = `${baseName}_thumbnail.jpg`;
@@ -3007,29 +3241,7 @@ export const getBatchSignedVideoURLs = functions.https.onCall(async (data, conte
   }
 
   const db = admin.firestore();
-  const folderDoc = await db.collection('sharedFolders').doc(folderID).get();
-  if (!folderDoc.exists) {
-    throw new functions.https.HttpsError('not-found', 'Folder not found');
-  }
-
-  const folder = folderDoc.data()!;
-  const sharedCoachIDs: string[] = folder.sharedWithCoachIDs || [];
-  const hasAccess = context.auth.uid === folder.ownerAthleteID || sharedCoachIDs.includes(context.auth.uid);
-  if (!hasAccess) {
-    throw new functions.https.HttpsError('permission-denied', 'Access denied to this folder');
-  }
-
-  // Enforce subscription tier for coaches accessing shared content
-  if (context.auth.uid !== folder.ownerAthleteID) {
-    const userDoc = await db.collection('users').doc(context.auth.uid).get();
-    if (!userDoc.exists) {
-      throw new functions.https.HttpsError('permission-denied', 'User profile not found');
-    }
-    const userData = userDoc.data()!;
-    if (userData.role === 'coach' && !userData.coachSubscriptionTier) {
-      throw new functions.https.HttpsError('permission-denied', 'Active coach subscription required');
-    }
-  }
+  await assertFolderMediaAccess(db, folderID, context.auth.uid);
 
   const expiresAt = new Date();
   expiresAt.setHours(expiresAt.getHours() + clampExpiration(expirationHours));
@@ -3084,6 +3296,53 @@ export const getPersonalVideoSignedURL = functions.https.onCall(async (data, con
     return { signedURL: signedUrl, expiresAt: expiresAt.toISOString() };
   } catch (error) {
     console.error('getPersonalVideoSignedURL error:', error);
+    throw new functions.https.HttpsError('internal', 'Failed to generate signed URL');
+  }
+});
+
+/**
+ * Short-lived signed URL for one of the CALLER'S OWN photos.
+ *
+ * Photos were the one media type with no signed-URL path at all — videos have
+ * getPersonalVideoSignedURL and shared-folder clips have getSignedVideoURL, but photo
+ * display depended entirely on the permanent `downloadURL()` token persisted as
+ * `Photo.cloudURL`. That token is served with no authentication and without evaluating
+ * storage.rules, never expires, and was additionally written into the "Export My Data" file
+ * — a document families are invited to save and share, handing every recipient permanent
+ * public links to a child's photographs.
+ *
+ * This is the replacement path. `Photo.cloudURL` stays as a fallback until this is proven on
+ * device; once it is, the athlete_photos/ tokens get rotated and the fallback goes.
+ *
+ * The owner is taken from the VERIFIED TOKEN and never from the request body: the Admin SDK
+ * signs without consulting storage.rules, so a body-supplied uid would turn this into a
+ * read oracle for any photo in the bucket. `sanitizeFileName` keeps the caller inside their
+ * own prefix (see the athleteOwnership/pendingDeletions precedent for why that matters).
+ */
+export const getPersonalPhotoSignedURL = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Authentication required');
+  }
+
+  const { fileName, expirationHours = 24 } = data;
+  if (!fileName || typeof fileName !== 'string') {
+    throw new functions.https.HttpsError('invalid-argument', 'fileName is required');
+  }
+
+  const ownerUID = context.auth.uid;
+  const safeFileName = sanitizeFileName(fileName);
+
+  const expiresAt = new Date();
+  expiresAt.setHours(expiresAt.getHours() + clampExpiration(expirationHours));
+
+  try {
+    const bucket = admin.storage().bucket();
+    const [signedUrl] = await bucket
+      .file(`athlete_photos/${ownerUID}/${safeFileName}`)
+      .getSignedUrl({ action: 'read', expires: expiresAt });
+    return { signedURL: signedUrl, expiresAt: expiresAt.toISOString() };
+  } catch (error) {
+    console.error('getPersonalPhotoSignedURL error:', error);
     throw new functions.https.HttpsError('internal', 'Failed to generate signed URL');
   }
 });
@@ -3393,9 +3652,12 @@ export const syncSubscriptionTier = functions.https.onCall(async (data, context)
   // to distinguish "admin comp" from "expired subscription".
   const userDoc = await admin.firestore().collection('users').doc(uid).get();
   const currentAthleteTier = userDoc.data()?.subscriptionTier ?? 'free';
-  const athleteTierSource = userDoc.data()?.athleteTierSource;
+  // Asymmetric ON PURPOSE — see the two helpers. The coach axis fails closed (the field
+  // was client-writable until 2026-08-06); the athlete axis does not (it never was, so
+  // collapsing an unrecognized value there could only ever revoke a real admin comp).
+  const athleteTierSource = readAthleteTierSource(userDoc.data()?.athleteTierSource, uid);
   const currentCoachTier = userDoc.data()?.coachSubscriptionTier ?? 'coach_free';
-  const coachTierSource = userDoc.data()?.coachTierSource;
+  const coachTierSource = normalizeCoachTierSource(userDoc.data()?.coachTierSource, uid);
 
   // Preserve manually-granted (comped) athlete tier when server resolves "free"
   if (athleteTier !== 'free') {
@@ -3428,10 +3690,18 @@ export const syncSubscriptionTier = functions.https.onCall(async (data, context)
       updateData.coachSubscriptionTier = coachTier;
       updateData.coachTierSource = 'storekit';
     }
-  } else if (currentCoachTier === 'coach_free' || coachTierSource === 'storekit') {
+  } else if (currentCoachTier !== 'coach_academy'
+             && (currentCoachTier === 'coach_free' || coachTierSource === 'storekit')) {
     // Resolved free AND (already free OR last tier was StoreKit-written): a purchased
     // coach subscription expired/cancelled — write the downgrade authoritatively so
     // the client (CoachDowngradeManager) and the limit checks see the lower tier.
+    //
+    // Academy is excluded unconditionally: it has NO StoreKit product, so StoreKit can
+    // never be its legitimate source and nothing here should ever revoke it. That also
+    // makes normalizeTierSource safe to fail closed — the one population that could be
+    // hurt by reinterpreting an unrecognized tierSource as revocable is precisely the
+    // hand-granted Academy account, and it can no longer reach this branch. Ending an
+    // Academy comp stays a manual Firestore action, as it always was.
     updateData.coachSubscriptionTier = 'coach_free';
     updateData.coachTierSource = 'storekit';
   }
@@ -3616,11 +3886,17 @@ export const appStoreServerNotifications = functions.https.onRequest(async (req,
     // admin comps (athleteTierSource/coachTierSource !== 'storekit') are preserved.
     // Athlete tier changes do NOT touch coach access (Pricing Model V2: coach
     // connections are paid for by the coach's seat, never the athlete's tier).
-    if (isAthleteProduct && (u.subscriptionTier ?? 'free') !== 'free' && u.athleteTierSource === 'storekit') {
+    if (isAthleteProduct && (u.subscriptionTier ?? 'free') !== 'free'
+        && readAthleteTierSource(u.athleteTierSource, uid) === 'storekit') {
       update.subscriptionTier = 'free';
       update.athleteTierSource = 'storekit';
     }
-    if (isCoachProduct && (u.coachSubscriptionTier ?? 'coach_free') !== 'coach_free' && u.coachTierSource === 'storekit') {
+    // Academy is excluded for the same reason as in syncSubscriptionTier: no StoreKit
+    // product exists for it, so a refund/expiry notification can never legitimately be
+    // about it, and a hand-granted comp must not be revoked by one.
+    if (isCoachProduct && (u.coachSubscriptionTier ?? 'coach_free') !== 'coach_free'
+        && u.coachSubscriptionTier !== 'coach_academy'
+        && normalizeCoachTierSource(u.coachTierSource, uid) === 'storekit') {
       update.coachSubscriptionTier = 'coach_free';
       update.coachTierSource = 'storekit';
     }
@@ -4087,6 +4363,26 @@ async function resolveAthletePersonGroupID(
       if (!snap.empty) {
         const pg = snap.docs[0].data().personGroupID;
         if (typeof pg === 'string' && pg.length > 0) return pg;
+      } else {
+        // OBSERVABILITY ONLY — deliberately does not change behaviour.
+        //
+        // An empty result means the claimed athleteUUID is not in this account's athletes
+        // subcollection, i.e. the caller does not demonstrably own the UUID they named. That
+        // is exactly the signal an ownership check would key on, and it is also how the
+        // remaining seat-count residual is reached: a forged athleteUUID/personGroupID can
+        // collapse two coach connections onto one seat (revenue leakage — access control is
+        // unaffected, since reuseOrCreateSharedFolders is owner-scoped and revocation still
+        // bites).
+        //
+        // We log rather than enforce because a miss is NOT proof of non-ownership: a
+        // just-created athlete profile may not have synced yet, and legacy profiles can carry
+        // a non-UUID `id`. Rejecting a legitimate coach connection is worse than the leak.
+        // Once these logs show the real false-negative rate, enforcement can be reconsidered
+        // on evidence instead of assumption.
+        console.warn(
+          `resolveAthletePersonGroupID: athlete UUID '${uuid}' not found under account ` +
+          `'${owner}' — unverified ownership claim (not enforced; see comment).`
+        );
       }
     } catch (e) {
       console.warn('resolveAthletePersonGroupID: athlete lookup failed', e);
@@ -4179,8 +4475,34 @@ async function reuseOrCreateSharedFolders(
 ): Promise<{ gamesFolderID: string | null; lessonsFolderID: string | null }> {
   const { coachID, athleteUUID, personGroupID, ownerAthleteID, athleteName, coachPermissions, coachDisplayName } = params;
 
+  // 🔒 Owner-scoped, and that scoping is load-bearing. `athleteUUID` arrives here from
+  // CLIENT-WRITTEN fields — invData.athleteUUID in the athlete→coach flow, the request body
+  // in the coach→athlete flow — and nothing proves the caller owns that UUID (the
+  // invitations create rule never validates it). `ownerAthleteID`, by contrast, is always
+  // trusted: it is either invData.athleteID, which rules pin to the sender's uid, or
+  // context.auth.uid directly.
+  //
+  // Filtering on it closes the forged-UUID hole in BOTH directions: an attacker cannot
+  // reattach themselves to a stranger's folders by naming that athlete's UUID, and — the
+  // subtler one — cannot plant a folder carrying a victim's UUID that the victim's own next
+  // re-invite would then reuse, silently routing a legitimate coach's uploads into an
+  // attacker-owned folder.
+  //
+  // No composite index is strictly required (two equality filters with no range/orderBy are
+  // served by index merging), but an explicit athleteUUID+ownerAthleteID index is declared
+  // in firestore.indexes.json as insurance: a FAILED_PRECONDITION thrown here propagates
+  // past both call sites' rollback branches, which only fire when both folder IDs come back
+  // null — leaving "invitation accepted + seat burned + no folders + no retry".
+  //
+  // Safe against legacy data: every folder this query can return already has athleteUUID
+  // (it is the other filter), and no writer has ever produced athleteUUID without
+  // ownerAthleteID — the client create requires both (ownerAthleteID is non-optional on the
+  // Swift model while athleteUUID is the optional legacy one), and backfillFolderAthleteUUID
+  // skips any folder missing ownerAthleteID. Revisit only if athlete profiles ever become
+  // transferable between accounts, which would legitimately split the two values.
   const existingSnap = await db.collection('sharedFolders')
     .where('athleteUUID', '==', athleteUUID)
+    .where('ownerAthleteID', '==', ownerAthleteID)
     .get();
   const existingByType = new Map<string, admin.firestore.QueryDocumentSnapshot>();
   for (const d of existingSnap.docs) {
@@ -4595,11 +4917,142 @@ export const dailyStorageCleanup = functions
 
       for (const doc of orphanedSnap.docs) {
         const data = doc.data();
-        const fileName = data.fileName as string;
-        const folderID = data.sharedFolderID as string;
+        const fileName = data.fileName;
+        const folderID = data.sharedFolderID;
 
-        // Attempt to delete any partial Storage file (may not exist)
-        if (fileName && folderID) {
+        // 🔒 Both components are CLIENT-WRITTEN and this delete runs with the Admin SDK,
+        // which bypasses storage.rules — where shared-folder deletes are restricted to the
+        // folder OWNER. So the path built here is the only authorization boundary, exactly
+        // as the pendingDeletions branch above spells out for itself.
+        //
+        // storage.rules matches shared_folders/{folderID}/{fileName} as SINGLE path
+        // segments, so a legitimate name never contains a separator — while a name that
+        // does would reach the sibling thumbnails/ prefix (or any deeper key) that no
+        // client can delete at all. '..' cannot traverse in GCS because object names are
+        // literal, but it is rejected anyway so that implementation detail is not the only
+        // thing standing in the way.
+        //
+        // Deliberately inline booleans rather than sanitizeFileName(): that helper THROWS
+        // an HttpsError, which inside this loop would unwind into the section's outer
+        // try/catch and silently abandon every remaining doc of the 200-doc page. Skip the
+        // offending doc and keep sweeping.
+        const validPath =
+          typeof fileName === 'string' && fileName.length > 0 &&
+          typeof folderID === 'string' && folderID.length > 0 &&
+          !fileName.includes('/') && !fileName.includes('\\') && !fileName.includes('..') &&
+          !folderID.includes('/') && !folderID.includes('\\') && !folderID.includes('..');
+
+        if (!validPath) {
+          // The metadata doc is deleted anyway, on purpose. This query is a fixed limit(200)
+          // with NO cursor, so any doc left behind is re-selected on every run forever;
+          // enough retained docs and the page is entirely poison and real cleanup silently
+          // stops — the same trap section 3 above pages past with a cursor. Retaining them
+          // would also hand an attacker a way to stall this sweep. The log line is the
+          // forensic record.
+          console.error(
+            `dailyStorageCleanup §4: refusing Storage delete for orphan ${doc.id} — ` +
+            `sharedFolderID=${JSON.stringify(folderID)} fileName=${JSON.stringify(fileName)} ` +
+            `uploadedBy=${String(data.uploadedBy)}`
+          );
+          await doc.ref.delete();
+          orphanedUploadCount++;
+          continue;
+        }
+
+        // The Storage path is shared, NOT doc-scoped, and that breaks two ways:
+        //
+        //  1. DATA LOSS (pre-existing, unrelated to abuse). createPendingVideoMetadata mints
+        //     a FRESH doc ID per attempt, while an upload retry reuses the persisted
+        //     QueuedUpload.fileName. So attempt 1's "failed" doc names the very object that
+        //     attempt 2 successfully uploaded, and 24h later this job deletes a LIVE clip.
+        //  2. ABUSE. A folder member with upload permission can write a backdated "pending"
+        //     doc naming a co-member's clip and have this job delete their bytes — bypassing
+        //     both the canDelete folder permission and storage.rules' owner-only delete.
+        //
+        // One rule answers both: never delete bytes that another live doc still claims. Only
+        // pending/failed docs are candidates here, so a legacy doc with no uploadStatus
+        // counts as live — the safe direction.
+        //
+        // Note this is why an uploadedBy folder-membership check is NOT used instead: it
+        // would not stop (2) at all, since the attacker IS a member, and it would break the
+        // legitimate case this job exists for — reaping a shed or downgraded coach's 24h-old
+        // half-finished upload. §4 is the only reaper for shared_folders/** partials.
+        let pathStillClaimed = false;
+        try {
+          // Query A — the authoritative one, and the reason this is a SERVER-side filter
+          // rather than a fetch-then-filter. Fetching N docs and testing them in code
+          // would be defeated by the very attacker this guards against: planting enough
+          // pending/failed docs for the victim's path pushes their real 'completed' doc
+          // out of the limit window, and the check would conclude "unclaimed". Filtering
+          // on uploadStatus server-side makes the window irrelevant.
+          const completed = await db.collection('videos')
+            .where('sharedFolderID', '==', folderID)
+            .where('fileName', '==', fileName)
+            .where('uploadStatus', '==', 'completed')
+            .limit(1)
+            .get();
+          pathStillClaimed = !completed.empty;
+
+          // Query B — legacy safety net. Docs predating the metadata-first pattern may
+          // carry no uploadStatus at all, so Query A cannot see them.
+          //
+          // CURSOR-PAGED, not limit(20), and that is the whole point. A fixed window here
+          // was defeatable by exactly the attacker Query A's server-side filter was added
+          // to stop — not by authoring a field-absent doc (they can't), but by EVICTING
+          // the victim's field-absent doc from the window: plant 20+ pending/failed docs
+          // for the same (folderID, fileName) and the scan sees only the attacker's own,
+          // concludes "unclaimed", and this job deletes a live clip's bytes.
+          //
+          // Paging removes the eviction primitive, and hitting the page cap is treated as
+          // CLAIMED — so flooding the query can only ever protect the object, never expose
+          // it. The root cause is that the Storage path is not doc-scoped; fixing that
+          // (putting the videoID in the object name) would retire this whole branch.
+          if (!pathStillClaimed) {
+            const CLAIMANT_PAGE = 200;
+            const CLAIMANT_MAX_PAGES = 10;
+            let cursor: admin.firestore.QueryDocumentSnapshot | undefined;
+            let pages = 0;
+            while (pages < CLAIMANT_MAX_PAGES) {
+              let q = db.collection('videos')
+                .where('sharedFolderID', '==', folderID)
+                .where('fileName', '==', fileName)
+                .orderBy(admin.firestore.FieldPath.documentId())
+                .limit(CLAIMANT_PAGE);
+              if (cursor) q = q.startAfter(cursor);
+              const page = await q.get();
+              if (page.empty) break;
+              pages++;
+              cursor = page.docs[page.docs.length - 1];
+              pathStillClaimed = page.docs.some((d) => {
+                if (d.id === doc.id) return false;
+                const status = d.data().uploadStatus;
+                return status !== 'pending' && status !== 'failed';
+              });
+              if (pathStillClaimed) break;
+              if (page.size < CLAIMANT_PAGE) break;
+            }
+            if (!pathStillClaimed && pages >= CLAIMANT_MAX_PAGES) {
+              console.warn(
+                `dailyStorageCleanup §4: claimant scan hit the page cap for ` +
+                `shared_folders/${folderID}/${fileName} (${CLAIMANT_MAX_PAGES}×${CLAIMANT_PAGE} docs) — ` +
+                `assuming claimed. That many docs for one path is itself suspicious.`
+              );
+              pathStillClaimed = true;
+            }
+          }
+        } catch (err) {
+          // Lookup failed (transient, or a missing index): assume claimed. Leaking bytes is
+          // recoverable; deleting a live clip is not.
+          console.warn(`dailyStorageCleanup §4: claimant lookup failed for ${doc.id}:`, err);
+          pathStillClaimed = true;
+        }
+
+        if (pathStillClaimed) {
+          console.log(
+            `dailyStorageCleanup §4: keeping shared_folders/${folderID}/${fileName} — ` +
+            `still referenced by a live videos doc (orphan ${doc.id} metadata removed).`
+          );
+        } else {
           try {
             await bucket.file(`shared_folders/${folderID}/${fileName}`).delete();
           } catch (err: any) {
@@ -4609,7 +5062,8 @@ export const dailyStorageCleanup = functions
           }
         }
 
-        // Delete the metadata doc
+        // The metadata doc is an orphan either way — always remove it so the fixed page
+        // window converges.
         await doc.ref.delete();
         orphanedUploadCount++;
       }

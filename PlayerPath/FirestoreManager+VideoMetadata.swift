@@ -123,9 +123,20 @@ extension FirestoreManager {
     /// For shared videos this is the atomic point where the parent folder's
     /// `videoCount` increments — pending docs are filtered from reads, so the
     /// count must reflect only what's visible.
+    /// - Parameter storagePath: the object's Storage PATH (`shared_folders/{id}/{file}`), not a
+    ///   download URL. It is still written to the `firebaseStorageURL` field, which is now a
+    ///   misnomer kept for compatibility: the field is non-optional in `FirestoreVideoMetadata`,
+    ///   so renaming or omitting it would make every existing doc fail to decode.
+    ///
+    ///   The distinction that matters: a path is **not a capability**. Fetching it still goes
+    ///   through storage.rules, which require current folder membership. The `downloadURL()`
+    ///   token string this used to hold was the opposite — Firebase serves those with no auth
+    ///   and without consulting storage.rules, forever, so revoking a coach never revoked it.
+    ///   Docs written by older app builds still contain real token URLs; nothing reads this
+    ///   field, and the rotation script retires those tokens.
     func markVideoCompleted(
         videoID: String,
-        storageURL: String,
+        storagePath: String,
         thumbnail: ThumbnailMetadata?,
         fileSize: Int64,
         duration: Double?,
@@ -133,7 +144,7 @@ extension FirestoreManager {
         visibility: String
     ) async throws {
         var partial: [String: Any] = [
-            "firebaseStorageURL": storageURL,
+            "firebaseStorageURL": storagePath,
             "uploadStatus": "completed",
             "fileSize": fileSize,
             "updatedAt": FieldValue.serverTimestamp()

@@ -109,6 +109,8 @@ struct CoachProfileView: View {
                               systemImage: "arrow.up.circle")
                             .foregroundColor(.brandNavy)
                     }
+
+                    RedeemOfferCodeRow()
                 }
 
                 // Stats Section

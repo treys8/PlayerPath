@@ -402,7 +402,7 @@ extension ComprehensiveAuthManager {
 
         let userID = user.uid
         authLog.info("Starting account deletion for user: \(user.email ?? "unknown", privacy: .private)")
-        AnalyticsService.shared.trackAccountDeletionRequested(userID: userID)
+        AnalyticsService.shared.trackAccountDeletionRequested()
 
         // Step 1: Remove this device's push tokens BEFORE deleting the Auth account.
         // FCM token removal writes to the user's Firestore doc and requires an
@@ -472,7 +472,7 @@ extension ComprehensiveAuthManager {
             }
         }
 
-        AnalyticsService.shared.trackAccountDeletionCompleted(userID: userID)
+        AnalyticsService.shared.trackAccountDeletionCompleted()
         AnalyticsService.shared.clearUserID()
 
         isLoading = false

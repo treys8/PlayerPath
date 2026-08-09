@@ -248,18 +248,40 @@ extension VideoCloudManager {
             try? FileManager.default.removeItem(atPath: localPath)
         }
 
-        let storage = Storage.storage()
-        let photoRef = storage.reference(forURL: storageURL.absoluteString)
-
-        return try await withCheckedThrowingContinuation { continuation in
-            photoRef.write(toFile: localURL) { _, error in
-                if let error = error {
-                    continuation.resume(throwing: error)
-                } else {
-                    continuation.resume()
-                }
-            }
+        // Plain HTTPS GET — NEVER `Storage.reference(forURL:)`.
+        //
+        // Two URL shapes reach this function and only one of them is a Firebase Storage
+        // URL. `Photo.cloudURL` is a legacy download-token URL
+        // (`.../v0/b/<bucket>/o/<obj>?alt=media&token=…`), but `getPersonalPhotoSignedURL`
+        // returns what the Admin SDK signs: a GCS URL,
+        // `https://storage.googleapis.com/<bucket>/<obj>?X-Goog-…`.
+        //
+        // `Storage.reference(forURL:)` parses only the `/v0/b/<bucket>/o/<obj>` form, and
+        // on anything else it calls **fatalError** (FirebaseStorage `Storage.swift`, via
+        // `StoragePath.path(HTTPURL:)`). Not a throw — an uncatchable process abort, so the
+        // `catch` blocks in PhotoThumbnailLoader / ZoomablePhotoPage / SyncCoordinator+Photos
+        // that are written to "fall through to the legacy token URL" could never run. It
+        // would have crashed on every photo whose local file was missing: fresh install,
+        // restored device, second device, or an iOS cache eviction.
+        //
+        // Both shapes are ordinary unauthenticated GETs, so URLSession serves both. This is
+        // also the pattern CoachVideoCacheService already uses for signed URLs.
+        guard let scheme = storageURL.scheme?.lowercased(),
+              scheme == "https" || scheme == "http" else {
+            throw VideoCloudError.invalidURL
         }
+
+        let (tempURL, response) = try await URLSession.shared.download(from: storageURL)
+        // A 403 (expired/rotated signature) or 404 still produces a temp FILE containing the
+        // XML error body. Writing that to localPath would be worse than failing: the
+        // size > 0 early-return above would then treat the error text as a cached photo and
+        // never retry it.
+        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            try? FileManager.default.removeItem(at: tempURL)
+            throw VideoCloudError.downloadFailed("HTTP \(http.statusCode)")
+        }
+        try? FileManager.default.removeItem(at: localURL)
+        try FileManager.default.moveItem(at: tempURL, to: localURL)
     }
 
     /// Records a failed photo deletion for server-side cleanup.

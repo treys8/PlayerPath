@@ -362,5 +362,6 @@ Product IDs and feature gates in `SubscriptionModels.swift`. StoreKit config: `P
 - Bundle ID: `RZR.DT3`
 - `DateFormatters.swift` for centralized date formatting
 - `AppNotifications.swift` for `Notification.Name` constants
-- `DesignTokens.swift` for design system constants
+- `Theme/Theme.swift` for the color system (Calm Keepsake tokens; sport-aware accent via `@Environment(\.ppAccent)`)
+- `DesignTokens.swift` for typography, spacing, corner radii, animation curves, and `Color(hex:)` — extensions on system types, so call sites read `.bodySmall` / `.spacingLarge` with no prefix. Its legacy `.brandNavy` / `.brandGold` palette is superseded by `Theme` but still has live call sites.
 - `FirestoreCollections.swift` for collection name constants

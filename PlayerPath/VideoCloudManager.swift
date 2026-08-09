@@ -218,6 +218,23 @@ class VideoCloudManager: ObservableObject {
 
     // MARK: - Athlete Video Download
 
+    /// Whether `url` is a URL the FirebaseStorage SDK can resolve to a `StorageReference`.
+    ///
+    /// Mirrors `StoragePath.path(string:)` in the SDK: a `gs://` URI, or an HTTP(S) URL whose
+    /// path is `/v0/b/<bucket>/o/<object>`. Everything else — notably a GCS signed URL from
+    /// any of our signing Cloud Functions — must be fetched with URLSession instead.
+    ///
+    /// Worth being precise about, because the two SDK entry points fail differently and one
+    /// of them is not survivable: `reference(for:)` throws, but the `@objc`
+    /// `reference(forURL:)` calls **fatalError**. Never pass an unvalidated URL to either.
+    static func isFirebaseStorageURL(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased() else { return false }
+        if scheme == "gs" { return true }
+        guard scheme == "https" || scheme == "http" else { return false }
+        let parts = url.pathComponents
+        return parts.count >= 4 && parts[1] == "v0" && parts[2] == "b"
+    }
+
     /// Downloads a video file from Firebase Storage to local storage
     /// - Parameters:
     ///   - url: The cloud storage URL (from videoClip.cloudURL)
@@ -235,8 +252,23 @@ class VideoCloudManager: ObservableObject {
         guard let storageURL = URL(string: url) else {
             throw VideoCloudError.invalidURL
         }
-        let storage = Storage.storage()
-        let storageRef = try storage.reference(for: storageURL)
+        // Two URL shapes arrive here and only one belongs to the Storage SDK.
+        //
+        //  • `clip.cloudURL` — a Firebase download-token URL, `.../v0/b/<bucket>/o/<obj>?…`
+        //  • `SecureURLManager.getPersonalVideoURL` — what the Admin SDK signs, i.e. a GCS
+        //    URL, `https://storage.googleapis.com/<bucket>/<obj>?X-Goog-…`
+        //
+        // `Storage.reference(for:)` only parses the first form and THROWS on the second, so
+        // every signed-URL download here has been failing since the signed path was added —
+        // VideoPlayerView falls back to nothing (the signed URL is already assigned) and
+        // RecruitingWebRenditionService silently gives up on the clip. A signed URL is just
+        // an authenticated HTTPS GET, so it goes through URLSession instead.
+        //
+        // This matters beyond the bug: dropping the permanent `cloudURL` tokens (security
+        // review finding #5) is only possible once the signed path actually works.
+        let storageRef: StorageReference? = Self.isFirebaseStorageURL(storageURL)
+            ? try Storage.storage().reference(for: storageURL)
+            : nil
 
         // --- Commit phase: from here on we own the clipId's tracking slot until
         // either we complete OR a newer call supersedes us. ---
@@ -270,6 +302,24 @@ class VideoCloudManager: ObservableObject {
                 downloadProgress[clipId] = nil
                 lastProgressUpdate.removeValue(forKey: "download_\(clipId.uuidString)")
             }
+        }
+
+        // Signed (non-Firebase) URL: plain URLSession download. No StorageDownloadTask, so
+        // no granular progress — Swift Task cancellation covers the cancel case, and the
+        // 0 → 1 transition keeps any observing progress UI consistent.
+        guard let storageRef else {
+            let (tempURL, response) = try await URLSession.shared.download(from: storageURL)
+            // An expired or rotated signature returns 403 with an XML body, which
+            // URLSession still hands back as a temp FILE. Moving that into place would
+            // write an error document over the clip.
+            if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+                try? FileManager.default.removeItem(at: tempURL)
+                throw VideoCloudError.downloadFailed("HTTP \(http.statusCode)")
+            }
+            try? FileManager.default.removeItem(at: localURL)
+            try FileManager.default.moveItem(at: tempURL, to: localURL)
+            downloadProgress[clipId] = 1.0
+            return
         }
 
         // Download file with progress monitoring.

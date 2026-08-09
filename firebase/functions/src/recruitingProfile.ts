@@ -485,7 +485,17 @@ function impliesUnder13(gradYear: unknown): boolean {
  * `RecruitingInfo.gradYearImpliesUnder13` for the COPPA reasoning.
  */
 function contactSection(contact: unknown, gradYear: unknown): string {
-  if (impliesUnder13(gradYear)) return '';
+  // Three states, and UNKNOWN withholds along with under-13. `gradYear` is optional in the
+  // editor and simply omitted from the published blob when nil, so `impliesUnder13` alone
+  // fell through for exactly the profiles carrying no age signal at all — a 10-year-old with
+  // the year left on "—" published live tel:/mailto: links beside their face, city and
+  // school. Unknown age is precisely when a child's reply channels must not go out, since
+  // the only thing that would justify publishing them is an age nobody verified.
+  //
+  // This is also the RETROACTIVE half: the client now requires a grad year to publish, but
+  // that cannot reach profiles already live with none, nor a second device on an older
+  // build. Filtering at render time fixes the existing corpus on the next page view.
+  if (typeof gradYear !== 'number' || impliesUnder13(gradYear)) return '';
   if (!Array.isArray(contact) || contact.length === 0) return '';
   const rows = (contact as Record<string, unknown>[])
     .map((item) => {

@@ -161,11 +161,17 @@ class SecureURLManager {
         }
     }
 
-    /// Gets a secure, time-limited URL for a thumbnail image
+    /// Gets a secure, time-limited URL for a thumbnail image.
+    ///
+    /// 24h, down from 168h. A thumbnail is a recognizable still of a minor, and a week-long
+    /// bearer URL survives the family revoking the coach who holds it — the server now caps
+    /// every signed media URL at 24h (`MAX_EXPIRATION_HOURS`), so asking for more just gets
+    /// silently clamped. Costs nothing: `urlCache` is in-memory, so these are re-signed on
+    /// every cold launch regardless of the stated expiry.
     func getSecureThumbnailURL(
         videoFileName: String,
         folderID: String,
-        expirationHours: Int = 168,
+        expirationHours: Int = 24,
         forceRefresh: Bool = false
     ) async throws -> String {
 
@@ -303,6 +309,55 @@ class SecureURLManager {
             return signedURL
         } catch {
             log.error("Failed to generate batch thumbnail URLs: \(error.localizedDescription, privacy: .public)")
+            throw SecureURLError.functionCallFailed(error)
+        }
+    }
+
+    /// Gets a secure, time-limited URL for one of the signed-in user's own photos.
+    ///
+    /// Replaces the permanent `downloadURL()` token in `Photo.cloudURL`, which Firebase serves
+    /// with no authentication and without evaluating storage.rules, forever.
+    ///
+    /// No owner parameter by design. The Cloud Function derives the owner from the verified
+    /// ID token, because it signs with the Admin SDK — which bypasses storage.rules — and a
+    /// caller-supplied uid would turn it into a read oracle for any photo in the bucket. The
+    /// uid read here is used ONLY to key the cache, as belt-and-braces against an entry
+    /// surviving an account switch (the cache is also cleared on sign-out in
+    /// ComprehensiveAuthManager+Auth).
+    func getPersonalPhotoURL(
+        fileName: String,
+        expirationHours: Int = 24,
+        forceRefresh: Bool = false
+    ) async throws -> String {
+
+        let cacheKey = "photo_\(Auth.auth().currentUser?.uid ?? "nouid")_\(fileName)"
+
+        cleanExpiredURLs()
+
+        if !forceRefresh,
+           let cached = urlCache[cacheKey],
+           !cached.isExpiringSoon {
+            return cached.url
+        }
+
+        let data: [String: Any] = [
+            "fileName": fileName,
+            "expirationHours": expirationHours
+        ]
+
+        do {
+            let response = try await callCloudFunction("getPersonalPhotoSignedURL", data: data)
+            guard let signedURL = response["signedURL"] as? String,
+                  let expiresAtString = response["expiresAt"] as? String else {
+                throw SecureURLError.invalidResponse
+            }
+            guard let expiresAt = Self.isoFormatter.date(from: expiresAtString) else {
+                throw SecureURLError.invalidExpirationDate
+            }
+            urlCache[cacheKey] = CachedURL(url: signedURL, expiresAt: expiresAt)
+            return signedURL
+        } catch {
+            log.error("Failed to generate personal photo URL: \(error.localizedDescription, privacy: .private)")
             throw SecureURLError.functionCallFailed(error)
         }
     }

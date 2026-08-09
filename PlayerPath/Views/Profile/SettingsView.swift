@@ -57,6 +57,14 @@ struct SettingsView: View {
                 }
             }
 
+            Section("Subscription") {
+                RedeemOfferCodeRow()
+
+                Text("Have a PlayerPath promo code? Redeem it here to apply a free or discounted plan.")
+                    .font(.bodySmall)
+                    .foregroundColor(.secondary)
+            }
+
             Section("Preferences") {
                 NavigationLink {
                     UserPreferencesView()

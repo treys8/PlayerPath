@@ -1,0 +1,161 @@
+================================================================================
+FirestoreManager Subsystem — Code Quality Audit
+Date: 2026-08-09
+Scope: 14 files, 5,480 lines
+================================================================================
+
+FILES AUDITED
+--------------------------------------------------------------------------------
+  44   FirestoreCollections.swift
+  47   FirestoreManager.swift
+  70   FirestoreManager+HighlightReels.swift
+ 124   FirestoreManager+DrillCards.swift
+ 126   FirestoreManager+GolfTournaments.swift
+ 140   FirestoreManager+HoleScores.swift
+ 145   FirestoreManager+Shots.swift
+ 303   FirestoreManager+Annotations.swift
+ 589   FirestoreManager+SharedFolders.swift
+ 635   FirestoreManager+VideoMetadata.swift
+ 728   FirestoreManager+UserProfile.swift
+ 773   FirestoreManager+EntitySync.swift
+ 791   FirestoreManager+Invitations.swift
+ 965   FirestoreModels.swift
+
+HEADLINE
+--------------------------------------------------------------------------------
+This is one of the healthiest corners of the codebase. Against the baseline
+audit's worst-offender expectations (empty catches, silent try?, raw print(),
+retain cycles), this subsystem is largely clean. The real findings are
+DRY / magic-string issues, not correctness bugs.
+
+
+================================================================================
+FINDINGS BY CATEGORY
+================================================================================
+
+1. SWALLOWED ERRORS — LOW (well below baseline)
+--------------------------------------------------------------------------------
+  - 135 catch blocks; ZERO are empty/silent. Each logs via firestoreLog/
+    invitationLog and sets errorMessage, rethrows, or accumulates into a
+    batchErrors array.
+  - Single comment-only catch is deliberate and correct:
+        FirestoreManager+SharedFolders.swift:354  (// Thumbnail may not exist — ignore)
+  - 4 try? uses, all benign (optional JSON/parse/StoreKit reads):
+        FirestoreManager+Invitations.swift:275, 471, 550
+        FirestoreManager+UserProfile.swift:232  (try? await AppTransaction.shared)
+  ACTION: none needed.
+
+2. MASSIVE FILES / GOD OBJECTS — MEDIUM
+--------------------------------------------------------------------------------
+  The FirestoreManager+* split is the right decomposition; no god objects.
+  Three files are growing (all below the 1,000-line threshold):
+        FirestoreModels.swift            — 965 lines (all DTOs in one file)
+        FirestoreManager+Invitations.swift — 791 lines
+        FirestoreManager+EntitySync.swift  — 773 lines
+  ACTION: watch, not urgent. Consider splitting FirestoreModels by domain.
+
+3. BUSINESS LOGIC IN VIEWS — N/A
+--------------------------------------------------------------------------------
+  Data layer only. No SwiftUI here. Correctly placed.
+
+4. HARDCODED STRINGS & MAGIC NUMBERS — HIGH (main finding)
+--------------------------------------------------------------------------------
+  (a) Magic status/visibility/type string literals repeated with no enum:
+        "pending"/"completed"/"failed"  — +VideoMetadata.swift:61,148,203,234,271,381
+        "private"                        — +VideoMetadata.swift:178,230,270,377
+        "pending"/"accepted"            — +SharedFolders.swift:298,527,558
+        "athlete_to_coach"/"coach_to_athlete"/"pending"
+                                         — +Invitations.swift:716,717,747,748,...
+      A typo in any one silently breaks a query — no compiler help.
+      FirestoreCollections.swift centralizes collection NAMES (FC.*) but not
+      field VALUES.
+
+  (b) Repeated pagination magic numbers:
+        .limit(to: 100)  ~15x in +EntitySync.swift
+        .limit(to: 400)  ~20x in +UserProfile.swift
+        30, 50, 2000 scattered across files
+      Some documented (+SharedFolders.swift:329 "50 x 400 = 20,000 clips"),
+      most bare. Good counter-examples already exist:
+        personMatchWindow = 25          (+Invitations.swift:33)
+        invitationExpirationInterval    (+Invitations.swift:26)
+  ACTION: introduce UploadStatus / Visibility / InvitationType enums;
+          name the pagination constants.
+
+5. COPY-PASTED LOGIC (DRY) — HIGH
+--------------------------------------------------------------------------------
+  Cursor-pagination loop duplicated ~9x
+    (var query = baseQuery.limit(to: 100) ... if count < 100 { break }):
+        +EntitySync.swift:94, 221, 362, 510, 615, 679, 748
+        +GolfTournaments.swift:74
+  Decode-compactMap-with-warning block duplicated in nearly every fetch:
+        +EntitySync.swift:105, 232, 373, 521
+        +VideoMetadata.swift:238, 385
+        +SharedFolders.swift:93, 164, 203
+        (and more)
+  ACTION: a generic fetchAllPaged<T: Decodable>(query:pageSize:) helper would
+          collapse hundreds of near-identical lines and fix 4(b) at once.
+
+6. DEBUG print() — NONE (clean)
+--------------------------------------------------------------------------------
+  ZERO print() calls across all 14 files. Uniform OSLog (firestoreLog,
+  invitationLog). Model for the rest of the codebase.
+
+7. MISSING [weak self] — LOW / clean
+--------------------------------------------------------------------------------
+  4 long-lived addSnapshotListener closures:
+        +Annotations.swift:142
+        +Invitations.swift:721, 760
+        +VideoMetadata.swift:364
+  None capture self — they reference only globals (firestoreLog), parameters,
+  and return the ListenerRegistration to the caller for cleanup. No retain
+  cycles. Correct pattern.
+
+8. OVERSIZED BODIES / DEEP NESTING — MEDIUM
+--------------------------------------------------------------------------------
+  GDPR deletion routine in +UserProfile.swift (Step 1–10, ~lines 260–690):
+  a single ~430-line sequential method, 4–5 nesting levels
+  (per-athlete -> per-game -> per-hole -> per-shot page loops).
+  Readable and well-commented, but a candidate for extraction once the
+  paging helper (see #5) exists.
+
+9. UNSAFE THREADING — LOW
+--------------------------------------------------------------------------------
+  - FirestoreManager is @MainActor; listener callbacks hop back via
+    Task { @MainActor in onUpdate(...) }  (+Invitations.swift:738, 769).
+  - nonisolated let at FirestoreModels.swift:32-33 is on immutable
+    FolderPermissions constants — safe by construction.
+  - No DispatchQueue, no unsynchronized shared mutable state, no
+    nonisolated(unsafe). Clean.
+
+10. INCONSISTENT ERROR HANDLING — LOW
+--------------------------------------------------------------------------------
+  Consistent within this subsystem: log via domain logger + set errorMessage
+  for user-facing ops, rethrow where callers need it, accumulate batchErrors
+  for partial-failure sweeps (+SharedFolders.swift:515, 543).
+  No Haptics.error() / ErrorHandlerService mixing here — that inconsistency
+  lives in the view layer, not here.
+
+
+================================================================================
+SUMMARY
+================================================================================
+  #   Category                      Severity   Count in these 14 files
+  --  ----------------------------  ---------  --------------------------------------
+  1   Swallowed errors              LOW        0 silent (135 catches handled; 4 benign try?)
+  2   God objects                   MEDIUM     3 files >750 lines (none >1k)
+  3   Logic in views                N/A        data layer
+  4   Hardcoded strings/numbers     HIGH       ~15 magic status strings + ~50 bare limits
+  5   Copy-pasted logic             HIGH       ~9 paginate loops + ~12 decode blocks
+  6   Debug prints                  NONE       0
+  7   Missing [weak self]           LOW        0 leaks (4 listeners, none capture self)
+  8   Oversized bodies              MEDIUM     1 (~430-line GDPR delete)
+  9   Unsafe threading              LOW        0
+  10  Inconsistent errors           LOW        0 (consistent within subsystem)
+
+HIGHEST-LEVERAGE FIXES
+--------------------------------------------------------------------------------
+  1. Generic fetchAllPaged<T>(query:pageSize:) helper — resolves #5 and #4(b)
+     together, shrinks #2/#8.
+  2. UploadStatus / Visibility / InvitationType enums — fixes #4(a) with
+     compiler-checked query values (lower risk, do first).
+================================================================================

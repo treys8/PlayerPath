@@ -49,11 +49,28 @@
       ]
     },
     {
+      "collectionGroup": "sharedFolders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "athleteUUID", "order": "ASCENDING" },
+        { "fieldPath": "ownerAthleteID", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "videos",
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "sharedFolderID", "order": "ASCENDING" },
         { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "_comment": "Deployed in production but absent from this file until 2026-08-06; recorded here so an indexes deploy stays purely additive and never offers to delete it.",
+      "collectionGroup": "videos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "sessionID", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "ASCENDING" }
       ]
     },
     {

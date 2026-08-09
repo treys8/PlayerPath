@@ -11,19 +11,71 @@ file_path=$(echo "$input" | python3 -c "import json,sys; print(json.load(sys.std
 
 warnings=""
 
-# Crashed build 169: any transform on a model keypath inside #Predicate traps
+# Crashed build 169: a transform on a model keypath inside #Predicate traps
 # fatally inside fetch (bypasses do/catch). Compare UUID-to-UUID instead.
-if grep -q "#Predicate" "$file_path" && grep -q "\.uuidString" "$file_path"; then
-  warnings+="FOOTGUN: file uses #Predicate and .uuidString — if .uuidString is inside the predicate this traps fatally at fetch (crashed build 169). Compare UUID-to-UUID.\n"
+#
+# This check brace-matches the #Predicate closure and only looks INSIDE it.
+# The previous file-level `grep #Predicate && grep .uuidString` fired whenever
+# both strings appeared anywhere in the same file — it blocked every edit to
+# GameDetailView.swift (cache-key interpolation) and GameService.swift
+# (#Predicate only in a comment).
+predicate_hits=$(python3 - "$file_path" <<'PY' 2>/dev/null
+import re, sys
+
+TRANSFORMS = ('.uuidString', '.lowercased()', '.uppercased()', '.trimmingCharacters')
+
+try:
+    src = open(sys.argv[1], encoding='utf-8', errors='ignore').read()
+except OSError:
+    sys.exit(0)
+
+# Blank out string literal contents line-by-line so braces and interpolated
+# `.uuidString` inside strings can't confuse the matcher. Line structure is
+# preserved so reported line numbers stay accurate.
+clean = '\n'.join(
+    re.sub(r'"(?:[^"\\\n]|\\.)*"', '""', line)
+    for line in src.split('\n')
+)
+
+for m in re.finditer(r'#Predicate', clean):
+    start = clean.find('{', m.end())
+    if start < 0:
+        continue
+    depth = 0
+    end = start
+    while end < len(clean):
+        c = clean[end]
+        if c == '{':
+            depth += 1
+        elif c == '}':
+            depth -= 1
+            if depth == 0:
+                break
+        end += 1
+    body = clean[start:end + 1]
+    found = [t for t in TRANSFORMS if t in body]
+    if found:
+        line = clean.count('\n', 0, start) + 1
+        print(f"line {line}: {', '.join(found)}")
+PY
+)
+
+if [[ -n "$predicate_hits" ]]; then
+  warnings+="FOOTGUN: transform inside a #Predicate body — traps fatally at fetch, bypassing do/catch (crashed build 169). Compare UUID-to-UUID.\n"
+  while IFS= read -r hit; do
+    [[ -n "$hit" ]] && warnings+="  $hit\n"
+  done <<< "$predicate_hits"
 fi
 
-# Project convention: silent save swallowing
-if grep -qE 'try\? +(self\.)?(context|modelContext)\.save\(\)' "$file_path"; then
+# Project convention: silent save swallowing. Skip comment lines — the doc
+# comment on ErrorHandlerService.saveContext quotes the banned form verbatim.
+if grep -vE '^\s*(//|\*|/\*)' "$file_path" | grep -qE 'try\? +(self\.)?(context|modelContext)\.save\(\)'; then
   warnings+="CONVENTION: 'try? context.save()' found — use ErrorHandlerService.shared.saveContext(context, caller:) instead.\n"
 fi
 
-# iOS 26 async-let crash in Firebase HTTPSCallable
-if grep -q "httpsCallable" "$file_path"; then
+# iOS 26 async-let crash in Firebase HTTPSCallable. Ignore comment lines so a
+# note explaining why the codebase avoids it doesn't trip the hook.
+if grep -vE '^\s*(//|\*|/\*)' "$file_path" | grep -q "httpsCallable"; then
   warnings+="FOOTGUN: httpsCallable found — never use HTTPSCallable.call() (Firebase async-let crash on iOS 26). Call Cloud Functions via URLSession + Bearer token.\n"
 fi
 

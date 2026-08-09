@@ -619,7 +619,7 @@ class SharedFolderManager {
             }
 
             // Upload to Firebase Storage
-            let storageURL = try await VideoCloudManager.shared.uploadVideo(
+            let storagePath = try await VideoCloudManager.shared.uploadVideo(
                 localURL: uploadURL,
                 fileName: fileName,
                 folderID: folderID,
@@ -696,7 +696,7 @@ class SharedFolderManager {
             // so the count must reflect only what's visible.
             try await firestore.markVideoCompleted(
                 videoID: videoID,
-                storageURL: storageURL,
+                storagePath: storagePath,
                 thumbnail: thumbnail,
                 fileSize: fileSize,
                 duration: duration,

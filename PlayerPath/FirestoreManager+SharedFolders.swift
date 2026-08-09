@@ -105,6 +105,48 @@ extension FirestoreManager {
     }
 
     /// Fetches all shared folders that a coach has access to
+    /// Folder IDs belonging to one athlete PROFILE, for the deletion cascade.
+    ///
+    /// ⚠️ Keyed on `athleteUUID`, and it must never fall back to `ownerAthleteID`.
+    /// `ownerAthleteID` is the ACCOUNT uid — `fetchSharedFolders(forAthlete:)` above uses
+    /// it and therefore returns every folder on the account. On a family account hosting
+    /// several children that would hand back the siblings' folders, and this result feeds
+    /// a delete. Matching nothing is a recoverable miss; matching a sibling destroys
+    /// another child's film.
+    ///
+    /// Consequence of that choice, accepted deliberately: `athleteUUID` is optional on
+    /// legacy folders created before per-athlete scoping, and those are not matched. They
+    /// are left for the account-level cascade (cleanupUserDataOnDelete, which keys on
+    /// ownerAthleteID and is safe there because the whole account is going away).
+    ///
+    /// Returns raw document IDs rather than decoded `SharedFolder` values on purpose: the
+    /// decode in the sibling fetchers drops undecodable docs with a warning, and in a
+    /// DELETION path a silently skipped folder is exactly the bug being fixed.
+    ///
+    /// ⚠️ BOTH filters are required, for two different reasons, and neither is optional:
+    ///   - `athleteUUID` gives per-athlete precision (see the sibling-safety note above).
+    ///   - `ownerAccountUID` is what makes the query LEGAL. Firestore evaluates list rules
+    ///     against a query's potential result set, not the documents it actually returns,
+    ///     so an athleteUUID-only query is rejected outright — even though every match
+    ///     would have been readable — because it doesn't prove ownership the way the
+    ///     sharedFolders read rule demands. Dropping this filter doesn't loosen the
+    ///     query; it makes it throw, which in a fire-and-forget deletion path means the
+    ///     folders silently stay live. Covered by sharedFolders.test.mjs.
+    ///
+    /// Served by the `athleteUUID + ownerAthleteID` composite index in firestore.indexes.json.
+    func sharedFolderIDs(forAthleteUUID athleteUUID: String, ownerAccountUID: String) async throws -> [String] {
+        let limit = 100
+        let snapshot = try await db.collection(FC.sharedFolders)
+            .whereField("athleteUUID", isEqualTo: athleteUUID)
+            .whereField("ownerAthleteID", isEqualTo: ownerAccountUID)
+            .limit(to: limit)
+            .getDocuments()
+        if snapshot.documents.count == limit {
+            firestoreLog.warning("sharedFolderIDs(forAthleteUUID:) hit the \(limit)-doc cap for \(athleteUUID) — some folders may not be cleaned up")
+        }
+        return snapshot.documents.map(\.documentID)
+    }
+
     func fetchSharedFolders(forCoach coachID: String) async throws -> [SharedFolder] {
 
         do {
@@ -271,9 +313,24 @@ extension FirestoreManager {
                 // Delete all videos in the folder: subcollections, Storage files, then Firestore docs
                 let videosQuery = db.collection(FC.videos)
                     .whereField("sharedFolderID", isEqualTo: folderID)
+                // Bounded, because this loop only makes progress when Storage deletion
+                // SUCCEEDS. A page whose every doc fails (offline, revoked Storage
+                // permission, a transient outage) deletes nothing, so the next iteration
+                // refetches the same 400 docs — forever, re-issuing 400 reads and N Storage
+                // calls each time. That is now impossible: a page with zero deletions can
+                // never improve on a retry within the same call, so stop and let the
+                // folder-doc delete below finish the job.
+                //
+                // Bailing early is SAFE now in a way it wasn't before: onSharedFolderDeleted
+                // sweeps the entire shared_folders/{folderID}/ prefix when the folder doc is
+                // deleted, so any bytes this loop couldn't reach are collected server-side
+                // regardless.
+                var pagesProcessed = 0
+                let maxPages = 50   // 50 × 400 = 20,000 clips, far beyond any real folder
                 while true {
                     let videosSnapshot = try await videosQuery.limit(to: 400).getDocuments()
                     guard !videosSnapshot.documents.isEmpty else { break }
+                    pagesProcessed += 1
 
                     // Track which docs had successful Storage deletion
                     var safeToDeleteDocIDs: Set<String> = []
@@ -319,6 +376,18 @@ extension FirestoreManager {
                     let orphanedCount = videosSnapshot.documents.count - docsToDelete.count
                     if orphanedCount > 0 {
                         firestoreLog.warning("\(orphanedCount) video doc(s) preserved in folder \(folderID) due to Storage deletion failure")
+                    }
+
+                    // No progress this page — every Storage delete failed, so refetching
+                    // would return the identical set. Stop; the folder-doc delete below
+                    // still fires onSharedFolderDeleted, which sweeps the whole prefix.
+                    if docsToDelete.isEmpty {
+                        firestoreLog.error("deleteSharedFolder(\(folderID)): no video docs deletable this page — stopping video cleanup, folder delete will still sweep Storage server-side")
+                        break
+                    }
+                    if pagesProcessed >= maxPages {
+                        firestoreLog.error("deleteSharedFolder(\(folderID)): hit the \(maxPages)-page cap with videos remaining — stopping video cleanup")
+                        break
                     }
                 }
             }

@@ -160,10 +160,27 @@ struct ZoomablePhotoPage: View {
         // then decode the (potentially 12MP) image off-main via `Task.detached`.
         let filePath = photo.resolvedFilePath
         let cloudURL = photo.cloudURL
+        let fileName = photo.fileName
 
         if let image = await UIImage.decodedFullRes(atPath: filePath) {
             fullImage = image
             return
+        }
+        // Signed URL first — short-lived, ownership re-derived server-side from the ID token.
+        // `cloudURL` below is the legacy permanent downloadURL() token (no auth, bypasses
+        // storage.rules, never expires) and stays only as a fallback until those tokens are
+        // rotated. See SecureURLManager.getPersonalPhotoURL.
+        if !fileName.isEmpty {
+            do {
+                let signed = try await SecureURLManager.shared.getPersonalPhotoURL(fileName: fileName)
+                try await VideoCloudManager.shared.downloadPhoto(from: signed, to: filePath)
+                if let image = await UIImage.decodedFullRes(atPath: filePath) {
+                    fullImage = image
+                    return
+                }
+            } catch {
+                // Fall through to the legacy token URL below.
+            }
         }
         // If local file is missing but we have a cloud URL, try downloading.
         if let cloudURL, !cloudURL.isEmpty {

@@ -80,7 +80,7 @@ extension FirestoreManager {
             .collection(FC.shots)
             .whereField("isDeleted", isEqualTo: false)
             .getDocuments()
-        return decodeShots(snapshot)
+        return try decodeShots(snapshot, caller: "fetchGameShots")
     }
 
     // MARK: - Practice shots
@@ -127,11 +127,15 @@ extension FirestoreManager {
             .collection(FC.shots)
             .whereField("isDeleted", isEqualTo: false)
             .getDocuments()
-        return decodeShots(snapshot)
+        return try decodeShots(snapshot, caller: "fetchPracticeShots")
     }
 
-    private func decodeShots(_ snapshot: QuerySnapshot) -> [FirestoreShot] {
-        snapshot.documents.compactMap { doc -> FirestoreShot? in
+    /// Throws rather than returning a short list: `reconcileShots` deletes any local
+    /// shot whose id is absent from the returned set, so a silently-dropped doc reads
+    /// as a remote delete and discards recorded shot data. Throwing skips the
+    /// reconcile (and therefore the delete) for this cycle.
+    private func decodeShots(_ snapshot: QuerySnapshot, caller: String) throws -> [FirestoreShot] {
+        let shots = snapshot.documents.compactMap { doc -> FirestoreShot? in
             do {
                 var shot = try doc.data(as: FirestoreShot.self)
                 shot.id = doc.documentID
@@ -141,5 +145,10 @@ extension FirestoreManager {
                 return nil
             }
         }
+        if shots.count < snapshot.documents.count {
+            firestoreLog.error("Partial decode in \(caller): \(shots.count)/\(snapshot.documents.count) — skipping to avoid sync deletion")
+            throw FirestoreSyncError.partialDecode(entity: "Shot", decoded: shots.count, total: snapshot.documents.count)
+        }
+        return shots
     }
 }

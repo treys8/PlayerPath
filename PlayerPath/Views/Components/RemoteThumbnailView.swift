@@ -212,7 +212,18 @@ struct RemoteThumbnailView: View {
         }
 
         // Fallback: direct URL loading (non-secure, no folder context)
-        guard let urlString, let url = URL(string: urlString) else {
+        //
+        // Requires an ABSOLUTE http(s) URL. Since the shared-folder upload paths stopped
+        // minting downloadURL() tokens, `thumbnail.standardURL` (and the legacy `thumbnailURL`
+        // mirror) can now hold a Storage PATH like "shared_folders/abc/x_thumbnail.jpg" rather
+        // than a URL. `URL(string:)` happily builds a relative URL from that, which URLSession
+        // then fails on in a confusing way. Rejecting it here fails fast to the placeholder
+        // instead — and a path reaching this branch at all means the caller omitted folderID/
+        // videoFileName and should be fixed to use the secure branch above.
+        guard let urlString,
+              let url = URL(string: urlString),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "https" || scheme == "http" else {
             loadFailed = true
             return
         }

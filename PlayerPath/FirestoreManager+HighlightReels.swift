@@ -56,7 +56,7 @@ extension FirestoreManager {
             .whereField("athleteID", isEqualTo: athleteId)
             .whereField("isDeleted", isEqualTo: false)
             .getDocuments()
-        return snapshot.documents.compactMap { doc -> FirestoreHighlightReel? in
+        let reels = snapshot.documents.compactMap { doc -> FirestoreHighlightReel? in
             do {
                 var reel = try doc.data(as: FirestoreHighlightReel.self)
                 reel.id = doc.documentID
@@ -66,5 +66,16 @@ extension FirestoreManager {
                 return nil
             }
         }
+
+        // Throw rather than return a short list: SyncCoordinator+HighlightReels'
+        // global tombstone pass deletes any local reel missing from this set, so a
+        // silently-dropped doc reads as a remote delete. Throwing lands in the
+        // caller's existing catch, which clears `allFetchesSucceeded` and skips
+        // that pass. Mirrors the backstop on the +EntitySync fetches.
+        if reels.count < snapshot.documents.count {
+            firestoreLog.error("Partial decode in fetchHighlightReels: \(reels.count)/\(snapshot.documents.count) — skipping to avoid sync deletion")
+            throw FirestoreSyncError.partialDecode(entity: "HighlightReel", decoded: reels.count, total: snapshot.documents.count)
+        }
+        return reels
     }
 }

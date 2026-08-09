@@ -10,7 +10,13 @@ import Foundation
 struct CoachVideoItem: Identifiable, Equatable {
     let id: String
     let fileName: String
-    let firebaseStorageURL: String
+    // `firebaseStorageURL` is deliberately NOT carried here. Since shared-folder uploads
+    // stopped minting downloadURL() tokens, that Firestore field holds a Storage PATH
+    // (and, on docs written by older builds, a permanent token URL) — so it is neither a
+    // URL nor safe to treat as one. It had no readers; keeping a decoded, URL-named String
+    // on the model every coach view already has in scope was one autocomplete away from
+    // becoming an AVPlayer(url:). Playback and thumbnails resolve through SecureURLManager
+    // from `fileName` + `sharedFolderID`.
     let thumbnailURL: String?
     let uploadedBy: String
     let uploadedByName: String
@@ -80,7 +86,6 @@ struct CoachVideoItem: Identifiable, Equatable {
     init(from metadata: FirestoreVideoMetadata) {
         self.id = metadata.id ?? metadata.fileName
         self.fileName = metadata.fileName
-        self.firebaseStorageURL = metadata.firebaseStorageURL
         self.thumbnailURL = metadata.thumbnail?.standardURL
         self.uploadedBy = metadata.uploadedBy
         self.uploadedByName = metadata.uploadedByName

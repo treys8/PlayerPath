@@ -23,13 +23,19 @@ final class AnalyticsService {
     // MARK: - Configuration
 
     private func configureAnalytics() {
-        // Analytics starts enabled (matches UserPreferences.enableAnalytics default of true).
-        // Call setCollection(enabled:) after user preferences load to honour the stored setting.
-        Analytics.setAnalyticsCollectionEnabled(true)
-
-        // Set user properties for segmentation
+        // Deliberately does NOT call setAnalyticsCollectionEnabled here.
+        //
+        // It used to force `true` unconditionally, which had two problems. Firebase PERSISTS
+        // this flag across launches, so forcing it on every cold start silently overrode a
+        // user who had opted out — and it overrode IS_ANALYTICS_ENABLED=false in
+        // GoogleService-Info.plist besides. Worse, `MainAppView.task` is what applies the
+        // real stored preference, and it runs *after* this singleton is first touched, so an
+        // opted-out user was collected for the whole window in between, every launch.
+        //
+        // Leaving the flag alone means Firebase restores the last persisted value, so an
+        // opt-out is honoured from process start; MainAppView then re-affirms it from
+        // UserPreferences (which lives in SwiftData and cannot be read from here anyway).
         setDefaultUserProperties()
-
     }
 
     /// Updates analytics and crash-reporting collection to match the user's preference.
@@ -214,7 +220,12 @@ final class AnalyticsService {
     func trackGameCreated(gameID: String, opponent: String, isLive: Bool) {
         logEvent(.gameCreated, parameters: [
             "game_id": gameID,
-            "opponent": opponent,
+            // Presence, not the value. `opponent` is free text the user typed and in youth
+            // sports it is usually a school or club name — a locatable detail about a minor,
+            // joined to the Auth UID by setUserID and uploaded to Google Analytics, which
+            // prohibits PII in event parameters. The product question this event answers is
+            // "did they bother filling it in", which the boolean answers just as well.
+            "has_opponent": !opponent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
             "is_live": isLive
         ])
     }
@@ -342,21 +353,26 @@ final class AnalyticsService {
         ])
     }
 
-    func trackWinBackReasonSubmitted(productID: String, tierName: String, reason: String, cancellationReason: String, hasFreeText: Bool, feedbackText: String = "") {
-        var parameters: [String: Any] = [
+    /// The verbatim `feedbackText` parameter is gone on purpose — do not reinstate it.
+    ///
+    /// It uploaded whatever the user typed into a cancellation box, unscrubbed, to Google
+    /// Analytics, joined to their Auth UID by `setUserID`. That box is exactly where someone
+    /// writes "my daughter Emma is done for the season, email me at jane@gmail.com" — names,
+    /// addresses and phone numbers of a minor, with no user-facing deletion path and in
+    /// breach of the Analytics ToS ban on PII in event parameters. The 100-char truncation
+    /// was a Firebase field limit, never a privacy control.
+    ///
+    /// `has_free_text` is retained and is the actual product metric: it answers "do people
+    /// bother elaborating", which is what the funnel needs. If the verbatim text is ever
+    /// genuinely wanted, it belongs in your own backend behind a consent string — not here.
+    func trackWinBackReasonSubmitted(productID: String, tierName: String, reason: String, cancellationReason: String, hasFreeText: Bool) {
+        logEvent(.winBackReasonSubmitted, parameters: [
             "product_id": productID,
             "tier": tierName,
             "lapse_reason": reason,
             "cancellation_reason": cancellationReason,
             "has_free_text": hasFreeText
-        ]
-        // Capture the user's verbatim feedback (previously collected then discarded).
-        // Firebase Analytics caps string parameter values at 100 chars, so truncate.
-        let trimmed = feedbackText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty {
-            parameters["feedback_text"] = String(trimmed.prefix(100))
-        }
-        logEvent(.winBackReasonSubmitted, parameters: parameters)
+        ])
     }
 
     func trackWinBackDismissed(productID: String, tierName: String, reason: String) {
@@ -408,10 +424,17 @@ final class AnalyticsService {
 
     // MARK: - GDPR Events
 
-    func trackDataExportRequested(userID: String) {
-        logEvent(.dataExportRequested, parameters: [
-            "user_id": userID
-        ])
+    // These four carried `"user_id": <Firebase Auth UID>` as an event PARAMETER. That is a
+    // persistent identifier, which the Google Analytics ToS forbids in parameters, and it was
+    // redundant besides — `setUserID` already links the whole session. The aggravating detail
+    // is which events they are: the identifier was attached precisely when a family exercised
+    // a privacy right, so asking for your data or deleting your account minted an extra
+    // identity-linked record in Google's systems. The events themselves are worth keeping;
+    // the parameter never was. Signatures keep their `userID` argument only where a caller
+    // still needs it — see below, they don't, so it's gone.
+
+    func trackDataExportRequested() {
+        logEvent(.dataExportRequested)
     }
 
     func trackDataExportCompleted(fileSize: Int) {
@@ -420,16 +443,12 @@ final class AnalyticsService {
         ])
     }
 
-    func trackAccountDeletionRequested(userID: String) {
-        logEvent(.accountDeletionRequested, parameters: [
-            "user_id": userID
-        ])
+    func trackAccountDeletionRequested() {
+        logEvent(.accountDeletionRequested)
     }
 
-    func trackAccountDeletionCompleted(userID: String) {
-        logEvent(.accountDeletionCompleted, parameters: [
-            "user_id": userID
-        ])
+    func trackAccountDeletionCompleted() {
+        logEvent(.accountDeletionCompleted)
     }
 
     // MARK: - Error Tracking
@@ -439,8 +458,13 @@ final class AnalyticsService {
         logEvent(errorEvent, parameters: [
             "error_domain": (error as NSError).domain,
             "error_code": (error as NSError).code,
-            "context": context,
-            "error_description": error.localizedDescription
+            "context": context
+            // `error_description` (localizedDescription) is deliberately NOT sent. Firebase
+            // and URLSession errors routinely embed full Storage object paths — which contain
+            // the owner's uid and the file name — and Firestore errors can quote document
+            // contents. domain + code + context identify the failure just as well for triage.
+            // The full error still reaches Crashlytics below, which is the right destination
+            // for it: crash reporting, not the analytics event stream.
         ])
 
         Crashlytics.crashlytics().record(error: error)

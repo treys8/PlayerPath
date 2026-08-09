@@ -538,35 +538,37 @@ struct MainTabView: View {
                         Label("Seasons", systemImage: "calendar")
                             .foregroundColor(.primary)
                     }
-                    NavigationLink(value: MoreDestination.recruiting) {
-                        Label {
-                            HStack {
-                                Text("Recruiting")
-                                if authManager.currentTier != .pro {
-                                    Text("PRO")
-                                        .font(.custom("Inter18pt-Bold", size: 11, relativeTo: .caption2))
-                                        .foregroundColor(ppAccent)
-                                        .padding(.horizontal, 5)
-                                        .padding(.vertical, 2)
-                                        .background(Capsule().fill(ppAccent.opacity(0.12)))
+                    if RecruitingFeature.isEnabled {
+                        NavigationLink(value: MoreDestination.recruiting) {
+                            Label {
+                                HStack {
+                                    Text("Recruiting")
+                                    if authManager.currentTier != .pro {
+                                        Text("PRO")
+                                            .font(.custom("Inter18pt-Bold", size: 11, relativeTo: .caption2))
+                                            .foregroundColor(ppAccent)
+                                            .padding(.horizontal, 5)
+                                            .padding(.vertical, 2)
+                                            .background(Capsule().fill(ppAccent.opacity(0.12)))
+                                    }
+                                    // Name whose. Unlike the other rows here, this one
+                                    // leads to publishing ONE athlete's photo, city and
+                                    // contact info on a public page — the same reason
+                                    // the Profile-tab row carries the name. Carries the
+                                    // sport too when the person has two profiles —
+                                    // those are two separate public pages, same name.
+                                    Spacer()
+                                    Text(selectedAthlete.nameWithSportIfShared)
+                                        .foregroundColor(.secondary)
+                                        .lineLimit(1)
                                 }
-                                // Name whose. Unlike the other rows here, this one
-                                // leads to publishing ONE athlete's photo, city and
-                                // contact info on a public page — the same reason
-                                // the Profile-tab row carries the name. Carries the
-                                // sport too when the person has two profiles —
-                                // those are two separate public pages, same name.
-                                Spacer()
-                                Text(selectedAthlete.nameWithSportIfShared)
-                                    .foregroundColor(.secondary)
-                                    .lineLimit(1)
+                            } icon: {
+                                Image(systemName: "graduationcap.fill")
                             }
-                        } icon: {
-                            Image(systemName: "graduationcap.fill")
+                            .foregroundColor(.primary)
                         }
-                        .foregroundColor(.primary)
+                        .accessibilityHint("Edit \(selectedAthlete.name)'s recruiting profile")
                     }
-                    .accessibilityHint("Edit \(selectedAthlete.name)'s recruiting profile")
                     NavigationLink(value: MoreDestination.coaches) {
                         Label {
                             HStack {
@@ -625,6 +627,10 @@ struct MainTabView: View {
                     // No `.proRequired()`: that gate replaces the screen, and this is
                     // a route to the unpublish kill switch, which must stay reachable
                     // after Pro lapses. Publishing is gated on the action instead.
+                    // Kept wired even when `RecruitingFeature.isEnabled` is false —
+                    // the row above is gone, but a `recruiting_view` push for a
+                    // profile published from an older build must still land here
+                    // rather than dead-end. See RecruitingFeature.swift.
                     RecruitingProfileEditorView(athlete: selectedAthlete).id(selectedAthlete.id)
                 case .coaches:
                     CoachesView(athlete: selectedAthlete).id(selectedAthlete.id)

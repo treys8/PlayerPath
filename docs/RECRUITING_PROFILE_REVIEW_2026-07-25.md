@@ -937,6 +937,19 @@ per-clip runtimes and "Updated ‹Month›" all land together.
 
 ✅ **Done:** one publish round-trip (page renders, view count ticks).
 
+✅ **P0.1 PASSED IN FULL, 2026-08-06.** Film **played** on **Edge on a Windows machine**; link also works on
+**Firefox** and **Chrome**. Both documented failure modes are cleared, and they were different failures:
+- *Edge/Chrome on Windows* — the HEVC track needs Microsoft's paid HEVC Video Extensions, absent on most
+  machines → black box. Playing proves `RecruitingWebRenditionService`'s H.264 `.mp4` rendition is actually
+  being produced and served, not merely that the page loads.
+- *Firefox (Gecko)* — filters `<source>` by the `type` attribute and never attempts `video/quicktime` at all.
+  Passing proves `mimeForPath` + the `<source>` list select the mp4 rendition correctly. Chromium can mask a
+  bad source list by sniffing its way to a playable track; Firefox cannot, so this is the stronger signal.
+
+⚠️ Coverage note for later: this exercised the clips on **one** profile. Renditions are a derived artifact
+with a known freshness hazard — a re-trim rewrites the source bytes under the same `fileName`, so a stale
+rendition can survive. Derived artifacts must check freshness, not existence.
+
 **Highest value:**
 - **P0.1:** open a published link in **Firefox** and on a **Windows** machine — the whole feature is worthless
   if the film doesn't play, and this is the fix nothing else compensates for.

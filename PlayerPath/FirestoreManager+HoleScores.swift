@@ -64,16 +64,7 @@ extension FirestoreManager {
             .whereField("isDeleted", isEqualTo: false)
             .limit(to: 18)
             .getDocuments()
-        return snapshot.documents.compactMap { doc -> FirestoreHoleScore? in
-            do {
-                var hole = try doc.data(as: FirestoreHoleScore.self)
-                hole.id = doc.documentID
-                return hole
-            } catch {
-                firestoreLog.warning("Failed to decode FirestoreHoleScore from \(doc.documentID): \(error.localizedDescription)")
-                return nil
-            }
-        }
+        return try decodeHoles(snapshot, caller: "fetchGameHoleScores")
     }
 
     // MARK: - Practice hole scores (wired up for PR3)
@@ -126,7 +117,17 @@ extension FirestoreManager {
             .whereField("isDeleted", isEqualTo: false)
             .limit(to: 18)
             .getDocuments()
-        return snapshot.documents.compactMap { doc -> FirestoreHoleScore? in
+        return try decodeHoles(snapshot, caller: "fetchPracticeHoleScores")
+    }
+
+    /// Shared decode for both hole fetches. Mirrors `decodeShots` in +Shots.swift.
+    ///
+    /// Throws rather than returning a short list: `reconcileHoles` deletes any local
+    /// hole whose number is absent from the returned set, so a silently-dropped doc
+    /// reads as a remote delete and discards a scored hole. Throwing skips the
+    /// reconcile (and therefore the delete) for this cycle.
+    private func decodeHoles(_ snapshot: QuerySnapshot, caller: String) throws -> [FirestoreHoleScore] {
+        let holes = snapshot.documents.compactMap { doc -> FirestoreHoleScore? in
             do {
                 var hole = try doc.data(as: FirestoreHoleScore.self)
                 hole.id = doc.documentID
@@ -136,5 +137,10 @@ extension FirestoreManager {
                 return nil
             }
         }
+        if holes.count < snapshot.documents.count {
+            firestoreLog.error("Partial decode in \(caller): \(holes.count)/\(snapshot.documents.count) — skipping to avoid sync deletion")
+            throw FirestoreSyncError.partialDecode(entity: "HoleScore", decoded: holes.count, total: snapshot.documents.count)
+        }
+        return holes
     }
 }

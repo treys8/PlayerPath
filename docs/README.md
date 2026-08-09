@@ -33,6 +33,7 @@ Concise reference cards for common tasks.
 
 Pricing, positioning, and roadmap documents (in `docs/` root).
 
+- **[PRODUCT_OVERVIEW.md](./PRODUCT_OVERVIEW.md)** -- Start here: what the app is, who it's for, the core loop, monetization, and the competitive wedge
 - **[PRIORITIES.md](./PRIORITIES.md)** -- Ranked next-up roadmap (Tier 1–5) + the next needle mover; statuses verified against `main`
 - **[PRICING_MODEL_V2_PROPOSAL.md](./PRICING_MODEL_V2_PROPOSAL.md)** -- Pricing V2 rationale: coach pays the per-seat connection, any athlete tier can share
 - **[PRICING_MODEL_V2_IMPLEMENTATION_PLAN.md](./PRICING_MODEL_V2_IMPLEMENTATION_PLAN.md)** -- Phased implementation plan for the Pricing V2 pivot

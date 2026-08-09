@@ -18,6 +18,14 @@ func performDeleteAthlete(_ athlete: Athlete, selectedAthlete: Binding<Athlete?>
 
     // Capture Firestore IDs before local hard-delete so we can sync deletions
     let userId = user.firebaseAuthUid ?? user.id.uuidString
+    // Captured HERE, with everything else, and deliberately without the `?? uuidString`
+    // fallback. Two separate reasons:
+    //   - Reading a SwiftData model property inside the detached Task below means touching
+    //     it after `athlete.delete(in:)` + save, which is the documented across-await trap.
+    //   - This one is a query operand against ownerAthleteID, and the fallback is a value
+    //     no folder carries and that the rules deny besides — it would turn a real cascade
+    //     into a silent no-op rather than degrading gracefully.
+    let ownerAccountUID = user.firebaseAuthUid
     let athleteFirestoreId = athlete.firestoreId
     let seasonFirestoreIds = (athlete.seasons ?? []).compactMap { $0.firestoreId }
     let gameFirestoreIds = (athlete.games ?? []).compactMap { $0.firestoreId }
@@ -114,6 +122,44 @@ func performDeleteAthlete(_ athlete: Athlete, selectedAthlete: Binding<Athlete?>
         // doc that serves a PUBLIC page, so it's worth the retry: a page that
         // outlives its athlete is a privacy problem, not a stale record.
         await retryAsync { try await RecruitingProfileService.shared.deleteProfileDoc(athleteId: athleteID) }
+
+        // Coach-shared folders for this athlete. Same privacy-critical band as the
+        // published profile above, and for the same reason: what's at stake is an
+        // outsider's continued access to a deleted child's video, not a stale record.
+        //
+        // Nothing used to do this. Deleting an athlete tombstoned their games, seasons,
+        // clips and coaches, but left the top-level sharedFolders doc, every videos/* doc
+        // pointing at it, and the Storage objects completely untouched — and
+        // canAccessFolder() has no dependency on the athlete profile existing, so the
+        // coach's app was entirely unaffected. Worse, the parent was left with no way to
+        // fix it: both AthleteFoldersListView and CoachesView require a live Athlete row,
+        // so the revoke UI disappears along with the child.
+        //
+        // deleteFolder() is the complete path — it ends live coach sessions, writes a
+        // coach_access_revocations tombstone per coach (so access dies even if the folder
+        // delete later fails), sweeps videos and Storage, then deletes the folder doc.
+        // Its two known gaps, orphaned thumbnails and a 500-video truncation, are now
+        // covered server-side: onSharedFolderDeleted sweeps the whole
+        // shared_folders/{folderID}/ prefix when the doc disappears.
+        //
+        // Per-folder catch so one failure can't strand the rest.
+        // ownerAccountUID was captured before the local delete (see the top of this
+        // function). No uid means no cascade is possible.
+        if let ownerAccountUID {
+            do {
+                let folderIDs = try await FirestoreManager.shared.sharedFolderIDs(
+                    forAthleteUUID: athleteID.uuidString,
+                    ownerAccountUID: ownerAccountUID
+                )
+                for folderID in folderIDs {
+                    await retryAsync {
+                        try await SharedFolderManager.shared.deleteFolder(folderID: folderID, athleteID: athleteID.uuidString)
+                    }
+                }
+            } catch {
+                ErrorHandlerService.shared.handle(error, context: "performDeleteAthlete.sharedFolderCascade", showAlert: false)
+            }
+        }
 
         // Hygiene last: hole and reel docs are unreachable once their parents
         // are tombstoned (sync fetches holes per live game/practice and reels

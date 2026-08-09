@@ -16,7 +16,23 @@ extension VideoCloudManager {
 
     // MARK: - Shared Folder Upload
 
-    /// Uploads a video file to Firebase Storage for a shared folder
+    /// Uploads a video file to Firebase Storage for a shared folder.
+    ///
+    /// Returns the deterministic Storage **path**, not a URL — deliberately, and do not
+    /// "fix" this back to `downloadURL()`.
+    ///
+    /// `downloadURL()` permanently attaches a `firebaseStorageDownloadTokens` value to the
+    /// object and hands back a link Firebase serves with **no authentication and without
+    /// evaluating storage.rules**, forever. That string was persisted to
+    /// `videos/{id}.firebaseStorageURL`, which every coach on the folder can read. Nothing in
+    /// the app or the Cloud Functions ever rotated it, and removing a coach only arrayRemoves
+    /// them and writes a revocation doc — neither of which touches the token. So the entire
+    /// signed-URL architecture (SecureURLManager → getSignedVideoURL, short expiry, membership
+    /// re-check, revocation check) was bypassable indefinitely by anyone who had captured the
+    /// stored URL while they still had access.
+    ///
+    /// Nothing reads the returned value as a URL: playback goes through `CoachVideoLoader` →
+    /// `SecureURLManager.getSecureVideoURL`, whose only fallback is another signed URL.
     func uploadVideo(
         localURL: URL,
         fileName: String,
@@ -48,19 +64,12 @@ extension VideoCloudManager {
                     return
                 }
 
-                videoRef.downloadURL { url, error in
-                    let alreadyResumed = hasResumed.withLock { val -> Bool in
-                        if val { return true }; val = true; return false
-                    }
-                    guard !alreadyResumed else { return }
-                    if let error = error {
-                        continuation.resume(throwing: error)
-                    } else if let url = url {
-                        continuation.resume(returning: url.absoluteString)
-                    } else {
-                        continuation.resume(throwing: VideoCloudError.invalidURL)
-                    }
+                // Return the path. No downloadURL() round-trip, so no permanent public token
+                // is ever minted for this object (see the doc comment above).
+                let alreadyResumed = hasResumed.withLock { val -> Bool in
+                    if val { return true }; val = true; return false
                 }
+                if !alreadyResumed { continuation.resume(returning: videoRef.fullPath) }
             }
 
             uploadBox.task = uploadTask
@@ -86,7 +95,15 @@ extension VideoCloudManager {
         }
     }
 
-    /// Uploads a thumbnail image to Firebase Storage for a shared folder video
+    /// Uploads a thumbnail image to Firebase Storage for a shared folder video.
+    ///
+    /// Returns the Storage **path**, for the same reason `uploadVideo` above does. Thumbnails
+    /// were arguably the worse half of that defect: the client fetches them automatically
+    /// during ordinary browsing, so recognizable images of a minor were pulled through
+    /// unauthenticated token URLs with no deliberate act by anyone — and this object also
+    /// carries `max-age=31536000`, so those images sat in intermediary and on-device caches
+    /// for a year. Reads go through `RemoteThumbnailView`'s secure branch
+    /// (`SecureURLManager.getSecureThumbnailURL`), which every shared-folder call site takes.
     func uploadThumbnail(
         thumbnailURL: URL,
         videoFileName: String,
@@ -114,60 +131,20 @@ extension VideoCloudManager {
                     return
                 }
 
-                thumbnailRef.downloadURL { url, error in
-                    let alreadyResumed = hasResumed.withLock { val -> Bool in
-                        if val { return true }; val = true; return false
-                    }
-                    guard !alreadyResumed else { return }
-                    if let error = error {
-                        continuation.resume(throwing: error)
-                    } else if let url = url {
-                        continuation.resume(returning: url.absoluteString)
-                    } else {
-                        continuation.resume(throwing: VideoCloudError.invalidURL)
-                    }
+                // Path, not a token URL — see the doc comment above.
+                let alreadyResumed = hasResumed.withLock { val -> Bool in
+                    if val { return true }; val = true; return false
                 }
+                if !alreadyResumed { continuation.resume(returning: thumbnailRef.fullPath) }
             }
         }
     }
 
-    // MARK: - Shared Folder Download URLs
-
-    /// Gets a secure download URL for a file in Firebase Storage
-    func getSecureDownloadURL(
-        fileName: String,
-        folderID: String,
-        isThumbnail: Bool = false
-    ) async throws -> String {
-        guard ConnectivityMonitor.shared.isConnected else {
-            throw VideoCloudError.networkUnavailable
-        }
-
-        let storage = Storage.storage()
-        let storageRef = storage.reference()
-
-        let filePath: String
-        if isThumbnail {
-            let thumbnailFileName = (fileName as NSString).deletingPathExtension + "_thumbnail.jpg"
-            filePath = "shared_folders/\(folderID)/thumbnails/\(thumbnailFileName)"
-        } else {
-            filePath = "shared_folders/\(folderID)/\(fileName)"
-        }
-
-        let fileRef = storageRef.child(filePath)
-
-        return try await withCheckedThrowingContinuation { continuation in
-            fileRef.downloadURL { url, error in
-                if let error = error {
-                    continuation.resume(throwing: error)
-                } else if let url = url {
-                    continuation.resume(returning: url.absoluteString)
-                } else {
-                    continuation.resume(throwing: VideoCloudError.invalidURL)
-                }
-            }
-        }
-    }
+    // `getSecureDownloadURL` was removed here. It had ZERO callers, and despite the name it
+    // was not secure — it returned the same permanent `downloadURL()` token link as the upload
+    // paths above, gated only on a connectivity check. Anything needing a shared-folder URL
+    // must go through `SecureURLManager` (getSecureVideoURL / getSecureThumbnailURL), which
+    // calls the Cloud Function that re-checks folder membership and signs a short-lived URL.
 
     // MARK: - Shared Folder Delete
 

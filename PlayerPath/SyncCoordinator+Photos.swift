@@ -39,7 +39,7 @@ extension SyncCoordinator {
         var syncedPhotos: [Photo] = []
         // Photo files to download, collected across all athletes and drained with
         // bounded concurrency after the save (see below). Only Sendable values.
-        var pendingPhotoDownloads: [(photoID: UUID, url: String, path: String)] = []
+        var pendingPhotoDownloads: [(photoID: UUID, url: String, path: String, fileName: String)] = []
 
         // Re-home support (legacy-split migration): a photo moved to another profile
         // must not be seen as deleted (its local file would be destroyed) when we
@@ -250,7 +250,7 @@ extension SyncCoordinator {
                 // missing photo with no cap — a fresh install of a heavy account
                 // launched thousands of parallel downloads + CGImageSource decodes,
                 // risking OOM and main-thread starvation.
-                pendingPhotoDownloads.append((photoID: newPhoto.id, url: downloadURL, path: newPhoto.resolvedFilePath))
+                pendingPhotoDownloads.append((photoID: newPhoto.id, url: downloadURL, path: newPhoto.resolvedFilePath, fileName: remotePhoto.fileName))
             }
 
         }
@@ -296,7 +296,7 @@ extension SyncCoordinator {
                   !photo.isAvailableOffline else { continue }
             missingFileCount += 1
             guard pendingPhotoDownloads.count < Self.maxPhotoRedownloadsPerPass + alreadyQueued.count else { continue }
-            pendingPhotoDownloads.append((photoID: photo.id, url: cloudURL, path: photo.resolvedFilePath))
+            pendingPhotoDownloads.append((photoID: photo.id, url: cloudURL, path: photo.resolvedFilePath, fileName: photo.fileName))
         }
         if missingFileCount > Self.maxPhotoRedownloadsPerPass {
             syncLog.info("Re-queued \(Self.maxPhotoRedownloadsPerPass) of \(missingFileCount) photos with missing local files — remainder next sync")
@@ -348,7 +348,7 @@ extension SyncCoordinator {
     /// heavy fresh install can't spawn thousands of simultaneous downloads +
     /// thumbnail decodes (OOM / main-thread starvation). Sliding-window TaskGroup.
     private func drainPhotoDownloads(
-        _ jobs: [(photoID: UUID, url: String, path: String)],
+        _ jobs: [(photoID: UUID, url: String, path: String, fileName: String)],
         maxConcurrent: Int
     ) async {
         var iterator = jobs.makeIterator()
@@ -369,9 +369,18 @@ extension SyncCoordinator {
     /// Downloads one photo's file + thumbnail, then writes the result back to the
     /// SwiftData row. The row is REFETCHED by id (not captured) so a sign-out or a
     /// deletion mid-download can't mutate a dead object — if it's gone, we bail.
-    private func downloadOnePhoto(_ job: (photoID: UUID, url: String, path: String)) async {
+    private func downloadOnePhoto(_ job: (photoID: UUID, url: String, path: String, fileName: String)) async {
         do {
-            try await VideoCloudManager.shared.downloadPhoto(from: job.url, to: job.path)
+            // Prefer a short-lived signed URL; `job.url` is the legacy permanent
+            // downloadURL() token (no auth, bypasses storage.rules, never expires) and is
+            // only the fallback until athlete_photos/ tokens are rotated. One extra CF call
+            // per photo, bounded by the same maxConcurrent window as the downloads.
+            var source = job.url
+            if !job.fileName.isEmpty,
+               let signed = try? await SecureURLManager.shared.getPersonalPhotoURL(fileName: job.fileName) {
+                source = signed
+            }
+            try await VideoCloudManager.shared.downloadPhoto(from: source, to: job.path)
             let thumbRelPath = await Self.makePhotoThumbnail(at: job.path, photoID: job.photoID)
             guard let photo = fetchPhoto(by: job.photoID) else { return }
             if let thumbRelPath { photo.thumbnailPath = thumbRelPath }

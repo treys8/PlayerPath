@@ -75,7 +75,7 @@ struct AuthenticatedFlow: View {
                     }
                     if let user = currentUser {
                         user.username = name
-                        try? modelContext.save()
+                        ErrorHandlerService.shared.saveContext(modelContext, caller: "AuthenticatedFlow.namePrompt")
                     }
                     authManager.needsDisplayName = false
                 }
@@ -221,7 +221,9 @@ struct AuthenticatedFlow: View {
                     do {
                         try await ClipPersistenceService().migrateVideosToDocuments(context: modelContext)
                     } catch {
-                        // Don't block app launch on migration failure
+                        // Don't block app launch on migration failure, but report it —
+                        // a silent failure here looks like missing videos to the user.
+                        ErrorHandlerService.shared.handle(error, context: "AuthenticatedFlow.videoMigration", showAlert: false)
                     }
 
                     let athletes = (currentUser?.athletes ?? [])

@@ -122,6 +122,27 @@ service cloud.firestore {
       return exists(/databases/$(database)/documents/coach_access_revocations/$(folderID + "_" + coachID));
     }
 
+    // canComment, with a MISSING entry meaning "legacy folder, allow" instead of "deny".
+    // The comments rule's gate — see the comment there for why comments need a
+    // legacy-tolerant variant when the alternative was no server-side check at all.
+    //
+    // COMMENT ONLY, deliberately not a general `hasPermissionOrLegacy(folderID, permission)`.
+    // Default-allow is defensible for commenting (denying would retroactively silence every
+    // coach on a folder predating the permissions map, and a comment is additive) and is NOT
+    // defensible for upload or delete, which must stay deny-by-default. A generic helper
+    // would be one autocomplete away from making them default-allow too; use hasPermission()
+    // for those.
+    //
+    // Absence is not a self-downgrade route: a coach cannot drop their own permissions key
+    // and stay in the folder, because isCoachLeavingFolder() requires them to leave the
+    // array in the same write, and the owner branch is the athlete's own choice.
+    function canCommentOnFolder(folderID) {
+      let folder = get(/databases/$(database)/documents/sharedFolders/$(folderID)).data;
+      let perms = folder.get('permissions', {}).get(request.auth.uid, {});
+      return request.auth.uid == folder.ownerAthleteID
+          || perms.get('canComment', true) == true;
+    }
+
     function hasPermission(folderID, permission) {
       let folder = get(/databases/$(database)/documents/sharedFolders/$(folderID)).data;
       let perms = folder.permissions[request.auth.uid];
@@ -166,8 +187,39 @@ service cloud.firestore {
     function isCoachLeavingFolder() {
       return request.auth.uid in resource.data.sharedWithCoachIDs
           && !(request.auth.uid in request.resource.data.sharedWithCoachIDs)
-          // Exactly one coach removed, none added
+          // Exactly one coach removed, none added.
+          // Cardinality ALONE is not "none added" — [A,B] -> [C] satisfies it, which
+          // let a folder coach eject a co-coach and inject an account the athlete
+          // never invited (that account then carries no revocation doc, so a later
+          // revoke of A leaves C with access forever). The subset check is what
+          // actually forbids additions; the owner-update branch below has always had
+          // it, and this OR'd peer branch was missing it.
           && request.resource.data.sharedWithCoachIDs.size() == resource.data.sharedWithCoachIDs.size() - 1
+          && request.resource.data.sharedWithCoachIDs.removeAll(resource.data.sharedWithCoachIDs).size() == 0
+          // The two per-coach maps may only be touched for the CALLER'S OWN key.
+          //
+          // A subset check alone (additions forbidden, removals free) was not enough: it
+          // let a departing coach delete a CO-COACH's permissions entry on the way out —
+          // hasPermission() reads that map, so coach B stays in sharedWithCoachIDs and
+          // silently loses upload/comment/delete while the athlete's UI still shows the
+          // badges. And sharedWithCoachNames was in the hasOnly allowlist with nothing
+          // constraining it at all, so coach A could relabel coach B with any string.
+          //
+          // .diff().affectedKeys() covers additions, removals AND value changes in one
+          // clause, which a subset check cannot. hasOnly([uid]) permits the empty diff, so
+          // a write that doesn't touch the map passes untouched.
+          //
+          // .get(...,{}) rather than a bare field read: a rule that touches a missing
+          // field ERRORS, and an errored rule denies — which here would brick the coach
+          // downgrade self-shed on any folder that carries no permissions map. Removing
+          // the caller's own key stays allowed; that IS the self-shed (the client writes
+          // permissions.<uid> = delete()).
+          && request.resource.data.get('permissions', {})
+               .diff(resource.data.get('permissions', {}))
+               .affectedKeys().hasOnly([request.auth.uid])
+          && request.resource.data.get('sharedWithCoachNames', {})
+               .diff(resource.data.get('sharedWithCoachNames', {}))
+               .affectedKeys().hasOnly([request.auth.uid])
           // ownerAthleteID must not change
           && request.resource.data.ownerAthleteID == resource.data.ownerAthleteID
           // folder name must not change
@@ -225,6 +277,12 @@ service cloud.firestore {
                     && (!('coachAthleteCount' in request.resource.data)
                         || request.resource.data.coachAthleteCount == 0)
                     && !('athleteTierSource' in request.resource.data)
+                    // coachTierSource is the coach-axis twin of athleteTierSource and
+                    // was missing here. It is the ONLY discriminator the server uses to
+                    // tell a revocable StoreKit purchase from a permanent admin comp
+                    // (index.ts coachIsManualGrant), so a client that can write it can
+                    // make a refunded subscription permanent.
+                    && !('coachTierSource' in request.resource.data)
                     && !('coachAthleteLimit' in request.resource.data)
                     && !('downgradeUnresolved' in request.resource.data)
                     && !('coachDowngradeGraceStartedAt' in request.resource.data)
@@ -254,8 +312,20 @@ service cloud.firestore {
                         || request.resource.data.coachAthleteCount == resource.data.coachAthleteCount)
                     && (!('coachAthleteLimit' in resource.data)
                         || request.resource.data.coachAthleteLimit == resource.data.coachAthleteLimit)
+                    // coachAthleteCount belongs in THIS list, not only in the
+                    // "unchanged if already present" clause above. When the field is
+                    // ABSENT — which is every coach who has not yet accepted an
+                    // invitation, since the CF only writes it on accept — that clause is
+                    // vacuous and the client can introduce any value, including a
+                    // negative one. It is not a cosmetic counter: the seat-limit check
+                    // inside both accept transactions reads
+                    // `coachSnap.data()?.coachAthleteCount ?? <recompute>`, so the cached
+                    // value IS the operand and the recompute is only its fallback. A
+                    // coach who seeds -1000 gets effectively unlimited connections to
+                    // minors on a free seat until auditCoachDowngrades next runs.
                     && !request.resource.data.diff(resource.data).affectedKeys()
-                        .hasAny(['athleteTierSource', 'coachAthleteLimit',
+                        .hasAny(['athleteTierSource', 'coachTierSource', 'coachAthleteLimit',
+                                 'coachAthleteCount',
                                  'downgradeUnresolved', 'coachDowngradeGraceStartedAt'])
                     // If this update CHANGES the email, it must match the verified auth
                     // token (lowercased). Unchanged-email writes pass untouched so
@@ -506,10 +576,20 @@ service cloud.firestore {
       // into a folder the uploader doesn't own.
       // For shared-folder videos, the uploader must still have folder access —
       // prevents removed coaches from modifying videos they previously uploaded.
+      //
+      // The sharedFolderID guard compares the INCOMING doc to the existing one
+      // unconditionally. It used to be predicated on `'sharedFolderID' in resource.data`,
+      // which made it vacuous for exactly the docs that needed it: a personal clip is
+      // created WITHOUT the field (see the create rule above), so both clauses
+      // short-circuited true and the uploader could ADD an arbitrary sharedFolderID by
+      // update — injecting attacker-authored clips into any folder whose ID they knew,
+      // bypassing the create rule's hasPermission(upload) + canAccessFolder pair. That
+      // was also the write primitive that fed dailyStorageCleanup's shared-folder
+      // delete. get(...,null) keeps absent == absent true, so personal clips still update.
       allow update: if isAuthenticated()
                     && resource.data.uploadedBy == request.auth.uid
                     && request.resource.data.uploadedBy == resource.data.uploadedBy
-                    && (!('sharedFolderID' in resource.data) || request.resource.data.sharedFolderID == resource.data.sharedFolderID)
+                    && request.resource.data.get('sharedFolderID', null) == resource.data.get('sharedFolderID', null)
                     && (!('sharedFolderID' in resource.data) || canAccessFolder(resource.data.sharedFolderID))
                     // Visibility must stay within the known set: the client read filters
                     // treat anything != 'private' as visible, so an arbitrary string
@@ -629,8 +709,22 @@ service cloud.firestore {
                       && request.resource.data.authorId == request.auth.uid
                       && request.resource.data.keys().hasAll(['authorId', 'content', 'createdAt'])
                       && (getVideoData(videoID).uploadedBy == request.auth.uid
+                          // canComment is enforced HERE, not only in the UI. Comments were
+                          // the odd one out: video create requires 'upload', video delete
+                          // requires 'delete', annotation create requires 'comment' — this
+                          // rule checked folder access alone. So a parent who connected an
+                          // instructor to their 13-year-old with "Add Comments" off, meaning
+                          // view-only, got a coach who could still POST straight to the
+                          // subcollection and have it delivered to the child by push, while
+                          // the app kept showing the badge as disabled.
+                          //
+                          // canCommentOnFolder, not hasPermission: a folder predating the
+                          // permissions map has no entry for anyone, and denying there would
+                          // silence existing coaches rather than close a hole. An explicit
+                          // canComment:false — the deliberate case — is what this catches.
                           || ('sharedFolderID' in getVideoData(videoID)
-                              && canAccessFolder(getVideoData(videoID).sharedFolderID)))
+                              && canAccessFolder(getVideoData(videoID).sharedFolderID)
+                              && canCommentOnFolder(getVideoData(videoID).sharedFolderID)))
                       // Coaches can't deliver new comments while over their downgrade
                       // limit; athletes (role != coach) are never blocked.
                       && !coachDowngradeBlocked();
@@ -848,10 +942,15 @@ service cloud.firestore {
                     && request.resource.data.coachID == resource.data.coachID
                     && request.resource.data.athleteID == resource.data.athleteID;
 
-      // The creating party (athlete or coach) can delete their own revocation
+      // Only the ATHLETE side may delete a revocation. The coach is the SUBJECT of
+      // this deny-list entry, and isCoachRevokedFromFolder() is a bare exists() on
+      // the doc — letting the subject delete it means a coach who regains array
+      // membership by any means can also erase the family's revocation record, with
+      // no server trace that it ever happened. Every legitimate re-accept already
+      // deletes this doc Admin-side (index.ts acceptAthleteToCoachInvitation and
+      // reuseOrCreateSharedFolders), so the coach branch bought nothing.
       allow delete: if isAuthenticated()
-                    && (resource.data.athleteID == request.auth.uid
-                        || resource.data.coachID == request.auth.uid);
+                    && resource.data.athleteID == request.auth.uid;
     }
 
     // ========================================================================
@@ -948,8 +1047,15 @@ service cloud.firestore {
       allow create: if isAuthenticated()
                     && request.resource.data.coachID == request.auth.uid
                     && hasCoachTier();
+      // coachID must be frozen: the pre-image check alone leaves the POST-image
+      // unconstrained, so a coach could reassign their own session doc to another coach's
+      // uid with attacker-chosen title/athleteNames/notes and status 'live'.
+      // CoachSessionManager listens on whereField("coachID", ==), so it lands on the
+      // victim's dashboard attributed to their account. Every other ownership-keyed
+      // collection here freezes its owner field (videos, photos, drillCards, comments).
       allow update: if isAuthenticated()
-                    && resource.data.coachID == request.auth.uid;
+                    && resource.data.coachID == request.auth.uid
+                    && request.resource.data.coachID == resource.data.coachID;
       allow delete: if isAuthenticated()
                     && resource.data.coachID == request.auth.uid;
     }

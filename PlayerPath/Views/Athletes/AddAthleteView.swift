@@ -390,8 +390,12 @@ struct AddAthleteView: View {
                     Task {
                         do {
                             try await SyncCoordinator.shared.syncAthletes(for: user)
+                        } catch is SyncCoordinatorError {
+                            // Already syncing or signed out — expected, ignore.
                         } catch {
-                            // Don't block athlete creation on sync failure
+                            // Don't block athlete creation on sync failure — the dirty
+                            // flag will retry later — but report it for telemetry.
+                            ErrorHandlerService.shared.handle(error, context: "AddAthleteView.syncAthletes", showAlert: false)
                         }
                     }
                 }

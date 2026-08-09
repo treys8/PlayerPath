@@ -1064,7 +1064,7 @@ final class UploadQueueManager {
             let cloudManager = VideoCloudManager.shared
 
             // Upload video to shared folder Storage path with 10-minute timeout
-            let downloadURL = try await withThrowingTaskGroup(of: String.self) { group in
+            let storagePath = try await withThrowingTaskGroup(of: String.self) { group in
                 group.addTask {
                     try await cloudManager.uploadVideo(
                         localURL: localURL,
@@ -1104,7 +1104,7 @@ final class UploadQueueManager {
             // Flip the pending doc to completed.
             try await FirestoreManager.shared.markVideoCompleted(
                 videoID: videoID,
-                storageURL: downloadURL,
+                storagePath: storagePath,
                 thumbnail: processed.thumbnailURL.map {
                     ThumbnailMetadata(standardURL: $0, timestamp: 1.0, width: 480, height: 270)
                 },

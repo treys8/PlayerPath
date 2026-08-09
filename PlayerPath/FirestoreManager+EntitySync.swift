@@ -669,6 +669,7 @@ extension FirestoreManager {
     func fetchPhotos(uploadedBy ownerUID: String, athleteId: String) async throws -> [FirestorePhoto] {
         var allPhotos: [FirestorePhoto] = []
         var lastDoc: QueryDocumentSnapshot?
+        var totalSeen = 0
         let baseQuery = db.collection(FC.photos)
             .whereField("uploadedBy", isEqualTo: ownerUID)
             .whereField("athleteId", isEqualTo: athleteId)
@@ -681,6 +682,7 @@ extension FirestoreManager {
             let snapshot = try await query.getDocuments()
             guard !snapshot.documents.isEmpty else { break }
             lastDoc = snapshot.documents.last
+            totalSeen += snapshot.documents.count
             let page = snapshot.documents.compactMap { doc -> FirestorePhoto? in
                 do {
                     var photo = try doc.data(as: FirestorePhoto.self)
@@ -692,6 +694,19 @@ extension FirestoreManager {
                 }
             }
             allPhotos.append(contentsOf: page)
+            if snapshot.documents.count < 100 { break }
+        }
+
+        // Partial decode is NOT survivable here. SyncCoordinator+Photos' global
+        // delete pass treats any local photo absent from this set as deleted
+        // remotely and calls Photo.delete(in:) — which destroys the local file,
+        // the thumbnail, AND the Storage blob. A single undecodable doc would
+        // therefore erase a photo that still exists on the server. Throw so the
+        // delete pass never runs this cycle (uploads earlier in syncPhotos are
+        // already committed and unaffected).
+        if allPhotos.count < totalSeen {
+            firestoreLog.error("Partial decode in fetchPhotos: \(allPhotos.count)/\(totalSeen) — skipping to avoid sync deletion")
+            throw FirestoreSyncError.partialDecode(entity: "Photo", decoded: allPhotos.count, total: totalSeen)
         }
         return allPhotos
     }

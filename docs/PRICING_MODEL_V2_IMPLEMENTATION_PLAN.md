@@ -91,7 +91,9 @@ Central gate: `ComprehensiveAuthManager.hasCoachingAccess` (`currentTier >= .pro
 
 ## Phase 4 — Seats explainer + invite-moment messaging (iOS)
 
-Design constraints: Calm Keepsake — cream surfaces, ONE accent (coach flows stay base terracotta), `Theme`/`DesignTokens` colors only. ⚠️ The investigator's draft snippet uses `Color.brandNavy` (removed in the seasons pass) and multi-color step icons (green/blue) — **do not copy verbatim**; use `Theme` tokens + single accent.
+Design constraints: Calm Keepsake — cream surfaces, ONE accent (coach flows stay base terracotta). Colors come from `Theme/Theme.swift`; `DesignTokens.swift` is for the non-color primitives (spacing, radii, animation curves). ⚠️ The investigator's draft snippet uses `Color.brandNavy` and multi-color step icons (green/blue) — **do not copy verbatim**; use `Theme` tokens + single accent.
+
+> **Correction (2026-08-09):** an earlier revision of this line said `brandNavy` was "removed in the seasons pass." It was not — `DesignTokens.swift` still defines the legacy palette and `.brandNavy` has ~271 live call sites in un-migrated screens. It is deprecated, not deleted: never use it in new UI, but don't treat its absence as guaranteed or bulk-replace it.
 
 1. **`CoachOnboardingFlow.swift`** — insert a "How Seats Work" page between How-It-Works and Ready: `totalPages` 3→4 (:24), `coachStepNames` += `"seats_explained"` (:26), retag pages. Content: native SwiftUI seat diagram — (1) Your plan includes athlete seats; (2) Each seat = one student — *a pending invite holds a seat too* (preempts the known "limit reached" confusion); (3) "Your athletes pay nothing" — your clips, telestration, and drill cards reach them free.
 2. **`InviteAthleteSheet`** — one compact line at send: "Uses 1 of your N seats — free for them." Reuse live seat counts from `CoachInvitationManager.pendingSentCount` + roster.

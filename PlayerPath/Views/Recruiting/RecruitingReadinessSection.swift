@@ -57,14 +57,20 @@ enum RecruitingReadiness {
                            label: "Headshot",
                            isDone: info.headshotCloudURL != nil,
                            consequence: "Without one, a shared link unfurls in a coach's inbox as a plain row of text."))
-        // Dropped entirely when the athlete's grad year implies they're under 13:
-        // `visibleContactItems` withholds the contact fields for them, so this row
-        // could never be ticked — and an unachievable item reads as a bug in the
-        // app, the same reason golf drops the Position row above. Worse than
-        // cosmetic here: the row's whole job is to push the athlete toward
+        // Dropped entirely whenever contact publishing is blocked — the athlete is
+        // implied under 13, OR their grad year isn't set yet. `visibleContactItems`
+        // withholds the contact fields in both cases, so this row could never be
+        // ticked — and an unachievable item reads as a bug in the app, the same
+        // reason golf drops the Position row above.
+        //
+        // Worse than cosmetic here: the row's whole job is to push the athlete toward
         // publishing a reply channel, which is the one thing the gate exists to
-        // prevent for a 12-year-old.
-        if !info.gradYearImpliesUnder13 {
+        // prevent for a 12-year-old. Keying on `gradYearImpliesUnder13` alone got the
+        // no-grad-year case exactly backwards — that property is false when the year
+        // is nil, so the checklist actively prompted for a phone number precisely when
+        // the app had no idea how old the athlete was. The "Graduation year" row above
+        // is unticked in that state and carries the prompt on its own.
+        if !info.contactPublishingBlocked {
             // `hasPublicReplyChannel`, not `visibleContactItems` — the latter counts
             // GPA, and a page showing a GPA and nothing else is not reachable.
             items.append(.init(id: "contact",

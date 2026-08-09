@@ -1,7 +1,21 @@
 # Firestore rules tests
 
-Tests `firestore.rules` against the Firestore emulator. Currently covers
-`recruitingProfiles` (the collection behind the public recruiting page).
+Tests `firestore.rules` against the Firestore emulator. `npm test` runs every
+`*.test.mjs` in this directory:
+
+- `recruitingProfiles.test.mjs` — the collection behind the public recruiting page.
+- `sharedFolders.test.mjs` — the coach-sharing seam (`sharedFolders`, `videos`,
+  `coach_access_revocations`, the `users` tier-source freeze).
+- `adversarial-review.test.mjs` — written during the independent review of the
+  2026-08-06 security work. Two halves: regression guards that replay the **real
+  shipped-client write shapes** against the deployed rules (a false positive there is
+  a production outage, not a future one), and coverage for each residual hole that
+  review found.
+
+Each file uses its own `projectId`. That is load-bearing: `node --test` runs test
+FILES in parallel processes against the one emulator, and `projectId` is what
+namespaces their data — share it and each file's `clearFirestore()` wipes the
+others' fixtures mid-run, surfacing as random unrelated failures.
 
 ## Prerequisite: Java
 

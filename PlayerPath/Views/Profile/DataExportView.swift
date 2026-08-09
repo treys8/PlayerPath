@@ -114,9 +114,12 @@ struct DataExportView: View {
         defer { isExporting = false }
 
         do {
-            // Track export request
-            if let userID = authManager.userID {
-                AnalyticsService.shared.trackDataExportRequested(userID: userID)
+            // Track export request. Still gated on a signed-in user so the event fires in
+            // exactly the same cases it always did — only the uid is gone from it. It was
+            // sent as an event PARAMETER, which the Analytics ToS forbids for persistent
+            // identifiers, and `setUserID` already links the session anyway.
+            if authManager.userID != nil {
+                AnalyticsService.shared.trackDataExportRequested()
             }
 
             let exportDict = try await isCoach ? gatherCoachData() : gatherAllData()
@@ -397,7 +400,20 @@ struct DataExportView: View {
                 "filePath": photo.resolvedFilePath,
                 "isFavorite": photo.isHighlight,
                 "isScorecardPhoto": photo.isScorecardPhoto,
-                "cloudURL": photo.cloudURL ?? ""
+                // `cloudURL` is deliberately NOT exported — do not add it back.
+                //
+                // It is not a reference, it is a working key. Firebase mints it via
+                // downloadURL(), which permanently attaches a firebaseStorageDownloadTokens
+                // value to the object; the resulting link is served with NO authentication and
+                // without evaluating storage.rules, and it never expires. This export is a file
+                // we actively invite parents to save and share, so every copy handed to anyone
+                // — a lawyer, a coach, a cloud drive, an email thread — carried permanent,
+                // unrevocable public links to a child's photographs.
+                //
+                // `filePath` above already identifies which local file each record describes,
+                // which is what the export is for. If a media export is ever wanted, it should
+                // ship the BYTES the user already owns, never a live URL.
+                "isCloudBacked": photo.cloudURL != nil
             ]
         }
 
