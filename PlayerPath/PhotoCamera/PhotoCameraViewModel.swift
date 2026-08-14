@@ -12,7 +12,10 @@ import SwiftUI
 import Combine
 import os
 
-private let photoLog = Logger(subsystem: "com.playerpath.app", category: "PhotoCamera")
+// `nonisolated` because the project builds with SWIFT_DEFAULT_ACTOR_ISOLATION =
+// MainActor, and this is logged from the session queue. Matches the pattern in
+// SyncCoordinator+Photos, ScorecardOCR, etc.
+nonisolated private let photoLog = Logger(subsystem: "com.playerpath.app", category: "PhotoCamera")
 
 @MainActor
 class PhotoCameraViewModel: NSObject, ObservableObject {
@@ -26,9 +29,17 @@ class PhotoCameraViewModel: NSObject, ObservableObject {
     @Published var flashMode: AVCaptureDevice.FlashMode = .auto
     @Published var cameraPosition: AVCaptureDevice.Position = .back
 
+    /// All three are **display** zoom — what the pills show (0.5×, 1×, 2×…) —
+    /// never the raw device `videoZoomFactor`. See `zoomBaseFactor` for why the
+    /// two spaces are not the same thing on a multi-camera iPhone.
     @Published var currentZoom: CGFloat = 1.0
     @Published var minZoom: CGFloat = 1.0
     @Published var maxZoom: CGFloat = 10.0
+
+    /// True when the active device has an optical telephoto constituent.
+    /// Stored rather than computed so the zoom pills don't run an
+    /// `AVCaptureDevice` discovery on every SwiftUI body evaluation.
+    @Published private(set) var hasTelephoto: Bool = false
 
     @Published var lastFocusPoint: CGPoint?
 
@@ -62,6 +73,16 @@ class PhotoCameraViewModel: NSObject, ObservableObject {
     nonisolated(unsafe) private var photoOutput: AVCapturePhotoOutput?
     nonisolated(unsafe) private var videoDevice: AVCaptureDevice?
 
+    /// Device `videoZoomFactor` that corresponds to a **display** zoom of 1.0×.
+    ///
+    /// On a virtual multi-camera device (triple / dual-wide) factor 1.0 selects
+    /// the *ultra-wide* lens, not the 1× wide lens — so publishing raw device
+    /// factors would label an ultra-wide frame "1×" and hide the 0.5× stop
+    /// entirely. Everything this class publishes is therefore display zoom, and
+    /// this base is applied only where `videoZoomFactor` is actually written.
+    /// Follows the same snapshot-then-dispatch contract as the properties above.
+    nonisolated(unsafe) private var zoomBaseFactor: CGFloat = 1.0
+
     private let sessionQueue = DispatchQueue(label: "com.playerpath.photocamera")
 
     /// Preview layer is handed to us by `PhotoCameraPreview` once it exists.
@@ -76,20 +97,40 @@ class PhotoCameraViewModel: NSObject, ObservableObject {
     private var captureAngleCancellable: AnyCancellable?
     nonisolated(unsafe) private var currentCaptureAngle: CGFloat = 90
 
-    // Session interruption observers — picked up from AVCaptureSession
-    // notifications so the camera doesn't silently freeze when a phone call,
-    // Siri session, or other client takes over the capture pipeline.
+    // Session observers — interruption (phone call, Siri, another capture
+    // client) and runtime error (media services reset), so the camera doesn't
+    // silently freeze with no user feedback and no way back.
     private var interruptionObserver: NSObjectProtocol?
     private var interruptionEndObserver: NSObjectProtocol?
+    private var runtimeErrorObserver: NSObjectProtocol?
 
     private var zoomGestureBase: CGFloat = 1.0
     private var focusResetTask: Task<Void, Never>?
+    private var captureTimeoutTask: Task<Void, Never>?
     private var hasStartedSession = false
     @MainActor private var startupTask: Task<Void, Never>?
 
+    /// Bumped by `stop()` and by media-services recovery. Work dispatched to
+    /// `sessionQueue` carries the generation it was started under and drops its
+    /// MainActor completion if the value has moved on — otherwise a teardown
+    /// that races an in-flight startup gets its state stomped back (see the
+    /// `isSessionReady` handling in `configureAndStartSession`).
+    private var sessionGeneration = 0
+
+    // `nonisolated` members: these are read on the session queue from
+    // `configureDeviceInput`, and the project defaults to MainActor isolation.
     private enum Constants {
-        static let defaultZoom: CGFloat = 1.0
-        static let clampedMaxZoom: CGFloat = 10.0
+        nonisolated static let defaultZoom: CGFloat = 1.0
+        nonisolated static let clampedMaxZoom: CGFloat = 10.0
+        /// Upper bound on how long `isCapturing` may stay latched waiting for a
+        /// delegate callback that may never arrive.
+        ///
+        /// Deliberately generous: this is a stuck-shutter backstop, not a
+        /// latency budget. `photoQualityPrioritization = .quality` opts into
+        /// Night Mode, whose exposures legitimately run many seconds in low
+        /// light — a tight timeout would fire on a perfectly good capture and
+        /// show a spurious failure alert while the photo was still processing.
+        static let captureTimeout: TimeInterval = 30
     }
 
     // MARK: Init / Lifecycle
@@ -113,33 +154,59 @@ class PhotoCameraViewModel: NSObject, ObservableObject {
 
         await checkPermissions()
         guard !isFatalError else { return }
+        // `stop()` can run while the permission prompt is up — it clears the
+        // flag we just set, which is the signal that this startup is stale.
+        guard hasStartedSession else { return }
 
+        sessionGeneration += 1
+        let generation = sessionGeneration
         let desiredPosition = cameraPosition
 
-        setupInterruptionObservers()
+        setupSessionObservers()
+        configureAndStartSession(position: desiredPosition, generation: generation)
+    }
 
+    /// Full session build: preset → input → output → run.
+    ///
+    /// Shared by `start()` and by the media-services-reset recovery path, which
+    /// has to rebuild the entire capture stack rather than merely call
+    /// `startRunning()` again.
+    @MainActor
+    private func configureAndStartSession(position: AVCaptureDevice.Position, generation: Int) {
         sessionQueue.async { [weak self] in
             guard let self else { return }
             self.captureSession.beginConfiguration()
             if self.captureSession.canSetSessionPreset(.photo) {
                 self.captureSession.sessionPreset = .photo
             }
-            self.configureDeviceInput(for: desiredPosition)
+            self.configureDeviceInput(for: position, generation: generation)
             self.configurePhotoOutput()
             self.captureSession.commitConfiguration()
             self.captureSession.startRunning()
 
             Task { @MainActor [weak self] in
-                self?.isSessionReady = true
-                self?.configureRotationCoordinatorIfReady()
+                // A `stop()` (or another rebuild) that landed while this block
+                // was running bumped the generation. Without this check the
+                // stale completion re-enables the shutter over a dead session.
+                guard let self, self.sessionGeneration == generation else { return }
+                self.isSessionReady = true
+                self.configureRotationCoordinatorIfReady()
             }
         }
     }
 
     @MainActor
     func stop() {
+        sessionGeneration += 1
+
         startupTask?.cancel()
         startupTask = nil
+
+        captureTimeoutTask?.cancel()
+        captureTimeoutTask = nil
+
+        focusResetTask?.cancel()
+        focusResetTask = nil
 
         previewAngleCancellable?.cancel()
         captureAngleCancellable?.cancel()
@@ -147,25 +214,25 @@ class PhotoCameraViewModel: NSObject, ObservableObject {
         captureAngleCancellable = nil
         rotationCoordinator = nil
 
-        removeInterruptionObservers()
+        removeSessionObservers()
 
         sessionQueue.async { [weak self] in
             self?.captureSession.stopRunning()
         }
 
         isSessionReady = false
+        isCapturing = false
         hasStartedSession = false
     }
 
-    // MARK: Session Interruption
+    // MARK: Session Observers
 
-    /// Observe `wasInterruptedNotification` / `interruptionEndedNotification`
-    /// so a phone call, Siri session, or other capture client doesn't leave
-    /// the preview frozen with no user feedback. Mirrors the behavior in
-    /// `CameraViewModel` for video recording.
+    /// Observe `wasInterrupted` / `interruptionEnded` / `runtimeError` so a
+    /// phone call, Siri session, other capture client, or a media services
+    /// reset doesn't leave the preview frozen with no user feedback.
     @MainActor
-    private func setupInterruptionObservers() {
-        removeInterruptionObservers()
+    private func setupSessionObservers() {
+        removeSessionObservers()
 
         interruptionObserver = NotificationCenter.default.addObserver(
             forName: AVCaptureSession.wasInterruptedNotification,
@@ -176,7 +243,7 @@ class PhotoCameraViewModel: NSObject, ObservableObject {
                 guard let self else { return }
                 // Drop any in-flight capture state so the shutter isn't stuck
                 // disabled if the interruption fired mid-capture.
-                self.isCapturing = false
+                self.finishCapture()
                 self.handleError(
                     "Camera was interrupted. It will resume when the other app finishes.",
                     isFatal: false
@@ -199,10 +266,23 @@ class PhotoCameraViewModel: NSObject, ObservableObject {
                 }
             }
         }
+
+        runtimeErrorObserver = NotificationCenter.default.addObserver(
+            forName: AVCaptureSession.runtimeErrorNotification,
+            object: captureSession,
+            queue: .main
+        ) { [weak self] note in
+            // Pull the raw code out here rather than carrying the Notification
+            // across the actor hop — an Int is trivially Sendable.
+            let code = (note.userInfo?[AVCaptureSessionErrorKey] as? NSError)?.code
+            Task { @MainActor [weak self] in
+                self?.handleRuntimeError(code: code)
+            }
+        }
     }
 
     @MainActor
-    private func removeInterruptionObservers() {
+    private func removeSessionObservers() {
         if let observer = interruptionObserver {
             NotificationCenter.default.removeObserver(observer)
             interruptionObserver = nil
@@ -211,6 +291,31 @@ class PhotoCameraViewModel: NSObject, ObservableObject {
             NotificationCenter.default.removeObserver(observer)
             interruptionEndObserver = nil
         }
+        if let observer = runtimeErrorObserver {
+            NotificationCenter.default.removeObserver(observer)
+            runtimeErrorObserver = nil
+        }
+    }
+
+    /// A runtime error stops the session for good — unlike an interruption,
+    /// nothing resumes on its own.
+    @MainActor
+    private func handleRuntimeError(code: Int?) {
+        photoLog.error("Capture session runtime error: \(code ?? 0)")
+        finishCapture()
+        // The session is down either way — leaving this true keeps the shutter
+        // tappable over a preview that will never update again.
+        isSessionReady = false
+
+        guard code == AVError.Code.mediaServicesWereReset.rawValue else {
+            handleError("Camera stopped unexpectedly. Please close and reopen the camera.", isFatal: false)
+            return
+        }
+
+        // A media services reset invalidates the whole capture stack: inputs
+        // and outputs have to be rebuilt, not just restarted.
+        sessionGeneration += 1
+        configureAndStartSession(position: cameraPosition, generation: sessionGeneration)
     }
 
     // MARK: Permissions
@@ -253,7 +358,38 @@ class PhotoCameraViewModel: NSObject, ObservableObject {
         return nil
     }
 
-    nonisolated private func configureDeviceInput(for position: AVCaptureDevice.Position) {
+    /// The device `videoZoomFactor` at which the **wide** (1×) lens is active.
+    ///
+    /// A virtual device lists its constituents widest-first, so when the first
+    /// one is the ultra-wide, factor 1.0 *is* the ultra-wide and true 1× lives
+    /// at the first switch-over point (2.0 on current iPhones). Physical
+    /// devices report no constituents, and `.builtInDualCamera` (wide +
+    /// telephoto, no ultra-wide) is already 1.0-based — both correctly fall
+    /// through to the 1.0 default.
+    nonisolated private static func trueOneXZoomFactor(for device: AVCaptureDevice) -> CGFloat {
+        guard device.constituentDevices.first?.deviceType == .builtInUltraWideCamera,
+              let firstSwitchOver = device.virtualDeviceSwitchOverVideoZoomFactors.first
+        else { return 1.0 }
+        let factor = CGFloat(truncating: firstSwitchOver)
+        return factor > 0 ? factor : 1.0
+    }
+
+    /// Display → device factor, clamped against the device's *live* range.
+    ///
+    /// The clamp has to happen here, on the session queue, for two reasons: the
+    /// available factors are format-dependent and can move, and an out-of-range
+    /// `videoZoomFactor` write raises an Objective-C exception that a
+    /// surrounding `do/catch` cannot catch — it's a crash, not a thrown error.
+    nonisolated private static func deviceZoomFactor(
+        _ displayZoom: CGFloat,
+        base: CGFloat,
+        on device: AVCaptureDevice
+    ) -> CGFloat {
+        min(max(displayZoom * base, device.minAvailableVideoZoomFactor),
+            device.maxAvailableVideoZoomFactor)
+    }
+
+    nonisolated private func configureDeviceInput(for position: AVCaptureDevice.Position, generation: Int) {
         if let existing = videoInput {
             captureSession.removeInput(existing)
             videoInput = nil
@@ -274,13 +410,38 @@ class PhotoCameraViewModel: NSObject, ObservableObject {
                 captureSession.addInput(input)
                 videoInput = input
 
-                let deviceMin = device.minAvailableVideoZoomFactor
-                let deviceMax = device.maxAvailableVideoZoomFactor
+                // Translate the device's raw factors into display space before
+                // publishing any of them — see `zoomBaseFactor`.
+                let base = Self.trueOneXZoomFactor(for: device)
+                zoomBaseFactor = base
+
+                let displayMin = device.minAvailableVideoZoomFactor / base
+                let displayMax = min(device.maxAvailableVideoZoomFactor / base, Constants.clampedMaxZoom)
+                let initialDisplay = min(max(Constants.defaultZoom, displayMin), displayMax)
+                let tele = device.constituentDevices.contains { $0.deviceType == .builtInTelephotoCamera }
+
+                // The device carries its own zoom factor and defaults to 1.0 —
+                // which on a virtual device selects the ULTRA-WIDE lens.
+                // Publishing a display value alone would leave the hardware on
+                // the wrong lens until the user first touched a pill, so the
+                // opening factor has to be pushed to the device here. Its own
+                // do/catch so a zoom failure can't trip the fatal "failed to
+                // configure camera" path below.
+                do {
+                    try device.lockForConfiguration()
+                    device.videoZoomFactor = Self.deviceZoomFactor(initialDisplay, base: base, on: device)
+                    device.unlockForConfiguration()
+                } catch {
+                    photoLog.warning("Failed to set initial zoom: \(error.localizedDescription)")
+                }
+
                 Task { @MainActor in
-                    self.minZoom = deviceMin
-                    self.maxZoom = min(deviceMax, Constants.clampedMaxZoom)
-                    self.currentZoom = max(Constants.defaultZoom, deviceMin)
-                    self.zoomGestureBase = self.currentZoom
+                    guard self.sessionGeneration == generation else { return }
+                    self.minZoom = displayMin
+                    self.maxZoom = displayMax
+                    self.currentZoom = initialDisplay
+                    self.zoomGestureBase = initialDisplay
+                    self.hasTelephoto = tele
                 }
             }
         } catch {
@@ -361,14 +522,19 @@ class PhotoCameraViewModel: NSObject, ObservableObject {
         zoomGestureBase = 1.0
         currentZoom = 1.0
 
+        // Flipping doesn't tear the session down, so it keeps the current
+        // generation — only a `stop()` should invalidate the pending work.
+        let generation = sessionGeneration
+
         sessionQueue.async { [weak self] in
             guard let self else { return }
             self.captureSession.beginConfiguration()
-            self.configureDeviceInput(for: next)
+            self.configureDeviceInput(for: next, generation: generation)
             self.captureSession.commitConfiguration()
 
             Task { @MainActor [weak self] in
-                self?.configureRotationCoordinatorIfReady()
+                guard let self, self.sessionGeneration == generation else { return }
+                self.configureRotationCoordinatorIfReady()
             }
         }
         Haptics.medium()
@@ -391,7 +557,14 @@ class PhotoCameraViewModel: NSObject, ObservableObject {
 
     // MARK: Zoom
 
+    // All zoom values crossing these APIs are display zoom (0.5×, 1×, 2×…).
+    // The conversion to device factors happens in `deviceZoomFactor`, on the
+    // session queue, immediately before the write.
+
     func handlePinch(scale: CGFloat) {
+        // `.opacity(0)` on the preview does not disable hit testing, so pinches
+        // are live during startup — before the real zoom bounds are known.
+        guard isSessionReady else { return }
         let target = min(max(zoomGestureBase * scale, minZoom), maxZoom)
         setZoom(target)
     }
@@ -405,18 +578,23 @@ class PhotoCameraViewModel: NSObject, ObservableObject {
     /// is set to the target on the main actor) while the device catches up
     /// over ~100–250ms depending on the jump size.
     func jumpToZoom(_ factor: CGFloat) {
+        guard isSessionReady, let device = videoDevice else { return }
+
         let clamped = min(max(factor, minZoom), maxZoom)
         currentZoom = clamped
         zoomGestureBase = clamped
         Haptics.light()
 
-        guard let device = videoDevice else { return }
+        let base = zoomBaseFactor
         sessionQueue.async {
             do {
                 try device.lockForConfiguration()
                 // Rate ~8.0 = zoom doubles/halves ~8× per second — a 1×→2×
                 // jump lands in ~125ms, which reads as smooth but snappy.
-                device.ramp(toVideoZoomFactor: clamped, withRate: 8.0)
+                device.ramp(
+                    toVideoZoomFactor: Self.deviceZoomFactor(clamped, base: base, on: device),
+                    withRate: 8.0
+                )
                 device.unlockForConfiguration()
             } catch {
                 photoLog.warning("Zoom ramp failed: \(error.localizedDescription)")
@@ -427,6 +605,8 @@ class PhotoCameraViewModel: NSObject, ObservableObject {
     func setZoom(_ zoom: CGFloat) {
         guard let device = videoDevice else { return }
         currentZoom = zoom
+
+        let base = zoomBaseFactor
         sessionQueue.async {
             do {
                 try device.lockForConfiguration()
@@ -435,7 +615,7 @@ class PhotoCameraViewModel: NSObject, ObservableObject {
                 // behavior per AVFoundation, so pinch-during-ramp must stop
                 // the ramp before writing the new factor.
                 device.cancelVideoZoomRamp()
-                device.videoZoomFactor = zoom
+                device.videoZoomFactor = Self.deviceZoomFactor(zoom, base: base, on: device)
                 device.unlockForConfiguration()
             } catch {
                 photoLog.warning("Failed to set zoom: \(error.localizedDescription)")
@@ -443,18 +623,17 @@ class PhotoCameraViewModel: NSObject, ObservableObject {
         }
     }
 
+    /// Display-space check: on an ultra-wide device the minimum display zoom is
+    /// 0.5×, because device factor 1.0 maps to half of true 1×.
     var hasUltraWide: Bool {
         minZoom < 0.9
-    }
-
-    var hasTelephoto: Bool {
-        AVCaptureDevice.default(.builtInTelephotoCamera, for: .video, position: cameraPosition) != nil
     }
 
     // MARK: Focus
 
     func handleTapToFocus(atLayerPoint point: CGPoint) {
-        guard let device = videoDevice,
+        guard isSessionReady,
+              let device = videoDevice,
               let previewLayer,
               previewLayer.bounds.contains(point) else { return }
 
@@ -505,6 +684,20 @@ class PhotoCameraViewModel: NSObject, ObservableObject {
         capturedImage = nil
 
         isCapturing = true
+
+        // Bound the in-flight state. `isCapturing` is otherwise cleared only by
+        // the delegate, so a request the output silently drops (session torn
+        // down mid-capture, media services reset) would leave the shutter
+        // disabled for the rest of the session with no way back.
+        captureTimeoutTask?.cancel()
+        captureTimeoutTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Constants.captureTimeout))
+            guard !Task.isCancelled, let self, self.isCapturing else { return }
+            self.captureTimeoutTask = nil
+            self.isCapturing = false
+            self.handleError("Photo capture timed out. Please try again.", isFatal: false)
+        }
+
         let flash = flashMode
         let captureAngle = currentCaptureAngle
 
@@ -534,6 +727,15 @@ class PhotoCameraViewModel: NSObject, ObservableObject {
         Haptics.medium()
     }
 
+    /// Single exit point for the in-flight capture state, so the timeout can
+    /// never outlive the capture it was guarding.
+    @MainActor
+    private func finishCapture() {
+        captureTimeoutTask?.cancel()
+        captureTimeoutTask = nil
+        isCapturing = false
+    }
+
     // MARK: Error
 
     private func handleError(_ message: String, isFatal: Bool, needsSettings: Bool = false) {
@@ -554,7 +756,7 @@ extension PhotoCameraViewModel: AVCapturePhotoCaptureDelegate {
     ) {
         if let error {
             Task { @MainActor in
-                self.isCapturing = false
+                self.finishCapture()
                 self.handleError("Photo capture failed: \(error.localizedDescription)", isFatal: false)
             }
             return
@@ -563,14 +765,14 @@ extension PhotoCameraViewModel: AVCapturePhotoCaptureDelegate {
         guard let data = photo.fileDataRepresentation(),
               let image = UIImage(data: data) else {
             Task { @MainActor in
-                self.isCapturing = false
+                self.finishCapture()
                 self.handleError("Photo capture returned no data.", isFatal: false)
             }
             return
         }
 
         Task { @MainActor in
-            self.isCapturing = false
+            self.finishCapture()
             self.capturedImage = image
             Haptics.success()
         }

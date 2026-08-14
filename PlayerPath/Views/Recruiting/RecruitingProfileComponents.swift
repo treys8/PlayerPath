@@ -98,12 +98,23 @@ struct RecruitingHighlightStrip: View {
             // order IS the page order, and a clip deleted since publishing just drops.
             return curatedClipIDs.compactMap { id in all.first { $0.id == id } }
         }
+        // `isPublishableHighlight`, not `isHighlight`: a clip still uploading has
+        // nothing in Storage to sign, so publish drops it (the picker and
+        // RecruitingProfileService.publish both filter on exactly this). Filtering
+        // loosely here made the never-published preview — the one screen that claims
+        // to be what a college coach will see — promise film the page can't carry.
         return Array(
             all
-                .filter { $0.isHighlight }
+                .filter(\.isPublishableHighlight)
                 .sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
                 .prefix(limit)
         )
+    }
+
+    /// Highlights that are flagged but not yet in Storage — i.e. the strip is empty
+    /// because uploads are pending, not because nothing has been flagged.
+    private var hasPendingHighlights: Bool {
+        (athlete.videoClips ?? []).contains { $0.isHighlight && !$0.isPublishableHighlight }
     }
 
     var body: some View {
@@ -138,7 +149,12 @@ struct RecruitingHighlightStrip: View {
         HStack(spacing: 10) {
             Image(systemName: "film.stack")
                 .foregroundStyle(.secondary)
-            Text("Flag your best clips as highlights to feature them here.")
+            // Telling someone who just flagged eight clips to go flag some clips is
+            // the wrong-copy class of defect, so name the real reason. Matches the
+            // wording RecruitingPublishView.clipsSection uses for the same state.
+            Text(hasPendingHighlights
+                 ? "Your highlights are still uploading — they'll appear here once they finish."
+                 : "Flag your best clips as highlights to feature them here.")
                 .font(.bodySmall)
                 .foregroundColor(.secondary)
         }

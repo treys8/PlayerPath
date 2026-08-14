@@ -137,9 +137,17 @@ struct RecruitingPublishView: View {
         readiness.first(where: { $0.id == "gradYear" })?.isDone ?? true
     }
 
-    private var canPublish: Bool {
-        !selection.isEmpty && !isWorking && hasGradYear && (!needsConsent || consentAcknowledged)
+    /// Everything publishing requires EXCEPT tier and "not already running".
+    ///
+    /// Split out because two different things need it: `canPublish` disables the
+    /// button, and `publish()` re-checks it because the paywall's
+    /// `onPurchaseCompleted` is a second entry point that never touches the button.
+    /// One definition, so a gate added here can't be enforced in one place only.
+    private var publishGatesMet: Bool {
+        !selection.isEmpty && hasGradYear && (!needsConsent || consentAcknowledged)
     }
+
+    private var canPublish: Bool { publishGatesMet && !isWorking }
 
     var body: some View {
         Form {
@@ -238,6 +246,13 @@ struct RecruitingPublishView: View {
                 // Resume the publish the athlete already asked for once Pro lands,
                 // rather than making them find this button again.
                 ImprovedPaywallView(user: user, requiredTier: .pro) {
+                    // Only resume what the Publish button itself would have allowed.
+                    // `upgradeSection` is deliberately ungated (never hide the
+                    // conversion moment), so this closure is reachable with the
+                    // consent toggle unticked and no grad year — and resuming
+                    // unconditionally put the page live AND stamped
+                    // `publishConsentAt`, retiring the guardian gate for good.
+                    guard canPublish else { return }
                     Task { await publish() }
                 }
             }
@@ -668,16 +683,31 @@ struct RecruitingPublishView: View {
         Task { await publish() }
     }
 
-    /// Does the work. Takes no tier check of its own: the paywall's
+    /// Does the work. Takes no TIER check of its own: the paywall's
     /// `onPurchaseCompleted` calls this directly, and it fires just before the
     /// sheet dismisses — `authManager.currentTier` may not have caught up yet, so
     /// re-checking here would bounce the just-paid customer straight back into the
     /// paywall. Every caller has already established the entitlement.
+    ///
+    /// The consent and grad-year gates are a different matter and ARE re-checked
+    /// below: `.disabled(!canPublish)` only guards the Publish button, and the
+    /// paywall resume is a second entry point that never passed through it.
     private func publish() async {
         // `selection` belongs to the athlete this screen loaded for. If the view
         // has since been re-rendered with a different one, publishing would write
         // this athlete's curation and consent stamp against that athlete's doc.
         guard confirmSeededAthlete() else { return }
+        // The same gates the button applies, so no caller can publish around them.
+        // NOT `canPublish` — that also requires `!isWorking`, which is the one
+        // clause this function legitimately owns.
+        //
+        // Silent on purpose: the only way in with these unmet is the paywall resume,
+        // and the screen it returns to already says what's missing (the consent
+        // section is on screen with its toggle off, Publish is greyed, and a missing
+        // grad year has both the publishSection footer and a "Fill These In"
+        // checklist row). The only alert here is titled "Something went wrong",
+        // which a precondition isn't.
+        guard publishGatesMet else { return }
         isWorking = true
         defer {
             isWorking = false
@@ -689,9 +719,6 @@ struct RecruitingPublishView: View {
         // and a property read on a deleted @Model traps.
         let athleteId = athlete.id
         let user = athlete.user
-        let clips = selection.compactMap { id in
-            (athlete.videoClips ?? []).first { $0.id == id }
-        }
         // The rules' hasProTier() reads users/{uid}.subscriptionTier, which no
         // client can write — only the syncSubscriptionTier CF sets it, after an
         // AppTransaction fetch, an entitlement JWS and a round trip. A publish
@@ -706,6 +733,14 @@ struct RecruitingPublishView: View {
         // properties off `athlete` before its own first await — a delete landing
         // in between would trap on an invalidated model rather than fail.
         guard !athlete.isDeleted, athlete.modelContext != nil else { return }
+        // Resolved AFTER that await, not before it. VideoClip is a @Model too, and
+        // the service reads isUploaded / cloudURL / fileName / resolvedFilePath off
+        // each one synchronously at entry (RecruitingProfileService.publish, before
+        // its own first await) — so a clip invalidated during the tier-sync round
+        // trip would TRAP there, not surface as a thrown error. The athlete guard
+        // above is what makes the relationship read below safe.
+        let liveClips = (athlete.videoClips ?? []).filter { !$0.isDeleted && $0.modelContext != nil }
+        let clips = selection.compactMap { id in liveClips.first { $0.id == id } }
 
         do {
             let result = try await RecruitingProfileService.shared.publish(

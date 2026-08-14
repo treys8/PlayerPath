@@ -27,8 +27,22 @@ struct PhotoCameraLayout: View {
 
     var body: some View {
         ZStack {
-            PhotoCameraPreview(viewModel: viewModel)
+            PhotoCameraPreview(session: viewModel.captureSession) { layer in
+                viewModel.previewLayer = layer
+            }
                 .ignoresSafeArea()
+                // The reticle rides on the preview, NOT on the enclosing ZStack.
+                // Tap locations arrive in the preview's coordinate space, which
+                // `.ignoresSafeArea()` has expanded past the ZStack's — drawing
+                // the ring in the ZStack's space offsets it from the finger by
+                // the safe-area inset. Sharing one frame makes that impossible
+                // rather than merely corrected-for.
+                .overlay {
+                    if let focusPoint = viewModel.lastFocusPoint {
+                        PhotoFocusReticle(point: focusPoint)
+                            .id("\(focusPoint.x),\(focusPoint.y)")
+                    }
+                }
                 .opacity(viewModel.isSessionReady ? 1 : 0)
                 .animation(.easeInOut(duration: 0.25), value: viewModel.isSessionReady)
                 .contentShape(Rectangle())
@@ -53,11 +67,6 @@ struct PhotoCameraLayout: View {
                     .ignoresSafeArea()
                     .allowsHitTesting(false)
                     .transition(.opacity)
-            }
-
-            if let focusPoint = viewModel.lastFocusPoint {
-                PhotoFocusReticle(point: focusPoint)
-                    .id("\(focusPoint.x),\(focusPoint.y)")
             }
 
             if landscape {

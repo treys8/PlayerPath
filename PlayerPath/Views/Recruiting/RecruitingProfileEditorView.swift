@@ -197,8 +197,24 @@ struct RecruitingProfileEditorView: View {
             // is "saved wins if non-nil", and this is a deliberate nil-CLEAR, which
             // that rule would silently discard. It's also why the editor's own
             // Remove button can't use the same mechanism.
+            //
+            // `publishedClipIDs` rides along because the Preview Profile row above
+            // renders `working.publishedClipIDs`: a publish that reordered or
+            // changed the clip set writes the new list to the model, and without
+            // this the in-session preview goes on showing the OLD hero and order
+            // (or the newest-8 fallback) while the live page has the new one.
+            // persistIfChanged's carry-forward can't help — it operates on a local
+            // copy, so `self.working` is never healed.
+            //
+            // publishConsentAt / publishedContactKinds are deliberately NOT copied
+            // here: nothing in this editor renders them, and persistIfChanged
+            // already carries them forward on save. A second mechanism for the same
+            // field is exactly how those two blocks would drift apart.
             if !athlete.isDeleted, athlete.modelContext != nil {
-                working.headshotCloudURL = athlete.recruiting.headshotCloudURL
+                // One blob decode, not two — `recruiting` is a JSON blob.
+                let saved = athlete.recruiting
+                working.headshotCloudURL = saved.headshotCloudURL
+                working.publishedClipIDs = saved.publishedClipIDs
             }
             // Snapshot before the unstructured Task: reading a @Model property
             // on an invalidated model traps.

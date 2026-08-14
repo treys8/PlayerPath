@@ -35,6 +35,7 @@ Pricing, positioning, and roadmap documents (in `docs/` root).
 
 - **[PRODUCT_OVERVIEW.md](./PRODUCT_OVERVIEW.md)** -- Start here: what the app is, who it's for, the core loop, monetization, and the competitive wedge
 - **[PRIORITIES.md](./PRIORITIES.md)** -- Ranked next-up roadmap (Tier 1–5) + the next needle mover; statuses verified against `main`
+- **[STATE_OF_PLAY.md](./STATE_OF_PLAY.md)** -- Self-contained snapshot for pasting/uploading into a chat with no repo access (product, tiers, current release state, open risks, invariants). Generated — regenerate rather than hand-edit when it drifts
 - **[PRICING_MODEL_V2_PROPOSAL.md](./PRICING_MODEL_V2_PROPOSAL.md)** -- Pricing V2 rationale: coach pays the per-seat connection, any athlete tier can share
 - **[PRICING_MODEL_V2_IMPLEMENTATION_PLAN.md](./PRICING_MODEL_V2_IMPLEMENTATION_PLAN.md)** -- Phased implementation plan for the Pricing V2 pivot
 - **[MARKETING_BRIEF.md](./MARKETING_BRIEF.md)** -- Positioning, audience, and messaging brief
