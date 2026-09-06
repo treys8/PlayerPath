@@ -2,10 +2,16 @@
 //  ReelCardRenderer.swift
 //  PlayerPath
 //
-//  Renders the reel intro title card (navy background, athlete name + event line +
-//  "▶ PlayerPath" wordmark) and encodes it as a short still MP4 that
-//  VideoStitchingService prepends as the first composition segment. The only
-//  consumer is the social-export (non-default) stitch branch.
+//  Renders the reel intro title card (navy background, athlete name + event line)
+//  and encodes it as a short still MP4 that VideoStitchingService prepends as the
+//  first composition segment. The only consumer is the social-export (non-default)
+//  stitch branch.
+//
+//  The card deliberately draws NO "▶ PlayerPath" wordmark of its own. The corner
+//  watermark layer built by ReelOverlayRenderer spans the WHOLE timeline — the card
+//  segment included — so a card-drawn mark showed the brand twice for the card's
+//  2.5s, and it also survived the Plus "turn the watermark off" toggle, which the
+//  card knew nothing about. One mark, one flag: `ReelExportOptions.watermarkEnabled`.
 //
 //  The card is a rasterized bitmap (UIGraphicsImageRenderer) — it never touches
 //  AVVideoCompositionCoreAnimationTool, so it is immune to that tool's
@@ -69,19 +75,7 @@ enum ReelCardRenderer {
                 draw(subtitle, font: subtitleFont, color: ReelCardStyle.subtitleColor,
                      in: CGRect(x: hInset, y: cursorY, width: textRectWidth, height: subtitleHeight))
             }
-
-            drawWordmark(size: size, textRectWidth: textRectWidth, hInset: hInset)
         }
-    }
-
-    /// Bottom-centered "▶ PlayerPath" mark. Isolated so a future logo image swaps in
-    /// with a single `image.draw(in:)` here — no layout changes elsewhere.
-    private static func drawWordmark(size: CGSize, textRectWidth: CGFloat, hInset: CGFloat) {
-        let font = ReelCardStyle.wordmarkFont(canvasHeight: size.height)
-        let height = ceil(font.lineHeight)
-        let y = size.height - size.height * ReelCardStyle.wordmarkBottomInsetFraction - height
-        draw(ReelWatermarkStyle.text, font: font, color: ReelCardStyle.wordmarkColor,
-             in: CGRect(x: hInset, y: y, width: textRectWidth, height: height))
     }
 
     private static func draw(_ text: String, font: UIFont, color: UIColor, in rect: CGRect) {

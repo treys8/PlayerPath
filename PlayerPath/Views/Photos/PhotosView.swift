@@ -50,14 +50,15 @@ struct PhotosView: View {
     @State private var showingFilterSheet = false
     @State private var showingSourcePicker = false
     @State private var showingCamera = false
-    @State private var showingLibraryPicker = false
-    @State private var selectedPhotoItems: [PhotosPickerItem] = []
-    @State private var isImporting = false
-    @State private var importProgress: (current: Int, total: Int) = (0, 0)
-    @State private var importTask: Task<Void, Never>?
-    @State private var showImportToast = false
-    @State private var importToastMessage = ""
-    @State private var importToastType: ToastType = .success
+    /// Opens the shared bulk-import pipeline (`BulkPhotoImportAttach`), which
+    /// resets this binding itself. Named to match JournalView's trigger.
+    @State private var photoImportTrigger = false
+    // Toast for in-place actions (tagging). Import results are rendered by
+    // BulkPhotoImportAttach's own overlay, so the two can never collide — this
+    // screen used to drive both through one set of state.
+    @State private var showActionToast = false
+    @State private var actionToastMessage = ""
+    @State private var actionToastType: ToastType = .success
     @State private var isSelecting = false
     @State private var selectedIDs: Set<UUID> = []
     @State private var showingBulkDeleteConfirm = false
@@ -215,7 +216,7 @@ struct PhotosView: View {
                             Label("Take Photo", systemImage: "camera")
                         }
                         Button {
-                            showingLibraryPicker = true
+                            photoImportTrigger = true
                         } label: {
                             Label("Choose from Library", systemImage: "photo.on.rectangle")
                         }
@@ -258,7 +259,7 @@ struct PhotosView: View {
                 }
             }
             Button("Choose from Library") {
-                showingLibraryPicker = true
+                photoImportTrigger = true
             }
             Button("Cancel", role: .cancel) { }
         }
@@ -271,48 +272,13 @@ struct PhotosView: View {
                 onCancel: { showingCamera = false }
             )
         }
-        .photosPicker(
-            isPresented: $showingLibraryPicker,
-            selection: $selectedPhotoItems,
-            maxSelectionCount: 20,
-            matching: .images
-        )
-        .onChange(of: selectedPhotoItems) { _, items in
-            guard !items.isEmpty else { return }
-            startImport(items)
-            selectedPhotoItems = []
-        }
-        .overlay {
-            if isImporting {
-                ZStack {
-                    Color.black.opacity(0.4).ignoresSafeArea()
-                    VStack(spacing: 16) {
-                        ProgressView(
-                            value: Double(importProgress.current),
-                            total: Double(max(importProgress.total, 1))
-                        )
-                        .tint(.white)
-                        .frame(width: 160)
-
-                        Text("Importing \(importProgress.current) of \(importProgress.total)")
-                            .font(.bodyMedium)
-                            .foregroundColor(.white)
-                            .monospacedDigit()
-
-                        Button(role: .destructive) {
-                            importTask?.cancel()
-                        } label: {
-                            Text("Cancel")
-                                .font(.headingSmall)
-                                .foregroundColor(.white.opacity(0.9))
-                        }
-                    }
-                    .padding(24)
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
-                }
-            }
-        }
-        .toast(isPresenting: $showImportToast, type: importToastType, message: importToastMessage, duration: 3.0)
+        // Athlete-only: no season/game/practice, which is exactly what gives this
+        // screen capture-date season matching and the past-season backfill prompt
+        // it never had. The private import path this replaced passed no season at
+        // all, so every photo landed on the CURRENT season regardless of when it
+        // was taken.
+        .bulkPhotoImportAttach(athlete: athlete, trigger: $photoImportTrigger)
+        .toast(isPresenting: $showActionToast, type: actionToastType, message: actionToastMessage, duration: 3.0)
     }
 
     // MARK: - Filter Bar
@@ -549,63 +515,6 @@ struct PhotosView: View {
         }
     }
 
-    private func startImport(_ items: [PhotosPickerItem]) {
-        importProgress = (0, items.count)
-        isImporting = true
-        importTask = Task {
-            await importPhotos(items)
-        }
-    }
-
-    private func importPhotos(_ items: [PhotosPickerItem]) async {
-        let service = PhotoPersistenceService()
-        var savedCount = 0
-        var failedCount = 0
-
-        for (index, item) in items.enumerated() {
-            if Task.isCancelled { break }
-            importProgress = (index + 1, items.count)
-
-            do {
-                guard let data = try await item.loadTransferable(type: Data.self) else {
-                    failedCount += 1
-                    continue
-                }
-                // CGImageSource pipeline: writes raw data to disk and converts
-                // via ImageIO — never decodes a full UIImage bitmap into memory.
-                _ = try await service.savePhotoFromData(
-                    data,
-                    context: modelContext,
-                    athlete: athlete
-                )
-                savedCount += 1
-            } catch {
-                ErrorHandlerService.shared.handle(error, context: "PhotosView.importPhoto", showAlert: false)
-                failedCount += 1
-            }
-        }
-
-        isImporting = false
-        importTask = nil
-        showImportResult(saved: savedCount, failed: failedCount)
-    }
-
-    private func showImportResult(saved: Int, failed: Int) {
-        if saved == 0 && failed == 0 {
-            return // cancelled before any work
-        } else if saved > 0 && failed == 0 {
-            importToastType = .success
-            importToastMessage = saved == 1 ? "Photo imported" : "\(saved) photos imported"
-        } else if saved > 0 && failed > 0 {
-            importToastType = .warning
-            importToastMessage = "Imported \(saved) photo\(saved == 1 ? "" : "s"). \(failed) failed."
-        } else {
-            importToastType = .warning
-            importToastMessage = "Could not import photos."
-        }
-        showImportToast = true
-    }
-
     private func deletePhoto(_ photo: Photo) {
         Task {
             PhotoPersistenceService().deletePhoto(photo, context: modelContext)
@@ -686,11 +595,11 @@ struct PhotosView: View {
         Haptics.success()
 
         let count = toTag.count
-        importToastType = .success
-        importToastMessage = clearing
+        actionToastType = .success
+        actionToastMessage = clearing
             ? (count == 1 ? "Removed from event" : "\(count) photos removed from event")
             : (count == 1 ? "Photo tagged" : "\(count) photos tagged")
-        showImportToast = true
+        showActionToast = true
 
         exitSelectionMode()
         // A relationship-only mutation doesn't change the [Photo] query result,

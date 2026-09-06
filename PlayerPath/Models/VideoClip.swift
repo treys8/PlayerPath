@@ -149,6 +149,28 @@ final class VideoClip {
     /// [] = snapshotted with no cues. Local-only.
     var coachCueTagsSnapshot: [String]? = nil
 
+    /// Stable identity of the camera-roll asset this clip was imported from
+    /// (SchemaV38), so a re-pick is skipped instead of creating a second copy
+    /// that burns cloud quota. Namespaced by derivation: `"pl:<itemIdentifier>"`
+    /// when the app holds Photos READ authorization (it does not today — every
+    /// request is `.addOnly`), else `"cf:<size>:<sha256 of head+tail>"` over the
+    /// copied source file. Nil for recorded clips, coach-folder saves, and every
+    /// pre-V38 row — nil is never a duplicate match.
+    ///
+    /// Video imports go through `preferredItemEncoding: .compatible`, which may
+    /// transcode HEVC on export, so two exports of one asset are not guaranteed
+    /// byte-identical: the fingerprint can MISS a duplicate but never produces a
+    /// false positive. Missing one costs a duplicate; a false one would silently
+    /// drop a clip the user meant to import.
+    ///
+    /// LOCAL-ONLY — deliberately absent from both Firestore write paths (same
+    /// posture as `coachNoteSnapshot` above).
+    ///
+    /// KNOWN LIMITATION: because it does not sync, a second device that pulls
+    /// this clip down has no key for it and will let the user re-import the
+    /// same camera-roll asset. This protects the same-device re-pick.
+    var importSourceKey: String? = nil
+
     init(fileName: String, filePath: String) {
         self.id = UUID()
         self.fileName = fileName

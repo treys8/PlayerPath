@@ -20,13 +20,20 @@ struct BulkVideoImportSheet: View {
     /// season's detail view), the user has already chosen the target season
     /// so confirmation is skipped and every clip is routed to this season.
     var preselectedSeason: Season? = nil
-    let onComplete: (_ succeeded: Int, _ failed: Int, _ stoppedForQuota: Bool, _ wasCancelled: Bool) -> Void
+    /// Set when the season question is already settled — notably on a run resumed
+    /// after a storage upgrade. Deliberately NOT folded into `preselectedSeason`:
+    /// a user who chose "Match by date" made a real decision whose season is
+    /// legitimately nil, and overloading the season prop would re-ask them.
+    var skipConfirmation: Bool = false
+    /// This sheet is finishing the remainder of an earlier interrupted run.
+    var isResume: Bool = false
+    let onComplete: (BulkImportOutcome) -> Void
 
     @State private var viewModel = BulkVideoImportViewModel()
     @State private var hasStarted = false
     @State private var seasonOverride: Season?
     @State private var showingBackfill = false
-    @State private var pendingCompletion: (succeeded: Int, failed: Int, stoppedForQuota: Bool, wasCancelled: Bool)?
+    @State private var pendingCompletion: BulkImportOutcome?
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Environment(\.ppAccent) private var ppAccent
@@ -35,6 +42,7 @@ struct BulkVideoImportSheet: View {
     /// parent didn't pre-pin a game/practice/season. In every other case,
     /// import starts instantly (legacy behavior).
     private var shouldConfirm: Bool {
+        !skipConfirmation &&
         preselectedSeason == nil &&
         game == nil && practice == nil &&
         (athlete.seasons?.count ?? 0) > 1
@@ -112,7 +120,7 @@ struct BulkVideoImportSheet: View {
                 .tint(ppAccent)
 
                 Button(role: .cancel) {
-                    onComplete(0, 0, false, true)
+                    onComplete(BulkImportOutcome(wasCancelled: true))
                     dismiss()
                 } label: {
                     Text("Cancel")
@@ -145,23 +153,43 @@ struct BulkVideoImportSheet: View {
                         .font(.bodyMedium)
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
+
+                    // Recognizing a duplicate requires exporting the video from
+                    // the Photos library first, so a re-pick spends real time
+                    // producing nothing. Naming the skips as they happen is what
+                    // separates that from a stall.
+                    if viewModel.skippedSoFar > 0 {
+                        Text("^[\(viewModel.skippedSoFar) video](inflect: true) already in your library")
+                            .font(.bodySmall)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
 
             Spacer()
 
             if case .importing = viewModel.status {
-                Button(role: .destructive) {
-                    viewModel.cancel()
-                } label: {
-                    Text("Cancel")
-                        .font(.headingMedium)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 50)
+                if viewModel.isCancelled {
+                    // Cancellation is only checked between items, and a large
+                    // `loadTransferable` cannot be interrupted — so say so rather
+                    // than leaving a dead Cancel button on screen.
+                    Text("Finishing current video…")
+                        .font(.bodyMedium)
+                        .foregroundStyle(.secondary)
+                        .padding(.bottom, 32)
+                } else {
+                    Button(role: .destructive) {
+                        viewModel.cancel()
+                    } label: {
+                        Text("Cancel")
+                            .font(.headingMedium)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 50)
+                    }
+                    .buttonStyle(.bordered)
+                    .padding(.horizontal, 40)
+                    .padding(.bottom, 32)
                 }
-                .buttonStyle(.bordered)
-                .padding(.horizontal, 40)
-                .padding(.bottom, 32)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -170,23 +198,33 @@ struct BulkVideoImportSheet: View {
 
     private func startImport() async {
         hasStarted = true
+        let chosenSeason = seasonOverride ?? preselectedSeason
         await viewModel.runImport(
             items: items,
             athlete: athlete,
             modelContext: modelContext,
             game: game,
             practice: practice,
-            seasonOverride: seasonOverride ?? preselectedSeason
+            seasonOverride: chosenSeason,
+            wasResume: isResume
         )
-        if case .completed(let succeeded, let failed, let quota, let cancelled) = viewModel.status {
+        if case .completed(var outcome) = viewModel.status {
+            // Carry the season decision forward so a run resumed after a storage
+            // upgrade files the remainder identically. By the time we reach here
+            // the question is always settled — either the user confirmed, or
+            // there was nothing to ask — so a resumed sheet must never re-ask.
+            outcome.resumeSeason = chosenSeason
+            outcome.seasonWasConfirmed = true
+
             // If any clips were filed on the current season only because their
             // capture dates matched no season, offer to re-home them before
-            // finishing. Otherwise complete immediately (legacy behavior).
+            // finishing. The outcome is parked and handed out on dismiss so the
+            // caller's storage-full decision happens after this sheet is gone.
             if !viewModel.unmatchedClips.isEmpty, athlete.activeSeason != nil {
-                pendingCompletion = (succeeded, failed, quota, cancelled)
+                pendingCompletion = outcome
                 showingBackfill = true
             } else {
-                onComplete(succeeded, failed, quota, cancelled)
+                onComplete(outcome)
                 dismiss()
             }
         }
@@ -217,8 +255,7 @@ struct BulkVideoImportSheet: View {
     /// Fires once the backfill prompt is dismissed (after the user resolved it),
     /// completing the import and closing the sheet.
     private func finishAfterBackfill() {
-        let result = pendingCompletion ?? (0, 0, false, false)
-        onComplete(result.succeeded, result.failed, result.stoppedForQuota, result.wasCancelled)
+        onComplete(pendingCompletion ?? BulkImportOutcome())
         dismiss()
     }
 }

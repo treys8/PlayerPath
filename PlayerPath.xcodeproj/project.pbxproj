@@ -249,7 +249,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CODE_SIGN_ENTITLEMENTS = PlayerPath/PlayerPath.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 209;
+				CURRENT_PROJECT_VERSION = 210;
 				DEVELOPMENT_TEAM = GW6V623MC7;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -259,7 +259,7 @@
 				INFOPLIST_KEY_NSCameraUsageDescription = "PlayerPath needs camera access to record videos of your athletic performance for analysis and improvement.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "PlayerPath needs microphone access to record audio along with videos for complete performance analysis.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "PlayerPath needs permission to save videos to your photo library.";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "PlayerPath needs photo library access to allow you to upload existing videos for analysis.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "PlayerPath needs photo library access to import your existing photos and videos, and to recognize ones you have already imported so they are not added twice.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -269,7 +269,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 6.4.5;
+				MARKETING_VERSION = 6.5;
 				PRODUCT_BUNDLE_IDENTIFIER = RZR.DT3;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -290,7 +290,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CODE_SIGN_ENTITLEMENTS = PlayerPath/PlayerPath.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 209;
+				CURRENT_PROJECT_VERSION = 210;
 				DEVELOPMENT_TEAM = GW6V623MC7;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -300,7 +300,7 @@
 				INFOPLIST_KEY_NSCameraUsageDescription = "PlayerPath needs camera access to record videos of your athletic performance for analysis and improvement.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "PlayerPath needs microphone access to record audio along with videos for complete performance analysis.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "PlayerPath needs permission to save videos to your photo library.";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "PlayerPath needs photo library access to allow you to upload existing videos for analysis.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "PlayerPath needs photo library access to import your existing photos and videos, and to recognize ones you have already imported so they are not added twice.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -310,7 +310,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 6.4.5;
+				MARKETING_VERSION = 6.5;
 				PRODUCT_BUNDLE_IDENTIFIER = RZR.DT3;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;

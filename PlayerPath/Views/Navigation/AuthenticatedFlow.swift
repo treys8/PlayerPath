@@ -30,22 +30,19 @@ struct AuthenticatedFlow: View {
             if isLoading {
                 LoadingView(title: "Setting up your profile...", subtitle: "This will only take a moment")
             } else if let user = currentUser {
-                // Show onboarding whenever it hasn't been completed. isNewUser alone is not
-                // sufficient — a user who signs out mid-onboarding has isNewUser reset to false
-                // but still needs to finish onboarding. hasCompletedOnboarding is backed by
-                // both UserDefaults and SwiftData OnboardingProgress, so fully-onboarded
-                // returning users always evaluate it as true and skip correctly.
-                if !hasCompletedOnboarding {
-                    if authManager.userRole == .coach {
-                        CoachOnboardingFlow(user: user)
-                    } else {
-                        OnboardingFlow(user: user)
-                    }
+                // Coaches are the only role with a dedicated onboarding flow, and
+                // they see it until they finish it — isNewUser alone is not
+                // sufficient, since a coach who signs out mid-onboarding has
+                // isNewUser reset to false but still needs to finish.
+                // Athletes have no separate flow: loadUser() marks them complete
+                // below and their setup steps are branches of UserMainFlow, which
+                // is also the correct landing spot if that marking is ever skipped.
+                if !hasCompletedOnboarding && authManager.userRole == .coach {
+                    CoachOnboardingFlow(user: user)
                 } else {
                     UserMainFlow(
                         user: user,
-                        isNewUserFlag: authManager.isNewUser,
-                        hasCompletedOnboarding: hasCompletedOnboarding
+                        isNewUserFlag: authManager.isNewUser
                     )
                 }
             } else {
@@ -173,6 +170,10 @@ struct AuthenticatedFlow: View {
         .task(priority: .userInitiated) {
             // Scope OnboardingManager to the current user (needed for routing)
             OnboardingManager.shared.configure(forUserID: authManager.currentFirebaseUser?.uid)
+            // Same scoping for the signup funnel. Runs before loadUser() so the
+            // sweep for a funnel a previous launch left open happens before any
+            // step this launch can record.
+            OnboardingFunnelTracker.shared.configure(forUserID: authManager.currentFirebaseUser?.uid)
 
             // Load user FIRST — this gates the UI appearing.
             // Everything else is deferred until after the UI is visible.
@@ -333,11 +334,14 @@ struct AuthenticatedFlow: View {
             await createNewUser(authUser: authUser, email: email)
         }
         
-        // Final cancellation check before marking complete
-        guard !Task.isCancelled else {
-            return
-        }
-
+        // Deliberately NOT behind a `Task.isCancelled` guard. `defer { isLoading = false }`
+        // renders the UI whether or not this task was cancelled, so skipping the
+        // marking below would leave a signed-in app that still believes onboarding is
+        // unfinished for the rest of the launch — which suppresses the display-name
+        // prompt at the top of this file and can present the welcome tutorial to a
+        // returning user. Both branches read only authManager state, so they are
+        // correct to run even when the surrounding work was cancelled.
+        //
         // For existing users (sign-in or app re-launch), mark the welcome tutorial as seen
         // so they never unexpectedly receive the new-user tutorial after an app update.
         // New users (isNewUser = true from signUp()) need a clean slate — clear any stale
@@ -353,8 +357,10 @@ struct AuthenticatedFlow: View {
             // Ensure welcome tutorial fires when the new user first reaches MainTabView,
             // even if a previous account on this device had already seen it.
             OnboardingManager.shared.resetWelcomeTutorial()
-            // Athletes skip AthleteOnboardingFlow — WelcomeTutorialView in MainTabView
-            // is the welcome. Coaches keep their multi-page onboarding flow.
+            // Athletes have no separate onboarding flow — their setup steps are
+            // branches of UserMainFlow and WelcomeTutorialView in MainTabView is
+            // the welcome, so mark them complete here and route them straight
+            // through. Coaches keep their multi-page onboarding flow.
             if authManager.userRole != .coach {
                 authManager.markOnboardingComplete()
             }

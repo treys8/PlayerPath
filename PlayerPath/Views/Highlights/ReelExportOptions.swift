@@ -85,7 +85,8 @@ struct ReelExportOptions: Equatable {
     /// Name/caption actually drawn over the footage. The title card already announces
     /// both centered, and the overlay layers span the whole timeline (card included) —
     /// drawing them too would show the name twice during the card. So the card
-    /// suppresses the footage text; the watermark stays throughout.
+    /// suppresses the footage text; the watermark stays throughout and is the reel's
+    /// only PlayerPath mark (the card draws none — see ReelCardRenderer).
     var drawsTextOverlay: Bool { showsTextOverlay && !needsCardSegment }
 
     /// Whether the stitch must attach the Core Animation tool — either for the
@@ -129,7 +130,11 @@ struct ReelExportOptions: Equatable {
             parts.append("ovl" + Self.sha4("\(resolvedName ?? "")|\(resolvedCaption ?? "")"))
         }
         if needsCardSegment {
-            parts.append("card" + Self.sha4("\(resolvedCardTitle ?? "")|\(resolvedCardSubtitle ?? "")"))
+            // "r2" is the card-render revision: r2 dropped the card's own wordmark, now
+            // owned solely by the corner watermark. Folding it into the hash invalidates
+            // ONLY cached card variants — bumping StitchedReelCache.formatVersion instead
+            // would re-stitch every user's default reels for a change they never see.
+            parts.append("card" + Self.sha4("r2|\(resolvedCardTitle ?? "")|\(resolvedCardSubtitle ?? "")"))
         }
         if watermarkEnabled {
             parts.append("wm")

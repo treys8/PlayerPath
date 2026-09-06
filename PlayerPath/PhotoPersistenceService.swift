@@ -190,7 +190,12 @@ final class PhotoPersistenceService {
         game: Game? = nil,
         practice: Practice? = nil,
         season: Season? = nil,
-        captureDate: Date? = nil
+        captureDate: Date? = nil,
+        /// Dedupe key for a bulk-imported photo (see `ImportDedupeKey`). Taken as
+        /// a parameter rather than stamped by the caller afterwards so it lands in
+        /// this function's single `context.save()` — there is never a moment where
+        /// the row exists without the key that stops a re-pick duplicating it.
+        importSourceKey: String? = nil
     ) async throws -> Photo {
         let photoID = UUID()
         let fileName = "\(photoID.uuidString).jpg"
@@ -210,6 +215,7 @@ final class PhotoPersistenceService {
         photo.game = game
         photo.practice = practice
         photo.season = season ?? athlete.activeSeason
+        photo.importSourceKey = importSourceKey
         // Prefer caller-supplied date (bulk import may nudge for tie-break),
         // then EXIF, then fall back to the upload time the Photo init stamped.
         if let resolved = captureDate ?? processed.captureDate {

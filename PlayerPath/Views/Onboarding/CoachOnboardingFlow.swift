@@ -608,7 +608,10 @@ private struct CoachReadyPage: View {
         ("tray.and.arrow.down.fill", "Check your Dashboard for athlete invitations"),
         ("video.badge.checkmark",    "Watch and annotate shared video clips"),
         ("bubble.left.and.text.bubble.right.fill", "Leave coaching notes athletes can act on"),
-        ("bell.badge.fill",          "Get notified when athletes upload new footage"),
+        // Names the permission prompt that CoachTabView fires the moment this
+        // page's CTA lands them on the Dashboard, so the system dialog arrives
+        // one beat after they've read why it's being asked for.
+        ("bell.badge.fill",          "We'll ask to send notifications so you know when athletes upload new footage"),
     ]
 
     var body: some View {

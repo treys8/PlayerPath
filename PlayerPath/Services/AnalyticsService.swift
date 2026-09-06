@@ -208,9 +208,46 @@ final class AnalyticsService {
         ])
     }
 
-    func trackVideosBulkImported(count: Int, totalSizeBytes: Int64) {
+    /// `count` is clips that actually landed. NOTE: once de-duplication shipped,
+    /// identical user behavior produces a lower `count` than it used to — read it
+    /// alongside `skipped_duplicates` rather than comparing the series across
+    /// that boundary.
+    func trackVideosBulkImported(
+        count: Int,
+        skippedDuplicates: Int,
+        stoppedForQuota: Bool,
+        wasResume: Bool,
+        totalSizeBytes: Int64
+    ) {
         logEvent(.videosBulkImported, parameters: [
             "count": count,
+            "skipped_duplicates": skippedDuplicates,
+            "stopped_for_quota": stoppedForQuota,
+            // A batch stopped by the storage cap and resumed after an upgrade
+            // fires this event twice for ONE user action. Filter or collapse on
+            // this flag rather than counting rows.
+            "was_resume": wasResume,
+            "total_size_mb": Int(totalSizeBytes / 1_048_576)
+        ])
+    }
+
+    /// Photo mirror of `trackVideosBulkImported`. Counts and sizes only — never
+    /// captions, file names, or season names (user-typed free text that in youth
+    /// sports identifies a minor).
+    func trackPhotosBulkImported(
+        count: Int,
+        skippedDuplicates: Int,
+        stoppedForQuota: Bool,
+        wasResume: Bool,
+        totalSizeBytes: Int64
+    ) {
+        logEvent(.photosBulkImported, parameters: [
+            "count": count,
+            "skipped_duplicates": skippedDuplicates,
+            "stopped_for_quota": stoppedForQuota,
+            // See trackVideosBulkImported: a resumed batch is a second event for
+            // one user action.
+            "was_resume": wasResume,
             "total_size_mb": Int(totalSizeBytes / 1_048_576)
         ])
     }
@@ -519,6 +556,7 @@ enum AnalyticsEvent: String {
     case videoUploaded = "video_uploaded"
     case videoDeleted = "video_deleted"
     case videosBulkImported = "videos_bulk_imported"
+    case photosBulkImported = "photos_bulk_imported"
 
     // Games
     case gameCreated = "game_created"

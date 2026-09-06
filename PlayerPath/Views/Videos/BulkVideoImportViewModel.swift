@@ -22,11 +22,21 @@ final class BulkVideoImportViewModel {
     enum Status: Equatable {
         case idle
         case importing(current: Int, total: Int)
-        case completed(succeeded: Int, failed: Int, stoppedForQuota: Bool, wasCancelled: Bool)
+        case completed(BulkImportOutcome)
     }
 
     var status: Status = .idle
     private(set) var isCancelled = false
+
+    /// Duplicates skipped so far in the running batch.
+    ///
+    /// Surfaced live because recognizing a duplicate video requires exporting it
+    /// from the Photos library first — `PhotosPickerItem.itemIdentifier` is nil
+    /// without Photos READ authorization, which this app never requests (every
+    /// call site asks for `.addOnly`). So a re-pick of an already-imported batch
+    /// does the full export work and then discards it. Showing this count climb
+    /// is what makes that time legible instead of looking like a stall.
+    private(set) var skippedSoFar = 0
 
     /// Clips whose capture date matched no existing season and therefore fell
     /// back to the active season — surfaced post-import by BulkVideoImportSheet
@@ -48,25 +58,46 @@ final class BulkVideoImportViewModel {
         modelContext: ModelContext,
         game: Game? = nil,
         practice: Practice? = nil,
-        seasonOverride: Season? = nil
+        seasonOverride: Season? = nil,
+        wasResume: Bool = false
     ) async {
         let total = items.count
+        var outcome = BulkImportOutcome()
+        outcome.wasResume = wasResume
         guard total > 0 else {
-            status = .completed(succeeded: 0, failed: 0, stoppedForQuota: false, wasCancelled: false)
+            status = .completed(outcome)
             return
         }
 
         status = .importing(current: 0, total: total)
-        var succeeded = 0
-        var failed = 0
-        var stoppedForQuota = false
+        // Reset with the rest of the per-run state: a view model that ever runs a
+        // second import would otherwise start already-cancelled.
+        isCancelled = false
         reservedThisSession = 0
+        skippedSoFar = 0
         unmatchedClips = []
         unmatchedEarliest = nil
         unmatchedLatest = nil
 
-        let tier = SubscriptionGate.effectiveAthleteTier
-        let limitBytes = Int64(tier.storageLimitGB) * StorageConstants.bytesPerGB
+        // Dedupe keys already claimed by this athlete's live clips, read once.
+        // `insert(_:).inserted` below makes the set do double duty: it also
+        // catches the same asset appearing twice within this one batch.
+        var claimed = ImportDedupeKey.existingClipKeys(for: athlete)
+        // Only fingerprint when some existing row actually needs it — see
+        // `containsContentKeys`. Once a library is all library-identifier keys
+        // this stays false and the hash is skipped entirely.
+        let mustCheckContentKeys = ImportDedupeKey.containsContentKeys(claimed)
+
+        // One storage snapshot for the whole batch — it stats every un-uploaded
+        // file in the library, so it must not run per item. Counts bytes already
+        // committed to disk but not yet uploaded: `cloudStorageUsedBytes` alone
+        // under-reports by the entire local backlog when auto-upload is off,
+        // which lets an import commit media that can never be backed up.
+        let user = athlete.user
+        var storage: ProjectedCloudStorage.Snapshot?
+        if let user {
+            storage = await ProjectedCloudStorage.snapshot(for: user)
+        }
 
         // Match the canonical creation pattern in ClipPersistenceService:
         // ensure (or create) an active season so imports never land orphaned.
@@ -91,26 +122,69 @@ final class BulkVideoImportViewModel {
             if isCancelled || Task.isCancelled { break }
             status = .importing(current: index + 1, total: total)
 
+            // FIRST: the free check. With Photos read access the library
+            // identifier is known before any bytes move, so a re-pick costs
+            // nothing — no export, no transcode, no temp file. This is the whole
+            // reason `PhotosReadAccess` asks for read authorization.
+            let libraryKey = ImportDedupeKey.libraryKey(for: item)
+            if let libraryKey, claimed.contains(libraryKey) {
+                outcome.skippedDuplicates += 1
+                skippedSoFar = outcome.skippedDuplicates
+                continue
+            }
+
             guard let stableURL = await loadAndCopyVideo(item: item) else {
-                failed += 1
+                // Tracked apart from `failed`: an all-load-failure run means the
+                // picker selection went stale (see BulkImportOutcome.remaining),
+                // not that the media is bad.
+                outcome.loadFailures += 1
+                continue
+            }
+
+            // SECOND: the fingerprint, needed when there is no library key (access
+            // declined) or when older rows still carry `cf:` keys. Safe to hash the
+            // copy rather than the source: `BulkImportVideoFile` does a byte-for-byte
+            // `copyItem` of what the picker exported, so these are those bytes.
+            var contentKey: String?
+            if libraryKey == nil || mustCheckContentKeys {
+                let path = stableURL.path
+                contentKey = await Task.detached(priority: .userInitiated) {
+                    ImportDedupeKey.contentKey(atPath: path)
+                }.value
+            }
+            // Prefer the library identifier when storing: it survives re-encoding,
+            // which a fingerprint of a `.compatible` HEVC export may not.
+            let dedupeKey = libraryKey ?? contentKey
+
+            // Test membership now, but CLAIM only after the row is safely saved.
+            // Claiming here would mark an asset as present even if it then failed
+            // validation or its save threw, so a genuine retry later in the same
+            // batch would be reported as "already in your library" with nothing
+            // actually written.
+            if let contentKey, claimed.contains(contentKey) {
+                VideoFileManager.cleanup(url: stableURL)
+                outcome.skippedDuplicates += 1
+                skippedSoFar = outcome.skippedDuplicates
                 continue
             }
 
             let fileSize = FileManager.default.fileSize(atPath: stableURL.path)
 
-            if let user = athlete.user {
-                let projected = user.cloudStorageUsedBytes + reservedThisSession + fileSize
-                if projected > limitBytes {
-                    try? FileManager.default.removeItem(at: stableURL)
-                    stoppedForQuota = true
-                    break
-                }
+            if let storage, !storage.fits(fileSize, alreadyReserved: reservedThisSession) {
+                VideoFileManager.cleanup(url: stableURL)
+                outcome.stoppedForQuota = true
+                // Always a real number, even when nothing succeeded, so the
+                // upgrade sheet can quote a certain figure instead of an estimate.
+                outcome.blockedItemBytes = fileSize
+                // Inclusive of the current item — it did not land.
+                outcome.remaining = Array(items[index...])
+                break
             }
 
             let validation = await VideoFileManager.validateVideo(at: stableURL)
             if case .failure = validation {
                 try? FileManager.default.removeItem(at: stableURL)
-                failed += 1
+                outcome.failed += 1
                 continue
             }
 
@@ -188,6 +262,9 @@ final class BulkVideoImportViewModel {
             clip.gameOpponent = game?.opponent
             clip.gameDate = game?.date
             clip.practiceDate = practice?.date
+            // Set before insert, with no await in between, so the row can never
+            // exist without the key that keeps a re-pick from duplicating it.
+            clip.importSourceKey = dedupeKey
             modelContext.insert(clip)
 
             do {
@@ -213,7 +290,8 @@ final class BulkVideoImportViewModel {
                 // Matches ClipPersistenceService.saveClip behavior.
                 NotificationCenter.default.post(name: .videoRecorded, object: clip)
 
-                succeeded += 1
+                outcome.succeeded += 1
+                if let dedupeKey { claimed.insert(dedupeKey) }
                 reservedThisSession += fileSize
 
                 if dateUnmatched {
@@ -227,18 +305,27 @@ final class BulkVideoImportViewModel {
                 if let thumbPath = thumbnailPath {
                     try? FileManager.default.removeItem(atPath: ThumbnailCache.resolveLocalPath(thumbPath))
                 }
-                failed += 1
+                outcome.failed += 1
                 bulkImportLog.warning("Failed to save imported clip: \(error.localizedDescription)")
             }
         }
 
-        AnalyticsService.shared.trackVideosBulkImported(count: succeeded, totalSizeBytes: reservedThisSession)
-        status = .completed(
-            succeeded: succeeded,
-            failed: failed,
-            stoppedForQuota: stoppedForQuota,
-            wasCancelled: isCancelled
+        outcome.importedBytes = reservedThisSession
+        outcome.wasCancelled = isCancelled
+        outcome.resumeSeason = seasonOverride
+        // Carried so the storage-full sheet can quote real figures without taking
+        // a second snapshot — and, more importantly, without an await between the
+        // import ending and the sheet appearing, during which the screen is live.
+        outcome.storageSnapshot = storage
+
+        AnalyticsService.shared.trackVideosBulkImported(
+            count: outcome.succeeded,
+            skippedDuplicates: outcome.skippedDuplicates,
+            stoppedForQuota: outcome.stoppedForQuota,
+            wasResume: wasResume,
+            totalSizeBytes: outcome.importedBytes
         )
+        status = .completed(outcome)
     }
 
     private func loadAndCopyVideo(item: PhotosPickerItem) async -> URL? {

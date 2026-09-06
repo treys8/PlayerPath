@@ -42,6 +42,22 @@ final class Photo {
     /// (`toFirestoreData` + `updatableFirestoreData`) since it toggles after upload.
     var isHighlight: Bool = false
 
+    /// Stable identity of the camera-roll asset this photo was imported from
+    /// (SchemaV38), so a re-pick is skipped instead of creating a second copy
+    /// that burns cloud quota. Namespaced by derivation: `"pl:<itemIdentifier>"`
+    /// when the app holds Photos READ authorization (it does not today — every
+    /// request is `.addOnly`), else `"cf:<size>:<sha256 of head+tail>"` over the
+    /// SOURCE bytes. Nil for camera captures, coach-folder saves, and every
+    /// pre-V38 row — nil is never a duplicate match.
+    ///
+    /// LOCAL-ONLY — deliberately absent from `toFirestoreData` and
+    /// `updatableFirestoreData` (same posture as `VideoClip.coachNoteSnapshot`).
+    ///
+    /// KNOWN LIMITATION: because it does not sync, a second device that pulls
+    /// this photo down has no key for it and will let the user re-import the
+    /// same camera-roll asset. This protects the same-device re-pick.
+    var importSourceKey: String? = nil
+
     init(fileName: String, filePath: String) {
         self.id = UUID()
         self.fileName = fileName

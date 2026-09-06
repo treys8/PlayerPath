@@ -14,7 +14,6 @@ private let log = Logger(subsystem: "com.playerpath.app", category: "UserMainFlo
 struct UserMainFlow: View {
     let user: User
     let isNewUserFlag: Bool
-    let hasCompletedOnboarding: Bool
     @Query(sort: \Athlete.createdAt) private var allAthletes: [Athlete]
     @Environment(\.modelContext) private var modelContext
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
@@ -56,10 +55,9 @@ struct UserMainFlow: View {
 
     // Onboarding (tutorial shown from MainTabView after setup is complete)
 
-    init(user: User, isNewUserFlag: Bool, hasCompletedOnboarding: Bool) {
+    init(user: User, isNewUserFlag: Bool) {
         self.user = user
         self.isNewUserFlag = isNewUserFlag
-        self.hasCompletedOnboarding = hasCompletedOnboarding
         self.userID = user.id
     }
 
@@ -93,8 +91,6 @@ struct UserMainFlow: View {
             // IMPORTANT: Check if user is a coach FIRST before any athlete logic
             if authManager.userRole == .coach {
                 CoachTabView()
-                    .onAppear {
-                    }
             }
             // Show athlete selection if user explicitly requested it via "Manage Athletes"
             else if showingAthleteSelection {
@@ -114,6 +110,7 @@ struct UserMainFlow: View {
                     (athlete.seasons ?? []).isEmpty {
                 OnboardingSeasonCreationView(athlete: athlete)
                     .onAppear {
+                        OnboardingFunnelTracker.shared.recordStep(.seasonCreation)
                     }
             }
             // After season exists but still new user - show backup preference
@@ -122,6 +119,7 @@ struct UserMainFlow: View {
                     !(athlete.seasons ?? []).isEmpty {
                 OnboardingBackupView(athlete: athlete)
                     .onAppear {
+                        OnboardingFunnelTracker.shared.recordStep(.backupPrefs)
                     }
             }
             // Only check athlete-related logic if user is an athlete
@@ -134,12 +132,18 @@ struct UserMainFlow: View {
                     )
                 )
             } else if athletesForUser.isEmpty && isNewUserFlag {
-                // New athletes need to create their first athlete profile
+                // New athletes need to create their first athlete profile.
+                // This is the only onboarding AddAthleteView branch — the
+                // identical-looking one below is a returning user on a fresh
+                // device and must NOT report into the signup funnel.
                 AddAthleteView(
                     user: user,
                     selectedAthlete: $selectedAthlete,
                     isFirstAthlete: true
                 )
+                .onAppear {
+                    OnboardingFunnelTracker.shared.recordStep(.athleteProfile)
+                }
             } else if athletesForUser.isEmpty && (SyncCoordinator.shared.isSyncing || (!isNewUserFlag && SyncCoordinator.shared.lastSyncDate == nil)) {
                 // Returning user on new device — sync is downloading their athletes,
                 // or sync hasn't started yet (lastSyncDate is nil).

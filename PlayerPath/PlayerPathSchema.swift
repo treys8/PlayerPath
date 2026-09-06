@@ -685,12 +685,34 @@ enum SchemaV37: VersionedSchema {
     }
 }
 
+// MARK: - Schema V38 (2026-09-05 — Import de-duplication key)
+//
+//  Changes from V37:
+//    • Photo.importSourceKey (String? = nil)
+//    • VideoClip.importSourceKey (String? = nil)
+//      Stable identity of the camera-roll asset a row was imported from. Without
+//      it, re-picking an already-imported asset in the Photos picker created a
+//      second copy and charged the athlete's cloud quota twice — which a
+//      multi-sitting backfill of an existing camera roll makes routine, not rare.
+//      Local-only: never written to Firestore, so a second device has no key and
+//      can still re-import. See the KNOWN LIMITATION on each property.
+//
+//  Two new optional columns → lightweight migration is sufficient; existing rows
+//  read back nil, which the dedupe treats as "never a match". No new model, no
+//  relationship change.
+enum SchemaV38: VersionedSchema {
+    static var versionIdentifier = Schema.Version(38, 0, 0)
+    static var models: [any PersistentModel.Type] {
+        SchemaV1.models + [HoleScore.self, HighlightReel.self, GolfTournament.self, Shot.self]
+    }
+}
+
 // MARK: - Migration Plan
 
 enum PlayerPathMigrationPlan: SchemaMigrationPlan {
     /// All schema versions in chronological order (oldest first).
     static var schemas: [any VersionedSchema.Type] {
-        [SchemaV1.self, SchemaV2.self, SchemaV3.self, SchemaV4.self, SchemaV5.self, SchemaV6.self, SchemaV7.self, SchemaV8.self, SchemaV9.self, SchemaV10.self, SchemaV11.self, SchemaV12.self, SchemaV13.self, SchemaV14.self, SchemaV15.self, SchemaV16.self, SchemaV17.self, SchemaV18.self, SchemaV19.self, SchemaV20.self, SchemaV21.self, SchemaV22.self, SchemaV23.self, SchemaV24.self, SchemaV25.self, SchemaV26.self, SchemaV27.self, SchemaV28.self, SchemaV29.self, SchemaV30.self, SchemaV31.self, SchemaV32.self, SchemaV33.self, SchemaV34.self, SchemaV35.self, SchemaV36.self, SchemaV37.self]
+        [SchemaV1.self, SchemaV2.self, SchemaV3.self, SchemaV4.self, SchemaV5.self, SchemaV6.self, SchemaV7.self, SchemaV8.self, SchemaV9.self, SchemaV10.self, SchemaV11.self, SchemaV12.self, SchemaV13.self, SchemaV14.self, SchemaV15.self, SchemaV16.self, SchemaV17.self, SchemaV18.self, SchemaV19.self, SchemaV20.self, SchemaV21.self, SchemaV22.self, SchemaV23.self, SchemaV24.self, SchemaV25.self, SchemaV26.self, SchemaV27.self, SchemaV28.self, SchemaV29.self, SchemaV30.self, SchemaV31.self, SchemaV32.self, SchemaV33.self, SchemaV34.self, SchemaV35.self, SchemaV36.self, SchemaV37.self, SchemaV38.self]
     }
 
     /// Migration stages between consecutive versions.
@@ -731,7 +753,8 @@ enum PlayerPathMigrationPlan: SchemaMigrationPlan {
             .lightweight(fromVersion: SchemaV33.self, toVersion: SchemaV34.self),
             .lightweight(fromVersion: SchemaV34.self, toVersion: SchemaV35.self),
             .lightweight(fromVersion: SchemaV35.self, toVersion: SchemaV36.self),
-            .lightweight(fromVersion: SchemaV36.self, toVersion: SchemaV37.self)
+            .lightweight(fromVersion: SchemaV36.self, toVersion: SchemaV37.self),
+            .lightweight(fromVersion: SchemaV37.self, toVersion: SchemaV38.self)
         ]
     }
 }

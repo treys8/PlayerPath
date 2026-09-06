@@ -12,7 +12,9 @@ import UIKit
 import FirebaseFirestore
 import os
 
-private let uploadLog = Logger(subsystem: "com.playerpath.app", category: "UploadQueue")
+// `nonisolated` so the nonisolated FileManager.fileSize helper at the bottom of
+// this file can log. `Logger` is Sendable and this is an immutable global.
+nonisolated private let uploadLog = Logger(subsystem: "com.playerpath.app", category: "UploadQueue")
 
 @MainActor
 @Observable
@@ -1306,7 +1308,10 @@ enum UploadError: LocalizedError {
 // MARK: - FileManager Extension
 
 extension FileManager {
-    func fileSize(atPath path: String) -> Int64 {
+    /// `nonisolated` so off-main callers can use it — this module is
+    /// MainActor-by-default, and sizing files is exactly the kind of work that
+    /// belongs off the main actor (see `ProjectedCloudStorage`).
+    nonisolated func fileSize(atPath path: String) -> Int64 {
         do {
             let attributes = try attributesOfItem(atPath: path)
             return (attributes[.size] as? Int64) ?? 0

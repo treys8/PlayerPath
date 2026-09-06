@@ -64,12 +64,46 @@ struct WelcomeTutorialView: View {
             }
             .padding(.bottom, 36)
         }
+        // Fixed overlay on the root ZStack rather than a per-page element, so
+        // it sits outside the TabView and can't be scrolled or paged away —
+        // at large Dynamic Type the CTA inside a page can go off screen, and
+        // this is the guaranteed exit.
+        .overlay(alignment: .topTrailing) {
+            Button(action: skipWalkthrough) {
+                Text("Skip")
+                    .font(.bodyMedium)
+                    .foregroundColor(Theme.textSecondary)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    // Page content scrolls underneath at large type sizes.
+                    .background(.ultraThinMaterial, in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .padding(.trailing, 16)
+            .padding(.top, 12)
+            .accessibilityLabel("Skip walkthrough")
+            .accessibilityHint("Closes the walkthrough and opens the app")
+            // An overlay lands last in the accessibility order, which would put
+            // the escape hatch behind an entire scrolling page — the exact
+            // situation at the large type sizes this view was fixed for.
+            .accessibilitySortPriority(2)
+        }
         .interactiveDismissDisabled(true)
+        .onAppear {
+            OnboardingFunnelTracker.shared.recordStep(tutorialStep(for: currentPage))
+        }
+        .onChange(of: currentPage) { _, newPage in
+            OnboardingFunnelTracker.shared.recordStep(tutorialStep(for: newPage))
+        }
         .onDisappear {
             if !onboardingManager.hasSeenWelcomeTutorial {
                 onboardingManager.markWelcomeTutorialSeen()
             }
         }
+    }
+
+    private func tutorialStep(for page: Int) -> OnboardingFunnelTracker.Step {
+        OnboardingFunnelTracker.Step.tutorialPage(page) ?? .tutorialManager
     }
 
     private func advancePage() {
@@ -79,6 +113,12 @@ struct WelcomeTutorialView: View {
 
     private func completeWalkthrough() {
         Haptics.medium()
+        onboardingManager.markWelcomeTutorialSeen()
+        dismiss()
+    }
+
+    private func skipWalkthrough() {
+        Haptics.light()
         onboardingManager.markWelcomeTutorialSeen()
         dismiss()
     }
@@ -172,6 +212,15 @@ private struct ManagerPage: View {
     @State private var appeared = false
 
     var body: some View {
+        GeometryReader { proxy in
+            ScrollView(showsIndicators: false) {
+                pageContent
+                    .frame(minHeight: proxy.size.height)
+            }
+        }
+    }
+
+    @ViewBuilder private var pageContent: some View {
         VStack(spacing: 0) {
             Spacer()
 
@@ -188,7 +237,7 @@ private struct ManagerPage: View {
                     .foregroundColor(Theme.textPrimary)
                     .multilineTextAlignment(.center)
 
-                Text("You hold this account. \(Text(athleteName).font(.custom("Inter18pt-SemiBold", size: 17))) is your player — you'll manage their games, videos, and stats.")
+                Text("You hold this account. \(Text(athleteName).font(.custom("Inter18pt-SemiBold", size: 17, relativeTo: .body))) is your player — you'll manage their games, videos, and stats.")
                     .font(.bodyLarge)
                     .foregroundColor(Theme.textSecondary)
                     .multilineTextAlignment(.center)
@@ -256,6 +305,15 @@ private struct PlayerReadyPage: View {
     @State private var appeared = false
 
     var body: some View {
+        GeometryReader { proxy in
+            ScrollView(showsIndicators: false) {
+                pageContent
+                    .frame(minHeight: proxy.size.height)
+            }
+        }
+    }
+
+    @ViewBuilder private var pageContent: some View {
         VStack(spacing: 0) {
             Spacer()
 
@@ -272,7 +330,7 @@ private struct PlayerReadyPage: View {
                     .foregroundColor(Theme.textPrimary)
                     .multilineTextAlignment(.center)
 
-                Text("\(Text(athleteName).font(.custom("Inter18pt-SemiBold", size: 17)))'s profile is set up and ready to go.")
+                Text("\(Text(athleteName).font(.custom("Inter18pt-SemiBold", size: 17, relativeTo: .body)))'s profile is set up and ready to go.")
                     .font(.bodyLarge)
                     .foregroundColor(Theme.textSecondary)
                     .multilineTextAlignment(.center)
@@ -384,6 +442,15 @@ private struct GameDayPage: View {
     }
 
     var body: some View {
+        GeometryReader { proxy in
+            ScrollView(showsIndicators: false) {
+                pageContent
+                    .frame(minHeight: proxy.size.height)
+            }
+        }
+    }
+
+    @ViewBuilder private var pageContent: some View {
         VStack(spacing: 0) {
             Spacer().frame(height: 40)
 
@@ -487,6 +554,15 @@ private struct RecordAtBatPage: View {
     }
 
     var body: some View {
+        GeometryReader { proxy in
+            ScrollView(showsIndicators: false) {
+                pageContent
+                    .frame(minHeight: proxy.size.height)
+            }
+        }
+    }
+
+    @ViewBuilder private var pageContent: some View {
         VStack(spacing: 0) {
             Spacer()
 
@@ -503,7 +579,7 @@ private struct RecordAtBatPage: View {
                     .foregroundColor(Theme.textPrimary)
                     .multilineTextAlignment(.center)
 
-                Text("Tap \(Text("Record").font(.custom("Inter18pt-SemiBold", size: 17))) when your kid \(setupCue). Hit \(Text("Stop").font(.custom("Inter18pt-SemiBold", size: 17))) when the play is over.")
+                Text("Tap \(Text("Record").font(.custom("Inter18pt-SemiBold", size: 17, relativeTo: .body))) when your kid \(setupCue). Hit \(Text("Stop").font(.custom("Inter18pt-SemiBold", size: 17, relativeTo: .body))) when the play is over.")
                     .font(.bodyLarge)
                     .foregroundColor(Theme.textSecondary)
                     .multilineTextAlignment(.center)
@@ -576,6 +652,15 @@ private struct TagResultPage: View {
     }
 
     var body: some View {
+        GeometryReader { proxy in
+            ScrollView(showsIndicators: false) {
+                pageContent
+                    .frame(minHeight: proxy.size.height)
+            }
+        }
+    }
+
+    @ViewBuilder private var pageContent: some View {
         VStack(spacing: 0) {
             Spacer()
 
@@ -712,6 +797,15 @@ private struct BetweenGamesPage: View {
     }
 
     var body: some View {
+        GeometryReader { proxy in
+            ScrollView(showsIndicators: false) {
+                pageContent
+                    .frame(minHeight: proxy.size.height)
+            }
+        }
+    }
+
+    @ViewBuilder private var pageContent: some View {
         VStack(spacing: 0) {
             Spacer()
 

@@ -331,25 +331,20 @@ enum ReelCardStyle {
         return UIFont(name: "Inter18pt-Medium", size: size) ?? .systemFont(ofSize: size, weight: .medium)
     }
 
-    /// Small "▶ PlayerPath" wordmark near the bottom of the card.
-    static func wordmarkFont(canvasHeight: CGFloat) -> UIFont {
-        let size = max(18, min(40, canvasHeight * 0.020))
-        return UIFont(name: "Inter18pt-SemiBold", size: size) ?? .systemFont(ofSize: size, weight: .semibold)
-    }
-
     static let titleColor = UIColor.white
     static let subtitleColor = UIColor.white.withAlphaComponent(0.85)
-    static let wordmarkColor = UIColor.white.withAlphaComponent(0.6)
 
     /// Vertical gap between the title and subtitle, as a fraction of canvas height.
     static let lineGapFraction: CGFloat = 0.02
-    /// Wordmark distance from the bottom edge, as a fraction of canvas height.
-    static let wordmarkBottomInsetFraction: CGFloat = 0.07
     static let horizontalInsetFraction: CGFloat = 0.08
 }
 
 /// UIKit-facing style for the corner "▶ PlayerPath" watermark baked in by
 /// `ReelOverlayRenderer.makeWatermarkLayer` (bottom-right; name/caption own bottom-left).
+///
+/// This is the reel's ONLY PlayerPath mark. The layer spans the whole timeline, so it
+/// brands the intro title card too — `ReelCardRenderer` draws none of its own, and both
+/// the card and the footage go unbranded when `watermarkEnabled` is off.
 enum ReelWatermarkStyle {
     /// U+FE0E (text-presentation selector) pins the ▶ to a monochrome text glyph. Without
     /// it, the fallback font (Inter lacks ▶) can render it as a colored emoji triangle that

@@ -8,6 +8,7 @@
 import SwiftUI
 import SwiftData
 import OSLog
+import UserNotifications
 
 struct OnboardingBackupView: View {
     let athlete: Athlete
@@ -89,6 +90,12 @@ struct OnboardingBackupView: View {
                     }
                     .padding(.horizontal)
 
+                    // Push primer. saveAndContinue() asks for the permission
+                    // right after this, so the system dialog lands on top of
+                    // this card rather than unexplained on the next screen.
+                    notificationsCard
+                        .padding(.horizontal)
+
                     // Continue button
                     Button(action: { Haptics.medium(); saveAndContinue() }) {
                         HStack(spacing: 12) {
@@ -146,6 +153,53 @@ struct OnboardingBackupView: View {
         }
     }
 
+    // MARK: - Push Primer
+
+    /// Only shown when the prompt will actually appear. `authorizationStatus` is
+    /// per-device, not per-account, so a second account signing up after a
+    /// previous one denied would otherwise be promised a dialog it never gets.
+    @ViewBuilder
+    private var notificationsCard: some View {
+        if PushNotificationService.shared.authorizationStatus == .notDetermined {
+            notificationsPrimer
+        }
+    }
+
+    private var notificationsPrimer: some View {
+        HStack(spacing: 16) {
+            ZStack {
+                Circle()
+                    .fill(accent.opacity(0.15))
+                    .frame(width: 50, height: 50)
+
+                Image(systemName: "bell.badge.fill")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundColor(accent)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Stay in the Loop")
+                    .font(.headingMedium)
+                    .foregroundColor(Theme.textPrimary)
+
+                Text("Next we'll ask to send notifications, so you hear about coach feedback and finished uploads.")
+                    .font(.bodyMedium)
+                    .foregroundColor(Theme.textSecondary)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Theme.card)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(Theme.divider, lineWidth: 1)
+        )
+    }
+
     private func saveAndContinue() {
         guard !isSaving else { return }
         isSaving = true
@@ -164,13 +218,30 @@ struct OnboardingBackupView: View {
 
         onboardingLog.info("Backup preference saved: \(selectedMode.rawValue)")
 
-        // Now reset the new user flag - onboarding is complete
-        authManager.resetNewUserFlag()
+        Task {
+            // Ask while this screen — and its primer card — is still on top.
+            // This MUST complete before resetNewUserFlag(): that flag swaps us
+            // out for MainTabView immediately, and MainTabView's own request is
+            // guarded on the *cached* authorizationStatus, which is still
+            // .notDetermined until the user answers. Firing and forgetting here
+            // would leave both requests in flight at once. isSaving stays true
+            // across the await so the Continue button can't be tapped again.
+            await PushNotificationService.shared.requestAuthorizationIfNeeded()
 
-        onboardingLog.info("Onboarding complete — new user flag reset")
+            // Close the funnel here rather than at the welcome tutorial: this is
+            // the last step every athlete is guaranteed to reach, and the
+            // tutorial can silently never present (see OnboardingFunnelTracker).
+            OnboardingFunnelTracker.shared.recordCompletion()
 
-        Haptics.success()
-        isSaving = false
+            onboardingLog.info("Onboarding complete — new user flag reset")
+            Haptics.success()
+            isSaving = false
+
+            // LAST: this publishes isNewUser = false, which swaps this view out
+            // of UserMainFlow synchronously. Anything after it writes to @State
+            // that is no longer installed.
+            authManager.resetNewUserFlag()
+        }
     }
 }
 
