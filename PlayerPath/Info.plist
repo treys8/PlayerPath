@@ -2,34 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>UIBackgroundModes</key>
-	<array>
-		<string>remote-notification</string>
-		<string>processing</string>
-	</array>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>com.playerpath.video-upload</string>
 	</array>
-	<key>ITSAppUsesNonExemptEncryption</key>
-	<false/>
-	<key>UIAppFonts</key>
-	<array>
-		<string>Inter_18pt-Regular.ttf</string>
-		<string>Inter_18pt-Medium.ttf</string>
-		<string>Inter_18pt-SemiBold.ttf</string>
-		<string>Inter_18pt-Bold.ttf</string>
-		<string>Fraunces_72pt-Regular.ttf</string>
-		<string>Fraunces_72pt-SemiBold.ttf</string>
-		<string>Fraunces_72pt-Bold.ttf</string>
-		<string>Archivo-Bold.ttf</string>
-		<string>Archivo_Condensed-Bold.ttf</string>
-		<string>Archivo_Condensed-Black.ttf</string>
-	</array>
-	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>PlayerPath needs access to save videos to your Camera Roll.</string>
-	<key>UILaunchScreen</key>
-	<dict/>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -43,5 +19,25 @@
 			</array>
 		</dict>
 	</array>
+	<key>UIAppFonts</key>
+	<array>
+		<string>Inter_18pt-Regular.ttf</string>
+		<string>Inter_18pt-Medium.ttf</string>
+		<string>Inter_18pt-SemiBold.ttf</string>
+		<string>Inter_18pt-Bold.ttf</string>
+		<string>Fraunces_72pt-Regular.ttf</string>
+		<string>Fraunces_72pt-SemiBold.ttf</string>
+		<string>Fraunces_72pt-Bold.ttf</string>
+		<string>Archivo-Bold.ttf</string>
+		<string>Archivo_Condensed-Bold.ttf</string>
+		<string>Archivo_Condensed-Black.ttf</string>
+	</array>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+		<string>processing</string>
+	</array>
+	<key>UILaunchScreen</key>
+	<dict/>
 </dict>
 </plist>
