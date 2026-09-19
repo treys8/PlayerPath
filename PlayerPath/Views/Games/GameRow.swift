@@ -17,12 +17,11 @@ struct GameRow: View {
     var isSeasonFiltered: Bool = false
 
     private var isGolf: Bool { game.season?.sport == .golf }
-    private var tileColor: Color { isGolf ? Theme.tileForest : Theme.tileNavy }
     private var showSeason: Bool { !game.isLive && !isSeasonFiltered }
 
     var body: some View {
         HStack(spacing: .spacingMedium) {
-            PPDateTile(date: game.date ?? game.createdAt ?? Date(), tileColor: tileColor)
+            PPDateTile(date: game.date ?? game.createdAt ?? Date())
 
             GameInfoView(game: game, showSeason: showSeason)
 
