@@ -55,10 +55,6 @@ struct CoachesView: View {
         Group {
             if coaches.isEmpty && invitationManager.pendingInvitations.isEmpty {
                 EmptyCoachesView(
-                    onAddCoach: {
-                        Haptics.light()
-                        showingAddCoach = true
-                    },
                     onInviteCoach: {
                         Haptics.medium()
                         showingInviteCoach = true
@@ -167,17 +163,18 @@ struct CoachesView: View {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
                     Button {
-                        Haptics.light()
-                        showingAddCoach = true
-                    } label: {
-                        Label("Add Coach Contact", systemImage: "person.crop.circle.badge.plus")
-                    }
-
-                    Button {
                         Haptics.medium()
                         showingInviteCoach = true
                     } label: {
-                        Label("Invite Coach to Share", systemImage: "paperplane")
+                        Label("Invite Coach", systemImage: "paperplane")
+                    }
+
+                    // Contact-only: saves name/email locally, shares nothing.
+                    Button {
+                        Haptics.light()
+                        showingAddCoach = true
+                    } label: {
+                        Label("Save Contact Only", systemImage: "person.crop.circle.badge.plus")
                     }
                 } label: {
                     Image(systemName: "plus")

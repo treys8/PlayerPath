@@ -36,7 +36,24 @@ struct StatisticsView: View {
     /// switches; ignored (and the toggle hidden) when the selection has only one
     /// discipline. See the baseball branch of `mainContent`.
     private enum StatMode { case batting, pitching }
-    @State private var statMode: StatMode = .batting
+    /// nil until the user picks a mode — until then the page leads with
+    /// whichever discipline has more data, so a pitcher with one stray at-bat
+    /// doesn't open on a .000 slash line.
+    @State private var statModeOverride: StatMode?
+
+    private func statMode(for stats: AthleteStatistics) -> StatMode {
+        if let statModeOverride { return statModeOverride }
+        let plateAppearances = stats.atBats + stats.walks
+        let pitchingSample = max(stats.battersFaced, stats.outsRecorded)
+        return pitchingSample >= plateAppearances ? .pitching : .batting
+    }
+
+    /// Career-vs-season cards only mean something when earlier seasons
+    /// contributed at-bats (otherwise both columns are identical) and the
+    /// current season has a real sample.
+    private func showsCareerComparison(career: AthleteStatistics, season: AthleteStatistics) -> Bool {
+        career.atBats > season.atBats && season.atBats >= 10
+    }
 
     private var isGolf: Bool {
         // When a specific season is filtered, prefer its sport; otherwise the
@@ -468,12 +485,16 @@ struct StatisticsView: View {
             // The outer `if` guarantees at least one discipline exists.
             let hasBatting = stats.atBats > 0
             let hasPitching = stats.hasPitchingData
+            let mode = statMode(for: stats)
             ScrollView {
                 LazyVStack(spacing: 20) {
                     // Two-way player: let them pick a discipline so the page isn't
                     // the full batting suite stacked above the full pitching suite.
                     if hasBatting && hasPitching {
-                        Picker("", selection: $statMode) {
+                        Picker("", selection: Binding(
+                            get: { mode },
+                            set: { statModeOverride = $0 }
+                        )) {
                             Text("Batting").tag(StatMode.batting)
                             Text("Pitching").tag(StatMode.pitching)
                         }
@@ -482,7 +503,7 @@ struct StatisticsView: View {
 
                     // Batting suite — shown when batting is the only discipline or
                     // it's the selected mode.
-                    if !hasPitching || statMode == .batting {
+                    if !hasPitching || mode == .batting {
                         // "The Numbers." hero — slash line + metric grid.
                         StatsHeroCard(
                             statistics: stats,
@@ -496,7 +517,8 @@ struct StatisticsView: View {
                             // Career view - show comparison if active season exists
                             if let activeSeason = athlete?.activeSeason,
                                let seasonStats = activeSeason.seasonStatistics,
-                               let careerStats = athlete?.statistics {
+                               let careerStats = athlete?.statistics,
+                               showsCareerComparison(career: careerStats, season: seasonStats) {
                                 CareerSeasonComparisonSection(
                                     careerStats: careerStats,
                                     seasonStats: seasonStats,
@@ -526,7 +548,7 @@ struct StatisticsView: View {
 
                     // Pitching Statistics — shown when pitching is the only discipline
                     // or it's the selected mode.
-                    if hasPitching && (!hasBatting || statMode == .pitching) {
+                    if hasPitching && (!hasBatting || mode == .pitching) {
                         PitchingStatsSection(
                             statistics: stats,
                             athlete: athlete,

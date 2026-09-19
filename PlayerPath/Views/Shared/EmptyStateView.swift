@@ -98,15 +98,8 @@ struct EmptyStateView: View {
                         .foregroundColor(.white)
                         .frame(maxWidth: 220)
                         .padding(.vertical, 14)
-                        .background(
-                            LinearGradient(
-                                colors: [ppAccent, ppAccent.opacity(0.85)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .clipShape(Capsule())
-                        .shadow(color: ppAccent.opacity(0.3), radius: 12, x: 0, y: 6)
+                        // Flat fill — primary buttons are flat accent app-wide.
+                        .background(Capsule().fill(ppAccent))
                     }
                     .buttonStyle(PremiumButtonStyle())
                     .opacity(isAnimating ? 1.0 : 0.0)

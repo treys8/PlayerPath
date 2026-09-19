@@ -111,7 +111,6 @@ struct CoachRow: View {
 // MARK: - Empty State
 
 struct EmptyCoachesView: View {
-    let onAddCoach: () -> Void
     let onInviteCoach: () -> Void
 
     @Environment(\.ppAccent) private var ppAccent
@@ -141,7 +140,7 @@ struct EmptyCoachesView: View {
                     .font(.headingLarge)
                     .foregroundColor(Theme.textPrimary)
 
-                Text("Add coach contact info or invite coaches to share videos and get feedback")
+                Text("Invite your coach to share videos and get feedback. To just save their contact info, use the + button.")
                     .font(.bodyMedium)
                     .foregroundStyle(Theme.textSecondary)
                     .multilineTextAlignment(.center)
@@ -150,48 +149,22 @@ struct EmptyCoachesView: View {
 
             Spacer()
 
-            VStack(spacing: 12) {
-                // Primary: Invite Coach
-                Button(action: onInviteCoach) {
-                    HStack(spacing: 10) {
-                        Image(systemName: "paperplane.fill")
-                            .font(.title3)
-                        Text("Invite Coach to Share")
-                            .font(.headingMedium)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 54)
-                    .foregroundColor(.white)
-                    .background(
-                        RoundedRectangle(cornerRadius: .cornerXLarge, style: .continuous)
-                            .fill(ppAccent)
-                    )
-                    .shadow(color: ppAccent.opacity(0.3), radius: 12, x: 0, y: 6)
+            Button(action: onInviteCoach) {
+                HStack(spacing: 10) {
+                    Image(systemName: "paperplane.fill")
+                        .font(.title3)
+                    Text("Invite Coach")
+                        .font(.headingMedium)
                 }
-                .buttonStyle(PremiumButtonStyle())
-
-                // Secondary: Add Contact
-                Button(action: onAddCoach) {
-                    HStack(spacing: 10) {
-                        Image(systemName: "person.crop.circle.badge.plus")
-                            .font(.title3)
-                        Text("Add Coach Contact")
-                            .font(.headingMedium)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 54)
-                    .foregroundColor(Theme.textPrimary)
-                    .background(
-                        RoundedRectangle(cornerRadius: .cornerXLarge, style: .continuous)
-                            .fill(Theme.card)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: .cornerXLarge, style: .continuous)
-                            .strokeBorder(Theme.divider, lineWidth: 1)
-                    )
-                }
-                .buttonStyle(PremiumButtonStyle())
+                .frame(maxWidth: .infinity)
+                .frame(height: 54)
+                .foregroundColor(.white)
+                .background(
+                    RoundedRectangle(cornerRadius: .cornerXLarge, style: .continuous)
+                        .fill(ppAccent)
+                )
             }
+            .buttonStyle(PremiumButtonStyle())
             .padding(.horizontal, 24)
             .padding(.bottom, 40)
         }

@@ -138,12 +138,12 @@ struct SeasonsView: View {
             EmptySeasonsView {
                 showingCreateSeason = true
             }
-        } else {
+        } else if !listedSeasons.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
-                PPSectionHeader("All Seasons")
+                PPSectionHeader(athlete.activeSeason == nil ? "All Seasons" : "Other Seasons")
                     .padding(.horizontal)
 
-                ForEach(seasons) { season in
+                ForEach(listedSeasons) { season in
                     Button {
                         selectedSeason = season
                     } label: {
@@ -153,6 +153,12 @@ struct SeasonsView: View {
                 }
             }
         }
+    }
+
+    /// The active season already has the hero card above — don't repeat it.
+    private var listedSeasons: [Season] {
+        guard let activeID = athlete.activeSeason?.id else { return seasons }
+        return seasons.filter { $0.id != activeID }
     }
 
     private func updateSeasons() {

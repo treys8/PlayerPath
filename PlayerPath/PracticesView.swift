@@ -314,7 +314,13 @@ struct PracticesView: View {
         .onChange(of: athlete?.practices?.count) { _, _ in viewModel.update(practices: athlete?.practices ?? []) }
         .navigationTitle("Practices")
         .navigationBarTitleDisplayMode(.large)
-        .searchable(text: $viewModel.searchText, placement: .navigationBarDrawer(displayMode: .automatic))
+        // No search bar until there's something to search. Wrapped in a
+        // modifier so only the content's identity flips, not the whole screen
+        // (which would drop the push into a freshly created practice).
+        .modifier(PracticeSearchModifier(
+            isEnabled: !practicesForActiveSport.isEmpty,
+            text: $viewModel.searchText
+        ))
         .toolbar { practicesToolbar }
         .navigationDestination(item: $navigateToPractice) { practice in
             PracticeDetailView(practice: practice)
@@ -498,4 +504,17 @@ struct PracticesView: View {
 
 #Preview {
     PracticesView(athlete: nil)
+}
+
+private struct PracticeSearchModifier: ViewModifier {
+    let isEnabled: Bool
+    @Binding var text: String
+
+    func body(content: Content) -> some View {
+        if isEnabled {
+            content.searchable(text: $text, placement: .navigationBarDrawer(displayMode: .automatic))
+        } else {
+            content
+        }
+    }
 }

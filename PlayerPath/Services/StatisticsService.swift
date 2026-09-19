@@ -244,9 +244,10 @@ final class StatisticsService {
         return formatBattingAverage(value)
     }
 
-    /// Format OPS with 3 decimal places (X.XXX)
+    /// Format OPS baseball-style: ".750" under 1, "1.050" at or above —
+    /// matches the slash line it sits beside.
     func formatOPS(_ value: Double) -> String {
-        return value.formatted(.number.precision(.fractionLength(3)))
+        return formatBattingAverage(value)
     }
 
 }
