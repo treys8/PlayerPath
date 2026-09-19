@@ -106,8 +106,8 @@ struct SeasonsView: View {
 
                 HStack(alignment: .top, spacing: 20) {
                     SeasonStatBadge(
-                        value: activeSeason.completedGames,
-                        label: "\(activeSeason.gameUnitNounPlural) Played",
+                        value: activeSeason.playedGames,
+                        label: activeSeason.gameUnitNounPlural,
                         icon: activeSeason.gameUnitIcon
                     )
                     SeasonStatBadge(
@@ -209,7 +209,7 @@ struct SeasonRow: View {
                 }
 
                 HStack(spacing: 12) {
-                    Label("\(season.completedGames)", systemImage: season.gameUnitIcon)
+                    Label("\(season.playedGames)", systemImage: season.gameUnitIcon)
                         .font(.ppCaption)
                         .foregroundStyle(Theme.textSecondary)
 

@@ -184,6 +184,18 @@ final class Season {
         (games ?? []).filter { $0.isComplete }.count
     }
 
+    /// Games that have happened: finalized, live, or dated in the past but
+    /// never marked complete. Use this for "games played" counts —
+    /// `completedGames` alone reads as data loss when results weren't finalized.
+    var playedGames: Int {
+        let now = Date()
+        return (games ?? []).filter { game in
+            if game.isComplete || game.isLive { return true }
+            guard let date = game.date else { return false }
+            return date <= now
+        }.count
+    }
+
     /// Total videos recorded during this season
     var totalVideos: Int {
         (videoClips ?? []).count

@@ -573,14 +573,6 @@ struct MainTabView: View {
                         Label {
                             HStack {
                                 Text("Coaches")
-                                if authManager.currentTier != .pro {
-                                    Text("PRO")
-                                        .font(.custom("Inter18pt-Bold", size: 11, relativeTo: .caption2))
-                                        .foregroundColor(ppAccent)
-                                        .padding(.horizontal, 5)
-                                        .padding(.vertical, 2)
-                                        .background(Capsule().fill(ppAccent.opacity(0.12)))
-                                }
                             }
                         } icon: {
                             Image(systemName: "person.3.fill")
@@ -591,14 +583,6 @@ struct MainTabView: View {
                         Label {
                             HStack {
                                 Text("Shared Folders")
-                                if authManager.currentTier != .pro {
-                                    Text("PRO")
-                                        .font(.custom("Inter18pt-Bold", size: 11, relativeTo: .caption2))
-                                        .foregroundColor(ppAccent)
-                                        .padding(.horizontal, 5)
-                                        .padding(.vertical, 2)
-                                        .background(Capsule().fill(ppAccent.opacity(0.12)))
-                                }
                                 Spacer()
                                 SharedFoldersBadge()
                             }
