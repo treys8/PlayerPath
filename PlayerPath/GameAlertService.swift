@@ -17,7 +17,12 @@ final class GameAlertService {
     static let shared = GameAlertService()
 
     /// A game is considered "stale" after this duration (default: 3.5 hours).
+    /// Covers baseball/softball games and golf range sessions.
     nonisolated static let staleDuration: TimeInterval = 3.5 * 3600
+
+    /// A golf round (a golf `Game` or a practice round) takes 4–5 hours, so the
+    /// 3.5h game threshold fired mid-round. Rounds get their own, longer window.
+    nonisolated static let golfRoundStaleDuration: TimeInterval = 5.5 * 3600
 
     private init() {}
 
@@ -36,7 +41,8 @@ final class GameAlertService {
 
     // MARK: - Schedule / Cancel
 
-    /// Schedules a local notification to fire after `staleDuration` if the game is never ended.
+    /// Schedules a local notification to fire after `staleDuration` (or
+    /// `golfRoundStaleDuration` for a golf round) if the game is never ended.
     func scheduleEndGameReminder(for game: Game) async {
         // Default true for users who haven't seen the toggle yet — preserves prior behavior.
         let staleEnabled = UserDefaults.standard.object(forKey: NotificationPrefKeys.staleGameReminders) as? Bool ?? true
@@ -45,6 +51,8 @@ final class GameAlertService {
         // Capture @MainActor-isolated model values before async boundary
         let opponentName = game.opponent
         let gameID = game.id
+        // A golf `Game` is a round; `opponent` holds the course name.
+        let isGolf = (game.season?.sport ?? game.athlete?.sportType) == .golf
 
         let center = UNUserNotificationCenter.current()
         let notifID = "stale-game-\(gameID.uuidString)"
@@ -60,13 +68,19 @@ final class GameAlertService {
               settings.authorizationStatus == .provisional else { return }
 
         let content = UNMutableNotificationContent()
-        content.title = "Still playing?"
-        let opponentLabel = opponentName.isEmpty ? "your game" : "vs \(opponentName)"
-        content.body = "Don't forget to end \(opponentLabel) when it's over."
+        if isGolf {
+            content.title = "Still on the course?"
+            let roundLabel = opponentName.isEmpty ? "your round" : "your round at \(opponentName)"
+            content.body = "Don't forget to end \(roundLabel) when it's over."
+        } else {
+            content.title = "Still playing?"
+            let opponentLabel = opponentName.isEmpty ? "your game" : "vs \(opponentName)"
+            content.body = "Don't forget to end \(opponentLabel) when it's over."
+        }
         content.sound = .default
 
         let trigger = UNTimeIntervalNotificationTrigger(
-            timeInterval: GameAlertService.staleDuration,
+            timeInterval: isGolf ? GameAlertService.golfRoundStaleDuration : GameAlertService.staleDuration,
             repeats: false
         )
 
@@ -97,8 +111,9 @@ final class GameAlertService {
             .removePendingNotificationRequests(withIdentifiers: [notifID])
     }
 
-    /// Schedules a local notification to fire after `staleDuration` if a live
-    /// golf practice (round or range session) is never ended. Mirrors
+    /// Schedules a local notification to fire if a live golf practice is never
+    /// ended: `golfRoundStaleDuration` for a practice round, `staleDuration` for
+    /// a range session. Mirrors
     /// `scheduleEndGameReminder`; shares the same settings toggle.
     /// Takes plain values, not the model — callers snapshot Practice fields
     /// synchronously BEFORE any await so a concurrent delete can't invalidate
@@ -133,7 +148,7 @@ final class GameAlertService {
         content.sound = .default
 
         let trigger = UNTimeIntervalNotificationTrigger(
-            timeInterval: GameAlertService.staleDuration,
+            timeInterval: isRound ? GameAlertService.golfRoundStaleDuration : GameAlertService.staleDuration,
             repeats: false
         )
 

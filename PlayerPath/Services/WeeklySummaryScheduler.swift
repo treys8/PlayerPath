@@ -33,17 +33,29 @@ enum WeeklySummaryScheduler {
         /// baseball/softball, where a practice isn't a game.
         let golfPracticeSessions: Int
         let videosThisWeek: Int
-        /// BASEBALL/SOFTBALL ONLY: pre-formatted at snapshot time so this struct
-        /// stays a pure value — nothing here reaches back into a service or a
-        /// `@Model` after the snapshot.
+        /// BASEBALL/SOFTBALL ONLY: the active season's average (not career),
+        /// pre-formatted at snapshot time so this struct stays a pure value —
+        /// nothing here reaches back into a service or a `@Model` after the
+        /// snapshot.
         let battingAverageText: String?
         /// GOLF ONLY: best fully-scored round in the window, with its to-par
         /// when the round carries par data.
         let bestGolfScore: Int?
         let bestGolfToPar: Int?
+        /// The fire time the window was computed against, so the scheduled
+        /// notification and the counted week can't disagree.
+        let fireDate: Date
 
-        /// Notification body. Pure string building over the snapshot, so it is
-        /// safe to read after an await.
+        /// Nothing happened this week. Such weeks are skipped rather than sent
+        /// a "no games logged" nag — for a travel/school athlete that would fire
+        /// every Sunday of the Nov–Jan off-season.
+        var isEmpty: Bool {
+            eventsThisWeek == 0 && golfPracticeSessions == 0 && videosThisWeek == 0
+        }
+
+        /// Notification body, only built for a non-empty week (see `isEmpty`).
+        /// Pure string building over the snapshot, so it is safe to read after
+        /// an await.
         var body: String { isGolf ? golfBody : ballBody }
 
         private var golfBody: String {
@@ -59,20 +71,18 @@ enum WeeklySummaryScheduler {
                 let sessions = "\(golfPracticeSessions) practice session\(golfPracticeSessions == 1 ? "" : "s")"
                 return "You logged \(sessions) this week. Keep the work going!"
             }
-            if videosThisWeek > 0 { return Self.videoText(videosThisWeek) }
-            return "No rounds logged this week. Record your next round to keep your stats up to date!"
+            return Self.videoText(videosThisWeek)
         }
 
         private var ballBody: String {
             if eventsThisWeek > 0 {
                 let games = "\(eventsThisWeek) game\(eventsThisWeek == 1 ? "" : "s")"
                 if let avg = battingAverageText {
-                    return "You logged \(games) this week. Batting \(avg). Keep it up!"
+                    return "You logged \(games) this week. Batting \(avg) this season. Keep it up!"
                 }
                 return "You logged \(games) this week. Open the app to see your stats!"
             }
-            if videosThisWeek > 0 { return Self.videoText(videosThisWeek) }
-            return "No games logged this week. Record your next game to keep your stats up to date!"
+            return Self.videoText(videosThisWeek)
         }
 
         private static func videoText(_ count: Int) -> String {
@@ -113,6 +123,19 @@ enum WeeklySummaryScheduler {
         }
     }
 
+    /// Delivery hour (24h) on Sunday: 8 PM, after bracket-play Sundays wrap up.
+    static let fireHour = 20
+
+    /// Next Sunday at `fireHour`. Single source of truth for both the counted
+    /// window and the scheduled trigger.
+    static func nextFireDate(after now: Date = Date()) -> Date? {
+        var components = DateComponents()
+        components.weekday = 1 // Sunday
+        components.hour = fireHour
+        components.minute = 0
+        return Calendar.current.nextDate(after: now, matching: components, matchingPolicy: .nextTime)
+    }
+
     // MARK: - Private
 
     private static var weeklyStatsEnabled: Bool {
@@ -123,17 +146,13 @@ enum WeeklySummaryScheduler {
     /// Returns nil if the athlete is no longer a live, attached model — touching
     /// a deleted/detached model's relationships would trap inside SwiftData.
     ///
-    /// Window is the 7 days ending at the next Sunday 6 PM fire time, so games
-    /// played late in the week are counted correctly.
+    /// Window is the 7 days ending at the next Sunday `fireHour` fire time, so
+    /// games played late in the week are counted correctly.
     private static func makeSummary(for athlete: Athlete) -> Summary? {
         guard !athlete.isDeleted, athlete.modelContext != nil else { return nil }
 
         let calendar = Calendar.current
-        var fireComponents = DateComponents()
-        fireComponents.weekday = 1 // Sunday
-        fireComponents.hour = 18
-        fireComponents.minute = 0
-        guard let fireDate = calendar.nextDate(after: Date(), matching: fireComponents, matchingPolicy: .nextTime),
+        guard let fireDate = nextFireDate(),
               let windowStart = calendar.date(byAdding: .day, value: -7, to: fireDate) else {
             return nil
         }
@@ -154,7 +173,9 @@ enum WeeklySummaryScheduler {
             .filter { $0 >= windowStart && $0 <= fireDate }.count
 
         var battingAverageText: String?
-        if !isGolf, let avg = athlete.statistics?.battingAverage, avg > 0 {
+        // Season, not career: the sentence sits next to this week's games, so a
+        // career number read as a weekly stat. No active season → no clause.
+        if !isGolf, let avg = athlete.activeSeason?.seasonStatistics?.battingAverage, avg > 0 {
             battingAverageText = StatisticsService.shared.formatBattingAverage(avg)
         }
 
@@ -191,14 +212,24 @@ enum WeeklySummaryScheduler {
             videosThisWeek: videosThisWeek,
             battingAverageText: battingAverageText,
             bestGolfScore: bestGolfScore,
-            bestGolfToPar: bestGolfToPar
+            bestGolfToPar: bestGolfToPar,
+            fireDate: fireDate
         )
     }
 
     private static func send(_ summary: Summary) async {
+        // Empty week: clear any summary queued earlier in the week (its body
+        // could be stale) and send nothing.
+        guard !summary.isEmpty else {
+            PushNotificationService.shared.cancelNotifications(
+                withIdentifiers: ["weekly_summary_\(summary.athleteId)"]
+            )
+            return
+        }
         await PushNotificationService.shared.scheduleWeeklySummary(
             athleteId: summary.athleteId,
-            body: summary.body
+            body: summary.body,
+            fireDate: summary.fireDate
         )
     }
 }

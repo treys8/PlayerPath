@@ -33,7 +33,11 @@ final class InactivityReminderService {
         let enabled = UserDefaults.standard.object(forKey: NotificationPrefKeys.inactivityReminder) as? Bool ?? true
         guard enabled else { return }
 
-        let interval = TimeInterval(Self.inactivityDays * 24 * 3600)
+        // 7 PM on the target day (NotificationTiming) rather than the clock time
+        // of the last open, so it never lands mid-school-day or late at night.
+        guard let fireDate = NotificationTiming.evening(daysFromNow: Self.inactivityDays) else { return }
+        let interval = fireDate.timeIntervalSinceNow
+        guard interval > 0 else { return }
         _ = await PushNotificationService.shared.scheduleLocalNotification(
             identifier: Self.notifID,
             title: "We miss you!",

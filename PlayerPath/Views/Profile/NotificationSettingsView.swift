@@ -136,7 +136,9 @@ struct NotificationSettingsView: View {
                 } header: {
                     Text("\(eventNoun) Notifications")
                 } footer: {
-                    Text("End-of-\(eventNoun) Reminder fires 3.5 hours after a \(eventNoun.lowercased()) starts if it hasn't been ended.")
+                    Text(isGolfAthlete
+                         ? "End-of-Round Reminder fires 5.5 hours after a round starts if it hasn't been ended."
+                         : "End-of-\(eventNoun) Reminder fires 3.5 hours after a \(eventNoun.lowercased()) starts if it hasn't been ended.")
                 }
                 .disabled(authorizationStatus == .denied)
             }
@@ -210,7 +212,7 @@ struct NotificationSettingsView: View {
                 } header: {
                     Text("Statistics")
                 } footer: {
-                    Text("Weekly summary delivers every Sunday at 6 PM.")
+                    Text("Weekly summary arrives Sunday at 8 PM when you've logged games or clips that week.")
                 }
                 .disabled(authorizationStatus == .denied)
             }

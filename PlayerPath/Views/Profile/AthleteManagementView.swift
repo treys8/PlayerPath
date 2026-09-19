@@ -85,7 +85,7 @@ func performDeleteAthlete(_ athlete: Athlete, selectedAthlete: Binding<Athlete?>
     }
 
     // Cancel scheduled local notifications keyed by athlete UUID. Without this
-    // the Sunday 6 PM weekly summary keeps firing for a deleted athlete until
+    // the Sunday 8 PM weekly summary keeps firing for a deleted athlete until
     // the user reinstalls (WeeklySummaryScheduler.scheduleAll only adds, never
     // sweeps stale identifiers).
     let weeklySummaryNotifID = "weekly_summary_\(athleteID.uuidString)"

@@ -461,31 +461,22 @@ final class PushNotificationService: NSObject, ObservableObject {
         await scheduleReviewReminder(hour: hour, minute: minute)
     }
 
-    /// Schedule the weekly performance summary. Uses a one-shot trigger for next
-    /// Sunday 6 PM so stats stay fresh when re-scheduled on each app foreground.
+    /// Schedule the weekly performance summary as a one-shot trigger at
+    /// `fireDate` (next Sunday 8 PM, from `WeeklySummaryScheduler.nextFireDate`)
+    /// so stats stay fresh when re-scheduled on each app foreground.
     ///
-    /// `body` is built by `WeeklySummaryScheduler`, which owns the sport-aware
-    /// copy — golf gets rounds + best score, baseball/softball gets games +
-    /// batting average. Same split as `ClipTaggingReminderService`: the domain
-    /// service words it, this layer only schedules it.
-    func scheduleWeeklySummary(athleteId: String, body: String) async {
+    /// `body` and `fireDate` come from `WeeklySummaryScheduler`, which owns the
+    /// sport-aware copy — golf gets rounds + best score, baseball/softball gets
+    /// games + batting average — and the counted window. Same split as
+    /// `ClipTaggingReminderService`: the domain service words it, this layer
+    /// only schedules it.
+    func scheduleWeeklySummary(athleteId: String, body: String, fireDate: Date) async {
         guard canScheduleNotifications else { return }
 
         // Cancel any existing weekly summary so we replace it with fresh stats
         cancelNotifications(withIdentifiers: ["weekly_summary_\(athleteId)"])
 
-        // Find next Sunday at 6 PM
-        let calendar = Calendar.current
-        var dateComponents = DateComponents()
-        dateComponents.weekday = 1 // Sunday
-        dateComponents.hour = 18
-        dateComponents.minute = 0
-
-        guard let nextSunday = calendar.nextDate(after: Date(), matching: dateComponents, matchingPolicy: .nextTime) else {
-            return
-        }
-
-        let triggerComponents = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: nextSunday)
+        let triggerComponents = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: fireDate)
         let trigger = UNCalendarNotificationTrigger(dateMatching: triggerComponents, repeats: false)
 
         let success = await scheduleLocalNotification(

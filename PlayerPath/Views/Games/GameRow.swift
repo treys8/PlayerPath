@@ -57,6 +57,12 @@ struct GameRow: View {
 
         private var isGolf: Bool { game.season?.sport == .golf }
 
+        /// Mirrors GamesViewModel's `pastGames` bucket.
+        private var needsResults: Bool {
+            guard !game.isLive, !game.isComplete, let date = game.date else { return false }
+            return date <= Date()
+        }
+
         var body: some View {
             if isGolf, let score = game.effectiveTotalScore {
                 VStack(alignment: .trailing, spacing: 2) {
@@ -103,6 +109,12 @@ struct GameRow: View {
                         .monospacedDigit()
                         .foregroundStyle(Theme.textSecondary)
                 }
+            } else if needsResults {
+                // Past but never finalized (GamesView's "Needs Results") —
+                // say what the row is waiting on instead of leaving it blank.
+                Text(isGolf ? "Add score" : "Add result")
+                    .font(.ppCaption)
+                    .foregroundStyle(Theme.textTertiary)
             }
         }
     }

@@ -3,12 +3,12 @@
 //  PlayerPath
 //
 //  Behavioral nudge #1: after a game/round ends with untagged clips, schedule a
-//  one-shot local notification for the next morning reminding the athlete to tag
-//  them so stats + highlights stay accurate. Mirrors `GameAlertService`'s
+//  one-shot local notification for that evening (see `NotificationTiming`)
+//  reminding the athlete to tag them so stats + highlights stay accurate. Mirrors `GameAlertService`'s
 //  conditional-scheduling template — fully local (no Firestore, no badge feed).
 //
 //  Dedup: per-event identifier `clip-tagging-<eventID>`. Coalesce: at most one
-//  clip-tag nudge per target morning, app-wide, via a "last target day" stamp —
+//  clip-tag nudge per target evening, app-wide, via a "last target day" stamp —
 //  so a multi-game day produces one nudge, not three.
 //
 
@@ -25,11 +25,7 @@ final class ClipTaggingReminderService {
     /// clip-tag nudge by scanning for this prefix.
     static let idPrefix = "clip-tagging-"
 
-    /// Hour of the morning the nudge fires (24h). Lives here as the single tunable
-    /// — a reviewer can drop it to a near-future minute to verify delivery.
-    private static let fireHour = 9
-
-    /// UserDefaults stamp of the last morning we already queued a clip-tag nudge
+    /// UserDefaults stamp of the last evening we already queued a clip-tag nudge
     /// for. Drives the one-app-wide-nudge-per-day coalesce.
     private static let lastTargetDayKey = "notif_clipTagNudgeLastTargetDay"
 
@@ -48,10 +44,10 @@ final class ClipTaggingReminderService {
         let enabled = UserDefaults.standard.object(forKey: NotificationPrefKeys.clipTaggingReminder) as? Bool ?? true
         guard enabled else { return }
 
-        guard let fireDate = Self.nextMorning() else { return }
+        guard let fireDate = NotificationTiming.eveningFireDate() else { return }
         let targetDay = Self.dayStamp(fireDate)
 
-        // Coalesce: if we already queued a clip-tag nudge for this morning, stop.
+        // Coalesce: if we already queued a clip-tag nudge for this evening, stop.
         if UserDefaults.standard.string(forKey: Self.lastTargetDayKey) == targetDay { return }
         // Reserve the day SYNCHRONOUSLY before the await below so a second
         // near-simultaneous end() (e.g. a doubleheader: end round 1, immediately
@@ -142,16 +138,7 @@ final class ClipTaggingReminderService {
 
     // MARK: - Helpers
 
-    /// The next occurrence of `fireHour:00` strictly after now (today if it's
-    /// still before the hour, otherwise tomorrow).
-    private static func nextMorning() -> Date? {
-        var comps = DateComponents()
-        comps.hour = fireHour
-        comps.minute = 0
-        return Calendar.current.nextDate(after: Date(), matching: comps, matchingPolicy: .nextTime)
-    }
-
-    /// A calendar-day key ("2026-6-25") used to coalesce nudges by target morning.
+    /// A calendar-day key ("2026-6-25") used to coalesce nudges by target evening.
     private static func dayStamp(_ date: Date) -> String {
         let c = Calendar.current.dateComponents([.year, .month, .day], from: date)
         return "\(c.year ?? 0)-\(c.month ?? 0)-\(c.day ?? 0)"

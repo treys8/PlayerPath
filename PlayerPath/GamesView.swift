@@ -309,7 +309,7 @@ struct GamesView: View {
         // Tournaments Section (golf only) — multi-round containers above the
         // standalone rounds. Sorted newest-first by the @Query (SchemaV27).
         if isGolf && !visibleTournaments.isEmpty {
-            Section("Tournaments") {
+            Section(header: sectionHeader("Tournaments")) {
                 ForEach(visibleTournaments) { tournament in
                     NavigationLink(destination: TournamentDetailView(tournament: tournament)) {
                         TournamentRow(tournament: tournament)
@@ -320,7 +320,7 @@ struct GamesView: View {
 
         // Live Games Section
         if !cachedLiveGames.isEmpty {
-            Section("Live") {
+            Section(header: sectionHeader("Live")) {
                 ForEach(cachedLiveGames) { game in
                     gameNavigationRow(game)
                     .swipeActions(edge: .trailing) {
@@ -341,7 +341,7 @@ struct GamesView: View {
         
         // Upcoming Games Section
         if !cachedUpcomingGames.isEmpty {
-            Section("Upcoming") {
+            Section(header: sectionHeader("Upcoming")) {
                 ForEach(cachedUpcomingGames) { game in
                     gameNavigationRow(game)
                     .swipeActions(edge: .trailing) {
@@ -370,7 +370,7 @@ struct GamesView: View {
 
         // Past Games Section (games that happened but weren't marked as complete)
         if !cachedPastGames.isEmpty {
-            Section(isGolf ? "Needs Scores" : "Needs Results") {
+            Section(header: sectionHeader(isGolf ? "Needs Scores" : "Needs Results")) {
                 ForEach(cachedPastGames) { game in
                     gameNavigationRow(game)
                     .swipeActions(edge: .trailing) {
@@ -400,7 +400,7 @@ struct GamesView: View {
         // Completed Games — single section under threshold, per-month sections at scale
         if !cachedCompletedGames.isEmpty {
             ForEach(completedSections, id: \.label) { bucket in
-                Section(bucket.label) {
+                Section(header: sectionHeader(bucket.label)) {
                     ForEach(bucket.games) { game in
                         gameNavigationRow(game)
                         .onAppear {
@@ -429,6 +429,11 @@ struct GamesView: View {
     /// chevron (the double-chevron bug). A Button gets no such chevron, and the
     /// whole card stays one actionable, well-labeled element for VoiceOver (GameRow
     /// already combines its children).
+    /// Small-caps overline — same voice as the Journal's month headers.
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title).smallCapsLabel()
+    }
+
     private func gameNavigationRow(_ game: Game) -> some View {
         Button {
             selectedGame = game

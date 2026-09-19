@@ -244,7 +244,7 @@ struct AuthenticatedFlow: View {
                     }
 
                     // Reschedule weekly summaries on launch. The scheduler uses a
-                    // one-shot UNCalendarNotificationTrigger for next Sunday 6pm —
+                    // one-shot UNCalendarNotificationTrigger for next Sunday 8pm —
                     // if the app was killed before it fired, iOS won't re-enqueue
                     // the next week's, so we must rebuild here.
                     if let user = currentUser {
