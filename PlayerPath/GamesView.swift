@@ -527,7 +527,9 @@ struct GamesView: View {
                 }
 
                 if hasGames {
-                    ToolbarItem(placement: .topBarTrailing) {
+                    // Leading, not trailing: three trailing items leave iOS no room to
+                    // center the principal athlete switcher, so it drifted left here.
+                    ToolbarItem(placement: .topBarLeading) {
                         seasonFilterMenu
                     }
 
