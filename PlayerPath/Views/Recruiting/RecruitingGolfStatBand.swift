@@ -52,7 +52,7 @@ struct RecruitingGolfStatBand: View {
     private func grid(_ items: [RecruitingStatItem]) -> some View {
         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
             ForEach(items, id: \.kind) { item in
-                CompactStatChip(data: .init(label: item.label, value: item.value, color: item.kind.chipColor))
+                CompactStatChip(data: .init(label: item.label, value: item.value))
             }
         }
     }

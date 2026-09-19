@@ -29,28 +29,24 @@ struct KeyStatsSection: View {
                 StatCard(
                     title: "Batting Average",
                     value: StatisticsService.shared.formatBattingAverage(statistics.battingAverage),
-                    color: .blue,
                     subtitle: "\(statistics.hits)/\(statistics.atBats)"
                 )
 
                 StatCard(
                     title: "On-Base %",
                     value: StatisticsService.shared.formatPercentage(statistics.onBasePercentage),
-                    color: .green,
                     subtitle: "Walks: \(statistics.walks)"
                 )
 
                 StatCard(
                     title: "Slugging %",
                     value: StatisticsService.shared.formatBattingAverage(statistics.sluggingPercentage),
-                    color: .orange,
                     subtitle: "Total Bases"
                 )
 
                 StatCard(
                     title: "Games Played",
                     value: "\(statistics.totalGames)",
-                    color: .purple,
                     subtitle: seasonLabel ?? "Career"
                 )
             }
@@ -63,96 +59,48 @@ struct KeyStatsSection: View {
     }
 }
 
+/// One labeled stat in a calm card: neutral value, small-caps label, the
+/// standard `ppCard` surface. No per-stat hue — the overhaul rule is one
+/// accent app-wide, and a colored value implies good/bad (a red 0.00 ERA read
+/// as bad when it's perfect).
 struct StatCard: View {
     let title: String
     let value: String
-    let color: Color
     let subtitle: String?
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    @State private var isAnimating = false
 
-    init(title: String, value: String, color: Color, subtitle: String? = nil) {
+    init(title: String, value: String, subtitle: String? = nil) {
         self.title = title
         self.value = value
-        self.color = color
         self.subtitle = subtitle
     }
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 6) {
             Text(title)
-                .font(.labelMedium)
-                .foregroundColor(.secondary)
+                .smallCapsLabel(color: Theme.textTertiary)
                 .multilineTextAlignment(.center)
-                .textCase(.uppercase)
-                .tracking(0.5)
 
             Text(value)
                 .font(.ppStatMedium)
-                .foregroundStyle(
-                    LinearGradient(
-                        colors: [color, color.opacity(0.7)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
+                .foregroundStyle(Theme.textPrimary)
+                .monospacedDigit()
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .minimumScaleFactor(0.7)
-                .scaleEffect(isAnimating ? 1.0 : 0.8)
-                .opacity(isAnimating ? 1.0 : 0)
 
             if let subtitle = subtitle {
                 Text(subtitle)
-                    .font(.labelSmall)
-                    .foregroundColor(.secondary)
+                    .font(.ppCaption)
+                    .foregroundStyle(Theme.textSecondary)
             }
         }
         .frame(height: horizontalSizeClass == .regular ? 120 : 100)
         .frame(maxWidth: .infinity)
         .padding(horizontalSizeClass == .regular ? 16 : 12)
-        .background(
-            ZStack {
-                // Base background
-                RoundedRectangle(cornerRadius: .cornerXLarge, style: .continuous)
-                    .fill(Theme.card)
-
-                // Subtle top gradient accent
-                RoundedRectangle(cornerRadius: .cornerXLarge, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [color.opacity(0.1), .clear],
-                            startPoint: .top,
-                            endPoint: .center
-                        )
-                    )
-
-                // Top accent line
-                VStack {
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(
-                            LinearGradient(
-                                colors: [color, color.opacity(0.5)],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                        )
-                        .frame(height: 3)
-                        .padding(.horizontal, 20)
-                        .padding(.top, 8)
-                    Spacer()
-                }
-            }
-        )
-        .shadow(color: color.opacity(0.1), radius: 8, x: 0, y: 4)
-        .shadow(color: .black.opacity(0.05), radius: 2, x: 0, y: 1)
+        .ppCard()
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(title), \(value)\(subtitle.map { ", \($0)" } ?? "")")
-        .onAppear {
-            withAnimation(.spring(response: 0.6, dampingFraction: 0.7).delay(0.1)) {
-                isAnimating = true
-            }
-        }
     }
 }

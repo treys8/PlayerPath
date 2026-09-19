@@ -95,7 +95,7 @@ struct RecruitingProfileView: View {
             Text("Measurables").font(.headingMedium)
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
                 ForEach(info.measurableItems, id: \.kind) { item in
-                    CompactStatChip(data: .init(label: item.label, value: item.value, color: .brandNavy))
+                    CompactStatChip(data: .init(label: item.label, value: item.value))
                 }
             }
             Text("Self-reported by the athlete.")

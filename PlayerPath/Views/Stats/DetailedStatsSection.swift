@@ -27,33 +27,27 @@ struct DetailedStatsSection: View {
             LazyVGrid(columns: columns, spacing: 12) {
                 CompactStatChip(data: CompactStatData(
                     label: "At Bats",
-                    value: "\(statistics.atBats)",
-                    color: .blue
+                    value: "\(statistics.atBats)"
                 ))
                 CompactStatChip(data: CompactStatData(
                     label: "Hits",
-                    value: "\(statistics.hits)",
-                    color: .green
+                    value: "\(statistics.hits)"
                 ))
                 CompactStatChip(data: CompactStatData(
                     label: "Ground Outs",
-                    value: "\(statistics.groundOuts)",
-                    color: .brown
+                    value: "\(statistics.groundOuts)"
                 ))
                 CompactStatChip(data: CompactStatData(
                     label: "Fly Outs",
-                    value: "\(statistics.flyOuts)",
-                    color: .cyan
+                    value: "\(statistics.flyOuts)"
                 ))
                 CompactStatChip(data: CompactStatData(
                     label: "ISO",
-                    value: StatisticsService.shared.formatPercentage(statistics.isolatedPower),
-                    color: .gold
+                    value: StatisticsService.shared.formatPercentage(statistics.isolatedPower)
                 ))
                 CompactStatChip(data: CompactStatData(
                     label: "Contact %",
-                    value: StatisticsService.shared.formatPercentage(statistics.contactPercentage),
-                    color: .mint
+                    value: StatisticsService.shared.formatPercentage(statistics.contactPercentage)
                 ))
             }
             .opacity(isVisible ? 1 : 0)

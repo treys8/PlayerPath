@@ -143,32 +143,41 @@ struct StatisticsView: View {
                         PPAthleteSwitcher(athlete: athlete)
                     }
                 }
-                if statistics != nil {
-                    // View Charts button — baseball/softball-only (StatisticsChartsView
-                    // is hard-coded to batting/pitching metrics).
-                    if !isGolf {
-                        ToolbarItem(placement: .topBarLeading) {
+                // Charts (+ Compare Seasons for Plus) — one leading control.
+                // Two near-identical chart glyphs side by side were unreadable,
+                // so Plus users get a menu; everyone else a single button.
+                // Baseball gates on AthleteStatistics; golf has none, so it
+                // gates on real scored rounds. Charts free, comparison Plus.
+                if isGolf ? hasGolfRounds : statistics != nil {
+                    ToolbarItem(placement: .topBarLeading) {
+                        if currentTier >= .plus {
+                            Menu {
+                                Button {
+                                    showingCharts = true
+                                } label: {
+                                    Label("View Charts", systemImage: "chart.xyaxis.line")
+                                }
+                                Button {
+                                    showingSeasonComparison = true
+                                } label: {
+                                    Label("Compare Seasons", systemImage: "arrow.left.arrow.right")
+                                }
+                            } label: {
+                                Label("Charts", systemImage: "chart.xyaxis.line")
+                            }
+                            .accessibilityLabel("Charts and season comparison")
+                        } else {
                             Button {
                                 showingCharts = true
                             } label: {
                                 Label("View Charts", systemImage: "chart.xyaxis.line")
                             }
-                            .accessibilityLabel("View performance charts")
+                            .accessibilityLabel(isGolf ? "View golf charts" : "View performance charts")
                         }
                     }
+                }
 
-                    // Compare seasons button (Plus+) — also batting-only.
-                    if currentTier >= .plus && !isGolf {
-                        ToolbarItem(placement: .topBarLeading) {
-                            Button {
-                                showingSeasonComparison = true
-                            } label: {
-                                Label("Compare Seasons", systemImage: "chart.line.uptrend.xyaxis")
-                            }
-                            .accessibilityLabel("Compare seasons")
-                        }
-                    }
-
+                if statistics != nil {
                     // Season filter
                     if !availableSeasons.isEmpty {
                         ToolbarItem(placement: .topBarTrailing) {
@@ -177,32 +186,6 @@ struct StatisticsView: View {
                                 availableSeasons: availableSeasons,
                                 showNoSeasonOption: false
                             )
-                        }
-                    }
-                }
-
-                // Golf charts + comparison. Golf has no AthleteStatistics, so
-                // these can't live in the `statistics != nil` block above and
-                // gate on real scored rounds instead. Charts are free (parity
-                // with baseball's free charts); comparison stays Plus-gated.
-                if isGolf && hasGolfRounds {
-                    ToolbarItem(placement: .topBarLeading) {
-                        Button {
-                            showingCharts = true
-                        } label: {
-                            Label("View Charts", systemImage: "chart.xyaxis.line")
-                        }
-                        .accessibilityLabel("View golf charts")
-                    }
-
-                    if currentTier >= .plus {
-                        ToolbarItem(placement: .topBarLeading) {
-                            Button {
-                                showingSeasonComparison = true
-                            } label: {
-                                Label("Compare Seasons", systemImage: "chart.line.uptrend.xyaxis")
-                            }
-                            .accessibilityLabel("Compare golf seasons")
                         }
                     }
                 }

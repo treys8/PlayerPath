@@ -296,6 +296,10 @@ extension PlayResultAccumulator {
             || pitchingStrikeouts > 0 || pitchingWalks > 0 || hitsAllowed > 0
     }
 
+    /// Rate stats (ERA / WHIP / K-9 / BB-9) need a real sample — at least one
+    /// full inning. Below that, one out yields "27.0 K-9", which is noise.
+    var hasPitchingRateSample: Bool { outsRecorded >= 3 }
+
     /// Innings pitched as a true decimal (outs ÷ 3) — used for ERA/WHIP math.
     var inningsPitched: Double {
         Double(outsRecorded) / 3.0

@@ -14,10 +14,9 @@ struct PitchingHeroCard: View {
     let statistics: AthleteStatistics
     var label: String = "Pitching Line"
 
-    /// Rates are only meaningful once at least one out is recorded; otherwise
-    /// they read as "—" rather than a misleading 0.00 / ∞ (matches the guard
-    /// in PitchingStatsSection).
-    private var hasIP: Bool { statistics.outsRecorded > 0 }
+    /// Rates read as "—" until there's a full inning — otherwise one out shows
+    /// a misleading 0.00 / 27.0 (same guard as PitchingStatsSection).
+    private var hasIP: Bool { statistics.hasPitchingRateSample }
     private var eraText: String { hasIP ? String(format: "%.2f", statistics.era) : "—" }
     private var whipText: String { hasIP ? String(format: "%.2f", statistics.whip) : "—" }
     private var kPer9Text: String { hasIP ? String(format: "%.1f", statistics.strikeoutsPer9) : "—" }

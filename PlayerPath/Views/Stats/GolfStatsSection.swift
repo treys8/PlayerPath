@@ -250,11 +250,11 @@ struct GolfStatsSection: View {
 
     private func detailedGrid(_ s: GolfAdvancedStats) -> some View {
         var chips: [CompactStatData] = []
-        if let g = s.girPct { chips.append(.init(label: "GIR", value: pctString(g), color: .green)) }
-        if let f = s.firPct { chips.append(.init(label: "Fairways", value: pctString(f), color: .brandNavy)) }
-        if let p = s.puttsPerRound { chips.append(.init(label: "Putts / Rnd", value: oneDecimal(p), color: .brandNavy)) }
-        if let sc = s.scramblingPct { chips.append(.init(label: "Scrambling", value: pctString(sc), color: .mint)) }
-        if let pen = s.penaltiesPerRound { chips.append(.init(label: "Penalties / Rnd", value: oneDecimal(pen), color: Theme.warning)) }
+        if let g = s.girPct { chips.append(.init(label: "GIR", value: pctString(g))) }
+        if let f = s.firPct { chips.append(.init(label: "Fairways", value: pctString(f))) }
+        if let p = s.puttsPerRound { chips.append(.init(label: "Putts / Rnd", value: oneDecimal(p))) }
+        if let sc = s.scramblingPct { chips.append(.init(label: "Scrambling", value: pctString(sc))) }
+        if let pen = s.penaltiesPerRound { chips.append(.init(label: "Penalties / Rnd", value: oneDecimal(pen))) }
         return VStack(alignment: .leading, spacing: 8) {
             Text("Detailed")
                 .font(.headingMedium)
@@ -291,14 +291,13 @@ struct GolfStatsSection: View {
         var chips: [CompactStatData] = []
         if s.teeMisses > 0 {
             chips.append(.init(label: "Tee Miss",
-                               value: "L\(s.teeMissLeft) · R\(s.teeMissRight)",
-                               color: Theme.warning))
+                               value: "L\(s.teeMissLeft) · R\(s.teeMissRight)"))
         }
         if let dir = s.dominantApproachMiss {
-            chips.append(.init(label: "Approach Miss", value: dir, color: Theme.warning))
+            chips.append(.init(label: "Approach Miss", value: dir))
         }
         if let ss = s.sandSavePct {
-            chips.append(.init(label: "Sand Saves", value: pctString(ss), color: Theme.golfAccent))
+            chips.append(.init(label: "Sand Saves", value: pctString(ss)))
         }
         return chips
     }

@@ -35,15 +35,20 @@ struct PitchingStatsSection: View {
         return "\(count) fastball\(count == 1 ? "" : "s")"
     }
 
+    private var battersFacedSubtitle: String? {
+        let count = statistics.battersFaced
+        guard count > 0 else { return nil }
+        return "\(count) batter\(count == 1 ? "" : "s") faced"
+    }
+
     private var avgOffspeedSubtitle: String {
         let count = statistics.offspeedPitchCount
         guard count > 0 else { return "No off-speed yet" }
         return "\(count) off-speed"
     }
 
-    private var hasIP: Bool { statistics.outsRecorded > 0 }
-    private var eraText: String { hasIP ? String(format: "%.2f", statistics.era) : "—" }
-    private var whipText: String { hasIP ? String(format: "%.2f", statistics.whip) : "—" }
+    /// Same full-inning guard as PitchingHeroCard.
+    private var hasIP: Bool { statistics.hasPitchingRateSample }
     private var kPer9Text: String { hasIP ? String(format: "%.1f", statistics.strikeoutsPer9) : "—" }
     private var bbPer9Text: String { hasIP ? String(format: "%.1f", statistics.walksPer9) : "—" }
     private var kbbText: String {
@@ -55,6 +60,8 @@ struct PitchingStatsSection: View {
         VStack(alignment: .leading, spacing: 15) {
             // "The Numbers." hero — mirrors the batting StatsHeroCard so the
             // Pitching tab opens with the same editorial slash line + grid.
+            // Everything below adds what the hero doesn't show (pitch counts,
+            // velocity, mix, rates) — never repeat a hero number here.
             PitchingHeroCard(statistics: statistics, label: label)
 
             SectionHeader(title: "Pitching Statistics", icon: "figure.baseball")
@@ -63,29 +70,9 @@ struct PitchingStatsSection: View {
 
             LazyVGrid(columns: topCardColumns, spacing: 15) {
                 StatCard(
-                    title: "ERA",
-                    value: eraText,
-                    color: .red,
-                    subtitle: hasIP ? "\(statistics.earnedRuns) ER" : "No innings yet"
-                )
-                StatCard(
-                    title: "WHIP",
-                    value: whipText,
-                    color: Theme.warning,
-                    subtitle: hasIP ? nil : "No innings yet"
-                )
-                StatCard(
-                    title: "Innings Pitched",
-                    value: statistics.inningsPitchedDisplay,
-                    color: .green,
-                    subtitle: "\(statistics.battersFaced) batters faced"
-                )
-
-                StatCard(
                     title: "Total Pitches",
                     value: "\(statistics.totalPitches)",
-                    color: .purple,
-                    subtitle: nil
+                    subtitle: battersFacedSubtitle
                 )
 
                 Button {
@@ -98,7 +85,6 @@ struct PitchingStatsSection: View {
                         value: statistics.fastballPitchCount > 0
                             ? String(format: "%.1f", statistics.averageFastballSpeed)
                             : "—",
-                        color: .green,
                         subtitle: avgFBSubtitle
                     )
                 }
@@ -115,7 +101,6 @@ struct PitchingStatsSection: View {
                         value: statistics.offspeedPitchCount > 0
                             ? String(format: "%.1f", statistics.averageOffspeedSpeed)
                             : "—",
-                        color: .orange,
                         subtitle: avgOffspeedSubtitle
                     )
                 }
@@ -131,74 +116,40 @@ struct PitchingStatsSection: View {
             LazyVGrid(columns: chipColumns, spacing: 12) {
                 CompactStatChip(data: CompactStatData(
                     label: "Strikes",
-                    value: "\(statistics.strikes)",
-                    color: .green
+                    value: "\(statistics.strikes)"
                 ))
                 CompactStatChip(data: CompactStatData(
                     label: "Balls",
-                    value: "\(statistics.balls)",
-                    color: .orange
-                ))
-                CompactStatChip(data: CompactStatData(
-                    label: "Strikeouts",
-                    value: "\(statistics.pitchingStrikeouts)",
-                    color: .red
-                ))
-                CompactStatChip(data: CompactStatData(
-                    label: "Walks",
-                    value: "\(statistics.pitchingWalks)",
-                    color: .cyan
+                    value: "\(statistics.balls)"
                 ))
                 CompactStatChip(data: CompactStatData(
                     label: "Hit By Pitch",
-                    value: "\(statistics.hitByPitches)",
-                    color: .pink
+                    value: "\(statistics.hitByPitches)"
                 ))
                 CompactStatChip(data: CompactStatData(
                     label: "Wild Pitches",
-                    value: "\(statistics.wildPitches)",
-                    color: .yellow
+                    value: "\(statistics.wildPitches)"
                 ))
                 CompactStatChip(data: CompactStatData(
                     label: "Strike %",
-                    value: StatisticsService.shared.formatPercentage(statistics.strikePercentage),
-                    color: .purple
-                ))
-                CompactStatChip(data: CompactStatData(
-                    label: "Hits Allowed",
-                    value: "\(statistics.hitsAllowed)",
-                    color: .red
-                ))
-                CompactStatChip(data: CompactStatData(
-                    label: "HR Allowed",
-                    value: "\(statistics.homeRunsAllowed)",
-                    color: .red
-                ))
-                CompactStatChip(data: CompactStatData(
-                    label: "Earned Runs",
-                    value: "\(statistics.earnedRuns)",
-                    color: Theme.warning
+                    value: StatisticsService.shared.formatPercentage(statistics.strikePercentage)
                 ))
                 CompactStatChip(data: CompactStatData(
                     label: "K / 9",
-                    value: kPer9Text,
-                    color: .green
+                    value: kPer9Text
                 ))
                 CompactStatChip(data: CompactStatData(
                     label: "BB / 9",
-                    value: bbPer9Text,
-                    color: .cyan
+                    value: bbPer9Text
                 ))
                 CompactStatChip(data: CompactStatData(
                     label: "K / BB",
-                    value: kbbText,
-                    color: .brandNavy
+                    value: kbbText
                 ))
                 if let oppAvg = statistics.opponentAverage {
                     CompactStatChip(data: CompactStatData(
                         label: "Opp AVG",
-                        value: StatisticsService.shared.formatBattingAverage(oppAvg),
-                        color: .pink
+                        value: StatisticsService.shared.formatBattingAverage(oppAvg)
                     ))
                 }
             }
