@@ -21,22 +21,22 @@ struct VideoFilterBar: View {
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: .spacingSmall) {
-                VideoFilterChip(icon: "square.grid.2x2", title: "All", isSelected: !filter.isActive) {
+                VideoFilterChip(title: "All", isSelected: !filter.isActive) {
                     withAnimation { filter = VideoClipFilter() }
                     Haptics.light()
                 }
 
-                VideoFilterChip(icon: "star.fill", title: "Highlights", isSelected: filter.highlightsOnly) {
+                VideoFilterChip(title: "Highlights", isSelected: filter.highlightsOnly) {
                     withAnimation { filter.highlightsOnly.toggle() }
                     Haptics.light()
                 }
 
-                VideoFilterChip(icon: "text.bubble.fill", title: "Coach", isSelected: filter.coachFeedbackOnly) {
+                VideoFilterChip(title: "Coach", isSelected: filter.coachFeedbackOnly) {
                     withAnimation { filter.coachFeedbackOnly.toggle() }
                     Haptics.light()
                 }
 
-                VideoFilterChip(icon: "tag.slash", title: "Untagged", isSelected: filter.untaggedOnly) {
+                VideoFilterChip(title: "Untagged", isSelected: filter.untaggedOnly) {
                     withAnimation { filter.untaggedOnly.toggle() }
                     Haptics.light()
                 }
@@ -80,7 +80,7 @@ struct VideoFilterBar: View {
                 }
             }
         } label: {
-            VideoFilterChipLabel(icon: "baseball", title: filter.result.label ?? "Result",
+            VideoFilterChipLabel(title: filter.result.label ?? "Result",
                             isSelected: filter.result != .any, showsChevron: true)
         }
     }
@@ -108,7 +108,7 @@ struct VideoFilterBar: View {
                 }
             }
         } label: {
-            VideoFilterChipLabel(icon: "figure.golf", title: filter.club.label ?? "Club",
+            VideoFilterChipLabel(title: filter.club.label ?? "Club",
                             isSelected: filter.club != .any, showsChevron: true)
         }
     }
@@ -127,8 +127,7 @@ struct VideoFilterBar: View {
                 menuRow(opponent, active: filter.opponent == opponent) { setOpponent(opponent) }
             }
         } label: {
-            VideoFilterChipLabel(icon: "person.2.fill",
-                            title: filter.opponent.map { "vs \($0)" } ?? "Opponent",
+            VideoFilterChipLabel(title: filter.opponent.map { "vs \($0)" } ?? "Opponent",
                             isSelected: filter.opponent != nil, showsChevron: true)
         }
     }
@@ -154,18 +153,15 @@ struct VideoFilterBar: View {
 
 // MARK: - Chip primitives
 
-/// Visual capsule used by both toggle chips and menu-label chips. Mirrors the
-/// retired `uploadStatusFilterPicker` styling so the bar looks unchanged.
+/// Visual capsule used by both toggle chips and menu-label chips. Text-only to
+/// match `PPFilterPill` (Journal / Photos); menu chips add a chevron.
 private struct VideoFilterChipLabel: View {
-    let icon: String
     let title: String
     let isSelected: Bool
     var showsChevron: Bool = false
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(systemName: icon)
-                .font(.caption)
             Text(title)
                 .font(.ppCallout)
             if showsChevron {
@@ -184,14 +180,13 @@ private struct VideoFilterChipLabel: View {
 }
 
 private struct VideoFilterChip: View {
-    let icon: String
     let title: String
     let isSelected: Bool
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            VideoFilterChipLabel(icon: icon, title: title, isSelected: isSelected)
+            VideoFilterChipLabel(title: title, isSelected: isSelected)
         }
         .buttonStyle(.plain)
     }

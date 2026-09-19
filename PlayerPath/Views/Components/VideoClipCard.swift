@@ -106,11 +106,13 @@ struct VideoClipCard: View {
                             if let speed = video.pitchSpeed, speed > 0 {
                                 Text("\(Int(speed)) MPH")
                                     .font(.custom("Inter18pt-SemiBold", size: 11, relativeTo: .caption2))
-                                    .foregroundColor(.white)
+                                    .foregroundColor(ppAccent)
                                     .lineLimit(1)
                                     .fixedSize(horizontal: true, vertical: false)
                                     .badgeMedium()
-                                    .background(ppAccent, in: Capsule())
+                                    // Tinted, not filled — speed is supporting
+                                    // detail and shouldn't outshout the result.
+                                    .background(ppAccent.opacity(0.12), in: Capsule())
                             }
 
                             Spacer(minLength: 4)

@@ -526,7 +526,7 @@ struct MainTabView: View {
                                 }
                             }
                         } icon: {
-                            Image(systemName: "star.fill")
+                            Image(systemName: "star")
                         }
                         .foregroundColor(.primary)
                     }
@@ -563,7 +563,7 @@ struct MainTabView: View {
                                         .lineLimit(1)
                                 }
                             } icon: {
-                                Image(systemName: "graduationcap.fill")
+                                Image(systemName: "graduationcap")
                             }
                             .foregroundColor(.primary)
                         }
@@ -575,7 +575,7 @@ struct MainTabView: View {
                                 Text("Coaches")
                             }
                         } icon: {
-                            Image(systemName: "person.3.fill")
+                            Image(systemName: "person.3")
                         }
                         .foregroundColor(.primary)
                     }

@@ -372,7 +372,7 @@ struct JournalEntryRow: View {
             return PPOutcomeChip(label: "GOLF", style: .green)
         }
         if let type = clip.playResult?.type {
-            return PPOutcomeChip(result: type, overMedia: true, highlighted: clip.isHighlight)
+            return PPOutcomeChip(result: type, overMedia: true, highlighted: clip.isHighlight, spelledOut: true)
         }
         return nil
     }

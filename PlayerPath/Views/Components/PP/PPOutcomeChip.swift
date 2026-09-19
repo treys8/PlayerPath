@@ -30,11 +30,14 @@ struct PPOutcomeChip: View {
 
     let label: String
     let style: Style
+    /// Spoken label when `label` is an abbreviation ("K" → "Strikeout").
+    var accessibilityText: String?
     @Environment(\.ppAccent) private var ppAccent
 
-    init(label: String, style: Style) {
+    init(label: String, style: Style, accessibilityText: String? = nil) {
         self.label = label
         self.style = style
+        self.accessibilityText = accessibilityText
     }
 
     /// True when this chip uses the accent fill — the card's "this mattered"
@@ -50,6 +53,7 @@ struct PPOutcomeChip: View {
             .padding(.horizontal, .spacingSmall)
             .padding(.vertical, 3)
             .background(Capsule().fill(background))
+            .accessibilityLabel(accessibilityText ?? label)
     }
 
     private var foreground: Color {
@@ -89,8 +93,10 @@ extension PPOutcomeChip {
     /// 3. everything else → neutral.
     ///
     /// `overMedia` picks the over-a-media-tile fill vs the light-card fill.
-    init(result: PlayResultType, overMedia: Bool = true, highlighted: Bool = false) {
-        let label = result.abbreviation
+    /// `spelledOut` shows "Strikeout" instead of "K" — for large surfaces where
+    /// the abbreviation would be opaque to non-baseball family members.
+    init(result: PlayResultType, overMedia: Bool = true, highlighted: Bool = false, spelledOut: Bool = false) {
+        let label = spelledOut ? result.displayName : result.abbreviation
         let style: Style
         if highlighted || result == .homeRun {
             style = .accent
@@ -99,6 +105,6 @@ extension PPOutcomeChip {
         } else {
             style = overMedia ? .darkTranslucent : .neutralOnCard
         }
-        self.init(label: label, style: style)
+        self.init(label: label, style: style, accessibilityText: result.displayName)
     }
 }

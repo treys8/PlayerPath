@@ -370,7 +370,7 @@ struct GamesView: View {
 
         // Past Games Section (games that happened but weren't marked as complete)
         if !cachedPastGames.isEmpty {
-            Section(isGolf ? "Past Rounds" : "Past Games") {
+            Section(isGolf ? "Needs Scores" : "Needs Results") {
                 ForEach(cachedPastGames) { game in
                     gameNavigationRow(game)
                     .swipeActions(edge: .trailing) {
