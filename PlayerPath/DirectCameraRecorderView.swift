@@ -67,6 +67,9 @@ struct DirectCameraRecorderView: View {
     // Coach mode state
     @State private var lastSelectedAthleteID: String?
     @State private var didAutoSave = false
+    /// A coach clip upload is in flight — the session-ended warning stands down
+    /// and lets it finish (it dismisses the recorder itself).
+    @State private var isSavingCoachClip = false
 
     // Cleanup task
     @State private var saveTask: Task<Void, Never>?
@@ -137,6 +140,12 @@ struct DirectCameraRecorderView: View {
             // Ensure orientation is released no matter which path dismissed the flow.
             OrientationLocker.restore()
         }
+        .coachSessionEndedWatcher(
+            sessionID: coachContext?.sessionID,
+            hasUnsavedClip: recordedVideoURL != nil,
+            isSaving: isSavingCoachClip,
+            onClose: { cleanupAndDismiss() }
+        )
     }
 
     // MARK: - Camera Phase
@@ -515,6 +524,7 @@ struct DirectCameraRecorderView: View {
 
         // Remember for next clip's athlete picker pre-selection
         lastSelectedAthleteID = athleteID
+        isSavingCoachClip = true
 
         // Enqueue unconditionally — UploadQueueManager handles retry with exponential
         // backoff (up to 10 retries; not 3 as a prior comment claimed).
@@ -550,6 +560,7 @@ struct DirectCameraRecorderView: View {
                     dismiss()
                 case .failed:
                     // Clip genuinely lost (copy error). Surface it so the coach re-records.
+                    isSavingCoachClip = false
                     Haptics.error()
                     showingSaveFailedError = true
                 }

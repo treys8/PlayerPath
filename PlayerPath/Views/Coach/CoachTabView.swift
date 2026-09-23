@@ -23,7 +23,6 @@ struct CoachTabView: View {
     /// primes a fresh signup; this covers a returning coach on a new device.
     @State private var showingNotificationPrimer = false
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    @Environment(\.scenePhase) private var scenePhase
     /// The ONE coach recorder owner: the Dashboard's live card and the iOS 26.1+
     /// Live Now accessory both open the camera through it, presented here.
     @State private var liveSession = CoachLiveSessionController()
@@ -154,14 +153,6 @@ struct CoachTabView: View {
         .onChange(of: liveSession.cameraContext == nil) { _, becameNil in
             guard becameNil, let coachID = authManager.userID else { return }
             Task { await sessionManager.fetchSessions(coachID: coachID) }
-        }
-        .onChange(of: sessionManager.activeSession) { _, newValue in
-            // Dismiss the recorder if the session was ended/completed externally.
-            // Only while active: backgrounding tears the listener down and nils
-            // activeSession (AuthenticatedFlow → stopListeningActiveSession), and
-            // that must not throw away a clip mid-flow when the coach locks the
-            // phone between reps.
-            if newValue == nil, scenePhase == .active { liveSession.cameraContext = nil }
         }
         .environment(coordinator)
         .environment(liveSession)
