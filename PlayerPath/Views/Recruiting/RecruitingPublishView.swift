@@ -565,7 +565,7 @@ struct RecruitingPublishView: View {
     // MARK: - Data
 
     private var hasPublishableClips: Bool {
-        (athlete.videoClips ?? []).contains(where: \.isPublishableHighlight)
+        athlete.recruitingHighlights.contains(where: \.hasPublishableUpload)
     }
 
     /// `showSpinner: false` for pull-to-refresh — swapping the whole form for a
@@ -576,7 +576,7 @@ struct RecruitingPublishView: View {
 
         // Read the model BEFORE the await — afterwards it may be invalidated.
         let athleteId = athlete.id
-        let publishable = (athlete.videoClips ?? []).filter(\.isPublishableHighlight)
+        let publishable = athlete.recruitingHighlights.filter(\.hasPublishableUpload)
         refreshPublishGates()
 
         // What's already on the page wins. Without this the picker re-seeded to

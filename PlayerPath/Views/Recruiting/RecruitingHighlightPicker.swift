@@ -13,6 +13,7 @@
 //
 
 import SwiftUI
+import SwiftData
 
 struct RecruitingHighlightPicker: View {
     let athlete: Athlete
@@ -23,17 +24,19 @@ struct RecruitingHighlightPicker: View {
 
     /// All highlight clips, newest first — including ones still uploading.
     private var allHighlights: [VideoClip] {
-        (athlete.videoClips ?? [])
-            .filter { $0.isHighlight }
+        athlete.recruitingHighlights
             .sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
     }
 
-    private var publishable: [VideoClip] { allHighlights.filter(\.isPublishableHighlight) }
-    private var pending: [VideoClip] { allHighlights.filter { !$0.isPublishableHighlight } }
+    private var publishable: [VideoClip] { allHighlights.filter(\.hasPublishableUpload) }
+    private var pending: [VideoClip] { allHighlights.filter { !$0.hasPublishableUpload } }
 
     /// Selected clips in the athlete's chosen order (the page's display order).
+    /// Keyed once — `publishable` re-derives the highlight set, so a per-id lookup
+    /// into it would repeat that work for every selected clip.
     private var selectedClips: [VideoClip] {
-        selection.compactMap { id in publishable.first { $0.id == id } }
+        let byID = Dictionary(publishable.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return selection.compactMap { byID[$0] }
     }
 
     private var atCap: Bool { selection.count >= RecruitingProfileService.maxHighlights }
@@ -179,10 +182,32 @@ struct RecruitingHighlightPicker: View {
 // MARK: - Publishability
 
 extension VideoClip {
-    /// A highlight can only be published once its file is in Firebase Storage —
-    /// the public page serves a signed URL to `athlete_videos/`, and there's
-    /// nothing to sign until the upload lands.
-    var isPublishableHighlight: Bool {
-        isHighlight && isUploaded && cloudURL != nil && !fileName.isEmpty
+    /// A clip can only be published once its file is in Firebase Storage — the
+    /// public page serves a signed URL to `athlete_videos/`, and there's nothing
+    /// to sign until the upload lands. Apply to `Athlete.recruitingHighlights`,
+    /// never to raw `videoClips` — this is the upload gate only, not "is a highlight".
+    var hasPublishableUpload: Bool {
+        isUploaded && cloudURL != nil && !fileName.isEmpty
+    }
+}
+
+extension Athlete {
+    /// Every clip that counts as a highlight for the recruiting page, still-uploading
+    /// ones included. THE single definition — the picker, preview strip, stale-clip
+    /// nudge and publish defaults must agree on it.
+    ///
+    /// Golf unions the birdie-or-better reel clips (GolfHighlightUnion): golf never
+    /// auto-stars, so a starred-only set left a golfer's best holes unpickable unless
+    /// each clip had been starred by hand.
+    @MainActor
+    var recruitingHighlights: [VideoClip] {
+        let clips = videoClips ?? []
+        guard sport == .golf, let modelContext else { return clips.filter(\.isHighlight) }
+        let reelClipIDs = GolfHighlightUnion.reelClipIDStrings(
+            gameIDs: Set((games ?? []).map(\.id)),
+            practiceIDs: Set((practices ?? []).map(\.id)),
+            in: modelContext
+        )
+        return clips.filter { $0.isHighlight || reelClipIDs.contains($0.id.uuidString) }
     }
 }

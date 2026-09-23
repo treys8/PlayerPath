@@ -78,14 +78,14 @@ struct RecruitingHighlightStrip: View {
             // order IS the page order, and a clip deleted since publishing just drops.
             return curatedClipIDs.compactMap { id in all.first { $0.id == id } }
         }
-        // `isPublishableHighlight`, not `isHighlight`: a clip still uploading has
+        // `hasPublishableUpload`, not just "is a highlight": a clip still uploading has
         // nothing in Storage to sign, so publish drops it (the picker and
         // RecruitingProfileService.publish both filter on exactly this). Filtering
         // loosely here made the never-published preview — the one screen that claims
         // to be what a college coach will see — promise film the page can't carry.
         return Array(
-            all
-                .filter(\.isPublishableHighlight)
+            athlete.recruitingHighlights
+                .filter(\.hasPublishableUpload)
                 .sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
                 .prefix(limit)
         )
@@ -94,7 +94,7 @@ struct RecruitingHighlightStrip: View {
     /// Highlights that are flagged but not yet in Storage — i.e. the strip is empty
     /// because uploads are pending, not because nothing has been flagged.
     private var hasPendingHighlights: Bool {
-        (athlete.videoClips ?? []).contains { $0.isHighlight && !$0.isPublishableHighlight }
+        athlete.recruitingHighlights.contains { !$0.hasPublishableUpload }
     }
 
     var body: some View {

@@ -216,6 +216,33 @@ enum GolfScoreWriter {
         }
     }
 
+    // MARK: - Reel refresh after a clip re-tag
+
+    /// Re-evaluates the birdie reels of `holes` against their CURRENT scores, for
+    /// when the clip side changed rather than the score — the batch hole editor
+    /// tagging clips onto an already-scored hole (the reel was never created, since
+    /// it needs ≥1 clip) or moving one off (it stayed in the old hole's reel).
+    /// Reels are otherwise only upserted on score writes, so without this both
+    /// cases stayed stale until the hole happened to be re-scored.
+    ///
+    /// An unscored hole passes score 0, which demotes any reel it still has. A
+    /// shot-tracked hole that isn't complete yet is skipped: its stored score is a
+    /// running total, and ShotByShotContent fires the reel itself on completion.
+    /// Does NOT save the context.
+    static func refreshReels(forHoles holes: Set<Int>, in ref: GolfRoundRef, context: ModelContext) {
+        for holeNumber in holes.sorted() {
+            guard let hole = ref.holeScores.first(where: { $0.holeNumber == holeNumber && !$0.isDeletedRemotely }) else {
+                upsertReelIfNeeded(holeNumber: holeNumber, par: 4, score: 0, in: ref, context: context)
+                continue
+            }
+            let liveShots = (hole.shots ?? [])
+                .filter { !$0.isDeletedRemotely }
+                .sorted { $0.shotNumber < $1.shotNumber }
+            if !liveShots.isEmpty, !ShotRollup.isComplete(shots: liveShots, putts: hole.putts) { continue }
+            upsertReelIfNeeded(holeNumber: holeNumber, par: hole.par, score: hole.score, in: ref, context: context)
+        }
+    }
+
     // MARK: - Par seeding (shared by both entry points)
 
     /// Par for `hole` from the most recent *prior* round at the same course, so

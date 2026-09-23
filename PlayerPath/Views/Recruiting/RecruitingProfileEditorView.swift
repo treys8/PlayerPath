@@ -523,8 +523,8 @@ struct RecruitingProfileEditorView: View {
             return
         }
         let live = Set(published)
-        staleHighlightCount = (athlete.videoClips ?? [])
-            .filter { $0.isPublishableHighlight && !live.contains($0.id) }
+        staleHighlightCount = athlete.recruitingHighlights
+            .filter { $0.hasPublishableUpload && !live.contains($0.id) }
             .count
     }
 

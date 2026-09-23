@@ -24,6 +24,9 @@ struct BatchClipTagEditor: View {
 
     let clips: [VideoClip]
     let mode: Mode
+    /// The round being edited (hole mode) — its birdie reels are re-evaluated
+    /// after a hole re-tag, since reel membership is keyed on `holeNumber`.
+    let round: GolfRoundRef?
 
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
@@ -33,9 +36,10 @@ struct BatchClipTagEditor: View {
     @State private var targetHole: Int = 1
     @State private var targetClub: Club?
 
-    init(clips: [VideoClip], mode: Mode) {
+    init(clips: [VideoClip], mode: Mode, round: GolfRoundRef? = nil) {
         self.clips = clips
         self.mode = mode
+        self.round = round
         // Default to all selected — the common case is "tag everything here".
         _selectedClipIDs = State(initialValue: Set(clips.map(\.id)))
     }
@@ -166,14 +170,25 @@ struct BatchClipTagEditor: View {
 
     private func apply() {
         guard canApply else { return }
+        // Every hole whose clip set this apply changes: the target plus each
+        // hole a clip is moving off of. Captured before the loop overwrites them.
+        var touchedHoles: Set<Int> = []
         for clip in clips where selectedClipIDs.contains(clip.id) {
             switch mode {
             case .hole:
+                if let oldHole = clip.holeNumber { touchedHoles.insert(oldHole) }
+                touchedHoles.insert(targetHole)
                 clip.holeNumber = targetHole
             case .club:
                 clip.club = targetClub
             }
             clip.needsSync = true
+        }
+        // Reels upsert only on score writes, so tagging clips onto an already-
+        // scored birdie hole (or off one) must re-evaluate them here, before the
+        // single save below commits the tags and reels together.
+        if let round, !touchedHoles.isEmpty {
+            GolfScoreWriter.refreshReels(forHoles: touchedHoles, in: round, context: modelContext)
         }
         if ErrorHandlerService.shared.saveContext(modelContext, caller: "BatchClipTagEditor") {
             // A batch club tag may have cleared an event's last untagged clip —

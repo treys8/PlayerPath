@@ -28,7 +28,7 @@ CLI `xcodebuild` needs the `DEVELOPER_DIR` prefix; transient SourceKit errors in
 cd firebase/rules-tests && npm test   # boots the Firestore emulator, runs *.test.mjs
 ```
 
-Currently `sharedFolders.test.mjs` and `recruitingProfiles.test.mjs`. Run it after any `firestore.rules` edit — the null-`resource` and subset-check invariants below are exactly what it guards.
+It runs every `*.test.mjs` in that directory (`ls firebase/rules-tests/*.test.mjs`). Run it after any `firestore.rules` edit — the null-`resource` and subset-check invariants below are exactly what it guards.
 
 ## Architecture
 
@@ -49,7 +49,7 @@ Athlete navigation uses `NavigationCoordinator` (Observable class) with deep lin
 
 ### Data Layer
 
-- **SwiftData** for local persistence. Schema is versioned (V1–V37; currently `SchemaV37`) in `PlayerPathSchema.swift` with lightweight migrations only. The live container binds `Schema(SchemaV37.models)` in `PlayerPathApp.swift` — bump the **bound schema** (both call sites), not the `MigrationPlan` (which is documentation only). Read the current value fresh before bumping; this line goes stale.
+- **SwiftData** for local persistence. Schema is versioned (`SchemaV1`…`SchemaVN`) in `PlayerPathSchema.swift` with lightweight migrations only. The live container binds `Schema(SchemaVN.models)` in `PlayerPathApp.swift` (`grep -n 'Schema(SchemaV' PlayerPath/PlayerPathApp.swift` for the current N) — bump the **bound schema** (both call sites), not the `MigrationPlan` (which is documentation only).
 - **Firebase Firestore** for cloud sync and shared data (coach folders, invitations, clip metadata).
 - **Local-first architecture**: `SyncCoordinator` handles bidirectional sync between SwiftData and Firestore using dirty flags and version numbers for conflict resolution.
 
@@ -74,7 +74,7 @@ Some services live in `PlayerPath/Services/`, others at the `PlayerPath/` top le
 - `SharedFolderManager` — Coach shared folder management with real-time Firestore listeners
 - `PushNotificationService` — Push notification authorization and scheduling
 
-**In `PlayerPath/Services/`** (~70 files — `ls PlayerPath/Services/` for the full list), grouped by theme:
+**In `PlayerPath/Services/`** (~75 files — `ls PlayerPath/Services/` for the full list), grouped by theme:
 - **Infrastructure:** `UploadQueueManager` (background uploads, exponential backoff), `ErrorHandlerService` (centralized errors — see Error Handling below), `RetryHelpers` (`withRetry()`/`retryAsync()`), `ConnectivityMonitor`, `AnalyticsService`
 - **Coach suite:** `CoachSessionManager` (live sessions), `CoachInvitationManager`/`AthleteInvitationManager` (both invitation flows), `CoachDowngradeManager`/`CoachRemovalService` (seat enforcement), `CoachVideoProcessingService`, `CoachVideoCacheService`, `CoachFolderArchiveManager`, `CoachTemplateService` (quick cues), `ClipCommentService`
 - **Stats & milestones:** `StatisticsService` (batting/pitching), `MilestoneEngine` + `MilestoneCelebrationService`/`MilestoneReminderService`, `CSVExportService`, `PDFReportGenerator`
@@ -105,7 +105,7 @@ A Pro-gated athlete feature: publishes a shareable public web page for college c
   - PII keys are **omitted** unless their opt-in flag is on — never written as `null`.
   - Display strings are built client-side by the same helpers the in-app preview uses; the CF is a dumb renderer so the page can never word something differently from the preview.
   - Highlights are served as separate H.264/AAC `.mp4` renditions (`RecruitingWebRenditionService`), never the HEVC/QuickTime master — the master silently fails to play on Firefox and on Windows without the paid HEVC extensions.
-  - The `recruitingProfiles` rule guards `resource == null` **first**; without it the first publish always fails (publish reads the doc before writing). See the rules comment at `firestore.rules:1199`.
+  - The `recruitingProfiles` rule guards `resource == null` **first**; without it the first publish always fails (publish reads the doc before writing). See the rules comment starting "`resource == null` FIRST" inside `match /recruitingProfiles/` in `firestore.rules`.
 - **Server side:** `recruitingProfile.ts` (serve + `recruitingViewDigest`) and `recruitingLapseNotice.ts` (throttled push when a page goes stale or dark).
 
 ### Subscription Tiers
@@ -136,8 +136,8 @@ Product IDs and feature gates are in `SubscriptionModels.swift`. StoreKit config
 ### Firebase Backend
 
 - **Firestore collections:** `users/`, `sharedFolders/`, `videos/`, `invitations/`, `photos/`, `notifications/`, `coach_access_revocations/`, `coachTemplates/`, `coachSessions/`, `appConfig/`, `pendingDeletions/`, `athleteOwners/`, `recruitingProfiles/`, `recruitingTokens/`
-- **Subcollections:** `videos/{id}/comments/`, `videos/{id}/annotations/`, `videos/{id}/drillCards/`, `users/{id}/athletes/`, `users/{id}/seasons/`, `users/{id}/games/`, `users/{id}/practices/`, `users/{id}/golfTournaments/`, `users/{id}/highlightReels/`, `users/{id}/games|practices/{id}/holes/`, `.../holes/{n}/shots/`
-- **Security rules:** `firestore.rules` (~1,300 lines) with helper functions for auth/tier/permission checks. Tested by `firebase/rules-tests/` (see Build & Run).
+- **Subcollections:** `videos/{id}/comments/`, `videos/{id}/annotations/`, `videos/{id}/drillCards/`, `users/{id}/athletes/`, `users/{id}/seasons/`, `users/{id}/games/`, `users/{id}/practices/`, `users/{id}/golfTournaments/`, `users/{id}/highlightReels/`, `users/{id}/games|practices/{id}/holes/`, `.../holes/{n}/shots/`, `users/{id}/practices/{id}/notes/`, `users/{id}/athletes/{id}/coaches/`, `notifications/{uid}/items/`, `coachTemplates/{id}/quickCues/`, `coachTemplates/{id}/drillCardTemplates/`
+- **Security rules:** `firestore.rules` (~1,350 lines) with helper functions for auth/tier/permission checks. Tested by `firebase/rules-tests/` (see Build & Run).
 - **Cloud Functions:** `firebase/functions/src/` (Node.js, ~8,000 lines across 5 files, all re-exported from `index.ts`):
   - `index.ts` — email notifications (SendGrid), signed-URL generation, StoreKit subscription/tier sync + App Store Server Notifications V2 webhook, coach athlete-limit enforcement transactions + downgrade audit cron, GDPR deletion, daily storage cleanup
   - `recruitingProfile.ts` — `serveRecruitingProfile` (renders the public page) + `recruitingViewDigest`
@@ -172,6 +172,7 @@ Views are organized by feature in `PlayerPath/Views/` — `ls PlayerPath/Views/`
 - `Views/Player/` — **not** the video player and not the athlete tab root; holds a single file, `AthleteClipReviewDetail.swift`
 - `Views/Components/` — shared reusables: video player, clip cards, trimmer, play-result editor, banners, TipKit tips
 - `Views/Shared/` — app-wide primitives: empty/error/skeleton states, notification inbox + banners, text fields, button styles
+- `Views/Navigation/` — `AuthenticatedFlow`, athlete `MainTabView`, keyboard shortcuts, and the iOS 26 chrome: `GlassChrome` (glass-capsule helpers) and `LiveNowAccessory` (tab-bar accessory for in-progress games, iOS 26.1+). Reuse these rather than re-deriving `@available(iOS 26…)` glass styling per screen.
 - `Views/Dashboard/` — **retired for athletes** (Home = Journal); some components still reused
 
 Main tab root views remain at the top level, NOT under `Views/`: `GamesView.swift`, `PracticesView.swift`, `ProfileView.swift`, `HighlightsView.swift`, `VideoClipsView.swift`, `StatisticsView.swift` (+ their ViewModels). The top-level `Coach*.swift` files are likewise outside `Views/`.
@@ -200,13 +201,13 @@ Main tab root views remain at the top level, NOT under `Views/`: `GamesView.swif
 **Design system — canonical vs legacy. The repo carries two palettes and two type scales; the post-overhaul ones are canonical but the migration is unfinished.**
 
 Use for all new UI:
-- `Theme/Theme.swift` — color (Calm Keepsake cream/terracotta, 619 refs). Accent is sport-aware via `@Environment(\.ppAccent)`; warnings use `Theme.warning`.
+- `Theme/Theme.swift` — color (Calm Keepsake cream/terracotta, ~650 refs). Accent is sport-aware via `@Environment(\.ppAccent)`; warnings use `Theme.warning`.
 - `Font+PlayerPath.swift` — type (`.ppTitle`, `.ppBody`, `.ppCaption`, `.ppStatLarge`…).
 - `DesignTokens.swift` for the non-color primitives that were never superseded: spacing (`.spacingSmall/Medium/Large`), corner radii (`.cornerLarge`), thumbnail sizes, animation curves, and the `Color(hex:)` initializer `Theme` itself is built on.
 
 ⚠️ **Legacy, still load-bearing — never use in new UI, do not bulk-delete:**
-- Old palette: `.brandNavy` (271 uses), `.brandGold`, `.brandPrimary`, the blue/purple/green gradients.
-- Old type scale: `.bodySmall` (286), `.headingMedium` (178), `.bodyMedium` (137), `.displayLarge`, `.labelSmall`… — these still outnumber the `.pp*` scale roughly 6:1 because most screens are un-migrated.
+- Old palette: `.brandNavy` (~290 uses — and still *growing*; check new diffs for it), `.brandGold`, `.brandPrimary`, the blue/purple/green gradients.
+- Old type scale: `.bodySmall` (~290), `.headingMedium` (~180), `.bodyMedium` (~140), `.displayLarge`, `.labelSmall`… — these still outnumber the `.pp*` scale roughly 5:1 because most screens are un-migrated.
 - These are **deprecated, not deleted** — they still compile and resolve, so nothing fails loudly when someone reaches for one. Treat any doc claiming the palette migration "finished" as stale; verify with a symbol-name grep.
 
 🔍 **Grep trap:** `DesignTokens.swift` defines *extensions on system types*, so call sites read `.bodySmall` with no prefix. Grepping `DesignTokens.` returns ~3 comment hits and makes the file look dead. It has ~1,500 usages. Search by symbol name, never by prefix.

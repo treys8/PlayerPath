@@ -261,7 +261,7 @@ struct HoleDetailView: View {
             }
         }
         .sheet(isPresented: $showingBatchEditor) {
-            BatchClipTagEditor(clips: clips, mode: .hole(maxHoles: round.holeCount))
+            BatchClipTagEditor(clips: clips, mode: .hole(maxHoles: round.holeCount), round: round)
         }
     }
 
