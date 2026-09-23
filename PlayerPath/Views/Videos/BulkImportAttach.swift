@@ -55,6 +55,8 @@ struct BulkImportAttach: ViewModifier {
     /// Set by the storage sheet when a purchase lands; acted on in ITS onDismiss,
     /// for the same reason.
     @State private var pendingResume = false
+    /// Set when a tap is refused by the `bulkVideoImport` kill switch.
+    @State private var pausedMessage: String?
 
     func body(content: Content) -> some View {
         content
@@ -73,6 +75,12 @@ struct BulkImportAttach: ViewModifier {
                 // in flight — a picker presented over the pending storage sheet
                 // would drop it silently and strand this view's presentation.
                 guard pendingOutcome == nil, storageContext == nil else { return }
+                // Remote kill switch (appConfig/killSwitches). Gates the action, not
+                // the entry point: every Import button stays put and says why.
+                if KillSwitchService.shared.isKilled(.bulkVideoImport) {
+                    pausedMessage = KillSwitchService.shared.message(for: .bulkVideoImport)
+                    return
+                }
                 // A fresh pick is never a resume.
                 resumeSeason = nil
                 skipConfirmation = false
@@ -112,6 +120,17 @@ struct BulkImportAttach: ViewModifier {
             }
             .sheet(item: $storageContext, onDismiss: storageSheetDismissed) { ctx in
                 ImportStorageFullSheet(context: ctx) { pendingResume = true }
+            }
+            .alert(
+                "Import Paused",
+                isPresented: Binding(
+                    get: { pausedMessage != nil },
+                    set: { if !$0 { pausedMessage = nil } }
+                )
+            ) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(pausedMessage ?? "")
             }
             .overlay(alignment: .bottom) {
                 if let message = toastMessage {

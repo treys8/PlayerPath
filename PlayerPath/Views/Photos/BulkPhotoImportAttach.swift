@@ -60,6 +60,8 @@ struct BulkPhotoImportAttach: ViewModifier {
     @State private var storageContext: ImportStorageFullContext?
     @State private var pendingResume = false
     @State private var isResume = false
+    /// Set when a tap is refused by the `bulkPhotoImport` kill switch.
+    @State private var pausedMessage: String?
 
     func body(content: Content) -> some View {
         content
@@ -75,6 +77,12 @@ struct BulkPhotoImportAttach: ViewModifier {
                 guard athlete != nil else { return }
                 // Don't open the picker while a post-import decision is in flight.
                 guard pendingOutcome == nil, storageContext == nil else { return }
+                // Remote kill switch (appConfig/killSwitches). Gates the action, not
+                // the entry point: every Import button stays put and says why.
+                if KillSwitchService.shared.isKilled(.bulkPhotoImport) {
+                    pausedMessage = KillSwitchService.shared.message(for: .bulkPhotoImport)
+                    return
+                }
                 isResume = false
                 // See BulkImportAttach: ask for read access at the import entry
                 // point so de-duplication is free and exact. Never gates the picker.
@@ -89,6 +97,17 @@ struct BulkPhotoImportAttach: ViewModifier {
                 let items = newItems
                 pickerItems = []
                 startImport(items, athlete: athlete)
+            }
+            .alert(
+                "Import Paused",
+                isPresented: Binding(
+                    get: { pausedMessage != nil },
+                    set: { if !$0 { pausedMessage = nil } }
+                )
+            ) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(pausedMessage ?? "")
             }
             .overlay {
                 if isImporting {
