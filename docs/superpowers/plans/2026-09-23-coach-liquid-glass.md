@@ -42,7 +42,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project Pla
 | `LiveNowAccessoryModifier` is `private` in `MainTabView.swift:908-921` | read |
 | `LiveNowAccessory` hard-codes `accessibilityHint("Opens the Journal")` (`LiveNowAccessory.swift:59`) | read |
 | Coach recorder cover: `CoachDashboardView.swift:272-286` (`cameraContext` + 2 onChanges). Set at `:386` (Record) and `:929` (resume from reviewing) | read |
-| `CoachFolderDetailView.swift:124` has its own quick-record cover (inside a pushed view, where the tab bar is hidden, so no double-present) | read |
+| ~~`CoachFolderDetailView.swift:124` quick-record cover is safe because the tab bar is hidden there~~ **WRONG** — nothing hides the tab bar, so the accessory shows in folder detail. Final review fix routed Record Clip through `CoachLiveSessionController` and deleted that cover | final review |
 | Live-only session: `CoachSessionManager.shared.activeSession?.status == .live`; title = `session.athleteNamesSummary` | `LiveSessionCard.swift:81` |
 | Abandoned live sessions auto-end at 24 h (`cleanupAbandonedSessions`), so the coach accessory passes `staleAt: nil` | `CoachSessionManager.swift:100-112` |
 | Draft publish bar sits in a VStack **below** the ScrollView (narrow `:592`, wide `:619`) with `.background(Theme.surface)` (`:1180`) | read |

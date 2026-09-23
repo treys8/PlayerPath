@@ -18,8 +18,14 @@ final class CoachLiveSessionController {
     /// Opens the recorder for the active session. No-op unless it's live.
     func recordIntoActiveSession() {
         guard let active = CoachSessionManager.shared.activeSession,
-              active.status == .live,
-              let id = active.id, !id.isEmpty else { return }
-        cameraContext = CoachSessionContext(sessionID: id, session: active)
+              active.status == .live else { return }
+        recordInto(active)
+    }
+
+    /// Opens the recorder for a specific session, whatever its status — the
+    /// folder's Record Clip resumes into its folder's active session as-is.
+    func recordInto(_ session: CoachSession) {
+        guard let id = session.id, !id.isEmpty else { return }
+        cameraContext = CoachSessionContext(sessionID: id, session: session)
     }
 }

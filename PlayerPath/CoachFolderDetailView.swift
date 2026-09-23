@@ -15,6 +15,9 @@ struct CoachFolderDetailView: View {
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @Environment(\.dismiss) private var dismiss
     @Environment(CoachNavigationCoordinator.self) private var coordinator
+    /// The recorder lives at the tab root (CoachTabView) — the Live Now accessory
+    /// is visible here too, so a second cover in this view could double-present.
+    @Environment(CoachLiveSessionController.self) private var liveSession
     @ObservedObject private var activityNotifService = ActivityNotificationService.shared
     @State private var viewModel: CoachFolderViewModel
     @State private var selectedTab: FolderTab
@@ -40,7 +43,6 @@ struct CoachFolderDetailView: View {
     @State private var isSelectionMode = false
     @State private var selectedClipIDs: Set<String> = []
     @State private var showingDiscardConfirm = false
-    @State private var showingQuickRecord = false
     @State private var showingActiveSessionAlert = false
     /// Presents the athlete-selection sheet when an over-limit coach taps a
     /// bulk-publish action (feedback delivery is blocked server-side until they shed).
@@ -119,16 +121,10 @@ struct CoachFolderDetailView: View {
                         .environmentObject(authManager)
                 }
             }
-            .fullScreenCover(isPresented: $showingQuickRecord, onDismiss: {
-                Task { await viewModel.loadVideos() }
-            }) {
-                if let session = CoachSessionManager.shared.activeSession {
-                    DirectCameraRecorderView(
-                        coachContext: CoachSessionContext(sessionID: session.id ?? "", session: session)
-                    )
-                } else {
-                    Color.clear.onAppear { showingQuickRecord = false }
-                }
+            // Refresh after any recording dismisses — from Record Clip here or
+            // from the tab bar's Live Now accessory while this folder is showing.
+            .onChange(of: liveSession.cameraContext == nil) { _, becameNil in
+                if becameNil { Task { await viewModel.loadVideos() } }
             }
             .alert("Session In Progress", isPresented: $showingActiveSessionAlert) {
                 Button("OK", role: .cancel) {}
@@ -691,7 +687,7 @@ struct CoachFolderDetailView: View {
         if let active = CoachSessionManager.shared.activeSession {
             let folderID = folder.id ?? ""
             if active.folderIDs.values.contains(folderID) {
-                showingQuickRecord = true
+                liveSession.recordInto(active)
                 return
             } else {
                 showingActiveSessionAlert = true
@@ -717,7 +713,8 @@ struct CoachFolderDetailView: View {
                 )
                 try await CoachSessionManager.shared.startScheduledSession(sessionID: sessionID)
                 Haptics.success()
-                showingQuickRecord = true
+                // startScheduledSession set activeSession to this live session.
+                liveSession.recordIntoActiveSession()
             } catch {
                 ErrorHandlerService.shared.handle(error, context: "CoachFolderDetail.quickRecord", showAlert: false)
             }
@@ -850,4 +847,5 @@ private struct FolderDialogsModifier: ViewModifier {
     }
     .environmentObject(ComprehensiveAuthManager())
     .environment(CoachNavigationCoordinator())
+    .environment(CoachLiveSessionController())
 }
