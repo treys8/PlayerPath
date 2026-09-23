@@ -21,7 +21,9 @@ final class VideoClipsViewModel {
 
     // MARK: - Private
     private var allVideos: [VideoClip] = []
-    private var allFilteredVideos: [VideoClip] = []
+    /// Every clip passing the current filters, beyond the paged `filteredVideos`
+    /// window. Read by Select All and the player's prev/next list.
+    private(set) var allFilteredVideos: [VideoClip] = []
     private static let searchDateFormatter = DateFormatter.mediumDate
     private static let searchShortFormatter = DateFormatter.compactDate
 

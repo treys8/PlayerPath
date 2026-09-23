@@ -32,6 +32,9 @@ struct VideoClipsView: View {
     @State private var selectedVideos: Set<UUID> = []
     @State private var showingBulkDeleteConfirmation = false
     @State private var showingStatistics = false
+    /// Clips resolved when the bulk Link to Game sheet opens.
+    @State private var bulkLinkClips: [VideoClip] = []
+    @State private var showingBulkLinker = false
     @State private var showingBulkToast = false
     @State private var bulkToastMessage = ""
     @State private var bulkToastType: ToastType = .success
@@ -107,7 +110,19 @@ struct VideoClipsView: View {
             try? await Task.sleep(for: .milliseconds(250))
             guard !Task.isCancelled else { return }
             viewModel.refilter()
+            pruneSelection()
         }
+    }
+
+    /// Drop selections the current filters hide, so bulk actions only ever act
+    /// on clips the user can see.
+    private func pruneSelection() {
+        guard isSelectionMode, !selectedVideos.isEmpty else { return }
+        selectedVideos.formIntersection(viewModel.allFilteredVideos.map(\.id))
+    }
+
+    private var allFilteredSelected: Bool {
+        !viewModel.allFilteredVideos.isEmpty && selectedVideos.count == viewModel.allFilteredVideos.count
     }
 
     private func clearAllFilters() {
@@ -144,13 +159,44 @@ struct VideoClipsView: View {
 
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
+                    Button {
+                        if allFilteredSelected {
+                            selectedVideos.removeAll()
+                        } else {
+                            selectedVideos = Set(viewModel.allFilteredVideos.map(\.id))
+                        }
+                        Haptics.selection()
+                    } label: {
+                        if allFilteredSelected {
+                            Label("Deselect All", systemImage: "circle")
+                        } else {
+                            Label("Select All (\(viewModel.allFilteredVideos.count))", systemImage: "checkmark.circle.fill")
+                        }
+                    }
+
+                    Divider()
+
                     Button { bulkUploadSelected() } label: {
                         Label("Upload Selected", systemImage: "icloud.and.arrow.up")
                     }
                     .disabled(selectedVideos.isEmpty)
 
-                    Button { bulkMarkAsHighlight() } label: {
+                    Button { bulkSetHighlight(true) } label: {
                         Label("Mark as Highlights", systemImage: "star.fill")
+                    }
+                    .disabled(selectedVideos.isEmpty)
+
+                    Button { bulkSetHighlight(false) } label: {
+                        Label("Remove from Highlights", systemImage: "star.slash")
+                    }
+                    .disabled(selectedVideos.isEmpty)
+
+                    Button {
+                        bulkLinkClips = videosForActiveSport.filter { selectedVideos.contains($0.id) }
+                        showingBulkLinker = true
+                    } label: {
+                        Label(activeSport == .golf ? "Link to Tournament…" : "Link to Game…",
+                              systemImage: activeSport == .golf ? "figure.golf" : "baseball.diamond.bases")
                     }
                     .disabled(selectedVideos.isEmpty)
 
@@ -286,6 +332,13 @@ struct VideoClipsView: View {
         .sheet(isPresented: $showingAdvancedSearch) {
             AdvancedSearchView(athlete: athlete)
         }
+        .sheet(isPresented: $showingBulkLinker, onDismiss: {
+            bulkLinkClips = []
+            isSelectionMode = false
+            selectedVideos.removeAll()
+        }) {
+            GameLinkerView(clips: bulkLinkClips)
+        }
         .bulkImportAttach(athlete: athlete, trigger: $importTrigger)
         .onReceive(NotificationCenter.default.publisher(for: .presentVideoRecorder)) { notification in
             // Bind the recorder to a game/practice when a reminder forwarded its id.
@@ -344,9 +397,11 @@ struct VideoClipsView: View {
         }
         .onChange(of: viewModel.selectedSeasonFilter) { _, _ in
             viewModel.refilter()
+            pruneSelection()
         }
         .onChange(of: viewModel.filter) { _, _ in
             viewModel.refilter()
+            pruneSelection()
         }
         .onChange(of: videoClipsChangeKey) { _, _ in
             viewModel.update(videos: videosForActiveSport)
@@ -513,11 +568,17 @@ struct VideoClipsView: View {
         selectedVideos.removeAll()
     }
 
-    private func bulkMarkAsHighlight() {
-        let videosToMark = videosForActiveSport.filter { selectedVideos.contains($0.id) }
+    private func bulkSetHighlight(_ isHighlight: Bool) {
+        let videosToMark = videosForActiveSport.filter { selectedVideos.contains($0.id) && $0.isHighlight != isHighlight }
+        guard !videosToMark.isEmpty else {
+            showBulkToast(isHighlight ? "Already highlights" : "None were highlights", type: .info)
+            isSelectionMode = false
+            selectedVideos.removeAll()
+            return
+        }
 
         for video in videosToMark {
-            video.isHighlight = true
+            video.isHighlight = isHighlight
             video.needsSync = true
         }
 
@@ -525,14 +586,17 @@ struct VideoClipsView: View {
             try modelContext.save()
             // Clips starred here may have been skipped by the save-time auto-upload gate
             // (e.g. "Highlights Only"); re-evaluate each now that it's a highlight.
-            for video in videosToMark {
-                UploadQueueManager.shared.reevaluateAutoUploadAfterHighlightChange(video, context: modelContext)
+            if isHighlight {
+                for video in videosToMark {
+                    UploadQueueManager.shared.reevaluateAutoUploadAfterHighlightChange(video, context: modelContext)
+                }
             }
             viewModel.refilter(resetPaging: false)
             Haptics.success()
-            showBulkToast("\(videosToMark.count) video\(videosToMark.count == 1 ? "" : "s") marked as highlights")
+            let noun = videosToMark.count.pluralized("video")
+            showBulkToast(isHighlight ? "\(noun) marked as highlights" : "\(noun) removed from highlights")
         } catch {
-            errorMessage = "Could not mark videos as highlights. Your changes may not have been saved."
+            errorMessage = "Could not update highlights. Your changes may not have been saved."
             showingError = true
         }
 
@@ -551,11 +615,15 @@ struct VideoClipsView: View {
         EmptyStateView(
             systemImage: "video.slash",
             title: isMultiSport ? "No \(activeSport.displayName) Videos Yet" : "No Videos Yet",
-            message: "Record your first video to build your highlight reel",
+            message: "Record a clip or import the videos you already have.",
             actionTitle: "Record Video",
             action: {
                 Haptics.light()
                 showingRecorder = true
+            },
+            secondaryActionTitle: "Import from Photos",
+            secondaryAction: {
+                importTrigger = true
             }
         )
         .onboardingTip(recordTip, arrowEdge: .top, also: !(athlete.games ?? []).isEmpty)

@@ -14,19 +14,24 @@ struct EmptyStateView: View {
     let actionTitle: String?
     let buttonIcon: String
     let action: (() -> Void)?
+    /// Optional quieter second path (e.g. "Import from Photos" under "Record").
+    let secondaryActionTitle: String?
+    let secondaryAction: (() -> Void)?
 
     @State private var isAnimating = false
     @State private var floatOffset: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.ppAccent) private var ppAccent
 
-    init(systemImage: String, title: String, message: String, actionTitle: String? = nil, buttonIcon: String = "plus.circle.fill", action: (() -> Void)? = nil) {
+    init(systemImage: String, title: String, message: String, actionTitle: String? = nil, buttonIcon: String = "plus.circle.fill", action: (() -> Void)? = nil, secondaryActionTitle: String? = nil, secondaryAction: (() -> Void)? = nil) {
         self.systemImage = systemImage
         self.title = title
         self.message = message
         self.actionTitle = actionTitle
         self.buttonIcon = buttonIcon
         self.action = action
+        self.secondaryActionTitle = secondaryActionTitle
+        self.secondaryAction = secondaryAction
     }
 
     var body: some View {
@@ -102,6 +107,20 @@ struct EmptyStateView: View {
                         .background(Capsule().fill(ppAccent))
                     }
                     .buttonStyle(PremiumButtonStyle())
+                    .opacity(isAnimating ? 1.0 : 0.0)
+                    .offset(y: isAnimating ? 0 : 20)
+                }
+
+                if let secondaryActionTitle, let secondaryAction {
+                    Button {
+                        Haptics.light()
+                        secondaryAction()
+                    } label: {
+                        Text(secondaryActionTitle)
+                            .font(.headingMedium)
+                            .foregroundColor(ppAccent)
+                    }
+                    .padding(.top, -12)
                     .opacity(isAnimating ? 1.0 : 0.0)
                     .offset(y: isAnimating ? 0 : 20)
                 }
