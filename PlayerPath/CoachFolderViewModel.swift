@@ -47,10 +47,12 @@ class CoachFolderViewModel {
         return videos.filter { $0.visibility == "private" && $0.uploadedBy == myUID }
     }
 
-    /// Lessons folder: coach's published clips.
+    /// Lessons folder "Shared" tab: every visible clip — this coach's published
+    /// lessons plus anything the athlete (or a co-coach) put in the folder.
+    /// Filtering to `uploadedBy == me` hid athlete-shared clips from the folder
+    /// entirely: they aren't drafts, so "My Drafts" never showed them either.
     var sharedVideos: [CoachVideoItem] {
-        let myUID = currentUserID ?? ""
-        return allVideos.filter { $0.uploadedBy == myUID }
+        allVideos
     }
 
     var reviewCount: Int { reviewVideos.count }

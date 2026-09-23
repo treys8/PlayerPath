@@ -476,7 +476,8 @@ extension FirestoreManager {
         sharedFolderID: String,
         notes: String? = nil,
         tags: [String]? = nil,
-        drillType: String? = nil
+        drillType: String? = nil,
+        uploadedByType: UploadedByType? = nil
     ) async throws {
         // Use a transaction to check current visibility first (idempotency guard).
         // Without this, calling publishPrivateVideo twice would increment videoCount twice.
@@ -512,6 +513,9 @@ extension FirestoreManager {
             }
             if let tags, !tags.isEmpty { updateData["tags"] = tags }
             if let drillType { updateData["drillType"] = drillType }
+            // Lets the athlete-side self-heal correct clips the old in-folder
+            // upload path mis-stamped as "coach" in the same write.
+            if let uploadedByType { updateData["uploadedByType"] = uploadedByType.rawValue }
 
             transaction.updateData(updateData, forDocument: videoRef)
 

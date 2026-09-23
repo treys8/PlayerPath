@@ -583,6 +583,9 @@ class SharedFolderManager {
             videoType: videoType,
             gameContext: gameContext,
             practiceContext: practiceContext,
+            // The server derives the role from folder membership, but coach UI
+            // reads this field (e.g. athlete-note vs legacy coach-note display).
+            uploadedByType: folder.ownerAthleteID == uploadedBy ? .athlete : .coach,
             visibility: "shared",
             playResult: playResult,
             pitchSpeed: pitchSpeed,

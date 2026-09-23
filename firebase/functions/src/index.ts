@@ -294,6 +294,7 @@ async function checkEmailRateLimit(uid: string): Promise<boolean> {
 // Moved to push.ts so recruitingProfile.ts can send pushes without a
 // circular import (this file re-exports that module). Call sites unchanged.
 import { sendPushNotification, sendPushToMultipleUsers } from './push';
+import { isVisibleVideo, becameVisible, uploaderRole, coachFacingClipLabel } from './videoVisibility';
 
 // ============================================================
 // Activity Notification Write Helper
@@ -310,6 +311,11 @@ import { sendPushNotification, sendPushToMultipleUsers } from './push';
  * writer. The deterministic ID is the coordination point between client and
  * server during the migration window; post-migration the client stops writing
  * entirely and the server is the sole author.
+ *
+ * Resolves false only when the doc ALREADY existed (the event was recorded by an
+ * earlier run). Triggers are at-least-once, so callers that push after writing
+ * skip the push on false — a retried trigger can't page anyone twice. Other
+ * write failures resolve true so the push is not lost along with the feed doc.
  */
 async function writeActivityNotification(
   recipientID: string,
@@ -324,8 +330,8 @@ async function writeActivityNotification(
     targetType?: 'folder' | 'video' | 'invitation';
     folderID?: string;
   }
-): Promise<void> {
-  if (!recipientID || recipientID === data.senderID) return;
+): Promise<boolean> {
+  if (!recipientID || recipientID === data.senderID) return false;
   const payload: Record<string, any> = {
     type: data.type,
     title: data.title,
@@ -346,11 +352,17 @@ async function writeActivityNotification(
     .doc(deterministicID);
   try {
     await ref.create(payload);
+    return true;
   } catch (err: any) {
-    // 6 = ALREADY_EXISTS — expected during shadow-mode when client beat us to the doc.
-    if (err?.code !== 6) {
-      console.warn(`writeActivityNotification failed for ${recipientID}/${deterministicID}:`, err);
-    }
+    // 6 = ALREADY_EXISTS — this event was already recorded (a trigger retry), so
+    // the caller should not push again. Clients can no longer author these types
+    // (firestore.rules rejects client new_video/coach_comment writes), so an
+    // existing doc is always our own earlier write.
+    if (err?.code === 6) return false;
+    // Any other failure: the feed doc is missing, but the event is real — report
+    // true so the push still goes out rather than dropping both.
+    console.warn(`writeActivityNotification failed for ${recipientID}/${deterministicID}:`, err);
+    return true;
   }
 }
 
@@ -377,8 +389,10 @@ async function writeActivityNotifications(
  * whose count climbs, instead of 15 stacked banners.
  *
  * Counted from the recipient's own in-app feed rather than from a time window,
- * so the number means "waiting for you" and resets when they open the folder
- * (the client marks these read on tap). Equality-only filters, so Firestore
+ * so the number means "waiting for you". It drains as the recipient opens each
+ * clip (ActivityNotificationService.markVideoRead matches the deterministic
+ * `newvideo_{videoID}_{uid}` doc) or uses the folder's "Mark All as Read".
+ * Tapping the push itself does NOT mark anything read. Equality-only filters, so Firestore
  * serves it from single-field indexes — no composite index to deploy.
  *
  * Callers write the activity notification FIRST so the current clip is included.
@@ -447,174 +461,141 @@ async function lookupUserIDByEmail(email: string): Promise<string | null> {
 // ============================================================
 
 /**
- * When a new video is added to a shared folder, push-notify relevant users.
- * - Athlete uploads → notify all coaches with folder access
- * - Coach uploads with visibility "shared" → notify the folder owner (athlete)
+ * Notifies the other side of a shared folder the moment a clip becomes visible
+ * there (see videoVisibility.ts for why "became visible", not "was created"):
+ * - athlete's clip finished uploading → every coach on the folder
+ * - coach's lesson clip published (private → shared) → the folder owner
+ *
+ * The role comes from folder membership, not the client-written
+ * `uploadedByType`, so already-shipped builds that never wrote 'athlete' work.
+ * Each recipient's push is sent only when their feed doc was newly created, so
+ * an at-least-once trigger retry can't page anyone twice.
+ */
+async function notifyVideoBecameVisible(
+  videoID: string,
+  video: FirebaseFirestore.DocumentData
+): Promise<void> {
+  const folderID: string | undefined = video.sharedFolderID;
+  if (!folderID) return; // Personal video, not shared
+
+  const folderDoc = await admin.firestore().collection('sharedFolders').doc(folderID).get();
+  if (!folderDoc.exists) return;
+  const folder = folderDoc.data()!;
+
+  const uploaderID: string = video.uploadedBy || '';
+  const folderName: string = folder.name || 'a folder';
+  const role = uploaderRole(video, folder);
+
+  if (role === 'athlete') {
+    const coachIDs: string[] = folder.sharedWithCoachIDs || [];
+    if (coachIDs.length === 0) return;
+    // athleteName is the athlete profile; uploadedByName is the ACCOUNT's display
+    // name, which on a parent-run account is the parent.
+    const athleteName: string = video.athleteName || video.uploadedByName || 'Your athlete';
+
+    await Promise.allSettled(coachIDs.map(async (coachID) => {
+      // Feed doc FIRST: the push copy counts this coach's unread new-video items,
+      // so the clip that triggered us has to already be in that count.
+      // Targets the folder; the coach clears it by opening the clip (markVideoRead
+      // matches this deterministic ID) or via the folder's "Mark All as Read".
+      const created = await writeActivityNotification(
+        coachID,
+        `newvideo_${videoID}_${coachID}`,
+        {
+          type: 'new_video',
+          title: `New Video in ${folderName}`,
+          body: `${athleteName} shared ${coachFacingClipLabel(video)}`,
+          senderName: athleteName,
+          senderID: uploaderID,
+          targetID: folderID,
+          targetType: 'folder',
+          folderID,
+        }
+      );
+      if (!created) return;
+      const pending = await unreadFolderVideoCount(coachID, folderID);
+      // Counted as "unread", which can include clips shared earlier and never
+      // opened — so the plural reads as a waiting count. A single clip carries its
+      // videoID so the tap lands on it; a burst lands on the folder.
+      const data: Record<string, string> = pending > 1
+        ? { type: 'new_video', folderID }
+        : { type: 'new_video', folderID, videoID };
+      await sendPushNotification(
+        coachID,
+        pending > 1 ? 'New Videos Shared' : 'New Video Shared',
+        pending > 1
+          ? `${pending} new videos from ${athleteName} in ${folderName}`
+          : `${athleteName} shared ${coachFacingClipLabel(video)}`,
+        data,
+        'COACH_VIDEO',
+        newVideoGrouping(folderID)
+      );
+    }));
+    return;
+  }
+
+  if (role === 'coach') {
+    const athleteID: string | undefined = folder.ownerAthleteID;
+    if (!athleteID) return;
+    const coachName: string = video.uploadedByName || 'Your coach';
+
+    // Feed doc first so the count below includes this clip. targetType: video so
+    // both the inbox row and the push land on the clip itself.
+    const created = await writeActivityNotification(
+      athleteID,
+      `newvideo_${videoID}_${athleteID}`,
+      {
+        type: 'new_video',
+        title: `New Clip from ${coachName}`,
+        body: `${coachName} shared a new clip in ${folderName}`,
+        senderName: coachName,
+        senderID: uploaderID,
+        targetID: videoID,
+        targetType: 'video',
+        folderID,
+      }
+    );
+    if (!created) return;
+    const pending = await unreadFolderVideoCount(athleteID, folderID);
+    await sendPushNotification(
+      athleteID,
+      pending > 1 ? 'New Session Videos' : 'New Session Video',
+      pending > 1
+        ? `${pending} lesson clips from ${coachName} are waiting for you`
+        : `${coachName} shared a lesson clip with you`,
+      { type: 'new_video', folderID, videoID },
+      'COACH_VIDEO',
+      newVideoGrouping(folderID)
+    );
+  }
+}
+
+/**
+ * Covers a doc that is ALREADY visible when created. Every current client writes
+ * metadata-first (pending), so in practice onVideoPublished below does the work;
+ * this stays for any writer that creates a completed doc directly.
  */
 export const onNewSharedVideo = functions.firestore
   .document('videos/{videoId}')
   .onCreate(async (snap, context) => {
     const video = snap.data();
-    const folderID = video.sharedFolderID;
-    if (!folderID) return; // Personal video, not shared
-
-    // Only notify for completed/visible videos
-    if (video.uploadStatus === 'pending' || video.uploadStatus === 'failed') return;
-    if (video.visibility === 'private') return;
-
-    const folderDoc = await admin.firestore().collection('sharedFolders').doc(folderID).get();
-    if (!folderDoc.exists) return;
-    const folder = folderDoc.data()!;
-
-    const videoID = context.params.videoId;
-    const uploaderName = video.uploadedByName || 'Someone';
-    const uploaderID: string = video.uploadedBy || '';
-    const uploaderType = video.uploadedByType; // "athlete" or "coach"
-    const folderName: string = folder.name || 'a folder';
-    const clipRef: string = clipDescription(video);
-
-    if (uploaderType === 'athlete') {
-      // Notify all coaches with folder access
-      const coachIDs: string[] = folder.sharedWithCoachIDs || [];
-      if (coachIDs.length > 0) {
-        // Feed docs FIRST: the push copy counts this coach's unread new-video
-        // items, so the clip that triggered us has to already be in that count.
-        // Matches client postNewVideoNotification: targetType: folder, targetID: folderID.
-        await writeActivityNotifications(
-          coachIDs,
-          (rid) => `newvideo_${videoID}_${rid}`,
-          {
-            type: 'new_video',
-            title: `New Video in ${folderName}`,
-            body: `${uploaderName} uploaded ${clipRef}`,
-            senderName: uploaderName,
-            senderID: uploaderID,
-            targetID: folderID,
-            targetType: 'folder',
-            folderID,
-          }
-        );
-        // Per-coach push: each coach has their own unread count, so this can't
-        // use the shared-body fan-out.
-        await Promise.allSettled(coachIDs.map(async (coachID) => {
-          const pending = await unreadFolderVideoCount(coachID, folderID);
-          await sendPushNotification(
-            coachID,
-            pending > 1 ? 'New Videos Shared' : 'New Video Shared',
-            // Counted as "unread", which can include clips shared earlier and
-            // never opened — so the plural reads as a waiting count, not a
-            // claim that all N were just uploaded.
-            pending > 1
-              ? `${pending} new videos from ${uploaderName} in ${folderName}`
-              : `${uploaderName} shared a new video in ${folderName}`,
-            { type: 'new_video', folderID },
-            'COACH_VIDEO',
-            newVideoGrouping(folderID)
-          );
-        }));
-      }
-    } else if (uploaderType === 'coach') {
-      // Notify the folder owner (athlete)
-      const athleteID = folder.ownerAthleteID;
-      if (athleteID) {
-        // videoID lets the tap land on the clip itself, matching the in-app
-        // record below (targetType: video). Without it the push could only
-        // open the folder. The coach-direction push above deliberately omits
-        // it — that record targets the folder, so the folder IS the
-        // destination there.
-        // Feed doc first so the count below includes this clip (see
-        // unreadFolderVideoCount).
-        // Matches client postCoachSharedClipNotification: targetType: video, targetID: videoID.
-        await writeActivityNotification(
-          athleteID,
-          `newvideo_${videoID}_${athleteID}`,
-          {
-            type: 'new_video',
-            title: `New Clip from ${uploaderName}`,
-            body: `${uploaderName} shared a new clip in ${folderName}`,
-            senderName: uploaderName,
-            senderID: uploaderID,
-            targetID: videoID,
-            targetType: 'video',
-            folderID,
-          }
-        );
-        const pending = await unreadFolderVideoCount(athleteID, folderID);
-        await sendPushNotification(
-          athleteID,
-          pending > 1 ? 'New Coach Videos' : 'New Coach Video',
-          pending > 1
-            ? `${pending} new videos from ${uploaderName} are waiting for you`
-            : `${uploaderName} uploaded a video for you`,
-          { type: 'new_video', folderID, videoID },
-          'COACH_VIDEO',
-          newVideoGrouping(folderID)
-        );
-      }
-    }
+    if (!isVisibleVideo(video)) return;
+    await notifyVideoBecameVisible(context.params.videoId, video);
   });
 
 /**
- * When a private video is published (visibility changes from "private" to "shared"),
- * send an FCM push to the folder owner (athlete). This covers coach session clips
- * that are shared after review — the onCreate trigger skips private videos.
+ * Fires on the write where a shared-folder clip turns visible: an athlete's
+ * upload flipping pending → completed, or a coach's draft published
+ * private → shared. (Name kept from when it only covered the second case, so a
+ * deploy updates it in place instead of deleting and recreating it.)
  */
 export const onVideoPublished = functions.firestore
   .document('videos/{videoId}')
   .onUpdate(async (change, context) => {
     const before = change.before.data();
     const after = change.after.data();
-
-    // Only fire when visibility transitions from private to non-private
-    if (before.visibility === 'private' && after.visibility !== 'private') {
-      const folderID = after.sharedFolderID;
-      if (!folderID) return;
-
-      // Only notify for coach uploads — athlete uploads are already handled by onCreate
-      if (after.uploadedByType !== 'coach') return;
-
-      const folderDoc = await admin.firestore().collection('sharedFolders').doc(folderID).get();
-      if (!folderDoc.exists) return;
-      const folder = folderDoc.data()!;
-
-      const videoID = context.params.videoId;
-      const coachName = after.uploadedByName || 'Your coach';
-      const coachID: string = after.uploadedBy || '';
-      const athleteID = folder.ownerAthleteID;
-      if (!athleteID) return;
-      const folderName: string = folder.name || 'a folder';
-
-      // Feed doc first so the count below includes this clip.
-      // Matches client postCoachSharedClipNotification. Shares the newvideo_{videoID}_{athleteID}
-      // key with onNewSharedVideo so a private-then-published coach clip produces only one doc.
-      await writeActivityNotification(
-        athleteID,
-        `newvideo_${videoID}_${athleteID}`,
-        {
-          type: 'new_video',
-          title: `New Clip from ${coachName}`,
-          body: `${coachName} shared a new clip in ${folderName}`,
-          senderName: coachName,
-          senderID: coachID,
-          targetID: videoID,
-          targetType: 'video',
-          folderID,
-        }
-      );
-      // videoID so the tap opens the clip, matching the in-app record above
-      // (targetType: video) rather than stopping at the folder.
-      const pending = await unreadFolderVideoCount(athleteID, folderID);
-      await sendPushNotification(
-        athleteID,
-        pending > 1 ? 'New Session Videos' : 'New Session Video',
-        pending > 1
-          ? `${pending} lesson clips from ${coachName} are waiting for you`
-          : `${coachName} shared a lesson clip with you`,
-        { type: 'new_video', folderID, videoID },
-        'COACH_VIDEO',
-        newVideoGrouping(folderID)
-      );
-    }
+    if (!becameVisible(before, after)) return;
+    await notifyVideoBecameVisible(context.params.videoId, after);
   });
 
 /**
@@ -1212,6 +1193,9 @@ export const onCoachNoteUpdated = functions.firestore
     // Drafts must not page the athlete; the cohesive publish push covers them.
     // Mirrors the guard onNewAnnotation / onNewDrillCard already enforce.
     if (after.visibility === 'private') return;
+    // Publishing with a note sets coachNote and visibility in ONE write, so this
+    // write is also the publish — onVideoPublished already pushes for it.
+    if (becameVisible(before, after)) return;
 
     const authorId: string = after.coachNoteAuthorID || after.uploadedBy || '';
     const authorName: string = after.coachNoteAuthorName || after.uploadedByName || 'Your coach';

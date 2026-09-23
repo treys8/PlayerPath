@@ -449,14 +449,14 @@ struct AthleteFolderDetailContent: View {
     enum SheetType: Identifiable {
         case inviteCoach
         case manageCoaches
-        case uploadVideo
+        case shareClip
         case renameFolder
 
         var id: String {
             switch self {
             case .inviteCoach: return "inviteCoach"
             case .manageCoaches: return "manageCoaches"
-            case .uploadVideo: return "uploadVideo"
+            case .shareClip: return "shareClip"
             case .renameFolder: return "renameFolder"
             }
         }
@@ -464,6 +464,7 @@ struct AthleteFolderDetailContent: View {
 
     @State private var activeSheet: SheetType?
     @State private var lastFetchDate: Date?
+    @State private var didHealStrandedUploads = false
 
     init(folder: SharedFolder, athleteID: String, targetVideoID: String? = nil) {
         self.folder = folder
@@ -504,10 +505,15 @@ struct AthleteFolderDetailContent: View {
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Menu {
-                    Button {
-                        activeSheet = .uploadVideo
-                    } label: {
-                        Label("Share a Video", systemImage: AppIcon.upload)
+                    // Lessons folders hold the coach's lesson clips; athlete clips
+                    // go to the Games folder (ShareToCoachFolderView excludes
+                    // lessons for the same reason).
+                    if folder.folderType != "lessons" {
+                        Button {
+                            activeSheet = .shareClip
+                        } label: {
+                            Label("Share a Clip", systemImage: AppIcon.upload)
+                        }
                     }
 
                     Button {
@@ -547,8 +553,9 @@ struct AthleteFolderDetailContent: View {
                 InviteCoachView(folder: folder)
             case .manageCoaches:
                 ManageCoachesView(folder: folder)
-            case .uploadVideo:
-                CoachVideoUploadView(folder: folder, defaultContext: .game)
+            case .shareClip:
+                ShareClipToFolderPicker(folder: folder)
+                    .environmentObject(authManager)
             case .renameFolder:
                 RenameFolderSheet(folder: folder, athleteID: athleteID)
             }
@@ -557,10 +564,46 @@ struct AthleteFolderDetailContent: View {
             if let lastFetch = lastFetchDate, Date().timeIntervalSince(lastFetch) < 60 { return }
             await viewModel.loadVideos()
             lastFetchDate = Date()
+            await healStrandedUploads()
         }
         .refreshable {
             await viewModel.loadVideos()
         }
+    }
+
+    /// Publishes clips the athlete uploaded through this folder's old "Share a
+    /// Video" item. That item used the coach upload queue, which wrote the clip
+    /// as a coach-typed PRIVATE draft — visible to the athlete, never to a coach,
+    /// with nothing in the athlete UI to publish it. Flipping it to shared (and
+    /// re-typing it as an athlete upload) lets onVideoPublished notify the
+    /// coaches. An athlete never has a legitimate private clip in a folder, so
+    /// every own private clip here is one of these. Runs once per view life.
+    private func healStrandedUploads() async {
+        // Owner-only: every caller today is the athlete, but on any other viewer
+        // this would publish THEIR drafts.
+        guard !didHealStrandedUploads, let folderID = folder.id,
+              folder.ownerAthleteID == athleteID else { return }
+        // Only count a pass that actually saw the folder: loadVideos() returns
+        // early offline and swallows fetch errors, and an empty list here must not
+        // lock the heal out for the rest of the view's life.
+        guard ConnectivityMonitor.shared.isConnected, viewModel.errorMessage == nil else { return }
+        didHealStrandedUploads = true
+        let stranded = viewModel.videos.filter {
+            $0.visibility == "private" && $0.uploadedBy == athleteID
+        }
+        guard !stranded.isEmpty else { return }
+        for video in stranded {
+            do {
+                try await FirestoreManager.shared.publishPrivateVideo(
+                    videoID: video.id,
+                    sharedFolderID: folderID,
+                    uploadedByType: .athlete
+                )
+            } catch {
+                ErrorHandlerService.shared.handle(error, context: "AthleteFolderDetail.healStrandedUploads", showAlert: false)
+            }
+        }
+        await viewModel.loadVideos()
     }
 
     private var folderHeader: some View {

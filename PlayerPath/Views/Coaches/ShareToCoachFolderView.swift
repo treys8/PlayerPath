@@ -11,6 +11,11 @@ import SwiftData
 
 struct ShareToCoachFolderView: View {
     let clip: VideoClip
+    /// Folder to select once folders load — set when sharing from inside a folder.
+    var preselectedFolderID: String? = nil
+    /// Called after a successful share, before this sheet dismisses itself, so a
+    /// presenting picker can close too.
+    var onShared: (() -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
@@ -22,11 +27,17 @@ struct ShareToCoachFolderView: View {
 
     /// Folders scoped to this clip's athlete. Legacy folders (pre-migration, athleteUUID == nil)
     /// are included so users aren't locked out of sharing until the migration assigns them.
+    ///
+    /// Lessons folders are excluded: they hold the coach's lesson clips, and the
+    /// coach's view of them lists drafts + published lessons, so an athlete clip
+    /// there was easy to lose. Every connection creates a Games folder shared with
+    /// the same coach, so nothing becomes unreachable.
     private var scopedFolders: [SharedFolder] {
+        let shareable = folderManager.athleteFolders.filter { $0.folderType != "lessons" }
         guard let athleteUUID = clip.athlete?.id.uuidString else {
-            return folderManager.athleteFolders.filter { $0.athleteUUID == nil }
+            return shareable.filter { $0.athleteUUID == nil }
         }
-        return folderManager.athleteFolders.filter {
+        return shareable.filter {
             $0.athleteUUID == nil || $0.athleteUUID == athleteUUID
         }
     }
@@ -193,6 +204,14 @@ struct ShareToCoachFolderView: View {
         } catch {
             ErrorHandlerService.shared.handle(error, context: "ShareToCoachFolder.loadFolders", showAlert: false)
         }
+        // Applied after the refresh (even a failed one — the listener's cached
+        // folders may already hold it) and only if the user hasn't picked yet.
+        // scopedFolders reads clip.athlete; a sync-down delete during the await
+        // above invalidates the clip, and touching a deleted @Model traps.
+        guard !clip.isDeleted, clip.modelContext != nil else { return }
+        if selectedFolder == nil, let preselectedFolderID {
+            selectedFolder = scopedFolders.first { $0.id == preselectedFolderID }
+        }
     }
 
     private func share() async {
@@ -299,6 +318,7 @@ struct ShareToCoachFolderView: View {
 
             isUploading = false
             Haptics.success()
+            onShared?()
             dismiss()
         } catch {
             isUploading = false

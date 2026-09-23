@@ -462,8 +462,14 @@ final class ActivityNotificationService: ObservableObject {
     }
 
     func markVideoRead(videoID: String, forUserID userID: String) async {
+        // A coach's "new video" record targets the FOLDER (tapping it opens the
+        // folder), so the targetID match alone never clears it — its badge and the
+        // server's "N new videos waiting" push count would only drain via "Mark All
+        // as Read". Its doc ID is deterministic (onVideoPublished writes
+        // newvideo_{videoID}_{recipient}), so match that too.
+        let newVideoDocID = "newvideo_\(videoID)_\(userID)"
         await markBatchRead(forUserID: userID, label: "video \(videoID)") {
-            $0.targetID == videoID && $0.targetType == .video
+            ($0.targetID == videoID && $0.targetType == .video) || $0.id == newVideoDocID
         }
     }
 
