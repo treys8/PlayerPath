@@ -345,6 +345,9 @@ struct JournalView: View {
             .padding(.vertical, .spacingLarge)
         }
         .background(Theme.surface)
+        // Photo-led feed: the default soft edge left the clock and header
+        // unreadable over dark images scrolled under the nav bar.
+        .ppHardTopScrollEdge()
         .refreshable { await refreshFeed() }
         // The empty state carries its own in-body serif title block, so suppress
         // the large nav title there — otherwise "The Journal." renders twice.

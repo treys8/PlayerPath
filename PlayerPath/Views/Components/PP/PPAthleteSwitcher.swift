@@ -116,6 +116,7 @@ struct PPAthleteSwitcher: View {
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(Theme.textTertiary)
         }
+        .ppToolbarGlassPill()
     }
 
     private var avatar: some View {

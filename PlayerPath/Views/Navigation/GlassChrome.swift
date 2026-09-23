@@ -40,4 +40,32 @@ extension View {
             self
         }
     }
+
+    /// Gives a custom toolbar control (e.g. the principal athlete switcher) the
+    /// same glass capsule iOS 26 draws behind standard toolbar items — without
+    /// it, the control sits bare on whatever scrolls underneath and goes
+    /// unreadable over a dark photo. No-op before iOS 26.
+    @ViewBuilder
+    func ppToolbarGlassPill() -> some View {
+        if #available(iOS 26, *) {
+            self
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .glassEffect(.regular, in: .capsule)
+        } else {
+            self
+        }
+    }
+
+    /// The stronger iOS 26 scroll-edge treatment under the nav bar, for
+    /// photo-led feeds where the default soft fade leaves the status bar and
+    /// header unreadable over dark images. No-op before iOS 26.
+    @ViewBuilder
+    func ppHardTopScrollEdge() -> some View {
+        if #available(iOS 26, *) {
+            self.scrollEdgeEffectStyle(.hard, for: .top)
+        } else {
+            self
+        }
+    }
 }
