@@ -31,79 +31,58 @@ struct PhotoThumbnailCell: View {
     @Environment(\.ppAccent) private var ppAccent
 
     var body: some View {
-        GeometryReader { geo in
-            ZStack {
-                Group {
-                    if let thumbnail {
-                        Image(uiImage: thumbnail)
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
-                            .clipped()
-                    } else if loadFailed {
-                        Rectangle()
-                            .fill(Color(.systemGray5))
-                            .frame(width: geo.size.width, height: geo.size.height)
-                            .overlay {
-                                Image(systemName: photo.cloudURL != nil ? "icloud.and.arrow.down" : "photo")
-                                    .font(.title3)
-                                    .foregroundColor(.secondary)
-                            }
+        // Sized by the aspectRatio below; no GeometryReader, which is costly
+        // per-cell inside a LazyVGrid. The image fills and is top-anchored so
+        // faces in portrait shots stay in frame.
+        Rectangle()
+            .fill(Color(.systemGray5))
+            .overlay(alignment: .top) {
+                if let thumbnail {
+                    Image(uiImage: thumbnail)
+                        .resizable()
+                        .scaledToFill()
+                }
+            }
+            .overlay {
+                if thumbnail == nil {
+                    if loadFailed {
+                        Image(systemName: photo.cloudURL != nil ? "icloud.and.arrow.down" : "photo")
+                            .font(.title3)
+                            .foregroundColor(.secondary)
                     } else {
-                        Rectangle()
-                            .fill(Color(.systemGray5))
-                            .frame(width: geo.size.width, height: geo.size.height)
-                            .overlay { ProgressView() }
-                    }
-                }
-
-                // Overlay badges
-                if photo.caption?.isEmpty == false {
-                    VStack {
-                        HStack {
-                            captionIndicator
-                            Spacer()
-                        }
-                        Spacer()
-                    }
-                }
-
-                if let icon = syncIndicatorIcon {
-                    VStack {
-                        HStack {
-                            Spacer()
-                            syncBadge(icon: icon.name, color: icon.color)
-                        }
-                        Spacer()
-                    }
-                }
-
-                if photo.game == nil && photo.practice == nil {
-                    VStack {
-                        Spacer()
-                        HStack {
-                            Spacer()
-                            untaggedDot
-                        }
-                    }
-                }
-
-                if photo.isHighlight {
-                    VStack {
-                        Spacer()
-                        HStack {
-                            highlightBadge
-                            Spacer()
-                        }
+                        ProgressView()
                     }
                 }
             }
-        }
+            .clipped()
+            .overlay(alignment: .topLeading) {
+                if photo.caption?.isEmpty == false {
+                    captionIndicator
+                }
+            }
+            .overlay(alignment: .topTrailing) {
+                if let icon = syncIndicatorIcon {
+                    syncBadge(icon: icon.name, color: icon.color)
+                }
+            }
+            .overlay(alignment: .bottomTrailing) {
+                if photo.game == nil && photo.practice == nil {
+                    untaggedDot
+                }
+            }
+            .overlay(alignment: .bottomLeading) {
+                if photo.isHighlight {
+                    highlightBadge
+                }
+            }
         .aspectRatio(style == .card ? 3.0/4.0 : 1.0, contentMode: .fit)
         .background(style == .card ? Color(.systemGray6) : Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: style == .card ? 12 : 0, style: .continuous))
         .shadow(color: .black.opacity(style == .card ? 0.08 : 0), radius: 8, x: 0, y: 3)
         .shadow(color: .black.opacity(style == .card ? 0.04 : 0), radius: 2, x: 0, y: 1)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(PhotoAccessibility.label(for: photo))
+        .accessibilityAddTraits(.isImage)
         .contextMenu {
             Group {
                 if photo.isAvailableOffline, let url = photo.fileURL {
@@ -234,5 +213,30 @@ struct PhotoThumbnailCell: View {
         } else {
             loadFailed = true
         }
+    }
+}
+
+// MARK: - Accessibility
+
+/// One spoken description for a photo cell, shared by the grid and hero cells:
+/// "Photo, vs Hawks, April 14, 2026, favorite, caption: Walk-off".
+enum PhotoAccessibility {
+    static func label(for photo: Photo) -> String {
+        var parts = ["Photo"]
+        if let game = photo.game {
+            parts.append(game.opponentLabel)
+        } else if photo.practice != nil {
+            parts.append("Practice")
+        } else {
+            parts.append("untagged")
+        }
+        if let date = photo.createdAt {
+            parts.append(date.formatted(date: .long, time: .omitted))
+        }
+        if photo.isHighlight { parts.append("favorite") }
+        if let caption = photo.caption, !caption.isEmpty {
+            parts.append("caption: \(caption)")
+        }
+        return parts.joined(separator: ", ")
     }
 }

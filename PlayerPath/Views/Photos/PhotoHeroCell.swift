@@ -77,6 +77,9 @@ struct PhotoHeroCell: View {
         .onPreferenceChange(HeroWidthPreferenceKey.self) { containerWidth = $0 }
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .shadow(color: .black.opacity(0.12), radius: 10, x: 0, y: 4)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Most recent. " + PhotoAccessibility.label(for: photo))
+        .accessibilityAddTraits(.isImage)
         .contextMenu {
             Group {
                 if photo.isAvailableOffline, let url = photo.fileURL {

@@ -408,7 +408,7 @@ struct VideoClipCard: View {
         } else if video.practice != nil {
             Text("Practice")
                 .font(.bodySmall)
-                .foregroundColor(.green)
+                .foregroundColor(Theme.chipGreenText)
         } else {
             Text(displayDate, format: .dateTime.month(.abbreviated).day().year())
                 .font(.bodySmall)
@@ -437,7 +437,7 @@ struct VideoClipCard: View {
                         Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                             .font(.system(size: 28))
                             .symbolRenderingMode(.palette)
-                            .foregroundStyle(Color.white, Color.blue)
+                            .foregroundStyle(Color.white, ppAccent)
                             .shadow(color: .black.opacity(0.35), radius: 2, x: 0, y: 1)
                             .padding(10)
                     }
@@ -473,6 +473,7 @@ struct BackupStatusBadge: View {
     let clip: VideoClip
 
     private let uploadManager = UploadQueueManager.shared
+    @Environment(\.ppAccent) private var ppAccent
 
     var body: some View {
         // Reading clip.isUploaded / clip.firestoreId here — instead of in the
@@ -491,10 +492,10 @@ struct BackupStatusBadge: View {
             HStack(spacing: 3) {
                 ProgressView()
                     .scaleEffect(0.6)
-                    .tint(.brandNavy)
+                    .tint(ppAccent)
                 Text("\(Int(progress * 100))%")
                     .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(.brandNavy)
+                    .foregroundColor(ppAccent)
             }
             .frame(minHeight: 22)
         } else if uploadManager.pendingUploads.contains(where: { $0.clipId == clip.id }) {
