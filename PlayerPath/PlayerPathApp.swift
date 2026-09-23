@@ -217,6 +217,10 @@ struct ScenePhaseSaveHandler<Content: View>: View {
         case .active:
             appLog.info("App became active")
 
+            // Pick up kill-switch flips (appConfig/killSwitches) without a relaunch.
+            // No-op when signed out.
+            Task { await KillSwitchService.shared.refresh() }
+
             // Mark the foreground transition so ActivityNotificationService can
             // suppress in-app banners for notifications the user already saw as
             // FCM lock-screen banners while the app was backgrounded.

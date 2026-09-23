@@ -190,6 +190,10 @@ struct AuthenticatedFlow: View {
                 // Re-assert the push token against the current user — handles
                 // sign-out→sign-in where the cached token is unchanged.
                 Task { await PushNotificationService.shared.reassociateTokenWithCurrentUser() }
+                // Remote kill switches (appConfig/killSwitches). Not awaited: gates
+                // read the cached state meanwhile, and the refresh sweeps any nudge
+                // scheduled before it lands.
+                Task { await KillSwitchService.shared.refresh() }
             }
 
             if authManager.userRole == .coach {

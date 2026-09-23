@@ -14,6 +14,7 @@
 
 import Foundation
 import SwiftData
+import UserNotifications
 
 @MainActor
 enum WeeklySummaryScheduler {
@@ -172,6 +173,17 @@ enum WeeklySummaryScheduler {
         // Now do the async scheduling over plain values only — no model access.
         for summary in summaries {
             await send(summary)
+        }
+    }
+
+    /// Cancel every pending weekly summary across all athletes (ids are
+    /// `weekly_summary_<athleteId>`, set in PushNotificationService.scheduleWeeklySummary).
+    /// Used by the `engagementNudges` kill switch.
+    static func cancelAll() async {
+        let pending = await UNUserNotificationCenter.current().pendingNotificationRequests()
+        let ids = pending.map(\.identifier).filter { $0.hasPrefix("weekly_summary_") }
+        if !ids.isEmpty {
+            PushNotificationService.shared.cancelNotifications(withIdentifiers: ids)
         }
     }
 
