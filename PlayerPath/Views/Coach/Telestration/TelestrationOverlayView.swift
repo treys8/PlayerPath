@@ -172,8 +172,9 @@ struct TelestrationOverlayView: View {
                     .tint(.white)
                     .foregroundColor(.white)
                     .padding()
-                    .background(.ultraThinMaterial)
-                    .cornerRadius(12)
+                    .ppDarkGlassPanel(in: RoundedRectangle(cornerRadius: 12)) {
+                        $0.background(.ultraThinMaterial).cornerRadius(12)
+                    }
             }
         }
         .alert("Save Failed", isPresented: .init(

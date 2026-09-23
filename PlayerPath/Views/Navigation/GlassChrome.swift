@@ -68,4 +68,23 @@ extension View {
             self
         }
     }
+
+    /// A control panel floating over video or the camera: Liquid Glass tinted
+    /// dark on iOS 26, with the dark scheme forced so the glass never flips light
+    /// behind the panels' white glyphs over a bright frame. Before 26, `fallback`
+    /// applies the panel's existing material so its look is unchanged.
+    @ViewBuilder
+    func ppDarkGlassPanel<S: Shape, Fallback: View>(
+        in shape: S,
+        tint: Color? = nil,
+        fallback: (Self) -> Fallback
+    ) -> some View {
+        if #available(iOS 26, *) {
+            self
+                .glassEffect(.regular.tint(tint), in: shape)
+                .environment(\.colorScheme, .dark)
+        } else {
+            fallback(self)
+        }
+    }
 }

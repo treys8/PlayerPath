@@ -83,11 +83,13 @@ struct SessionAthletePickerOverlay: View {
                 .disabled(hasSelected)
             }
             .padding(.vertical, 20)
-            .background(
-                RoundedRectangle(cornerRadius: 20)
-                    .fill(.ultraThinMaterial)
-                    .environment(\.colorScheme, .dark)
-            )
+            .ppDarkGlassPanel(in: RoundedRectangle(cornerRadius: 20)) {
+                $0.background(
+                    RoundedRectangle(cornerRadius: 20)
+                        .fill(.ultraThinMaterial)
+                        .environment(\.colorScheme, .dark)
+                )
+            }
             .padding(.horizontal)
             .padding(.bottom, 40)
         }

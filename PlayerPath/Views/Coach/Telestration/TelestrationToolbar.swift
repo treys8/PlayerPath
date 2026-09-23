@@ -217,8 +217,11 @@ struct TelestrationToolbar: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .background(Theme.tileNavyDark.opacity(0.55), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .ppDarkGlassPanel(in: RoundedRectangle(cornerRadius: 22, style: .continuous),
+                          tint: Theme.tileNavyDark.opacity(0.55)) {
+            $0.background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .background(Theme.tileNavyDark.opacity(0.55), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        }
         .padding(.horizontal, 12)
         .padding(.top, 8)
         .confirmationDialog("Clear Drawing?", isPresented: $showingClearConfirm) {
