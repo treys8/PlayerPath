@@ -589,7 +589,8 @@ struct CoachVideoPlayerView: View {
                 }
                 .padding(.bottom, .spacingLarge)
             }
-            if isOwnPrivateDraft { draftPublishBar }
+            // Notes scroll under the bar on iOS 26; stacked below it before.
+            .ppBottomBar(isPresented: isOwnPrivateDraft) { draftPublishBar }
         }
         .background(Theme.surface)
     }
@@ -616,7 +617,8 @@ struct CoachVideoPlayerView: View {
                 .frame(width: isIPad ? 360 : 320)
                 .background(Theme.surface)
             }
-            if isOwnPrivateDraft { draftPublishBar }
+            // Nothing scrolls behind it here, so the bar stays solid.
+            if isOwnPrivateDraft { draftPublishBar.background(Theme.surface) }
         }
     }
 
@@ -1178,7 +1180,6 @@ struct CoachVideoPlayerView: View {
             onSaveForLater: saveDraftForLater,
             onDiscard: { showingDraftDiscardConfirm = true }
         )
-        .background(Theme.surface)
     }
 
     /// Share Now redirects to the resolve sheet while feedback is blocked (the

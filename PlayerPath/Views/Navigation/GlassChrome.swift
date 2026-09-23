@@ -69,6 +69,23 @@ extension View {
         }
     }
 
+    /// Pins a bottom action bar. iOS 26: `safeAreaBar`, so content scrolls under
+    /// the bar with the system scroll-edge effect. Before 26: stacked below the
+    /// view on `Theme.surface` (the pre-26 layout, unchanged).
+    @ViewBuilder
+    func ppBottomBar<Bar: View>(isPresented: Bool, @ViewBuilder bar: () -> Bar) -> some View {
+        if #available(iOS 26, *) {
+            self.safeAreaBar(edge: .bottom) {
+                if isPresented { bar() }
+            }
+        } else {
+            VStack(spacing: 0) {
+                self
+                if isPresented { bar().background(Theme.surface) }
+            }
+        }
+    }
+
     /// A control panel floating over video or the camera: Liquid Glass tinted
     /// dark on iOS 26, with the dark scheme forced so the glass never flips light
     /// behind the panels' white glyphs over a bright frame. Before 26, `fallback`
