@@ -241,6 +241,22 @@ final class PushNotificationService: NSObject, ObservableObject {
         _ = await requestAuthorization()
     }
 
+    /// Re-registers with APNs when permission is ALREADY granted. iOS does not
+    /// persist the device token across launches, so an authorized user needs
+    /// `registerForRemoteNotifications()` called every launch or FCM can go
+    /// stale. That used to happen only by accident: the tab bars called
+    /// `requestAuthorization()` whenever the CACHED status still read
+    /// `.notDetermined`, and for an authorized user that no-op'd the dialog but
+    /// did re-register as a side effect. The primer replaced that cached-status
+    /// check with a live one, so this makes the registration explicit.
+    /// Refreshes the cached status first, then registers only when authorized —
+    /// it never shows a dialog.
+    func refreshRemoteRegistrationIfAuthorized() async {
+        await updateAuthorizationStatus()
+        guard canScheduleNotifications else { return }
+        await registerForRemoteNotifications()
+    }
+
     /// If notifications are denied, open Settings; otherwise, no-op. Returns true if Settings was opened.
     @discardableResult
     func openSettingsIfDenied() -> Bool {
@@ -452,10 +468,48 @@ final class PushNotificationService: NSObject, ObservableObject {
         logger.info("Cancelled all pending/delivered local notifications")
     }
 
+    /// Last known count of clips waiting on the coach, stamped by
+    /// `syncReviewReminder`. Read at launch so the reminder can be re-armed
+    /// before the dashboard has fetched anything.
+    private static let pendingReviewCountKey = "coachReviewReminderPendingCount"
+
+    /// Clips the coach had waiting at the last queue refresh. An install that
+    /// has never stamped one reads 1 ("unknown — arm it") rather than 0, so an
+    /// existing coach never silently loses their reminder on upgrade.
+    var lastKnownPendingReviewCount: Int {
+        UserDefaults.standard.object(forKey: Self.pendingReviewCountKey) as? Int ?? 1
+    }
+
+    /// Arms or disarms the daily review reminder to match the real queue.
+    ///
+    /// The reminder is a REPEATING calendar notification, so its body ("You have
+    /// session clips that haven't been reviewed yet") can't be re-evaluated at
+    /// fire time — left armed, it told coaches every morning that clips were
+    /// waiting when none were. `NeedsReviewQueueViewModel.refresh` calls this
+    /// with the true count, so the claim matches what the app last saw.
+    func syncReviewReminder(pendingCount: Int) async {
+        UserDefaults.standard.set(pendingCount, forKey: Self.pendingReviewCountKey)
+        guard UserDefaults.standard.bool(forKey: ReviewReminderKeys.enabled) else { return }
+        guard pendingCount > 0 else {
+            cancelReviewReminder()
+            return
+        }
+        let hour = UserDefaults.standard.object(forKey: ReviewReminderKeys.hour) as? Int ?? 9
+        let minute = UserDefaults.standard.object(forKey: ReviewReminderKeys.minute) as? Int ?? 0
+        await scheduleReviewReminder(hour: hour, minute: minute)
+    }
+
     /// Reschedules the review reminder if enabled in settings. Call on app launch.
+    /// Re-arms only when the last known queue was non-empty; the dashboard's next
+    /// refresh corrects it either way.
     func rescheduleReviewReminderIfNeeded() async {
         let enabled = UserDefaults.standard.bool(forKey: ReviewReminderKeys.enabled)
         guard enabled else { return }
+        // A never-stamped install (key absent) reads 0. Treat that as "unknown,
+        // arm it" so an upgrading coach doesn't silently lose their reminder
+        // before the first dashboard refresh stamps a real count.
+        let lastKnownPending = UserDefaults.standard.object(forKey: Self.pendingReviewCountKey) as? Int
+        guard (lastKnownPending ?? 1) > 0 else { return }
         let hour = UserDefaults.standard.object(forKey: ReviewReminderKeys.hour) as? Int ?? 9
         let minute = UserDefaults.standard.object(forKey: ReviewReminderKeys.minute) as? Int ?? 0
         await scheduleReviewReminder(hour: hour, minute: minute)
@@ -470,7 +524,20 @@ final class PushNotificationService: NSObject, ObservableObject {
     /// games + batting average — and the counted window. Same split as
     /// `ClipTaggingReminderService`: the domain service words it, this layer
     /// only schedules it.
-    func scheduleWeeklySummary(athleteId: String, body: String, fireDate: Date) async {
+    /// - Parameters:
+    ///   - isWeekendWrapUp: a tournament-weekend wrap-up rather than the routine
+    ///     recap. It absorbs the clip-tag nudge (suppressed on those evenings),
+    ///     so its tap routes to the untagged clips when any are waiting.
+    ///   - untaggedCount: weekend clips still untagged, carried in `userInfo` for
+    ///     that routing decision at tap time.
+    func scheduleWeeklySummary(
+        athleteId: String,
+        title: String,
+        body: String,
+        fireDate: Date,
+        isWeekendWrapUp: Bool = false,
+        untaggedCount: Int = 0
+    ) async {
         guard canScheduleNotifications else { return }
 
         // Cancel any existing weekly summary so we replace it with fresh stats
@@ -479,12 +546,18 @@ final class PushNotificationService: NSObject, ObservableObject {
         let triggerComponents = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: fireDate)
         let trigger = UNCalendarNotificationTrigger(dateMatching: triggerComponents, repeats: false)
 
+        var userInfo: [String: Any] = [
+            "athleteId": athleteId,
+            "type": isWeekendWrapUp ? "weekend_wrapup" : "weekly_summary",
+        ]
+        if isWeekendWrapUp { userInfo["untaggedCount"] = untaggedCount }
+
         let success = await scheduleLocalNotification(
             identifier: "weekly_summary_\(athleteId)",
-            title: "Your Week in Review",
+            title: title,
             body: body,
             categoryIdentifier: "WEEKLY_SUMMARY",
-            userInfo: ["athleteId": athleteId, "type": "weekly_summary"],
+            userInfo: userInfo,
             trigger: trigger
         )
 
@@ -912,6 +985,15 @@ extension PushNotificationService: UNUserNotificationCenterDelegate {
             case "weekly_summary":
                 // Fix AJ: route default tap to the same destination as the VIEW_SUMMARY action
                 NotificationCenter.default.post(name: .navigateToWeeklySummary, object: nil)
+            case "weekend_wrapup":
+                // Follow the CTA the body actually showed: tagging leads when
+                // clips are still untagged (this notification stood in for the
+                // clip-tag nudge), otherwise the weekend summary.
+                if (userInfo["untaggedCount"] as? Int ?? 0) > 0 {
+                    NotificationCenter.default.post(name: .navigateToUntaggedClips, object: nil)
+                } else {
+                    NotificationCenter.default.post(name: .navigateToWeeklySummary, object: nil)
+                }
             case "clip_tagging":
                 // Land on the untagged-filtered clips list (tier-accessible).
                 NotificationCenter.default.post(name: .navigateToUntaggedClips, object: nil)

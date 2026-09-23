@@ -341,10 +341,18 @@ class GameService {
     /// Schedule a local reminder for the game if user preferences allow and
     /// the game is far enough in the future. Centralizes what used to be
     /// duplicated across AddGameView, GamesView, and GameCreationView callers.
-    func scheduleReminderIfNeeded(for game: Game) async {
-        // Prompt for permission on first game creation — first concrete
-        // moment the user has a reason to receive a notification.
-        await PushNotificationService.shared.requestAuthorizationIfNeeded()
+    /// - Parameter promptForPermission: pass false from non-interactive callers
+    ///   (a background sync pass), where raising the iOS permission dialog out of
+    ///   nowhere would be wrong.
+    func scheduleReminderIfNeeded(for game: Game, promptForPermission: Bool = true) async {
+        // Safety net only. Onboarding (OnboardingBackupView) and the tab-bar
+        // primer both ask earlier, so by the time a game exists the status is
+        // normally already determined and this is a no-op. It stays for the
+        // path where both were somehow skipped — requestAuthorizationIfNeeded
+        // returns immediately unless the status is still .notDetermined.
+        if promptForPermission {
+            await PushNotificationService.shared.requestAuthorizationIfNeeded()
+        }
 
         let prefs = try? modelContext.fetch(FetchDescriptor<UserPreferences>()).first
         guard prefs?.enableGameReminders ?? true else { return }
@@ -364,6 +372,12 @@ class GameService {
     /// for every future game. Call when the gameReminders toggle is flipped ON
     /// or when `gameReminderMinutes` changes — both require a full refresh so
     /// existing games reflect the new preference.
+    ///
+    /// Also called after a games down-sync: reminders are local to the device
+    /// that created the game, so a schedule entered on a parent's phone left the
+    /// athlete's phone with no reminders at all. Re-running the whole pass is
+    /// idempotent and covers inserts, remote date edits and deletions alike.
+    /// Never prompts for permission — a sync is not an interactive moment.
     func rescheduleAllGameReminders() async {
         let pending = await UNUserNotificationCenter.current().pendingNotificationRequests()
         let gameReminderIds = pending
@@ -383,7 +397,7 @@ class GameService {
             return date > now
         }
         for game in futureGames {
-            await scheduleReminderIfNeeded(for: game)
+            await scheduleReminderIfNeeded(for: game, promptForPermission: false)
         }
     }
 
@@ -519,6 +533,12 @@ class GameService {
 
         let endedGameID = game.id
         let isGolfRound = game.season?.sport == .golf
+        // Snapshot synchronously: the Sunday wrap-up absorbs the tag nudge on a
+        // tournament weekend, but only when the weekly summary is switched on.
+        let isTournamentWeekend = game.athlete.map {
+            AthleteScheduleContext.isTournamentWeekend(for: $0)
+        } ?? false
+        let weekendWrapUpWillCover = isTournamentWeekend && WeeklySummaryScheduler.weeklyStatsEnabled
         let untaggedClipCount = (game.videoClips ?? []).filter {
             !$0.isTagged && !$0.isDeletedRemotely && $0.sourceCoachVideoID == nil
         }.count
@@ -529,7 +549,8 @@ class GameService {
         await ClipTaggingReminderService.shared.scheduleIfNeeded(
             eventID: endedGameID,
             untaggedCount: untaggedClipCount,
-            eventNoun: isGolfRound ? "round" : "game"
+            eventNoun: isGolfRound ? "round" : "game",
+            weekendWrapUpWillCover: weekendWrapUpWillCover
         )
     }
 

@@ -75,6 +75,13 @@ class PlayerPathAppDelegate: NSObject, UIApplicationDelegate {
             await PushNotificationService.shared.rescheduleReviewReminderIfNeeded()
         }
 
+        // Re-register with APNs for users who already granted permission. No
+        // dialog — see refreshRemoteRegistrationIfAuthorized. Users who have
+        // never been asked are handled by onboarding or NotificationPermissionPrimer.
+        Task {
+            await PushNotificationService.shared.refreshRemoteRegistrationIfAuthorized()
+        }
+
         return true
     }
 
@@ -143,7 +150,9 @@ class PlayerPathAppDelegate: NSObject, UIApplicationDelegate {
         // Fix AE: Permission is no longer requested on cold launch — that produces a system
         // dialog before the user understands the app's value, leading to low opt-in rates.
         // PushNotificationService.init() already configures categories and the delegate.
-        // The permission request is deferred to MainTabView.task, after onboarding completes.
+        // The permission request is deferred to onboarding (OnboardingBackupView /
+        // CoachOnboardingFlow) with NotificationPermissionPrimer as the fallback for
+        // sessions that skip onboarding entirely (second device, reinstall).
 
         // Configure Firebase Cloud Messaging delegate for FCM token management
         Messaging.messaging().delegate = self

@@ -105,6 +105,15 @@ class NeedsReviewQueueViewModel {
             )
         }
         .sorted { $0.athleteName.localizedCaseInsensitiveCompare($1.athleteName) == .orderedAscending }
+
+        // Keep the daily review reminder honest: it is a repeating local
+        // notification whose body claims clips are waiting, so it must not stay
+        // armed once the queue is empty. A failed refresh leaves it alone —
+        // `groupedClips` is empty then too, and disarming on a network blip
+        // would silently stop a coach's reminders.
+        if !lastRefreshFailed {
+            await PushNotificationService.shared.syncReviewReminder(pendingCount: totalCount)
+        }
     }
 
     /// Single-folder fetch + client-side filter. Static so the TaskGroup

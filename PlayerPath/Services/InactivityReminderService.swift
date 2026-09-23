@@ -25,7 +25,12 @@ final class InactivityReminderService {
     /// Cancel any pending nudge and (if enabled) schedule a fresh one `inactivityDays`
     /// out. Call on launch and on every foreground — each open pushes the fire
     /// date forward, so an active user never sees it.
-    func reschedule() async {
+    ///
+    /// `isInSeason` picks the copy: "log a game" is wrong in December, when a
+    /// travel athlete (Feb–Oct) or a high school one (Feb–May) has nothing to
+    /// log. Callers compute it with `AthleteScheduleContext.isInSeason(for:)`
+    /// BEFORE calling, so no `@Model` is read across this function's awaits.
+    func reschedule(isInSeason: Bool = true) async {
         // Always clear the previous one first so a returning user resets the clock
         // (and a disabled toggle leaves nothing pending).
         PushNotificationService.shared.cancelNotifications(withIdentifiers: [Self.notifID])
@@ -40,8 +45,10 @@ final class InactivityReminderService {
         guard interval > 0 else { return }
         _ = await PushNotificationService.shared.scheduleLocalNotification(
             identifier: Self.notifID,
-            title: "We miss you!",
-            body: "It's been a while — log a game, record a clip, or check your stats to keep your progress going.",
+            title: isInSeason ? "We miss you!" : "Ready for next season?",
+            body: isInSeason
+                ? "It's been a while — log a game, record a clip, or check your stats to keep your progress going."
+                : "Off-season is a good time to look back. Check last season's stats or turn your best moments into a highlight reel.",
             categoryIdentifier: nil,
             userInfo: ["type": "inactivity"],
             trigger: UNTimeIntervalNotificationTrigger(timeInterval: interval, repeats: false)

@@ -16,6 +16,9 @@ struct MainTabView: View {
     @State private var hideFloatingRecordButton = false
     @State private var showingSeasons = false
     @State private var showingWelcomeTutorial = false
+    /// Fallback-path permission primer (second-device sign-in / reinstall). New
+    /// signups are already primed inside onboarding, so this stays false for them.
+    @State private var showingNotificationPrimer = false
     @Environment(\.modelContext) private var modelContext
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.scenePhase) private var scenePhase
@@ -137,12 +140,10 @@ struct MainTabView: View {
                 }
                 AnalyticsService.shared.trackScreenView(screenName: initialScreen, screenClass: "MainTabView")
 
-                // Request notification permission (system dialog only shown once)
-                if PushNotificationService.shared.authorizationStatus == .notDetermined {
-                    _ = await PushNotificationService.shared.requestAuthorization()
-                }
                 // Schedule weekly summary notification with real stats for every athlete
                 await WeeklySummaryScheduler.scheduleAll(for: user)
+                // Friday prep nudge for tournament athletes (no-op otherwise).
+                await WeekendPrepScheduler.schedule(for: user)
 
                 // Behavioral re-engagement nudges (local-only). Seed the milestone
                 // baseline once (so the first post-install game end only celebrates
@@ -150,11 +151,17 @@ struct MainTabView: View {
                 // rescheduled on every foreground below so it only fires after a
                 // real stretch away.
                 MilestoneReminderService.shared.seedBaselineIfNeeded(for: user)
-                await InactivityReminderService.shared.reschedule()
+                // Snapshot the season state synchronously, before the await.
+                let inSeason = AthleteScheduleContext.isAnyAthleteInSeason(for: user)
+                await InactivityReminderService.shared.reschedule(isInSeason: inSeason)
 
-                // Show connected walkthrough for new users
+                // Show connected walkthrough for new users. The permission
+                // primer waits for it to finish (see the sheet's onDismiss) so
+                // the two never fight over the screen.
                 if !onboardingManager.hasSeenWelcomeTutorial {
                     showingWelcomeTutorial = true
+                } else if await NotificationPermissionPrimer.shouldPresent() {
+                    showingNotificationPrimer = true
                 }
 
             }
@@ -180,7 +187,9 @@ struct MainTabView: View {
                 // sees it.
                 if phase == .active {
                     Task(operation: { await WeeklySummaryScheduler.scheduleAll(for: user) })
-                    Task(operation: { await InactivityReminderService.shared.reschedule() })
+                    Task(operation: { await WeekendPrepScheduler.schedule(for: user) })
+                    let inSeason = AthleteScheduleContext.isAnyAthleteInSeason(for: user)
+                    Task(operation: { await InactivityReminderService.shared.reschedule(isInSeason: inSeason) })
                 }
             }
             .onChange(of: selectedTab) { _, newValue in
@@ -231,11 +240,25 @@ struct MainTabView: View {
             }
             .addKeyboardShortcuts()
             .sheet(isPresented: $showingWelcomeTutorial) {
+                // Ask about notifications only once the walkthrough is out of the
+                // way — onboarding already primed new signups, so this fires for
+                // a returning user on a new device.
+                Task {
+                    if await NotificationPermissionPrimer.shouldPresent() {
+                        showingNotificationPrimer = true
+                    }
+                }
+            } content: {
                 WelcomeTutorialView(
                     athleteName: selectedAthlete.name,
                     sport: selectedAthlete.sport ?? .baseball,
                     userEmail: authManager.userEmail ?? ""
                 )
+            }
+            .sheet(isPresented: $showingNotificationPrimer) {
+                NotificationPermissionPrimer(isCoach: false) {
+                    showingNotificationPrimer = false
+                }
             }
             .sheet(isPresented: $showingPaywall) {
                 ImprovedPaywallView(user: user)

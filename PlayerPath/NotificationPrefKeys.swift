@@ -39,6 +39,9 @@ enum NotificationPrefKeys {
     /// "We miss you" inactivity nudge, rescheduled on every app open so it only
     /// fires after a stretch away. Default on.
     static let inactivityReminder = "notif_inactivityReminder"
+    /// Friday-evening "ready for the weekend?" prep nudge (storage + charge),
+    /// for tournament-schedule athletes in season. Default on.
+    static let weekendPrep = "notif_weekendPrep"
     /// New personal-best / milestone celebration nudge fired after a game ends.
     /// Default on. (`notif_weeklyStats` above is the weekly-recap nudge.)
     static let milestoneReminder = "notif_milestoneReminder"

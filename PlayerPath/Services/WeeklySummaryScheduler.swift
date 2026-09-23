@@ -46,6 +46,25 @@ enum WeeklySummaryScheduler {
         /// notification and the counted week can't disagree.
         let fireDate: Date
 
+        // MARK: Tournament-weekend wrap-up
+        /// Games played Sat/Sun of the weekend the fire date sits in. Two or more
+        /// means a tournament weekend (see AthleteScheduleContext).
+        let weekendGames: Int
+        /// Weekend hits / at-bats, baseball & softball only. Nil when the weekend
+        /// produced no at-bats (golf, or a weekend with no recorded batting).
+        let weekendHits: Int?
+        let weekendAtBats: Int?
+        /// Highlight-flagged clips from the weekend.
+        let weekendHighlights: Int
+        /// Untagged clips from the weekend. Drives the tag CTA — and the
+        /// clip-tag nudge is suppressed on these evenings, so if this is wrong
+        /// the athlete hears about tagging from nobody.
+        let weekendUntagged: Int
+
+        /// A tournament weekend the wrap-up should headline instead of the
+        /// ordinary week-in-review copy.
+        var isTournamentWeekend: Bool { weekendGames >= 2 }
+
         /// Nothing happened this week. Such weeks are skipped rather than sent
         /// a "no games logged" nag — for a travel/school athlete that would fire
         /// every Sunday of the Nov–Jan off-season.
@@ -56,7 +75,40 @@ enum WeeklySummaryScheduler {
         /// Notification body, only built for a non-empty week (see `isEmpty`).
         /// Pure string building over the snapshot, so it is safe to read after
         /// an await.
-        var body: String { isGolf ? golfBody : ballBody }
+        var body: String {
+            if isTournamentWeekend { return weekendBody }
+            return isGolf ? golfBody : ballBody
+        }
+
+        /// Title varies so a tournament weekend doesn't read like a routine recap.
+        var title: String {
+            isTournamentWeekend ? (isGolf ? "Big weekend ⛳" : "Big weekend 🏆") : "Your Week in Review"
+        }
+
+        /// Wrap-up copy. Absorbs the clip-tag nudge that is suppressed on a
+        /// tournament Sunday, so the tag CTA has to survive here whenever clips
+        /// are still untagged. Each clause is dropped when its number is absent,
+        /// so the sentence never claims something it doesn't have.
+        private var weekendBody: String {
+            let eventNoun = isGolf ? "round" : "game"
+            var parts = ["\(weekendGames) \(eventNoun)\(weekendGames == 1 ? "" : "s")"]
+            if let hits = weekendHits, let atBats = weekendAtBats, atBats > 0 {
+                parts.append("\(hits)-for-\(atBats)")
+            }
+            if weekendHighlights > 0 {
+                parts.append("\(weekendHighlights) highlight\(weekendHighlights == 1 ? "" : "s")")
+            }
+            let stats = parts.joined(separator: ", ") + "."
+
+            let callToAction: String
+            switch (weekendUntagged > 0, weekendHighlights > 0) {
+            case (true, true):   callToAction = "Tap to tag your clips and make a reel."
+            case (true, false):  callToAction = "Tap to tag your clips."
+            case (false, true):  callToAction = "Tap to make a reel."
+            case (false, false): callToAction = "Tap to see how it went."
+            }
+            return "\(stats) \(callToAction)"
+        }
 
         private var golfBody: String {
             if eventsThisWeek > 0 {
@@ -138,7 +190,11 @@ enum WeeklySummaryScheduler {
 
     // MARK: - Private
 
-    private static var weeklyStatsEnabled: Bool {
+    /// Whether the weekly summary (and therefore the Sunday wrap-up) will fire.
+    /// `ClipTaggingReminderService` consults this before standing down on a
+    /// tournament Sunday — with the summary switched off, nothing would cover
+    /// the tag reminder.
+    static var weeklyStatsEnabled: Bool {
         UserDefaults.standard.object(forKey: NotificationPrefKeys.weeklyStats) as? Bool ?? true
     }
 
@@ -204,6 +260,39 @@ enum WeeklySummaryScheduler {
             }
         }
 
+        // Weekend slice, for the tournament wrap-up. Anchored on the fire date's
+        // weekend so it matches the week the body describes.
+        let weekendRange = AthleteScheduleContext.currentWeekendRange(now: fireDate)
+        var weekendGames = 0
+        var weekendHits = 0
+        var weekendAtBats = 0
+        if let weekendRange {
+            for game in games {
+                guard let date = game.date, date >= weekendRange.start, date < weekendRange.end else { continue }
+                weekendGames += 1
+                // `countsTowardStats` is the same gate real stat aggregation uses,
+                // so the wrap-up can't quote at-bats the Stats tab won't show.
+                guard !isGolf, game.countsTowardStats, let stats = game.gameStats else { continue }
+                weekendHits += stats.hits
+                weekendAtBats += stats.atBats
+            }
+        }
+
+        var weekendHighlights = 0
+        var weekendUntagged = 0
+        if let weekendRange {
+            for clip in athlete.videoClips ?? [] {
+                guard let created = clip.createdAt,
+                      created >= weekendRange.start, created < weekendRange.end,
+                      !clip.isDeletedRemotely else { continue }
+                // Plain `isHighlight`: golf's GolfHighlightUnion also counts reel
+                // membership, so this can undercount a golf weekend. Undercounting
+                // is the safe direction for a headline number.
+                if clip.isHighlight { weekendHighlights += 1 }
+                if !clip.isTagged && clip.sourceCoachVideoID == nil { weekendUntagged += 1 }
+            }
+        }
+
         return Summary(
             athleteId: athlete.id.uuidString,
             isGolf: isGolf,
@@ -213,7 +302,12 @@ enum WeeklySummaryScheduler {
             battingAverageText: battingAverageText,
             bestGolfScore: bestGolfScore,
             bestGolfToPar: bestGolfToPar,
-            fireDate: fireDate
+            fireDate: fireDate,
+            weekendGames: weekendGames,
+            weekendHits: weekendAtBats > 0 ? weekendHits : nil,
+            weekendAtBats: weekendAtBats > 0 ? weekendAtBats : nil,
+            weekendHighlights: weekendHighlights,
+            weekendUntagged: weekendUntagged
         )
     }
 
@@ -228,8 +322,11 @@ enum WeeklySummaryScheduler {
         }
         await PushNotificationService.shared.scheduleWeeklySummary(
             athleteId: summary.athleteId,
+            title: summary.title,
             body: summary.body,
-            fireDate: summary.fireDate
+            fireDate: summary.fireDate,
+            isWeekendWrapUp: summary.isTournamentWeekend,
+            untaggedCount: summary.weekendUntagged
         )
     }
 }

@@ -19,6 +19,9 @@ struct CoachTabView: View {
     @State private var hasRunInitialSetup = false
     @State private var showDowngradeSelection = false
     @State private var showingCoachPaywall = false
+    /// Fallback-path permission primer. CoachOnboardingFlow's last page already
+    /// primes a fresh signup; this covers a returning coach on a new device.
+    @State private var showingNotificationPrimer = false
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     private var athletesTabBadge: Int {
@@ -38,11 +41,13 @@ struct CoachTabView: View {
             guard !hasRunInitialSetup else { return }
             hasRunInitialSetup = true
 
-            // Request notification permission once per app launch. Without this,
-            // coaches who never visit Profile → Notifications stay .notDetermined,
-            // never register for APNs/FCM, and silently drop every server push.
-            if PushNotificationService.shared.authorizationStatus == .notDetermined {
-                _ = await PushNotificationService.shared.requestAuthorization()
+            // Coaches who never visit Profile → Notifications would otherwise stay
+            // .notDetermined, never register for APNs/FCM, and silently drop every
+            // server push. A fresh signup was primed by CoachOnboardingFlow's last
+            // page and answered the dialog on the way in, so this only presents for
+            // a coach whose onboarding is behind them — a new device or a reinstall.
+            if await NotificationPermissionPrimer.shouldPresent() {
+                showingNotificationPrimer = true
             }
 
             // Configure archive manager
@@ -125,6 +130,11 @@ struct CoachTabView: View {
         .sheet(isPresented: $showingCoachPaywall) {
             CoachPaywallView()
                 .environmentObject(authManager)
+        }
+        .sheet(isPresented: $showingNotificationPrimer) {
+            NotificationPermissionPrimer(isCoach: true) {
+                showingNotificationPrimer = false
+            }
         }
         .environment(coordinator)
         .addKeyboardShortcuts()

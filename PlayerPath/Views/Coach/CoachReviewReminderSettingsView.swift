@@ -72,9 +72,12 @@ struct CoachReviewReminderSettingsView: View {
         reminderHour = components.hour ?? 9
         reminderMinute = components.minute ?? 0
         Task {
-            await PushNotificationService.shared.scheduleReviewReminder(
-                hour: reminderHour,
-                minute: reminderMinute
+            // Route through syncReviewReminder so turning the toggle on with an
+            // empty queue doesn't arm a reminder that claims clips are waiting.
+            // If the queue is empty it stays disarmed until clips actually
+            // arrive and the dashboard's next refresh re-arms it.
+            await PushNotificationService.shared.syncReviewReminder(
+                pendingCount: PushNotificationService.shared.lastKnownPendingReviewCount
             )
         }
     }

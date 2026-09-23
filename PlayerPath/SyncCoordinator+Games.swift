@@ -164,6 +164,10 @@ extension SyncCoordinator {
         // multi-device dedup search so a fresh device downloading two duplicate
         // Firestore docs doesn't create both locally.
         var newGamesThisPass: [Game] = []
+        // Set when a remote change could affect a pending game reminder (a new
+        // game, or a date that moved). Drives the reminder refresh at the end —
+        // see GameService.rescheduleAllGameReminders.
+        var gameSchedulesChanged = false
 
         for remoteGame in remoteGames {
             // Find local game by firestoreId (search includes games just inserted
@@ -266,7 +270,7 @@ extension SyncCoordinator {
                     // dirtying the object and triggering unnecessary @Query updates.
                     var changed = false
                     if local.opponent != remoteGame.opponent { local.opponent = remoteGame.opponent; changed = true }
-                    if local.date != remoteGame.date { local.date = remoteGame.date; changed = true }
+                    if local.date != remoteGame.date { local.date = remoteGame.date; changed = true; gameSchedulesChanged = true }
                     if local.isLive != remoteGame.isLive { local.isLive = remoteGame.isLive; changed = true }
                     if local.isComplete != remoteGame.isComplete { local.isComplete = remoteGame.isComplete; changed = true }
                     if local.year != remoteGame.year { local.year = remoteGame.year; changed = true }
@@ -337,6 +341,7 @@ extension SyncCoordinator {
                 newGame.tournament = parentTournament
                 context.insert(newGame)
                 newGamesThisPass.append(newGame)
+                if let date = newGame.date, date > Date() { gameSchedulesChanged = true }
                 applyRemoteStats(remoteGame, to: newGame, context: context)
             } else {
                 syncLog.warning("Dropped remote game '\(remoteGame.opponent)' (id: \(remoteGame.id ?? "nil")) — no matching athlete found for athleteId '\(remoteGame.athleteId)'")
@@ -357,6 +362,12 @@ extension SyncCoordinator {
             }
         }
         if context.hasChanges { try context.save() }
+
+        // Local reminders for games this device never created. Runs after the
+        // final save so every remote insert/date change is committed first.
+        if gameSchedulesChanged {
+            await GameService(modelContext: context).rescheduleAllGameReminders()
+        }
     }
 
     func resolveGameConflicts(user: User, context: ModelContext) async throws {

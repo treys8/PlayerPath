@@ -29,6 +29,7 @@ struct NotificationSettingsView: View {
     @AppStorage(NotificationPrefKeys.clipTaggingReminder) private var clipTaggingReminder = true
     @AppStorage(NotificationPrefKeys.milestoneReminder) private var milestoneReminder = true
     @AppStorage(NotificationPrefKeys.inactivityReminder) private var inactivityReminder = true
+    @AppStorage(NotificationPrefKeys.weekendPrep) private var weekendPrep = true
 
     @Environment(\.modelContext) private var modelContext
     @Query private var allPrefs: [UserPreferences]
@@ -235,11 +236,27 @@ struct NotificationSettingsView: View {
                             }
                         }
 
-                    Toggle("Inactivity Reminder", isOn: $inactivityReminder)
-                        .onChange(of: inactivityReminder) { _, enabled in
+                    Toggle("Weekend Prep", isOn: $weekendPrep)
+                        .onChange(of: weekendPrep) { _, enabled in
                             Task { @MainActor in
                                 if enabled {
-                                    await InactivityReminderService.shared.reschedule()
+                                    if let user = try? modelContext.fetch(FetchDescriptor<User>()).first {
+                                        await WeekendPrepScheduler.schedule(for: user)
+                                    }
+                                } else {
+                                    WeekendPrepScheduler.cancel()
+                                }
+                            }
+                        }
+
+                    Toggle("Inactivity Reminder", isOn: $inactivityReminder)
+                        .onChange(of: inactivityReminder) { _, enabled in
+                            let inSeason = athleteId
+                                .flatMap { findAthlete(id: $0) }
+                                .map { AthleteScheduleContext.isInSeason(for: $0) } ?? true
+                            Task { @MainActor in
+                                if enabled {
+                                    await InactivityReminderService.shared.reschedule(isInSeason: inSeason)
                                 } else {
                                     InactivityReminderService.shared.cancel()
                                 }
@@ -248,7 +265,7 @@ struct NotificationSettingsView: View {
                 } header: {
                     Text("Reminders")
                 } footer: {
-                    Text("Optional nudges to tag your clips, celebrate new milestones, and check back in after time away.")
+                    Text("Optional nudges to tag your clips, celebrate new milestones, get set for a tournament weekend, and check back in after time away.")
                 }
                 .disabled(authorizationStatus == .denied)
             }

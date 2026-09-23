@@ -371,6 +371,57 @@ async function writeActivityNotifications(
 }
 
 /**
+ * How many new-video notifications this recipient has NOT yet opened in this
+ * folder. Drives the "shared 5 new videos" push copy for a burst upload: an
+ * athlete sharing a tournament's worth of clips produces one collapsed banner
+ * whose count climbs, instead of 15 stacked banners.
+ *
+ * Counted from the recipient's own in-app feed rather than from a time window,
+ * so the number means "waiting for you" and resets when they open the folder
+ * (the client marks these read on tap). Equality-only filters, so Firestore
+ * serves it from single-field indexes — no composite index to deploy.
+ *
+ * Callers write the activity notification FIRST so the current clip is included.
+ * Best-effort: any failure falls back to 1, i.e. today's singular copy.
+ */
+async function unreadFolderVideoCount(recipientID: string, folderID: string): Promise<number> {
+  if (!recipientID || !folderID) return 1;
+  try {
+    const snap = await admin.firestore()
+      .collection('notifications')
+      .doc(recipientID)
+      .collection('items')
+      .where('type', '==', 'new_video')
+      .where('folderID', '==', folderID)
+      .where('isRead', '==', false)
+      .count()
+      .get();
+    return Math.max(1, snap.data().count);
+  } catch (err) {
+    console.warn(`unreadFolderVideoCount failed for ${recipientID}/${folderID}:`, err);
+    return 1;
+  }
+}
+
+/**
+ * APNs grouping for the new-video family: one Notification Center stack per
+ * folder, and a collapse id so a burst replaces its own banner.
+ */
+function newVideoGrouping(folderID: string) {
+  return { threadId: `folder_${folderID}`, collapseId: `nv_${folderID}` };
+}
+
+/**
+ * APNs grouping for the feedback family (comments, drawings, coach notes, drill
+ * cards): one stack per clip, and a collapse id so a coach's note + drawing +
+ * drill-card pass over the same clip shows as one banner. Every item is still
+ * written to the in-app feed.
+ */
+function feedbackGrouping(videoID: string) {
+  return { threadId: `video_${videoID}`, collapseId: `fb_${videoID}` };
+}
+
+/**
  * Looks up a Firebase user ID by email. Returns null if no account exists —
  * in that case notification writes should be skipped (backfillInvitationsOnSignup
  * will cover them when the user eventually signs up).
@@ -426,13 +477,8 @@ export const onNewSharedVideo = functions.firestore
       // Notify all coaches with folder access
       const coachIDs: string[] = folder.sharedWithCoachIDs || [];
       if (coachIDs.length > 0) {
-        await sendPushToMultipleUsers(
-          coachIDs,
-          'New Video Shared',
-          `${uploaderName} shared a new video in ${folderName}`,
-          { type: 'new_video', folderID },
-          'COACH_VIDEO'
-        );
+        // Feed docs FIRST: the push copy counts this coach's unread new-video
+        // items, so the clip that triggered us has to already be in that count.
         // Matches client postNewVideoNotification: targetType: folder, targetID: folderID.
         await writeActivityNotifications(
           coachIDs,
@@ -448,6 +494,24 @@ export const onNewSharedVideo = functions.firestore
             folderID,
           }
         );
+        // Per-coach push: each coach has their own unread count, so this can't
+        // use the shared-body fan-out.
+        await Promise.allSettled(coachIDs.map(async (coachID) => {
+          const pending = await unreadFolderVideoCount(coachID, folderID);
+          await sendPushNotification(
+            coachID,
+            pending > 1 ? 'New Videos Shared' : 'New Video Shared',
+            // Counted as "unread", which can include clips shared earlier and
+            // never opened — so the plural reads as a waiting count, not a
+            // claim that all N were just uploaded.
+            pending > 1
+              ? `${pending} new videos from ${uploaderName} in ${folderName}`
+              : `${uploaderName} shared a new video in ${folderName}`,
+            { type: 'new_video', folderID },
+            'COACH_VIDEO',
+            newVideoGrouping(folderID)
+          );
+        }));
       }
     } else if (uploaderType === 'coach') {
       // Notify the folder owner (athlete)
@@ -458,13 +522,8 @@ export const onNewSharedVideo = functions.firestore
         // open the folder. The coach-direction push above deliberately omits
         // it — that record targets the folder, so the folder IS the
         // destination there.
-        await sendPushNotification(
-          athleteID,
-          'New Coach Video',
-          `${uploaderName} uploaded a video for you`,
-          { type: 'new_video', folderID, videoID },
-          'COACH_VIDEO'
-        );
+        // Feed doc first so the count below includes this clip (see
+        // unreadFolderVideoCount).
         // Matches client postCoachSharedClipNotification: targetType: video, targetID: videoID.
         await writeActivityNotification(
           athleteID,
@@ -479,6 +538,17 @@ export const onNewSharedVideo = functions.firestore
             targetType: 'video',
             folderID,
           }
+        );
+        const pending = await unreadFolderVideoCount(athleteID, folderID);
+        await sendPushNotification(
+          athleteID,
+          pending > 1 ? 'New Coach Videos' : 'New Coach Video',
+          pending > 1
+            ? `${pending} new videos from ${uploaderName} are waiting for you`
+            : `${uploaderName} uploaded a video for you`,
+          { type: 'new_video', folderID, videoID },
+          'COACH_VIDEO',
+          newVideoGrouping(folderID)
         );
       }
     }
@@ -514,15 +584,7 @@ export const onVideoPublished = functions.firestore
       if (!athleteID) return;
       const folderName: string = folder.name || 'a folder';
 
-      // videoID so the tap opens the clip, matching the in-app record below
-      // (targetType: video) rather than stopping at the folder.
-      await sendPushNotification(
-        athleteID,
-        'New Session Video',
-        `${coachName} shared a lesson clip with you`,
-        { type: 'new_video', folderID, videoID },
-        'COACH_VIDEO'
-      );
+      // Feed doc first so the count below includes this clip.
       // Matches client postCoachSharedClipNotification. Shares the newvideo_{videoID}_{athleteID}
       // key with onNewSharedVideo so a private-then-published coach clip produces only one doc.
       await writeActivityNotification(
@@ -538,6 +600,19 @@ export const onVideoPublished = functions.firestore
           targetType: 'video',
           folderID,
         }
+      );
+      // videoID so the tap opens the clip, matching the in-app record above
+      // (targetType: video) rather than stopping at the folder.
+      const pending = await unreadFolderVideoCount(athleteID, folderID);
+      await sendPushNotification(
+        athleteID,
+        pending > 1 ? 'New Session Videos' : 'New Session Video',
+        pending > 1
+          ? `${pending} lesson clips from ${coachName} are waiting for you`
+          : `${coachName} shared a lesson clip with you`,
+        { type: 'new_video', folderID, videoID },
+        'COACH_VIDEO',
+        newVideoGrouping(folderID)
       );
     }
   });
@@ -1016,7 +1091,8 @@ export const onNewComment = functions.firestore
         folderID,
         videoID: videoId,
       },
-      'COACH_COMMENT'
+      'COACH_COMMENT',
+      feedbackGrouping(videoId)
     );
     // Matches client postCoachCommentNotification for the coach→athlete direction.
     // Athlete→coach comments previously had only an FCM push with no in-app record;
@@ -1044,8 +1120,11 @@ export const onNewComment = functions.firestore
  * When a timestamped annotation is added to a video, push-notify the opposite
  * party. Annotations are already mirrored to comments/ by iOS, but direct
  * writes (e.g. drawing annotations) skip the mirror — this covers them.
- * Deduplication with onNewComment is acceptable: APNs coalesces by thread ID
- * and the worst case is one extra push per coach action.
+ * Deduplication with onNewComment is acceptable: both carry the same
+ * `feedbackGrouping(videoId)` collapse id, so the second push REPLACES the
+ * first one's banner rather than stacking a duplicate. (An earlier version of
+ * this comment credited APNs thread IDs for that — thread-id only groups in
+ * Notification Center; the collapse id is what does the replacing.)
  */
 export const onNewAnnotation = functions.firestore
   .document('videos/{videoId}/annotations/{annotationId}')
@@ -1092,7 +1171,8 @@ export const onNewAnnotation = functions.firestore
         folderID,
         videoID: videoId,
       },
-      'COACH_COMMENT'
+      'COACH_COMMENT',
+      feedbackGrouping(videoId)
     );
     const title = authorRole === 'coach'
       ? `Coach Feedback on ${clipRef}`
@@ -1153,7 +1233,8 @@ export const onCoachNoteUpdated = functions.firestore
         folderID,
         videoID: videoId,
       },
-      'COACH_COMMENT'
+      'COACH_COMMENT',
+      feedbackGrouping(videoId)
     );
     // Note updates: one doc per (video, recipient). Re-edits don't resurface
     // the notification — the initial note-add drives the notification; later
@@ -1216,7 +1297,8 @@ export const onNewDrillCard = functions.firestore
           folderID,
           videoID: videoId,
         },
-        'DRILL_CARD'
+        'DRILL_CARD',
+        feedbackGrouping(videoId)
       );
       // Matches client postDrillCardNotification: type 'coach_comment' (not 'drill_card').
       await writeActivityNotification(

@@ -37,6 +37,20 @@ enum NotificationTiming {
         return calendar.date(bySettingHour: eveningHour, minute: 0, second: 0, of: tomorrow)
     }
 
+    /// The next occurrence of `weekday` (1 = Sunday … 7 = Saturday) at
+    /// `eveningHour`, strictly after `now`.
+    static func nextEvening(
+        onWeekday weekday: Int,
+        after now: Date = Date(),
+        calendar: Calendar = .current
+    ) -> Date? {
+        var components = DateComponents()
+        components.weekday = weekday
+        components.hour = eveningHour
+        components.minute = 0
+        return calendar.nextDate(after: now, matching: components, matchingPolicy: .nextTime)
+    }
+
     /// 7 PM local on the day `days` from now.
     static func evening(
         daysFromNow days: Int,

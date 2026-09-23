@@ -9,6 +9,25 @@
 import * as admin from 'firebase-admin';
 
 /**
+ * APNs grouping/replacement options for a push.
+ *
+ * `threadId` (aps `thread-id`) groups notifications into one stack in
+ * Notification Center. `collapseId` (the `apns-collapse-id` header) makes a new
+ * push REPLACE the previous undelivered/displayed one with the same id, which
+ * is what keeps a 15-clip upload from stacking 15 banners. Neither is set by
+ * default — a caller opts in per notification family.
+ *
+ * `apns-collapse-id` is limited to 64 bytes by APNs; callers build ids from a
+ * short prefix plus a UUID, which stays well inside that.
+ */
+export interface PushGrouping {
+  /** aps `thread-id` — groups in Notification Center. */
+  threadId?: string;
+  /** `apns-collapse-id` — replaces the previous banner with the same id. */
+  collapseId?: string;
+}
+
+/**
  * Sends an FCM push notification to a specific user's devices.
  * Reads fcmTokens from the user's Firestore document.
  * Automatically cleans up invalid/expired tokens.
@@ -19,7 +38,8 @@ export async function sendPushNotification(
   title: string,
   body: string,
   data: Record<string, string> = {},
-  category?: string
+  category?: string,
+  grouping?: PushGrouping
 ): Promise<void> {
   try {
     const userDoc = await admin.firestore().collection('users').doc(userID).get();
@@ -65,9 +85,15 @@ export async function sendPushNotification(
       // while the app is active.
       data: { ...data, type: data.type || '', source: 'activity' },
       apns: {
+        // `apns-collapse-id` replaces the previously shown banner with this one
+        // instead of stacking another. Set for bursty families (a multi-clip
+        // share, a coach's note+drawing+drill-card pass over one clip).
+        ...(grouping?.collapseId ? { headers: { 'apns-collapse-id': grouping.collapseId } } : {}),
         payload: {
           aps: {
             sound: 'default',
+            // Groups this notification into one stack in Notification Center.
+            ...(grouping?.threadId ? { 'thread-id': grouping.threadId } : {}),
             // Intentionally no `badge`. A hardcoded `1` lies when multiple
             // notifications stack while backgrounded (displays "1" until the
             // iOS listener attaches and resyncs via setBadgeCount, producing
@@ -119,9 +145,10 @@ export async function sendPushToMultipleUsers(
   title: string,
   body: string,
   data: Record<string, string> = {},
-  category?: string
+  category?: string,
+  grouping?: PushGrouping
 ): Promise<void> {
   await Promise.allSettled(
-    userIDs.map(uid => sendPushNotification(uid, title, body, data, category))
+    userIDs.map(uid => sendPushNotification(uid, title, body, data, category, grouping))
   );
 }

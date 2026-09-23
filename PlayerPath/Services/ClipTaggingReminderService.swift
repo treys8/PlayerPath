@@ -37,7 +37,17 @@ final class ClipTaggingReminderService {
     ///   - eventID: the Game or Practice id, for the dedup identifier.
     ///   - untaggedCount: number of untagged, athlete-owned clips on the event.
     ///   - eventNoun: "game" or "round", for the body copy.
-    func scheduleIfNeeded(eventID: UUID, untaggedCount: Int, eventNoun: String) async {
+    ///   - weekendWrapUpWillCover: true when this athlete is mid tournament
+    ///     weekend AND the weekly summary is on. On a Sunday that means the 8 PM
+    ///     wrap-up carries the tag CTA itself, so a separate 7 PM nudge would be
+    ///     the second of two notifications an hour apart. Callers compute it
+    ///     synchronously (see GameService.runPostCompletionEffects).
+    func scheduleIfNeeded(
+        eventID: UUID,
+        untaggedCount: Int,
+        eventNoun: String,
+        weekendWrapUpWillCover: Bool = false
+    ) async {
         guard untaggedCount > 0 else { return }
 
         // Opt-out toggle: a missing key means the user hasn't opted out → on.
@@ -45,6 +55,14 @@ final class ClipTaggingReminderService {
         guard enabled else { return }
 
         guard let fireDate = NotificationTiming.eveningFireDate() else { return }
+
+        // Stand down only when the wrap-up will actually land: it fires Sunday
+        // evening, so a Saturday nudge (mid-tournament, nothing has wrapped up
+        // yet) still goes out.
+        if weekendWrapUpWillCover, Calendar.current.component(.weekday, from: fireDate) == 1 {
+            return
+        }
+
         let targetDay = Self.dayStamp(fireDate)
 
         // Coalesce: if we already queued a clip-tag nudge for this evening, stop.

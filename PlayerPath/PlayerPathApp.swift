@@ -225,7 +225,10 @@ struct ScenePhaseSaveHandler<Content: View>: View {
             // Refresh entitlements each time the app returns to foreground to catch
             // renewals, expirations, or revocations that occurred in the background.
             Task { await StoreKitManager.shared.updateEntitlements() }
-            // Track session for review prompt eligibility
+            // Track session for review prompt eligibility. Fires on every
+            // activation; ReviewPromptManager ignores re-activations inside its
+            // session window, so momentary interruptions (Control Center, the
+            // app switcher, system permission alerts) don't count as sessions.
             Task { ReviewPromptManager.shared.recordSession() }
             // Trigger immediate sync to catch changes made while backgrounded
             Task {

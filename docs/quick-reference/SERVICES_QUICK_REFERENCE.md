@@ -59,7 +59,7 @@ Complete catalog of services (~58 in `PlayerPath/Services/`, plus top-level serv
 | `GameService` | Top-level | Instantiable | Deep game deletion: videos, photos, stats, notifications, Firestore sync |
 | `SeasonManager` | Top-level | Static utility | `ensureActiveSeason()`, `linkGameToActiveSeason()` |
 | `OrphanedClipRecoveryService` | Services/ | Singleton | Recovers videos orphaned by TestFlight schema changes as untagged practice clips |
-| `GameAlertService` | Top-level | Singleton | Local notifications for stale games (3.5hr threshold) |
+| `GameAlertService` | Top-level | Singleton | Local notifications for stale games (3.5hr threshold; 5.5hr for golf rounds) |
 
 ## Golf System
 
