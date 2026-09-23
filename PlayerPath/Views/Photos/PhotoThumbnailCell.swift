@@ -26,6 +26,7 @@ struct PhotoThumbnailCell: View {
     @State private var showingTagSheet = false
     @State private var showingCaptionSheet = false
     @State private var captionText: String = ""
+    @State private var showingDeleteConfirm = false
     @Environment(\.modelContext) private var modelContext
     @Environment(\.ppAccent) private var ppAccent
 
@@ -143,12 +144,20 @@ struct PhotoThumbnailCell: View {
                 Divider()
 
                 Button(role: .destructive) {
-                    onDelete()
+                    showingDeleteConfirm = true
                 } label: {
                     Label("Delete Photo", systemImage: "trash")
                 }
             }
             .onAppear { onContextMenuOpened?() }
+        }
+        // Confirm here rather than in each host so every grid that embeds this
+        // cell (Photos, game + practice pages) gets it. Deletes are permanent.
+        .confirmationDialog("Delete this photo?", isPresented: $showingDeleteConfirm, titleVisibility: .visible) {
+            Button("Delete", role: .destructive) { onDelete() }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("This can't be undone.")
         }
         .sheet(isPresented: $showingTagSheet) {
             PhotoTagSheet(photo: photo)

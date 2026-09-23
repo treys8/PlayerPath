@@ -65,6 +65,10 @@ struct PhotosView: View {
     @State private var showingBatchTagSheet = false
     /// Photo tapped to open the full-screen swipeable viewer (over cachedPhotos).
     @State private var viewerPhoto: Photo?
+    /// A property-only edit (star, tag, caption) landed while the viewer was
+    /// open. Refreshing then could pull the visible page out of the pager, so
+    /// the refresh waits until the viewer closes.
+    @State private var needsRefreshAfterViewer = false
     @Namespace private var photoNS
     @AppStorage("photos.layoutMode") private var layoutModeRaw: String = LayoutMode.card.rawValue
     private let photoOptionsTip = PhotoOptionsTip()
@@ -76,6 +80,62 @@ struct PhotosView: View {
 
     private var hasActiveFilters: Bool {
         selectedDateRange != .allTime || selectedSeasonFilter != nil
+    }
+
+    /// Any narrowing at all — chip, sheet filters, or search. Decides between
+    /// the "No Results" state and the true "No Photos Yet" empty state.
+    private var isFiltering: Bool {
+        activeFilter != .all
+            || hasActiveFilters
+            || !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// Whether the active sport has any photos before filtering. Same sport
+    /// rule as `updatePhotosCache` (seasonless photos count for both sports).
+    private var hasPhotosForSport: Bool {
+        allPhotos.contains { photo in
+            guard let season = photo.season else { return true }
+            return (season.sport ?? .baseball) == activeSport
+        }
+    }
+
+    private var filterDescription: String {
+        var parts: [String] = []
+        if activeFilter != .all { parts.append(chipLabel(for: activeFilter)) }
+        if let seasonID = selectedSeasonFilter,
+           let season = (athlete.seasons ?? []).first(where: { $0.id.uuidString == seasonID }) {
+            parts.append("season: \(season.displayName)")
+        }
+        if selectedDateRange != .allTime { parts.append(selectedDateRange.displayName) }
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !query.isEmpty { parts.append("search: \"\(query)\"") }
+        return parts.isEmpty ? "your filters" : parts.joined(separator: ", ")
+    }
+
+    private func clearAllFilters() {
+        Haptics.light()
+        withAnimation {
+            activeFilter = .all
+            selectedDateRange = .allTime
+            selectedSeasonFilter = nil
+            searchText = ""
+        }
+    }
+
+    /// Change key over the properties the filters read. `onChange(of: allPhotos)`
+    /// only fires when rows are added or removed — starring, tagging, or
+    /// captioning one photo leaves the array equal, so the grid went stale.
+    private var photosChangeKey: Int {
+        var hasher = Hasher()
+        for photo in allPhotos {
+            hasher.combine(photo.id)
+            hasher.combine(photo.isHighlight)
+            hasher.combine(photo.game?.id)
+            hasher.combine(photo.practice?.id)
+            hasher.combine(photo.season?.id)
+            hasher.combine(photo.caption)
+        }
+        return hasher.finalize()
     }
 
     private var shouldShowHero: Bool {
@@ -136,7 +196,16 @@ struct PhotosView: View {
 
             if cachedPhotos.isEmpty {
                 ScrollView {
-                    emptyState
+                    if isFiltering && hasPhotosForSport {
+                        FilteredEmptyStateView(
+                            filterDescription: filterDescription,
+                            onClearFilters: clearAllFilters
+                        )
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 60)
+                    } else {
+                        emptyState
+                    }
                 }
                 .refreshable { await refreshPhotos() }
             } else {
@@ -154,7 +223,22 @@ struct PhotosView: View {
         .onChange(of: selectedSeasonFilter) { _, _ in updatePhotosCache() }
         .onChange(of: selectedDateRange) { _, _ in updatePhotosCache() }
         .onChange(of: searchText) { _, _ in updatePhotosCache() }
+        // Rows added/removed: refresh immediately, even with the viewer open —
+        // a deleted Photo left in the pager's array traps.
         .onChange(of: allPhotos) { _, _ in updatePhotosCache() }
+        .onChange(of: photosChangeKey) { _, _ in
+            if viewerPhoto != nil {
+                needsRefreshAfterViewer = true
+            } else {
+                updatePhotosCache()
+            }
+        }
+        .onChange(of: viewerPhoto) { _, newValue in
+            if newValue == nil && needsRefreshAfterViewer {
+                needsRefreshAfterViewer = false
+                updatePhotosCache()
+            }
+        }
         .onChange(of: activeSport) { _, _ in updatePhotosCache() }
         .tabRootNavigationBar(title: "Photos")
         .toolbar {
@@ -210,10 +294,12 @@ struct PhotosView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
-                        Button {
-                            showingCamera = true
-                        } label: {
-                            Label("Take Photo", systemImage: "camera")
+                        if PhotoCameraAvailability.isCameraAvailable {
+                            Button {
+                                showingCamera = true
+                            } label: {
+                                Label("Take Photo", systemImage: "camera")
+                            }
                         }
                         Button {
                             photoImportTrigger = true
@@ -379,7 +465,7 @@ struct PhotosView: View {
         EmptyStateView(
             systemImage: "photo.on.rectangle.angled",
             title: isMultiSport ? "No \(activeSport.displayName) Photos Yet" : "No Photos Yet",
-            message: "Tap + to take a photo or choose from your library",
+            message: "Take a photo or add some from your library.",
             actionTitle: "Add Photo",
             action: { showingSourcePicker = true }
         )

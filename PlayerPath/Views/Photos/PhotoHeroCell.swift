@@ -29,6 +29,7 @@ struct PhotoHeroCell: View {
     @State private var showingTagSheet = false
     @State private var showingCaptionSheet = false
     @State private var captionText: String = ""
+    @State private var showingDeleteConfirm = false
     @Environment(\.modelContext) private var modelContext
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
@@ -89,6 +90,15 @@ struct PhotoHeroCell: View {
                         Label("Share Photo", systemImage: "square.and.arrow.up")
                     }
                 }
+                Button {
+                    photo.isHighlight.toggle()
+                    photo.needsSync = true
+                    ErrorHandlerService.shared.saveContext(modelContext, caller: "PhotoHeroCell.toggleHighlight")
+                    Haptics.light()
+                } label: {
+                    Label(photo.isHighlight ? "Remove Favorite" : "Favorite",
+                          systemImage: photo.isHighlight ? "star.slash" : "star")
+                }
                 Button { showingTagSheet = true } label: {
                     Label(photo.athlete?.sport == .golf ? "Tag to Tournament/Practice" : "Tag to Game/Practice", systemImage: "tag")
                 }
@@ -99,11 +109,17 @@ struct PhotoHeroCell: View {
                     Label(photo.caption != nil ? "Edit Caption" : "Add Caption", systemImage: "text.bubble")
                 }
                 Divider()
-                Button(role: .destructive) { onDelete() } label: {
+                Button(role: .destructive) { showingDeleteConfirm = true } label: {
                     Label("Delete Photo", systemImage: "trash")
                 }
             }
             .onAppear { onContextMenuOpened?() }
+        }
+        .confirmationDialog("Delete this photo?", isPresented: $showingDeleteConfirm, titleVisibility: .visible) {
+            Button("Delete", role: .destructive) { onDelete() }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("This can't be undone.")
         }
         .sheet(isPresented: $showingTagSheet) {
             PhotoTagSheet(photo: photo)
