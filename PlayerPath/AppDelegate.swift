@@ -108,13 +108,20 @@ class PlayerPathAppDelegate: NSObject, UIApplicationDelegate {
         let tabNormalColor = UIColor.systemGray
 
         let tabAppearance = UITabBarAppearance()
-        // Opaque cream/white so scrolling video thumbnails can't tint the bar
-        // (the Journal tab bar was picking up a green bleed). Theme.card is the
-        // designated tab-bar surface; a divider hairline separates it from the
-        // cream content above.
-        tabAppearance.configureWithOpaqueBackground()
-        tabAppearance.backgroundColor = UIColor(Theme.card)
-        tabAppearance.shadowColor = UIColor(Theme.divider)
+        if #available(iOS 26, *) {
+            // iOS 26+: let the system draw the floating Liquid Glass bar. Content
+            // refracting through it (the "green bleed" from Journal thumbnails that
+            // 3bcb8d9b suppressed) IS the glass material — forcing it opaque is what
+            // made the app read as pre-26 next to Apple's own apps.
+            tabAppearance.configureWithDefaultBackground()
+        } else {
+            // iOS 17/18: opaque cream so scrolling thumbnails can't tint the bar.
+            // Theme.card is the designated tab-bar surface; a divider hairline
+            // separates it from the cream content above.
+            tabAppearance.configureWithOpaqueBackground()
+            tabAppearance.backgroundColor = UIColor(Theme.card)
+            tabAppearance.shadowColor = UIColor(Theme.divider)
+        }
         for itemAppearance in [tabAppearance.stackedLayoutAppearance,
                                tabAppearance.inlineLayoutAppearance,
                                tabAppearance.compactInlineLayoutAppearance] {
