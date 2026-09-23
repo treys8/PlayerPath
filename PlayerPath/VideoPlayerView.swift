@@ -22,6 +22,9 @@ struct VideoPlayerView: View {
     /// doc per folder and the default below would otherwise always show the most
     /// recent share's coach. nil everywhere else.
     var feedbackVideoIDOverride: String? = nil
+    /// Prev/next through a list, supplied by `VideoClipPagerView`. nil for a
+    /// standalone clip (no counter or chevrons shown).
+    var navigation: ClipNavigation? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var player: AVPlayer?
     @State private var errorMessage = ""
@@ -233,6 +236,11 @@ struct VideoPlayerView: View {
 
                 Spacer()
 
+                if let navigation {
+                    clipNavigationControl(navigation, onDark: true)
+                    Spacer()
+                }
+
                 Button {
                     dismiss()
                 } label: {
@@ -249,6 +257,38 @@ struct VideoPlayerView: View {
 
             Spacer()
         }
+    }
+
+    /// ‹ 3 of 42 › — portrait toolbar and landscape overlay.
+    private func clipNavigationControl(_ navigation: ClipNavigation, onDark: Bool) -> some View {
+        HStack(spacing: 14) {
+            Button {
+                Haptics.selection()
+                navigation.onPrevious?()
+            } label: {
+                Image(systemName: "chevron.left")
+                    .font(.body.weight(.semibold))
+            }
+            .disabled(navigation.onPrevious == nil)
+            .accessibilityLabel("Previous video")
+
+            Text("\(navigation.position) of \(navigation.total)")
+                .font(.subheadline.weight(.semibold))
+                .monospacedDigit()
+                .accessibilityLabel("Video \(navigation.position) of \(navigation.total)")
+
+            Button {
+                Haptics.selection()
+                navigation.onNext?()
+            } label: {
+                Image(systemName: "chevron.right")
+                    .font(.body.weight(.semibold))
+            }
+            .disabled(navigation.onNext == nil)
+            .accessibilityLabel("Next video")
+        }
+        .foregroundStyle(onDark ? Color.white : Theme.textPrimary)
+        .shadow(color: onDark ? .black.opacity(0.5) : .clear, radius: 4, x: 0, y: 2)
     }
 
     // MARK: - Computed Properties
@@ -706,6 +746,12 @@ struct VideoPlayerView: View {
                     } label: {
                         Image(systemName: ToolbarSymbol.more)
                             .accessibilityLabel("More actions")
+                    }
+                }
+
+                if let navigation {
+                    ToolbarItem(placement: .principal) {
+                        clipNavigationControl(navigation, onDark: false)
                     }
                 }
 

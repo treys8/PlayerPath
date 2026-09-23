@@ -19,6 +19,9 @@ struct VideoClipsView: View {
     @State private var showingRecorder = false
     @State private var showingAdvancedSearch = false
     @State private var selectedVideo: VideoClip?
+    /// Grid taps open the prev/next pager over the filtered list; the
+    /// notification path (no list context) still uses `selectedVideo`.
+    @State private var playerSession: VideoPlayerSession?
     @State private var viewModel = VideoClipsViewModel()
     @State private var liveGameContext: Game?
     @State private var livePracticeContext: Practice?
@@ -325,6 +328,9 @@ struct VideoClipsView: View {
         }
         .fullScreenCover(item: $selectedVideo) { video in
             VideoPlayerView(clip: video)
+        }
+        .fullScreenCover(item: $playerSession) { session in
+            VideoClipPagerView(athlete: athlete, session: session)
         }
         .sheet(isPresented: $showingStatistics) {
             UploadStatisticsView()
@@ -673,7 +679,10 @@ struct VideoClipsView: View {
                                 if isSelectionMode {
                                     toggleSelection(for: video)
                                 } else {
-                                    selectedVideo = video
+                                    playerSession = VideoPlayerSession(
+                                        clipIDs: viewModel.allFilteredVideos.map(\.id),
+                                        startID: video.id
+                                    )
                                     Haptics.light()
                                 }
                             },
