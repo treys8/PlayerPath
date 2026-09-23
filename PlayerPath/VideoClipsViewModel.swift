@@ -32,11 +32,13 @@ final class VideoClipsViewModel {
         allVideos = videos
         updateAvailableSeasons()
         updateAvailableOpponents()
-        refilter()
+        refilter(resetPaging: false)
     }
 
-    /// Call when any filter property changes
-    func refilter() {
+    /// Call when any filter property changes. Pass `resetPaging: false` for
+    /// data-only refreshes (a clip starred, a sync landing) so a user scrolled
+    /// past the first page isn't truncated back to 50 and jumped to the top.
+    func refilter(resetPaging: Bool = true) {
         var videos = allVideos
 
         // Season filter
@@ -87,7 +89,11 @@ final class VideoClipsViewModel {
             }
         }
         allFilteredVideos = sorted
-        displayLimit = 50
+        if resetPaging {
+            displayLimit = 50
+        } else {
+            displayLimit = max(50, displayLimit)
+        }
         filteredVideos = Array(sorted.prefix(displayLimit))
 
         // Build O(1) index map

@@ -32,7 +32,9 @@ struct VideoClipsView: View {
     @State private var selectedVideos: Set<UUID> = []
     @State private var showingBulkDeleteConfirmation = false
     @State private var showingStatistics = false
-    @State private var bulkOperationMessage: String?
+    @State private var showingBulkToast = false
+    @State private var bulkToastMessage = ""
+    @State private var bulkToastType: ToastType = .success
 
     // Delete guard
     @State private var isDeleting = false
@@ -56,7 +58,7 @@ struct VideoClipsView: View {
 
     // Check if we have any videos at all (before filtering)
     private var hasAnyVideos: Bool {
-        !(athlete.videoClips?.isEmpty ?? true)
+        !videosForActiveSport.isEmpty
     }
 
     /// True when this athlete has seasons in more than one sport. Used to gate
@@ -241,10 +243,16 @@ struct VideoClipsView: View {
             VideoGridSkeletonView()
         } else if viewModel.filteredVideos.isEmpty {
             if hasActiveFilters && hasAnyVideos {
-                FilteredEmptyStateView(
+                // Keep the chip bar so the user can turn off the one chip that
+                // emptied the grid instead of clearing every filter.
+                VStack(spacing: 0) {
+                    filterBar
+                    FilteredEmptyStateView(
                         filterDescription: filterDescription,
                         onClearFilters: clearAllFilters
                     )
+                    .frame(maxHeight: .infinity)
+                }
                 } else {
                     // True empty state
                     emptyStateView
@@ -383,19 +391,7 @@ struct VideoClipsView: View {
         } message: {
             Text("Are you sure you want to delete \(selectedVideos.count) video\(selectedVideos.count == 1 ? "" : "s")? This action cannot be undone.")
         }
-        .overlay(alignment: .bottom) {
-            if let message = bulkOperationMessage {
-                Text(message)
-                    .font(.labelLarge)
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 12)
-                    .background(Color.green, in: Capsule())
-                    .shadow(radius: 8)
-                    .padding(.bottom, 32)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
+        .toast(isPresenting: $showingBulkToast, type: bulkToastType, message: bulkToastMessage)
     }
 
     private func performDelete(_ video: VideoClip) {
@@ -490,17 +486,27 @@ struct VideoClipsView: View {
 
     private func bulkUploadSelected() {
         let videosToUpload = videosForActiveSport.filter { selectedVideos.contains($0.id) }
+        let pendingIDs = Set(UploadQueueManager.shared.pendingUploads.map(\.clipId))
         var queuedCount = 0
+        var alreadyQueuedCount = 0
 
-        for video in videosToUpload {
-            if !video.isUploaded {
+        for video in videosToUpload where !video.isUploaded {
+            if pendingIDs.contains(video.id) || UploadQueueManager.shared.activeUploads[video.id] != nil {
+                alreadyQueuedCount += 1
+            } else {
                 UploadQueueManager.shared.enqueue(video, athlete: athlete, priority: .high)
                 queuedCount += 1
             }
         }
 
-        Haptics.success()
-        showBulkToast("\(queuedCount) video\(queuedCount == 1 ? "" : "s") queued for upload")
+        if queuedCount > 0 {
+            Haptics.success()
+            showBulkToast("\(queuedCount.pluralized("video")) queued for upload")
+        } else if alreadyQueuedCount > 0 {
+            showBulkToast("Already queued for upload", type: .info)
+        } else {
+            showBulkToast("Already backed up", type: .info)
+        }
 
         // Exit selection mode
         isSelectionMode = false
@@ -522,7 +528,7 @@ struct VideoClipsView: View {
             for video in videosToMark {
                 UploadQueueManager.shared.reevaluateAutoUploadAfterHighlightChange(video, context: modelContext)
             }
-            viewModel.refilter()
+            viewModel.refilter(resetPaging: false)
             Haptics.success()
             showBulkToast("\(videosToMark.count) video\(videosToMark.count == 1 ? "" : "s") marked as highlights")
         } catch {
@@ -535,17 +541,10 @@ struct VideoClipsView: View {
         selectedVideos.removeAll()
     }
 
-    private func showBulkToast(_ message: String) {
-        withAnimation(.spring(response: 0.4)) {
-            bulkOperationMessage = message
-        }
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(2))
-            guard !Task.isCancelled else { return }
-            withAnimation(.easeOut) {
-                bulkOperationMessage = nil
-            }
-        }
+    private func showBulkToast(_ message: String, type: ToastType = .success) {
+        bulkToastType = type
+        bulkToastMessage = message
+        showingBulkToast = true
     }
 
     private var emptyStateView: some View {
@@ -560,6 +559,14 @@ struct VideoClipsView: View {
             }
         )
         .onboardingTip(recordTip, arrowEdge: .top, also: !(athlete.games ?? []).isEmpty)
+    }
+
+    private var filterBar: some View {
+        VideoFilterBar(
+            filter: $viewModel.filter,
+            sport: activeSport,
+            opponents: viewModel.availableOpponents
+        )
     }
 
     private var videoListView: some View {
@@ -580,11 +587,7 @@ struct VideoClipsView: View {
 
                 // Combinable quick-filter chip bar
                 if hasAnyVideos {
-                    VideoFilterBar(
-                        filter: $viewModel.filter,
-                        sport: activeSport,
-                        opponents: viewModel.availableOpponents
-                    )
+                    filterBar
                 }
 
                 LazyVGrid(
@@ -665,6 +668,14 @@ struct VideoClipsView: View {
             hasher.combine(clip.club)
             hasher.combine(clip.annotationCount)
             hasher.combine(clip.drawingCount)
+            // Linking a game re-seasons the clip; both feed the sport scope, the
+            // season filter, and the Opponent menu. Note-only coach feedback
+            // feeds the Coach chip.
+            hasher.combine(clip.season?.id)
+            hasher.combine(clip.game?.id)
+            hasher.combine(clip.practice?.id)
+            hasher.combine(clip.gameOpponent)
+            hasher.combine(clip.coachNoteSnapshot)
         }
         return hasher.finalize()
     }
