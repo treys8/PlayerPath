@@ -63,6 +63,15 @@ final class ReelStitchCoordinator {
             return
         }
 
+        // Remote kill switch (appConfig/killSwitches). After the cache hit on
+        // purpose: a reel already on disk was rendered before the kill and stays
+        // playable and shareable; only new renders stop. Retry re-enters here, so
+        // it keeps saying "paused" until the switch is lifted.
+        if KillSwitchService.shared.isKilled(.reelGeneration) {
+            state = .failed(KillSwitchService.shared.message(for: .reelGeneration))
+            return
+        }
+
         let outputURL = StitchedReelCache.url(scopeKey: effectiveScope, clips: localClips)
         let sourceURLs = localClips.map { $0.resolvedFileURL }
 
