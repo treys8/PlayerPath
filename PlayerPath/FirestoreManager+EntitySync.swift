@@ -311,7 +311,7 @@ extension FirestoreManager {
 
         let allowedFields: Set<String> = [
             "id", "athleteId", "seasonId", "tournamentId", "roundNumber", "opponent", "date",
-            "year", "isLive", "isComplete", "location", "notes", "version",
+            "year", "isLive", "liveStartDate", "isComplete", "location", "notes", "version",
             // Golf-only fields (nil for baseball/softball)
             "holes", "par", "totalScore", "tracksShotByShot", "selectedTee", "scorecardData",
             // GameStatistics counters (inlined for cross-device manual-entry sync)

@@ -580,6 +580,9 @@ struct FirestoreGame: Codable, Identifiable {
     let date: Date?
     let year: Int
     let isLive: Bool
+    /// When the game went live. Optional so docs written before it synced decode
+    /// cleanly; nil when not live. Drives the stale-game check on every device.
+    let liveStartDate: Date?
     let isComplete: Bool
     let location: String?
     let notes: String?
@@ -643,6 +646,7 @@ struct FirestoreGame: Codable, Identifiable {
         case date
         case year
         case isLive
+        case liveStartDate
         case isComplete
         case location
         case notes

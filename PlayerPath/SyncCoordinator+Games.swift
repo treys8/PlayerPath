@@ -272,6 +272,7 @@ extension SyncCoordinator {
                     if local.opponent != remoteGame.opponent { local.opponent = remoteGame.opponent; changed = true }
                     if local.date != remoteGame.date { local.date = remoteGame.date; changed = true; gameSchedulesChanged = true }
                     if local.isLive != remoteGame.isLive { local.isLive = remoteGame.isLive; changed = true }
+                    if local.liveStartDate != remoteGame.liveStartDate { local.liveStartDate = remoteGame.liveStartDate; changed = true }
                     if local.isComplete != remoteGame.isComplete { local.isComplete = remoteGame.isComplete; changed = true }
                     if local.year != remoteGame.year { local.year = remoteGame.year; changed = true }
                     if local.location != remoteGame.location { local.location = remoteGame.location; changed = true }
@@ -321,6 +322,7 @@ extension SyncCoordinator {
                 newGame.id = UUID(uuidString: remoteGame.swiftDataId) ?? UUID()
                 newGame.firestoreId = remoteGame.id
                 newGame.isLive = remoteGame.isLive
+                newGame.liveStartDate = remoteGame.liveStartDate
                 newGame.isComplete = remoteGame.isComplete
                 newGame.year = remoteGame.year
                 newGame.location = remoteGame.location

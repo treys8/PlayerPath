@@ -290,6 +290,10 @@ final class Game {
             "version": version,
             "isDeleted": false
         ]
+        // Written unconditionally (NSNull when not live): updateGame merges, so an
+        // `if let` would never clear it and a second device would keep the old
+        // start time after the game ended.
+        data["liveStartDate"] = liveStartDate ?? NSNull()
         // Optional fields
         if let location = location { data["location"] = location }
         if let notes = notes { data["notes"] = notes }
@@ -482,7 +486,9 @@ final class Practice {
         // Live-activity state (SchemaV26). Synced so a round/session started on
         // one device surfaces as live on another; cleared on End.
         data["isLive"] = isLive
-        if let liveStartDate = liveStartDate { data["liveStartDate"] = liveStartDate }
+        // Unconditional (NSNull when not live) so ending a practice clears the
+        // server field — updatePractice merges and would otherwise keep it.
+        data["liveStartDate"] = liveStartDate ?? NSNull()
         if let course = course { data["course"] = course }
         data["tracksShotByShot"] = tracksShotByShot
         // Scorecard scan (SchemaV32) — round-level tee + confirmed card JSON.
