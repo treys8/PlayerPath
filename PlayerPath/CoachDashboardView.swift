@@ -50,6 +50,7 @@ struct CoachDashboardView: View {
     private var needsReviewQueue: NeedsReviewQueueViewModel { .shared }
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.ppAccent) private var ppAccent
 
     private var isRegularWidth: Bool {
         horizontalSizeClass == .regular
@@ -325,7 +326,7 @@ struct CoachDashboardView: View {
     private var liveSessionSection: some View {
         if let session = sessionManager.activeSession {
             let isLive = session.status == .live
-            let headerColor: Color = isLive ? .red : .brandNavy
+            let headerColor = ppAccent
 
             VStack(spacing: 12) {
                 // Big colored header only for the live state. For a reviewing
@@ -345,12 +346,7 @@ struct CoachDashboardView: View {
                             Text("Live Now")
                                 .font(.title3)
                                 .fontWeight(.bold)
-                                .foregroundStyle(
-                                    LinearGradient(
-                                        colors: [headerColor, headerColor.opacity(0.8)],
-                                        startPoint: .leading, endPoint: .trailing
-                                    )
-                                )
+                                .foregroundStyle(headerColor)
                         }
                         Spacer()
                     }
@@ -383,7 +379,7 @@ struct CoachDashboardView: View {
                                 .fontWeight(.semibold)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 10)
-                                .background(Color.brandNavy)
+                                .background(ppAccent)
                                 .foregroundColor(.white)
                                 .cornerRadius(10)
                         }
@@ -565,7 +561,7 @@ struct CoachDashboardView: View {
                     QuickActionButton(
                         icon: "play.circle.fill",
                         title: "Resume Session",
-                        color: .red
+                        color: ppAccent
                     ) {
                         if let session = sessionManager.activeSession {
                             resumeSession(session)

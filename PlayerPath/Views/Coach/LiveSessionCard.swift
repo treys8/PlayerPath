@@ -18,9 +18,10 @@ struct LiveSessionCard: View {
     @State private var isPulsing = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.ppAccent) private var ppAccent
 
     private var isLive: Bool { session.status == .live }
-    private var accentColor: Color { isLive ? .red : .brandNavy }
+    private var accentColor: Color { isLive ? ppAccent : Theme.textSecondary }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -59,21 +60,21 @@ struct LiveSessionCard: View {
                 // Session info
                 VStack(alignment: .leading, spacing: 5) {
                     HStack(spacing: 6) {
-                        HStack(spacing: 3) {
-                            Circle()
-                                .fill(accentColor)
-                                .frame(width: 6, height: 6)
-                                .opacity(isPulsing ? 0.5 : 1.0)
-                            Text(isLive ? "LIVE" : "SESSION ENDED")
+                        if isLive {
+                            // Shared pill — same live marker as the athlete live cards.
+                            LiveBadge()
+                                .fixedSize()
+                        } else {
+                            Text("SESSION ENDED")
                                 .font(.caption2)
                                 .fontWeight(.black)
                                 .foregroundColor(accentColor)
                                 .fixedSize()
+                                .badgeSmall()
+                                .background(Capsule().fill(accentColor.opacity(0.12)))
+                                // Intrinsic width so the label can never wrap.
+                                .fixedSize()
                         }
-                        .badgeSmall()
-                        .background(Capsule().fill(accentColor.opacity(0.12)))
-                        // Keep the pill at intrinsic width so "LIVE" can never wrap.
-                        .fixedSize()
 
                         if isLive {
                             Text("SESSION")
@@ -118,7 +119,7 @@ struct LiveSessionCard: View {
                             } label: {
                                 Image(systemName: "note.text")
                                     .font(.caption2)
-                                    .foregroundColor(.brandNavy)
+                                    .foregroundColor(ppAccent)
                             }
                             .buttonStyle(.plain)
                             .accessibilityLabel("Edit session notes")
@@ -160,14 +161,7 @@ struct LiveSessionCard: View {
                                 .foregroundColor(.white)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 11)
-                                .background(
-                                    LinearGradient(
-                                        colors: [.red, .red.opacity(0.8)],
-                                        startPoint: .topLeading, endPoint: .bottomTrailing
-                                    )
-                                )
-                                .clipShape(Capsule())
-                                .shadow(color: .red.opacity(0.3), radius: 4, x: 0, y: 2)
+                                .background(Capsule().fill(ppAccent))
                         }
                         .buttonStyle(.borderless)
                         .accessibilityLabel("Record clip")
@@ -180,17 +174,17 @@ struct LiveSessionCard: View {
                         } label: {
                             Group {
                                 if isEnding {
-                                    ProgressView().tint(.primary)
+                                    ProgressView().tint(ppAccent)
                                 } else {
                                     Text("End")
                                 }
                             }
                             .font(.caption)
                             .fontWeight(.semibold)
-                            .foregroundColor(.primary)
+                            .foregroundColor(ppAccent)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 11)
-                            .background(Capsule().fill(Color(.secondarySystemBackground)))
+                            .background(Capsule().fill(ppAccent.opacity(0.12)))
                         }
                         .disabled(isEnding)
                         .buttonStyle(.borderless)
@@ -200,20 +194,15 @@ struct LiveSessionCard: View {
         }
         .padding(16)
         .contentShape(Rectangle())
+        // Same card surface as the athlete live cards; the accent hairline marks it live.
         .background(
             RoundedRectangle(cornerRadius: .cornerXLarge)
-                .fill(
-                    LinearGradient(
-                        colors: [accentColor.opacity(0.1), accentColor.opacity(0.05)],
-                        startPoint: .topLeading, endPoint: .bottomTrailing
-                    )
-                )
+                .fill(Theme.card)
         )
         .overlay(
             RoundedRectangle(cornerRadius: .cornerXLarge)
-                .stroke(accentColor.opacity(0.4), lineWidth: 2)
+                .stroke(accentColor.opacity(0.45), lineWidth: 1.5)
         )
-        .shadow(color: accentColor.opacity(0.15), radius: 8, x: 0, y: 4)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(isLive ? "Live" : "Ended") session with \(session.athleteNamesSummary). \(session.clipCount) clip\(session.clipCount == 1 ? "" : "s").")
     }
