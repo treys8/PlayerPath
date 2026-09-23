@@ -20,6 +20,7 @@ struct LiveRangeCard: View {
 
     @State private var isPulsing = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.ppAccent) private var ppAccent
     @Environment(\.scenePhase) private var scenePhase
 
     private var clipCount: Int { practice.videoClips?.count ?? 0 }
@@ -38,23 +39,23 @@ struct LiveRangeCard: View {
                 // section consistency, but with the range target glyph.
                 ZStack {
                     Circle()
-                        .fill(Color.red.opacity(isPulsing ? 0.15 : 0.25))
+                        .fill(ppAccent.opacity(isPulsing ? 0.15 : 0.25))
                         .frame(width: 50, height: 50)
                         .blur(radius: 4)
                         .animation(reduceMotion ? nil : .easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: isPulsing)
 
                     Circle()
-                        .fill(Color.red.opacity(0.2))
+                        .fill(ppAccent.opacity(0.2))
                         .frame(width: 44, height: 44)
 
                     Circle()
-                        .fill(Color.red.opacity(isPulsing ? 0.1 : 0.35))
+                        .fill(ppAccent.opacity(isPulsing ? 0.1 : 0.35))
                         .frame(width: 36, height: 36)
                         .animation(reduceMotion ? nil : .easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: isPulsing)
 
                     Image(systemName: "target")
                         .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(.green)
+                        .foregroundColor(ppAccent)
                         .symbolRenderingMode(.hierarchical)
                 }
                 .onAppear { if !reduceMotion { isPulsing = true } }
@@ -68,21 +69,9 @@ struct LiveRangeCard: View {
 
                 VStack(alignment: .leading, spacing: 5) {
                     HStack(spacing: 6) {
-                        HStack(spacing: 3) {
-                            Circle()
-                                .fill(Color.red)
-                                .frame(width: 6, height: 6)
-                                .opacity(isPulsing ? 0.5 : 1.0)
-
-                            Text("LIVE")
-                                .font(.custom("Inter18pt-Bold", size: 11, relativeTo: .caption2))
-                                .foregroundColor(.red)
-                                .fixedSize()
-                        }
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
-                        .background(Capsule().fill(Color.red.opacity(0.12)))
-                        .fixedSize()
+                        // Shared pill — same live marker as the Games/Practices lists.
+                        LiveBadge()
+                            .fixedSize()
 
                         Text("RANGE SESSION")
                             .font(.labelSmall)
@@ -134,15 +123,7 @@ struct LiveRangeCard: View {
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 11)
-                        .background(
-                            LinearGradient(
-                                colors: [.brandNavy, .brandNavy.opacity(0.85)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .clipShape(Capsule())
-                        .shadow(color: .brandNavy.opacity(0.3), radius: 4, x: 0, y: 2)
+                        .background(Capsule().fill(ppAccent))
                     }
                     .buttonStyle(.borderless)
                 }
@@ -154,24 +135,17 @@ struct LiveRangeCard: View {
                     } label: {
                         Group {
                             if isEnding {
-                                ProgressView().tint(.white)
+                                ProgressView().tint(ppAccent)
                             } else {
                                 Text("End Session")
                             }
                         }
                         .font(.custom("Inter18pt-Bold", size: 13, relativeTo: .footnote))
-                        .foregroundColor(.white)
+                        .foregroundColor(ppAccent)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 11)
-                        .background(
-                            LinearGradient(
-                                colors: [.red, .red.opacity(0.8)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .clipShape(Capsule())
-                        .shadow(color: .red.opacity(0.3), radius: 4, x: 0, y: 2)
+                        // Secondary to Record: ending is the rarer action.
+                        .background(Capsule().fill(ppAccent.opacity(0.12)))
                     }
                     .disabled(isEnding)
                     .buttonStyle(.borderless)
@@ -180,20 +154,14 @@ struct LiveRangeCard: View {
         }
         .padding(16)
         .contentShape(Rectangle())
+        // Same card surface as LiveGameCard; the accent hairline marks it live.
         .background(
             RoundedRectangle(cornerRadius: .cornerXLarge)
-                .fill(
-                    LinearGradient(
-                        colors: [Color.green.opacity(0.1), Color.green.opacity(0.04)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
+                .fill(Theme.card)
         )
         .overlay(
             RoundedRectangle(cornerRadius: .cornerXLarge)
-                .stroke(Color.green.opacity(0.4), lineWidth: 2)
+                .stroke(ppAccent.opacity(0.45), lineWidth: 1.5)
         )
-        .shadow(color: .green.opacity(0.12), radius: 8, x: 0, y: 4)
     }
 }

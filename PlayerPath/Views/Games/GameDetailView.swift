@@ -220,12 +220,8 @@ struct GameDetailView: View {
                         Group {
                             switch game.displayStatus {
                             case .live:
-                                Text("LIVE")
-                                    .foregroundColor(.white)
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
-                                    .background(Color.red)
-                                    .cornerRadius(4)
+                                // Same pill as the Games list and live cards.
+                                LiveBadge()
                             case .completed:
                                 // Past-dated games that were never started/ended show
                                 // as PAST so the user can tell stats won't count until
