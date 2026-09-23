@@ -145,6 +145,7 @@ struct MainTabView: View {
                 // device it's nil — fall back to the game's date so a forgotten
                 // game still goes stale there instead of reading "Live" forever.
                 staleAt: staleAt(start: game.liveStartDate ?? game.date, isRound: isGolf),
+                openHint: "Opens the Journal",
                 isEnding: liveActivity.isEnding(game),
                 onOpen: { openJournalRoot() },
                 onAction: {
@@ -164,6 +165,7 @@ struct MainTabView: View {
                 actionIcon: "video.fill",
                 staleAt: staleAt(start: practice.liveStartDate,
                                  isRound: practice.practiceType == PracticeType.practiceRound.rawValue),
+                openHint: "Opens the Journal",
                 isEnding: liveActivity.isEnding(practice),
                 onOpen: { openJournalRoot() },
                 onAction: { liveActivity.recordInto(practice: practice, context: "TabAccessoryRecord") },
@@ -903,22 +905,6 @@ struct MainTabView: View {
         }
     }
 
-}
-
-/// Applies the Live Now accessory on iOS 26.1+ (`isEnabled:` keeps the TabView's
-/// identity stable as live state flips, so no tab loses its navigation stack);
-/// no-op on earlier OSes, where the Journal's live strip remains the entry point.
-private struct LiveNowAccessoryModifier<Accessory: View>: ViewModifier {
-    let isEnabled: Bool
-    @ViewBuilder let accessory: () -> Accessory
-
-    func body(content: Content) -> some View {
-        if #available(iOS 26.1, *) {
-            content.tabViewBottomAccessory(isEnabled: isEnabled) { accessory() }
-        } else {
-            content
-        }
-    }
 }
 
 /// Shows a badge on the Home tab when there are pending coach invitations.

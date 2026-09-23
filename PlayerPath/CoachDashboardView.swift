@@ -25,11 +25,9 @@ struct CoachDashboardView: View {
     /// flow. Consumed by the start sheet's onDismiss callback to present the
     /// next sheet without timer-based chaining.
     @State private var pendingInviteAfterStartSession = false
-    /// Drives the recorder fullScreenCover. Non-nil iff the coach has a live
-    /// session and tapped Record; nil dismisses the cover. Replaced the prior
-    /// `showingCamera: Bool` + `Color.clear.onAppear { showingCamera = false }`
-    /// fallback that flipped the binding mid-present.
-    @State private var cameraContext: CoachSessionContext?
+    /// Owns the session recorder (presented by CoachTabView), shared with the
+    /// tab bar's Live Now accessory so only one camera can ever be up.
+    @Environment(CoachLiveSessionController.self) private var liveSession
     @State private var isEndingSession = false
     @State private var isCompletingSession = false
     /// Non-nil presents the "this session has unshared drafts" confirmation
@@ -269,21 +267,6 @@ struct CoachDashboardView: View {
                 )
             }
         }
-        .fullScreenCover(item: $cameraContext) { context in
-            DirectCameraRecorderView(coachContext: context)
-        }
-        .onChange(of: cameraContext == nil) { _, becameNil in
-            if becameNil {
-                Task {
-                    guard let coachID = authManager.userID else { return }
-                    await sessionManager.fetchSessions(coachID: coachID)
-                }
-            }
-        }
-        .onChange(of: sessionManager.activeSession) { _, newValue in
-            // Dismiss camera if session was ended/completed externally
-            if newValue == nil { cameraContext = nil }
-        }
         .task {
             updateCachedValues()
             guard let coachID = authManager.userID else { return }
@@ -379,11 +362,7 @@ struct CoachDashboardView: View {
                     onEnd: { endActiveSession(session) },
                     onEditNotes: { editingSessionNotes = session },
                     onRecord: session.status == .live ? {
-                        guard let active = sessionManager.activeSession,
-                              active.status == .live,
-                              let id = active.id,
-                              !id.isEmpty else { return }
-                        cameraContext = CoachSessionContext(sessionID: id, session: active)
+                        liveSession.recordIntoActiveSession()
                     } : nil
                 )
                 .contentShape(Rectangle())
@@ -925,9 +904,7 @@ struct CoachDashboardView: View {
                     try await sessionManager.resumeReviewingSession(sessionID: sessionID)
                     // resumeReviewingSession transitions the session to live; use
                     // the freshly mutated activeSession (not `fresh`, which is stale).
-                    if let active = sessionManager.activeSession, active.status == .live, let id = active.id {
-                        cameraContext = CoachSessionContext(sessionID: id, session: active)
-                    }
+                    liveSession.recordIntoActiveSession()
                 } catch {
                     ErrorHandlerService.shared.handle(error, context: "CoachDashboard.resumeReviewingSession", showAlert: false)
                     resumeWarning = "Couldn't resume this session. Try again."
@@ -1138,5 +1115,6 @@ private struct CoachSummaryCard: View {
         CoachDashboardView()
             .environmentObject(ComprehensiveAuthManager())
             .environment(CoachNavigationCoordinator())
+            .environment(CoachLiveSessionController())
     }
 }

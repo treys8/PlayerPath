@@ -3,9 +3,10 @@
 //  PlayerPath
 //
 //  iOS 26.1+ tab-bar bottom accessory for an in-progress game or golf practice —
-//  the Music-style mini bar. Pure view: MainTabView resolves the live item and
-//  passes strings, a date and closures, so this never touches a @Model (no
-//  deleted-model traps while a game ends underneath it).
+//  the Music-style mini bar. Also used by CoachTabView for a live coach session.
+//  Pure view: the tab root resolves the live item and passes strings, a date and
+//  closures, so this never touches a @Model (no deleted-model traps while a game
+//  ends underneath it).
 //
 //  Past the stale threshold the bar stops claiming "Live" and asks "Still
 //  playing?" with an End action instead — a game left running for days would
@@ -22,6 +23,8 @@ struct LiveNowAccessory: View {
     /// When the activity counts as forgotten (live start + the stale-reminder
     /// threshold). Nil = never goes stale.
     let staleAt: Date?
+    /// VoiceOver hint for tapping the bar, naming where it goes.
+    let openHint: String
     let isEnding: Bool
     let onOpen: () -> Void
     let onAction: () -> Void
@@ -56,7 +59,7 @@ struct LiveNowAccessory: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(isStale ? "Still playing? \(title)" : "Live: \(title)")
-                .accessibilityHint("Opens the Journal")
+                .accessibilityHint(openHint)
 
                 if isEnding {
                     ProgressView()
@@ -81,5 +84,21 @@ struct LiveNowAccessory: View {
         }
         .tint(ppAccent)
         .accessibilityLabel(title)
+    }
+}
+
+/// Applies the Live Now accessory on iOS 26.1+ (`isEnabled:` keeps the TabView's
+/// identity stable as live state flips, so no tab loses its navigation stack);
+/// no-op on earlier OSes, where the in-tab live card remains the entry point.
+struct LiveNowAccessoryModifier<Accessory: View>: ViewModifier {
+    let isEnabled: Bool
+    @ViewBuilder let accessory: () -> Accessory
+
+    func body(content: Content) -> some View {
+        if #available(iOS 26.1, *) {
+            content.tabViewBottomAccessory(isEnabled: isEnabled) { accessory() }
+        } else {
+            content
+        }
     }
 }

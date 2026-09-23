@@ -23,6 +23,17 @@ struct CoachTabView: View {
     /// primes a fresh signup; this covers a returning coach on a new device.
     @State private var showingNotificationPrimer = false
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    /// The ONE coach recorder owner: the Dashboard's live card and the iOS 26.1+
+    /// Live Now accessory both open the camera through it, presented here.
+    @State private var liveSession = CoachLiveSessionController()
+    private var sessionManager: CoachSessionManager { .shared }
+
+    /// The session the Live Now accessory surfaces — live only. A reviewing
+    /// session has nothing to record into; its Dashboard card handles it.
+    private var liveCoachSession: CoachSession? {
+        guard let session = sessionManager.activeSession, session.status == .live else { return nil }
+        return session
+    }
 
     private var athletesTabBadge: Int {
         activityNotifService.unreadFolderVideoCount + invitationManager.pendingInvitationsCount
@@ -136,7 +147,19 @@ struct CoachTabView: View {
                 showingNotificationPrimer = false
             }
         }
+        .fullScreenCover(item: $liveSession.cameraContext) { context in
+            DirectCameraRecorderView(coachContext: context)
+        }
+        .onChange(of: liveSession.cameraContext == nil) { _, becameNil in
+            guard becameNil, let coachID = authManager.userID else { return }
+            Task { await sessionManager.fetchSessions(coachID: coachID) }
+        }
+        .onChange(of: sessionManager.activeSession) { _, newValue in
+            // Dismiss the recorder if the session was ended/completed externally.
+            if newValue == nil { liveSession.cameraContext = nil }
+        }
         .environment(coordinator)
+        .environment(liveSession)
         .addKeyboardShortcuts()
     }
 
@@ -166,7 +189,32 @@ struct CoachTabView: View {
                     profileTab
                 }
                 .ppTabBarMinimizesOnScroll()
+                .modifier(LiveNowAccessoryModifier(isEnabled: liveCoachSession != nil) {
+                    if #available(iOS 26.1, *) { coachLiveAccessory }
+                })
             }
+        }
+    }
+
+    // MARK: - Live Now accessory
+
+    @available(iOS 26.1, *)
+    @ViewBuilder
+    private var coachLiveAccessory: some View {
+        if let session = liveCoachSession {
+            LiveNowAccessory(
+                title: session.athleteNamesSummary,
+                actionTitle: "Record",
+                actionIcon: "video.fill",
+                // Abandoned sessions auto-end at 24 h (cleanupAbandonedSessions),
+                // so the bar never needs the "Still playing?" state or its End.
+                staleAt: nil,
+                openHint: "Opens the Dashboard",
+                isEnding: false,
+                onOpen: { coordinator.selectedTab = .dashboard },
+                onAction: { liveSession.recordIntoActiveSession() },
+                onEnd: {}
+            )
         }
     }
 
