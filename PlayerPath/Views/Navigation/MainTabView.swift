@@ -458,6 +458,7 @@ struct MainTabView: View {
                 statsTab
                 moreTab
             }
+            .ppTabBarMinimizesOnScroll()
         }
     }
 

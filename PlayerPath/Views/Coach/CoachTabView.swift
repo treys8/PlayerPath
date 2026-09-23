@@ -165,6 +165,7 @@ struct CoachTabView: View {
                     athletesTab
                     profileTab
                 }
+                .ppTabBarMinimizesOnScroll()
             }
         }
     }
