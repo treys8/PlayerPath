@@ -56,8 +56,8 @@ struct PhotoDetailView: View {
     }
 
     /// The photo the chrome (toolbar, metadata, sheets) currently acts on.
-    /// `photos` is always non-empty (the viewer is only presented over a set
-    /// that contains the tapped photo), so `first!` is the safe fallback.
+    /// Only read from `viewer`, which `body` renders only while `photos` is
+    /// non-empty, so the `first!` fallback cannot fire.
     private var currentPhoto: Photo {
         photos.first { $0.id == selectionID } ?? photos.first!
     }
@@ -71,6 +71,17 @@ struct PhotoDetailView: View {
     }
 
     var body: some View {
+        if photos.isEmpty {
+            // Every photo in the set was deleted (e.g. by sync) while open.
+            Color.black
+                .ignoresSafeArea()
+                .task { dismiss() }
+        } else {
+            viewer
+        }
+    }
+
+    private var viewer: some View {
         ZStack {
             Color.black.ignoresSafeArea()
 

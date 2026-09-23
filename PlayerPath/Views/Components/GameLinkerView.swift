@@ -10,8 +10,11 @@ import SwiftData
 
 struct GameLinkerView: View {
     /// One clip from a card/player menu, or several from Videos-tab selection
-    /// mode. All clips belong to the same athlete.
-    let clips: [VideoClip]
+    /// mode. All clips belong to the same athlete. Read through `clips`.
+    private let inputClips: [VideoClip]
+    /// Called after a successful save only (not on Cancel), so a caller can
+    /// reset state that should survive backing out.
+    private let onSaved: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Game.date, order: .reverse) private var allGames: [Game]
@@ -24,12 +27,21 @@ struct GameLinkerView: View {
     @State private var errorMessage: String?
     @State private var showingError = false
 
-    init(clips: [VideoClip]) {
-        self.clips = clips
+    init(clips: [VideoClip], onSaved: (() -> Void)? = nil) {
+        self.inputClips = clips
+        self.onSaved = onSaved
     }
 
     init(clip: VideoClip) {
         self.init(clips: [clip])
+    }
+
+    /// Clips still alive in the store. A sync delete or a Move while this sheet
+    /// is open would otherwise leave a deleted @Model here, and reading any of
+    /// its attributes traps (build 177 class). `isDeleted`/`modelContext` are
+    /// safe to read on a deleted model.
+    private var clips: [VideoClip] {
+        inputClips.filter { !$0.isDeleted && $0.modelContext != nil }
     }
 
     private var athlete: Athlete? { clips.first?.athlete }
@@ -149,45 +161,77 @@ struct GameLinkerView: View {
 
     private func saveChanges() {
         let target = selectedGame
-        // Snapshot every clip we touch so a failed save rolls all of them back.
+        // Snapshot every field we touch so a failed save rolls all of them back.
         let changed = clips.filter { $0.game?.id != target?.id }
-        let snapshots = changed.map { (clip: $0, game: $0.game, season: $0.season, needsSync: $0.needsSync) }
+        guard !changed.isEmpty else { dismiss(); return }
+        let snapshots = changed.map { clip in
+            (clip: clip, game: clip.game, season: clip.season, practice: clip.practice,
+             gameOpponent: clip.gameOpponent, gameDate: clip.gameDate, practiceDate: clip.practiceDate,
+             seasonName: clip.seasonName, needsSync: clip.needsSync)
+        }
         let oldGames = Set(changed.compactMap(\.game)).filter { $0 != target }
 
         for clip in changed {
             clip.game = target
             clip.needsSync = true
+            // Keep the denormalized copies in step with the relationship. Sync
+            // uploads `gameOpponent ?? game?.opponent` (SyncCoordinator+Videos),
+            // so a stale copy would pair the new gameId with the old opponent.
+            // Same field set MoveClipSheet.performMove writes.
+            clip.gameOpponent = target?.opponent
+            clip.gameDate = target?.date
             if let game = target {
                 clip.season = game.season
+                clip.seasonName = game.season?.displayName
+                // A clip lives on a game OR a practice. Leaving the practice
+                // attached would count its play result in the game's stats.
+                clip.practice = nil
+                clip.practiceDate = nil
             }
         }
 
-        // Recalculate each affected game once, then the athlete once (athlete
-        // stats aggregate from game stats, so games must go first).
-        for game in oldGames {
-            try? StatisticsService.shared.recalculateGameStatistics(for: game, context: modelContext)
-        }
-        if let target, !changed.isEmpty {
-            try? StatisticsService.shared.recalculateGameStatistics(for: target, context: modelContext)
-        }
-        if let athlete, !changed.isEmpty {
-            try? StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext, skipSave: true)
-        }
-
+        // Save the clip changes BEFORE recalculating: recalculateGameStatistics
+        // saves the context itself, so recalculating first would persist the
+        // clips and make the rollback below a memory-only illusion.
         do {
             try modelContext.save()
-            Haptics.success()
-            dismiss()
         } catch {
-            // Roll back in-memory mutations
             for snap in snapshots {
                 snap.clip.game = snap.game
                 snap.clip.season = snap.season
+                snap.clip.practice = snap.practice
+                snap.clip.gameOpponent = snap.gameOpponent
+                snap.clip.gameDate = snap.gameDate
+                snap.clip.practiceDate = snap.practiceDate
+                snap.clip.seasonName = snap.seasonName
                 snap.clip.needsSync = snap.needsSync
             }
             ErrorHandlerService.shared.handle(error, context: "GameLinkerView.saveClipAssignment", showAlert: false)
             errorMessage = "Could not save \(unitNounLower) assignment. Please try again."
             showingError = true
+            return
         }
+
+        // Stats are derived — a failure here is logged, not rolled back (the
+        // next recalculation repairs it). Games first: athlete stats aggregate
+        // from game stats.
+        do {
+            for game in oldGames {
+                try StatisticsService.shared.recalculateGameStatistics(for: game, context: modelContext)
+            }
+            if let target {
+                try StatisticsService.shared.recalculateGameStatistics(for: target, context: modelContext)
+            }
+            if let athlete {
+                try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: modelContext, skipSave: true)
+            }
+        } catch {
+            ErrorHandlerService.shared.handle(error, context: "GameLinkerView.recalculateStats", showAlert: false)
+        }
+        ErrorHandlerService.shared.saveContext(modelContext, caller: "GameLinkerView.saveChanges")
+
+        Haptics.success()
+        onSaved?()
+        dismiss()
     }
 }

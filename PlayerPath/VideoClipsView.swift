@@ -35,8 +35,9 @@ struct VideoClipsView: View {
     @State private var selectedVideos: Set<UUID> = []
     @State private var showingBulkDeleteConfirmation = false
     @State private var showingStatistics = false
-    /// Clips resolved when the bulk Link to Game sheet opens.
-    @State private var bulkLinkClips: [VideoClip] = []
+    /// IDs (never models) captured when the bulk Link to Game sheet opens; the
+    /// sheet resolves them live so a clip deleted mid-sheet just drops out.
+    @State private var bulkLinkClipIDs: Set<UUID> = []
     @State private var showingBulkLinker = false
     @State private var showingBulkToast = false
     @State private var bulkToastMessage = ""
@@ -195,7 +196,7 @@ struct VideoClipsView: View {
                     .disabled(selectedVideos.isEmpty)
 
                     Button {
-                        bulkLinkClips = videosForActiveSport.filter { selectedVideos.contains($0.id) }
+                        bulkLinkClipIDs = selectedVideos
                         showingBulkLinker = true
                     } label: {
                         Label(activeSport == .golf ? "Link to Tournament…" : "Link to Game…",
@@ -339,11 +340,16 @@ struct VideoClipsView: View {
             AdvancedSearchView(athlete: athlete)
         }
         .sheet(isPresented: $showingBulkLinker, onDismiss: {
-            bulkLinkClips = []
-            isSelectionMode = false
-            selectedVideos.removeAll()
+            bulkLinkClipIDs = []
         }) {
-            GameLinkerView(clips: bulkLinkClips)
+            GameLinkerView(
+                clips: (athlete.videoClips ?? []).filter { bulkLinkClipIDs.contains($0.id) },
+                onSaved: {
+                    // Only a successful save ends selection — Cancel keeps it.
+                    isSelectionMode = false
+                    selectedVideos.removeAll()
+                }
+            )
         }
         .bulkImportAttach(athlete: athlete, trigger: $importTrigger)
         .onReceive(NotificationCenter.default.publisher(for: .presentVideoRecorder)) { notification in

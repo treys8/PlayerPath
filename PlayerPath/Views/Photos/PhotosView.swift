@@ -233,9 +233,18 @@ struct PhotosView: View {
         .onChange(of: selectedSeasonFilter) { _, _ in updatePhotosCache() }
         .onChange(of: selectedDateRange) { _, _ in updatePhotosCache() }
         .onChange(of: searchText) { _, _ in debouncedSearchUpdate() }
-        // Rows added/removed: refresh immediately, even with the viewer open —
-        // a deleted Photo left in the pager's array traps.
-        .onChange(of: allPhotos) { _, _ in updatePhotosCache() }
+        // Rows added/removed. With the viewer open, only strip deleted rows (a
+        // deleted Photo left in the pager's array traps) and defer the full
+        // refilter — refiltering now would apply any deferred edit (e.g. an
+        // un-star under Favorites) and pull the visible page out of the pager.
+        .onChange(of: allPhotos) { _, _ in
+            if viewerPhoto != nil {
+                removeDeletedPhotosFromCache()
+                needsRefreshAfterViewer = true
+            } else {
+                updatePhotosCache()
+            }
+        }
         .onChange(of: photosChangeKey) { _, _ in
             if viewerPhoto != nil {
                 needsRefreshAfterViewer = true
@@ -631,6 +640,17 @@ struct PhotosView: View {
         if isSelecting {
             selectedIDs.formIntersection(cachedPhotos.map(\.id))
         }
+    }
+
+    /// Drops rows deleted from the store without refiltering anything else.
+    /// `isDeleted` / `modelContext` are safe to read on a deleted model, unlike
+    /// its attributes. Closes the viewer if nothing is left to show.
+    private func removeDeletedPhotosFromCache() {
+        func isLive(_ photo: Photo) -> Bool { !photo.isDeleted && photo.modelContext != nil }
+        guard cachedPhotos.contains(where: { !isLive($0) }) else { return }
+        cachedPhotos = cachedPhotos.filter(isLive)
+        cachedSections = PhotoMonthSection.build(from: cachedPhotos)
+        if cachedPhotos.isEmpty { viewerPhoto = nil }
     }
 
     private static let searchDateFormatter = DateFormatter.mediumDate
