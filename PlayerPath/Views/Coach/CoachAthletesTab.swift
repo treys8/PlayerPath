@@ -95,7 +95,7 @@ struct CoachAthletesTab: View {
                             Label("Invite Athlete", systemImage: "person.badge.plus")
                         }
                     } label: {
-                        Image(systemName: "ellipsis.circle")
+                        Image(systemName: ToolbarSymbol.more)
                             .foregroundColor(.brandNavy)
                     }
                 }
