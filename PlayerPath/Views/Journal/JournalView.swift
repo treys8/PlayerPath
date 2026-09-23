@@ -69,15 +69,17 @@ struct JournalView: View {
     /// Nil = closed. Keyed by day so re-tapping the same group is idempotent.
     @State private var selectedPhotoDay: JournalPhotoDay?
 
-    /// Score / End / Record behavior for the live strip's cards, shared with
-    /// DashboardView so both surfaces drive a live activity identically. Owns the
-    /// in-flight end spinners, the hole-scoring sheet target, and the recorder
-    /// cover targets.
-    @State private var live = LiveActivityController()
+    /// Score / End / Record behavior for the live strip's cards. Owned by
+    /// MainTabView and shared with its Live Now tab-bar accessory: one controller
+    /// means one permission single-flight and one set of recorder/score
+    /// presentations (at the tab root), so the card and the accessory can't both
+    /// open a camera for the same game.
+    let live: LiveActivityController
 
-    init(user: User, athlete: Athlete) {
+    init(user: User, athlete: Athlete, live: LiveActivityController) {
         self.user = user
         self.athlete = athlete
+        self.live = live
         let id = athlete.id
         self.athleteID = id
         self._games = Query(
@@ -369,22 +371,8 @@ struct JournalView: View {
         .sheet(item: $selectedPhotoDay) { selection in
             JournalPhotoDaySheet(athlete: athlete, day: selection.day, sport: selection.sport)
         }
-        .fullScreenCover(item: $live.recordingGame) { game in
-            DirectCameraRecorderView(athlete: athlete, game: game)
-        }
-        .fullScreenCover(item: $live.recordingPractice) { practice in
-            DirectCameraRecorderView(athlete: athlete, practice: practice)
-        }
-        // "Score Hole X" from a live card — opens the same sheet the detail
-        // screens use, on the hole the card labelled.
-        .sheet(item: $live.scoreTarget) { target in
-            switch target.parent {
-            case .game(let game):
-                HoleScoringSheet(game: game, holeNumber: target.holeNumber)
-            case .practice(let practice):
-                HoleScoringSheet(practice: practice, holeNumber: target.holeNumber)
-            }
-        }
+        // Live-card Record / "Score Hole X" present from MainTabView, which owns
+        // `live` — binding covers here too would double-present the same item.
         .sheet(isPresented: $showingSearch) {
             AdvancedSearchView(athlete: athlete)
         }

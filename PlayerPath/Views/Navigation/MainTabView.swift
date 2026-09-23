@@ -44,10 +44,12 @@ struct MainTabView: View {
     // AdvancedSearchView embeds its own NavigationStack, mirroring the Home entry).
     @State private var showingMoreSearch = false
 
-    // Actions for the iOS 26.1+ Live Now tab-bar accessory. Its own controller
-    // (not the Journal's), so the recorder/score covers present from the tab root
-    // no matter which tab is showing.
-    @State private var liveAccessory = LiveActivityController()
+    // The ONE live-activity controller: drives both the Journal's live cards
+    // (passed into JournalView) and the iOS 26.1+ Live Now accessory. A single
+    // instance means one permission single-flight and one set of recorder/score
+    // presentations at the tab root, so the two surfaces can never open two
+    // cameras for the same game.
+    @State private var liveActivity = LiveActivityController()
     @State private var showingLiveEndConfirm = false
 
     // Per-tab athlete IDs. All four are updated together when the athlete
@@ -81,20 +83,44 @@ struct MainTabView: View {
     }
 
     private var liveItem: LiveItem? {
+        // Relationship arrays (unlike JournalView's @Query) can still hold rows
+        // deleted by a sync remote-delete, an athlete delete cascade, or the
+        // sign-out wipe — and reading any attribute of a deleted @Model traps
+        // (build 177/185). This runs in the ROOT view, so guard before touching
+        // anything: athlete first, then each row.
+        guard !selectedAthlete.isDeleted, selectedAthlete.modelContext != nil else { return nil }
         let sport = selectedAthlete.sportType
         func matches(_ s: Season.SportType?) -> Bool { s == nil || s == sport }
-        if let game = (selectedAthlete.games ?? []).first(where: { $0.isLive && matches($0.season?.sport) }) {
+        if let game = (selectedAthlete.games ?? []).first(where: {
+            !$0.isDeleted && $0.modelContext != nil && $0.isLive && matches($0.season?.sport)
+        }) {
             return .game(game)
         }
-        if let practice = (selectedAthlete.practices ?? []).first(where: { $0.isLive && matches($0.season?.sport) }) {
+        if let practice = (selectedAthlete.practices ?? []).first(where: {
+            !$0.isDeleted && $0.modelContext != nil && $0.isLive && matches($0.season?.sport)
+        }) {
             return .practice(practice)
         }
         return nil
     }
 
+    /// Seasonless games pass the sport filter above, so fall back to the
+    /// profile's sport — the same fallback GameAlertService uses when it
+    /// schedules the stale reminder, so the bar and the push agree.
+    private func isGolfGame(_ game: Game) -> Bool {
+        (game.season?.sport ?? selectedAthlete.sportType) == .golf
+    }
+
+    /// Switch to the Journal at its root (where the live strip is), not onto
+    /// whatever detail screen was last pushed there.
+    private func openJournalRoot() {
+        homePath = NavigationPath()
+        selectedTab = MainTab.home.rawValue
+    }
+
     /// When the live item counts as forgotten — the same thresholds, measured
     /// from the same `liveStartDate`, as GameAlertService's stale reminders, so
-    /// the bar and the push agree.
+    /// the bar and the push agree. Nil start → never stale.
     private func staleAt(start: Date?, isRound: Bool) -> Date? {
         start?.addingTimeInterval(isRound ? GameAlertService.golfRoundStaleDuration : GameAlertService.staleDuration)
     }
@@ -104,7 +130,7 @@ struct MainTabView: View {
     private var liveNowAccessory: some View {
         switch liveItem {
         case .game(let game):
-            let isGolf = game.season?.sport == .golf
+            let isGolf = isGolfGame(game)
             // A fully scored round has nothing left to score (presentScoreHole
             // no-ops) — LiveGameCard hides Score then and leaves only End, so
             // the bar does the same instead of showing a dead button.
@@ -115,13 +141,16 @@ struct MainTabView: View {
                 title: "\(isGolf ? "at" : "vs") \(game.opponent.isEmpty ? "Unknown" : game.opponent)",
                 actionTitle: roundFullyScored ? "End" : (isGolf ? "Score" : "Record"),
                 actionIcon: roundFullyScored ? "stop.fill" : (isGolf ? "flag" : "video.fill"),
-                staleAt: staleAt(start: game.liveStartDate, isRound: isGolf),
-                isEnding: liveAccessory.isEnding(game),
-                onOpen: { selectedTab = MainTab.home.rawValue },
+                // `Game.liveStartDate` isn't synced (practices' is), so on a second
+                // device it's nil — fall back to the game's date so a forgotten
+                // game still goes stale there instead of reading "Live" forever.
+                staleAt: staleAt(start: game.liveStartDate ?? game.date, isRound: isGolf),
+                isEnding: liveActivity.isEnding(game),
+                onOpen: { openJournalRoot() },
                 onAction: {
                     if roundFullyScored { showingLiveEndConfirm = true }
-                    else if isGolf { liveAccessory.presentScoreHole(for: game) }
-                    else { liveAccessory.recordInto(game: game, context: "TabAccessoryRecord") }
+                    else if isGolf { liveActivity.presentScoreHole(for: game) }
+                    else { liveActivity.recordInto(game: game, context: "TabAccessoryRecord") }
                 },
                 onEnd: { showingLiveEndConfirm = true }
             )
@@ -135,9 +164,9 @@ struct MainTabView: View {
                 actionIcon: "video.fill",
                 staleAt: staleAt(start: practice.liveStartDate,
                                  isRound: practice.practiceType == PracticeType.practiceRound.rawValue),
-                isEnding: liveAccessory.isEnding(practice),
-                onOpen: { selectedTab = MainTab.home.rawValue },
-                onAction: { liveAccessory.recordInto(practice: practice, context: "TabAccessoryRecord") },
+                isEnding: liveActivity.isEnding(practice),
+                onOpen: { openJournalRoot() },
+                onAction: { liveActivity.recordInto(practice: practice, context: "TabAccessoryRecord") },
                 onEnd: { showingLiveEndConfirm = true }
             )
         case nil:
@@ -147,7 +176,7 @@ struct MainTabView: View {
 
     private var liveEndConfirmTitle: String {
         switch liveItem {
-        case .game(let game): return game.season?.sport == .golf ? "End Round" : "End Game"
+        case .game(let game): return isGolfGame(game) ? "End Round" : "End Game"
         case .practice: return "End Session"
         case nil: return "End"
         }
@@ -157,8 +186,8 @@ struct MainTabView: View {
     /// game ended elsewhere in the meantime is a no-op rather than a double end.
     private func endLiveItem() {
         switch liveItem {
-        case .game(let game): liveAccessory.endGame(game, in: modelContext)
-        case .practice(let practice): liveAccessory.endPractice(practice, in: modelContext)
+        case .game(let game): liveActivity.endGame(game, in: modelContext)
+        case .practice(let practice): liveActivity.endPractice(practice, in: modelContext)
         case nil: break
         }
     }
@@ -363,14 +392,14 @@ struct MainTabView: View {
             .sheet(isPresented: $showingPaywall) {
                 ImprovedPaywallView(user: user)
             }
-            // Live Now accessory actions — mirrors JournalView's live-strip covers.
-            .fullScreenCover(item: $liveAccessory.recordingGame) { game in
+            // Recorder / hole-scoring for BOTH live surfaces (Journal cards + accessory).
+            .fullScreenCover(item: $liveActivity.recordingGame) { game in
                 DirectCameraRecorderView(athlete: selectedAthlete, game: game)
             }
-            .fullScreenCover(item: $liveAccessory.recordingPractice) { practice in
+            .fullScreenCover(item: $liveActivity.recordingPractice) { practice in
                 DirectCameraRecorderView(athlete: selectedAthlete, practice: practice)
             }
-            .sheet(item: $liveAccessory.scoreTarget) { target in
+            .sheet(item: $liveActivity.scoreTarget) { target in
                 switch target.parent {
                 case .game(let game):
                     HoleScoringSheet(game: game, holeNumber: target.holeNumber)
@@ -591,7 +620,8 @@ struct MainTabView: View {
         NavigationStack(path: $homePath) {
             JournalView(
                 user: user,
-                athlete: selectedAthlete
+                athlete: selectedAthlete,
+                live: liveActivity
             )
             .id(homeAthleteID ?? selectedAthlete.id)
         }

@@ -67,6 +67,10 @@ final class LiveActivityController {
         let gameID = game.id
         Task { @MainActor in
             defer { endingGameIDs.remove(gameID) }
+            // The Task hop is a runloop turn: a sync remote-delete or athlete
+            // delete can land in it, and end() writes `isLive` first — writing a
+            // deleted @Model traps. Same guard PracticeService.deleteDeep uses.
+            guard !game.isDeleted, game.modelContext != nil else { return }
             await GameService(modelContext: modelContext).end(game)
         }
     }
@@ -80,6 +84,8 @@ final class LiveActivityController {
         let practiceID = practice.id
         Task { @MainActor in
             defer { endingPracticeIDs.remove(practiceID) }
+            // See endGame: guard the post-hop write against a deleted model.
+            guard !practice.isDeleted, practice.modelContext != nil else { return }
             await PracticeService(modelContext: modelContext).end(practice)
         }
     }
@@ -110,6 +116,9 @@ final class LiveActivityController {
     func recordInto(game: Game, context: String) {
         Task { @MainActor in
             guard await ensureCapturePermission(context: context) else { return }
+            // The permission prompt can sit on screen indefinitely; don't hand the
+            // recorder a game that was deleted while it was up.
+            guard !game.isDeleted, game.modelContext != nil else { return }
             recordingGame = game
         }
     }
@@ -118,6 +127,8 @@ final class LiveActivityController {
     func recordInto(practice: Practice, context: String) {
         Task { @MainActor in
             guard await ensureCapturePermission(context: context) else { return }
+            // See recordInto(game:): re-validate after the permission await.
+            guard !practice.isDeleted, practice.modelContext != nil else { return }
             recordingPractice = practice
         }
     }

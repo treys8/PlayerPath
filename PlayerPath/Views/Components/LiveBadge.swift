@@ -12,6 +12,7 @@ import SwiftUI
 // Pulsing live badge — terracotta accent (live = significance, the one accent).
 struct LiveBadge: View {
     @Environment(\.ppAccent) private var ppAccent
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isPulsing = false
 
     var body: some View {
@@ -27,6 +28,8 @@ struct LiveBadge: View {
         .background(Capsule().fill(ppAccent))
         .opacity(isPulsing ? 0.7 : 1.0)
         .onAppear {
+            // Reduce Motion: a steady badge, matching the live cards' indicators.
+            guard !reduceMotion else { return }
             withAnimation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true)) {
                 isPulsing = true
             }
