@@ -151,7 +151,7 @@ enum WeeklySummaryScheduler {
 
     /// Compute and schedule the weekly summary for a single athlete.
     static func schedule(for athlete: Athlete) async {
-        guard weeklyStatsEnabled else { return }
+        guard weeklyStatsEnabled, !KillSwitchService.shared.isKilled(.engagementNudges) else { return }
         guard let summary = makeSummary(for: athlete) else { return }
         await send(summary)
     }
@@ -160,7 +160,7 @@ enum WeeklySummaryScheduler {
     /// Multi-athlete households need per-athlete summaries refreshed,
     /// not just the currently selected one.
     static func scheduleAll(for user: User) async {
-        guard weeklyStatsEnabled else { return }
+        guard weeklyStatsEnabled, !KillSwitchService.shared.isKilled(.engagementNudges) else { return }
         // Snapshot every athlete synchronously *before* any `await`. All the
         // SwiftData reads below run as one uninterrupted main-actor job, so a
         // concurrent delete (Firestore sync, athlete removal) can't invalidate

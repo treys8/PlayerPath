@@ -160,6 +160,10 @@ final class MilestoneReminderService {
     // MARK: - Private
 
     private func fireNudge(titles: [String], seasonID: String, athleteID: String?) async {
+        // Gate only the push. processGameEnd's seen-set bookkeeping and the
+        // in-app celebration still run, so lifting the switch doesn't replay
+        // a backlog of old milestones.
+        guard !KillSwitchService.shared.isKilled(.engagementNudges) else { return }
         let multiple = titles.count > 1
         let title = multiple ? "New milestones! 🎉" : "New milestone! 🎉"
         let body = multiple

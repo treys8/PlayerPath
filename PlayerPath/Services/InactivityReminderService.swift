@@ -34,6 +34,8 @@ final class InactivityReminderService {
         // Always clear the previous one first so a returning user resets the clock
         // (and a disabled toggle leaves nothing pending).
         PushNotificationService.shared.cancelNotifications(withIdentifiers: [Self.notifID])
+        // Remote kill switch: the cancel above already cleared any pending one.
+        guard !KillSwitchService.shared.isKilled(.engagementNudges) else { return }
 
         let enabled = UserDefaults.standard.object(forKey: NotificationPrefKeys.inactivityReminder) as? Bool ?? true
         guard enabled else { return }

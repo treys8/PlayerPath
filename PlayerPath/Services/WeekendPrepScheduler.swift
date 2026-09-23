@@ -33,6 +33,8 @@ enum WeekendPrepScheduler {
     /// summary, so it keeps pace with the season ending or a sport switch.
     static func schedule(for user: User) async {
         PushNotificationService.shared.cancelNotifications(withIdentifiers: [notifID])
+        // Remote kill switch: the cancel above already cleared any pending one.
+        guard !KillSwitchService.shared.isKilled(.engagementNudges) else { return }
 
         guard UserDefaults.standard.object(forKey: NotificationPrefKeys.weekendPrep) as? Bool ?? true else { return }
         guard !user.isDeleted, user.modelContext != nil else { return }

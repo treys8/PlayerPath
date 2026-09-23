@@ -49,6 +49,7 @@ final class ClipTaggingReminderService {
         weekendWrapUpWillCover: Bool = false
     ) async {
         guard untaggedCount > 0 else { return }
+        guard !KillSwitchService.shared.isKilled(.engagementNudges) else { return }
 
         // Opt-out toggle: a missing key means the user hasn't opted out → on.
         let enabled = UserDefaults.standard.object(forKey: NotificationPrefKeys.clipTaggingReminder) as? Bool ?? true
