@@ -44,6 +44,12 @@ struct MainTabView: View {
     // AdvancedSearchView embeds its own NavigationStack, mirroring the Home entry).
     @State private var showingMoreSearch = false
 
+    // Actions for the iOS 26.1+ Live Now tab-bar accessory. Its own controller
+    // (not the Journal's), so the recorder/score covers present from the tab root
+    // no matter which tab is showing.
+    @State private var liveAccessory = LiveActivityController()
+    @State private var showingLiveEndConfirm = false
+
     // Per-tab athlete IDs. All four are updated together when the athlete
     // changes. Updating only the active tab (the prior approach) left zombie
     // ViewModels in hidden tabs that kept reacting to NotificationCenter
@@ -62,6 +68,95 @@ struct MainTabView: View {
     private var ppAccent: Color { Theme.accent(forGolf: isGolfActive) }
     private var gamesTabLabel: String { isGolfActive ? "Rounds" : "Games" }
     private var gamesTabIcon: String { isGolfActive ? "figure.golf" : "baseball" }
+
+    // MARK: - Live Now accessory
+
+    /// The in-progress activity the Live Now accessory surfaces, scoped to the
+    /// profile's sport exactly like JournalView's live strip. Games win over
+    /// practices. Reading the relationships in body registers SwiftData
+    /// observation, so the accessory appears/disappears as `isLive` flips.
+    private enum LiveItem {
+        case game(Game)
+        case practice(Practice)
+    }
+
+    private var liveItem: LiveItem? {
+        let sport = selectedAthlete.sportType
+        func matches(_ s: Season.SportType?) -> Bool { s == nil || s == sport }
+        if let game = (selectedAthlete.games ?? []).first(where: { $0.isLive && matches($0.season?.sport) }) {
+            return .game(game)
+        }
+        if let practice = (selectedAthlete.practices ?? []).first(where: { $0.isLive && matches($0.season?.sport) }) {
+            return .practice(practice)
+        }
+        return nil
+    }
+
+    /// When the live item counts as forgotten — the same thresholds, measured
+    /// from the same `liveStartDate`, as GameAlertService's stale reminders, so
+    /// the bar and the push agree.
+    private func staleAt(start: Date?, isRound: Bool) -> Date? {
+        start?.addingTimeInterval(isRound ? GameAlertService.golfRoundStaleDuration : GameAlertService.staleDuration)
+    }
+
+    @available(iOS 26.1, *)
+    @ViewBuilder
+    private var liveNowAccessory: some View {
+        switch liveItem {
+        case .game(let game):
+            let isGolf = game.season?.sport == .golf
+            LiveNowAccessory(
+                // Same wording as LiveGameCard.titleText: golf rounds are
+                // "at {course}", baseball "vs {opponent}".
+                title: "\(isGolf ? "at" : "vs") \(game.opponent.isEmpty ? "Unknown" : game.opponent)",
+                actionTitle: isGolf ? "Score" : "Record",
+                actionIcon: isGolf ? "flag" : "video.fill",
+                staleAt: staleAt(start: game.liveStartDate, isRound: isGolf),
+                isEnding: liveAccessory.isEnding(game),
+                onOpen: { selectedTab = MainTab.home.rawValue },
+                onAction: {
+                    if isGolf { liveAccessory.presentScoreHole(for: game) }
+                    else { liveAccessory.recordInto(game: game, context: "TabAccessoryRecord") }
+                },
+                onEnd: { showingLiveEndConfirm = true }
+            )
+        case .practice(let practice):
+            LiveNowAccessory(
+                // LiveGameCard shows the course when set; otherwise fall back to
+                // the type name ("Practice Round" / "Range Session").
+                title: practice.course.flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 }
+                    ?? PracticeType(rawValue: practice.practiceType)?.displayName ?? "Practice",
+                actionTitle: "Record",
+                actionIcon: "video.fill",
+                staleAt: staleAt(start: practice.liveStartDate,
+                                 isRound: practice.practiceType == PracticeType.practiceRound.rawValue),
+                isEnding: liveAccessory.isEnding(practice),
+                onOpen: { selectedTab = MainTab.home.rawValue },
+                onAction: { liveAccessory.recordInto(practice: practice, context: "TabAccessoryRecord") },
+                onEnd: { showingLiveEndConfirm = true }
+            )
+        case nil:
+            EmptyView()
+        }
+    }
+
+    private var liveEndConfirmTitle: String {
+        switch liveItem {
+        case .game(let game): return game.season?.sport == .golf ? "End Round" : "End Game"
+        case .practice: return "End Session"
+        case nil: return "End"
+        }
+    }
+
+    /// Resolves the live item at confirm time (not when the dialog opened), so a
+    /// game ended elsewhere in the meantime is a no-op rather than a double end.
+    private func endLiveItem() {
+        switch liveItem {
+        case .game(let game): liveAccessory.endGame(game, in: modelContext)
+        case .practice(let practice): liveAccessory.endPractice(practice, in: modelContext)
+        case nil: break
+        }
+    }
 
     enum MoreDestination: Hashable {
         case practice, highlights, seasons, photos, coaches, sharedFolders
@@ -263,6 +358,28 @@ struct MainTabView: View {
             .sheet(isPresented: $showingPaywall) {
                 ImprovedPaywallView(user: user)
             }
+            // Live Now accessory actions — mirrors JournalView's live-strip covers.
+            .fullScreenCover(item: $liveAccessory.recordingGame) { game in
+                DirectCameraRecorderView(athlete: selectedAthlete, game: game)
+            }
+            .fullScreenCover(item: $liveAccessory.recordingPractice) { practice in
+                DirectCameraRecorderView(athlete: selectedAthlete, practice: practice)
+            }
+            .sheet(item: $liveAccessory.scoreTarget) { target in
+                switch target.parent {
+                case .game(let game):
+                    HoleScoringSheet(game: game, holeNumber: target.holeNumber)
+                case .practice(let practice):
+                    HoleScoringSheet(practice: practice, holeNumber: target.holeNumber)
+                }
+            }
+            // Ending recalculates stats — never one tap from a bar on every tab.
+            .confirmationDialog(liveEndConfirmTitle + "?", isPresented: $showingLiveEndConfirm, titleVisibility: .visible) {
+                Button(liveEndConfirmTitle) { endLiveItem() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("It's been running a while. End it now to finalize stats.")
+            }
             .onReceive(NotificationCenter.default.publisher(for: .showSubscriptionPaywall)) { _ in
                 showingPaywall = true
             }
@@ -459,6 +576,9 @@ struct MainTabView: View {
                 moreTab
             }
             .ppTabBarMinimizesOnScroll()
+            .modifier(LiveNowAccessoryModifier(isEnabled: liveItem != nil) {
+                if #available(iOS 26.1, *) { liveNowAccessory }
+            })
         }
     }
 
@@ -748,6 +868,22 @@ struct MainTabView: View {
         }
     }
 
+}
+
+/// Applies the Live Now accessory on iOS 26.1+ (`isEnabled:` keeps the TabView's
+/// identity stable as live state flips, so no tab loses its navigation stack);
+/// no-op on earlier OSes, where the Journal's live strip remains the entry point.
+private struct LiveNowAccessoryModifier<Accessory: View>: ViewModifier {
+    let isEnabled: Bool
+    @ViewBuilder let accessory: () -> Accessory
+
+    func body(content: Content) -> some View {
+        if #available(iOS 26.1, *) {
+            content.tabViewBottomAccessory(isEnabled: isEnabled) { accessory() }
+        } else {
+            content
+        }
+    }
 }
 
 /// Shows a badge on the Home tab when there are pending coach invitations.
