@@ -41,6 +41,10 @@ struct PhotosView: View {
     }
 
     @State private var cachedPhotos: [Photo] = []
+    /// `cachedPhotos` bucketed by month. Built alongside the cache so the grid
+    /// doesn't regroup on every body evaluation.
+    @State private var cachedSections: [PhotoMonthSection] = []
+    @State private var searchDebounceTask: Task<Void, Never>?
 
     // State
     @State private var activeFilter: PhotoFilter = .all
@@ -148,8 +152,13 @@ struct PhotosView: View {
             && cachedPhotos.count >= 4
     }
 
-    private var gridPhotos: [Photo] {
-        shouldShowHero ? Array(cachedPhotos.dropFirst()) : cachedPhotos
+    /// Month sections under the hero. The hero is `cachedPhotos.first`, so it
+    /// is pulled out of the first section when shown.
+    private var gridSections: [PhotoMonthSection] {
+        if shouldShowHero, let hero = cachedPhotos.first {
+            return PhotoMonthSection.removing(hero.id, from: cachedSections)
+        }
+        return cachedSections
     }
 
     private var gridSpacing: CGFloat {
@@ -172,6 +181,7 @@ struct PhotosView: View {
         case games = "Games"
         case practice = "Practice"
         case highlights = "Favorites"
+        case untagged = "Untagged"
     }
 
     enum LayoutMode: String, CaseIterable {
@@ -222,7 +232,7 @@ struct PhotosView: View {
         .onChange(of: activeFilter) { _, _ in updatePhotosCache() }
         .onChange(of: selectedSeasonFilter) { _, _ in updatePhotosCache() }
         .onChange(of: selectedDateRange) { _, _ in updatePhotosCache() }
-        .onChange(of: searchText) { _, _ in updatePhotosCache() }
+        .onChange(of: searchText) { _, _ in debouncedSearchUpdate() }
         // Rows added/removed: refresh immediately, even with the viewer open —
         // a deleted Photo left in the pager's array traps.
         .onChange(of: allPhotos) { _, _ in updatePhotosCache() }
@@ -257,6 +267,15 @@ struct PhotosView: View {
                 }
             }
             if isSelecting {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        bulkToggleFavoriteSelected()
+                    } label: {
+                        Image(systemName: allSelectedAreFavorites ? "star.slash" : "star")
+                    }
+                    .disabled(selectedIDs.isEmpty)
+                    .accessibilityLabel(allSelectedAreFavorites ? "Remove selected from favorites" : "Favorite selected photos")
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         showingBatchTagSheet = true
@@ -401,40 +420,14 @@ struct PhotosView: View {
                     .onboardingTip(photoOptionsTip, arrowEdge: .top)
                 }
 
-                LazyVGrid(columns: columns, spacing: gridSpacing) {
-                    ForEach(gridPhotos) { photo in
-                        Group {
-                            if isSelecting {
-                                Button {
-                                    toggleSelection(photo.id)
-                                } label: {
-                                    PhotoThumbnailCell(photo: photo, style: cellStyle) {
-                                        deletePhoto(photo)
-                                    }
-                                    .overlay(alignment: .topTrailing) {
-                                        selectionIndicator(isSelected: selectedIDs.contains(photo.id))
-                                            .padding(8)
-                                    }
-                                    .opacity(selectedIDs.contains(photo.id) ? 0.75 : 1.0)
-                                }
-                                .buttonStyle(.plain)
-                            } else {
-                                Button {
-                                    viewerPhoto = photo
-                                } label: {
-                                    PhotoThumbnailCell(
-                                        photo: photo,
-                                        style: cellStyle,
-                                        onDelete: { deletePhoto(photo) },
-                                        onContextMenuOpened: {
-                                            photoOptionsTip.invalidate(reason: .actionPerformed)
-                                        }
-                                    )
-                                    .photoTransitionSource(photo.id, in: photoNS)
-                                }
-                                .buttonStyle(.plain)
-                                .onboardingTip(photoOptionsTip, arrowEdge: .top, also: !shouldShowHero && photo.id == cachedPhotos.first?.id)
+                LazyVGrid(columns: columns, spacing: gridSpacing, pinnedViews: [.sectionHeaders]) {
+                    ForEach(gridSections) { section in
+                        Section {
+                            ForEach(section.photos) { photo in
+                                gridCell(photo)
                             }
+                        } header: {
+                            monthHeader(section.title)
                         }
                     }
                 }
@@ -445,6 +438,53 @@ struct PhotosView: View {
         // Swipe spans the full ordered set (hero is cachedPhotos.first, grid is
         // the rest), so present the viewer over cachedPhotos for both entry points.
         .photoViewer($viewerPhoto, in: cachedPhotos, namespace: photoNS, onDelete: deletePhoto)
+    }
+
+    @ViewBuilder
+    private func gridCell(_ photo: Photo) -> some View {
+        if isSelecting {
+            Button {
+                toggleSelection(photo.id)
+            } label: {
+                PhotoThumbnailCell(photo: photo, style: cellStyle) {
+                    deletePhoto(photo)
+                }
+                .overlay(alignment: .topTrailing) {
+                    selectionIndicator(isSelected: selectedIDs.contains(photo.id))
+                        .padding(8)
+                }
+                .opacity(selectedIDs.contains(photo.id) ? 0.75 : 1.0)
+            }
+            .buttonStyle(.plain)
+        } else {
+            Button {
+                viewerPhoto = photo
+            } label: {
+                PhotoThumbnailCell(
+                    photo: photo,
+                    style: cellStyle,
+                    onDelete: { deletePhoto(photo) },
+                    onContextMenuOpened: {
+                        photoOptionsTip.invalidate(reason: .actionPerformed)
+                    }
+                )
+                .photoTransitionSource(photo.id, in: photoNS)
+            }
+            .buttonStyle(.plain)
+            .onboardingTip(photoOptionsTip, arrowEdge: .top, also: !shouldShowHero && photo.id == cachedPhotos.first?.id)
+        }
+    }
+
+    private func monthHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.ppCallout)
+            .fontWeight(.semibold)
+            .foregroundStyle(Theme.textSecondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, layoutMode == .dense ? 12 : 2)
+            .padding(.vertical, 8)
+            .background(Theme.surface)
+            .accessibilityAddTraits(.isHeader)
     }
 
     private var cellStyle: PhotoThumbnailCell.Style {
@@ -542,6 +582,8 @@ struct PhotosView: View {
             filtered = filtered.filter { $0.practice != nil }
         case .highlights:
             filtered = filtered.filter { $0.isHighlight }
+        case .untagged:
+            filtered = filtered.filter { $0.game == nil && $0.practice == nil }
         }
 
         // Sport filter — hide photos belonging to seasons of the other sport.
@@ -575,13 +617,53 @@ struct PhotosView: View {
         // Text search
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if !query.isEmpty {
-            filtered = filtered.filter { photo in
-                (photo.game?.opponent.lowercased().contains(query) ?? false) ||
-                (photo.caption?.lowercased().contains(query) ?? false)
-            }
+            filtered = filtered.filter { photoMatchesSearch($0, query: query) }
         }
 
-        cachedPhotos = filtered
+        let sections = PhotoMonthSection.build(from: filtered)
+        cachedSections = sections
+        // Flatten back from the sections so the viewer pages in exactly the
+        // order the grid shows (undated photos sit at the end in both).
+        cachedPhotos = sections.flatMap(\.photos)
+
+        // Drop selections the new filter hid, so the delete/tag/favorite counts
+        // only ever cover photos the user can see.
+        if isSelecting {
+            selectedIDs.formIntersection(cachedPhotos.map(\.id))
+        }
+    }
+
+    private static let searchDateFormatter = DateFormatter.mediumDate
+    private static let searchShortFormatter = DateFormatter.compactDate
+
+    /// Mirrors the Videos search: caption, event (opponent / course / location /
+    /// tournament), season, "practice", and the date in two formats.
+    private func photoMatchesSearch(_ photo: Photo, query: String) -> Bool {
+        func has(_ text: String?) -> Bool { text?.lowercased().contains(query) ?? false }
+        if has(photo.caption) { return true }
+        if let game = photo.game {
+            if has(game.opponent) || has(game.location) || has(game.tournament?.name) { return true }
+        }
+        if let practice = photo.practice {
+            if "practice".contains(query) || has(practice.course) { return true }
+        }
+        if has(photo.season?.displayName) { return true }
+        if let date = photo.createdAt {
+            if has(Self.searchDateFormatter.string(from: date)) || has(Self.searchShortFormatter.string(from: date)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// Debounce so typing doesn't refilter + regroup on every keystroke.
+    private func debouncedSearchUpdate() {
+        searchDebounceTask?.cancel()
+        searchDebounceTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled else { return }
+            updatePhotosCache()
+        }
     }
 
     // MARK: - Actions
@@ -645,6 +727,35 @@ struct PhotosView: View {
             Haptics.success()
             exitSelectionMode()
         }
+    }
+
+    private var allSelectedAreFavorites: Bool {
+        let selected = cachedPhotos.filter { selectedIDs.contains($0.id) }
+        return !selected.isEmpty && selected.allSatisfy(\.isHighlight)
+    }
+
+    /// Favorite every selected photo, or un-favorite them all when every one
+    /// already is — the same toggle rule as Photos.app.
+    private func bulkToggleFavoriteSelected() {
+        let toUpdate = cachedPhotos.filter { selectedIDs.contains($0.id) }
+        guard !toUpdate.isEmpty else { exitSelectionMode(); return }
+        let makeFavorite = !toUpdate.allSatisfy(\.isHighlight)
+        for photo in toUpdate where photo.isHighlight != makeFavorite {
+            photo.isHighlight = makeFavorite
+            photo.needsSync = true
+        }
+        ErrorHandlerService.shared.saveContext(modelContext, caller: "PhotosView.bulkToggleFavorite")
+        Haptics.success()
+
+        let count = toUpdate.count
+        actionToastType = .success
+        actionToastMessage = makeFavorite
+            ? (count == 1 ? "Added to favorites" : "\(count) photos added to favorites")
+            : (count == 1 ? "Removed from favorites" : "\(count) photos removed from favorites")
+        showActionToast = true
+
+        exitSelectionMode()
+        updatePhotosCache()
     }
 
     /// Apply one event target to every selected photo, then a single save.
