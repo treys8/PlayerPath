@@ -215,6 +215,13 @@ struct BulkImportAttach: ViewModifier {
             return
         }
         pendingResume = false
+        // A paywall resume re-checks the non-tier gates: the StoreKit sheet
+        // round-trips the app through inactive → active, and that foreground
+        // refresh can be the one that lands a kill.
+        if KillSwitchService.shared.isKilled(.bulkVideoImport) {
+            pausedMessage = KillSwitchService.shared.message(for: .bulkVideoImport)
+            return
+        }
         pendingItems = remaining
         isResume = true
         // resumeSeason / skipConfirmation were stamped before presenting.

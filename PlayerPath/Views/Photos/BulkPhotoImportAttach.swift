@@ -437,6 +437,13 @@ struct BulkPhotoImportAttach: ViewModifier {
             return
         }
         pendingResume = false
+        // A paywall resume re-checks the non-tier gates: the StoreKit sheet
+        // round-trips the app through inactive → active, and that foreground
+        // refresh can be the one that lands a kill.
+        if KillSwitchService.shared.isKilled(.bulkPhotoImport) {
+            pausedMessage = KillSwitchService.shared.message(for: .bulkPhotoImport)
+            return
+        }
         isResume = true
         startImport(remaining, athlete: athlete)
     }
