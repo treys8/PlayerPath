@@ -704,7 +704,7 @@ struct VideoPlayerView: View {
                     Menu {
                         playerMenuItems
                     } label: {
-                        Image(systemName: "ellipsis.circle")
+                        Image(systemName: ToolbarSymbol.more)
                             .accessibilityLabel("More actions")
                     }
                 }

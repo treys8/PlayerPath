@@ -195,7 +195,7 @@ struct PhotosView: View {
                     Button {
                         showingFilterSheet = true
                     } label: {
-                        Image(systemName: hasActiveFilters ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                        Image(systemName: ToolbarSymbol.filter(active: hasActiveFilters))
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
@@ -229,7 +229,7 @@ struct PhotosView: View {
                             }
                         }
                     } label: {
-                        Image(systemName: "ellipsis.circle")
+                        Image(systemName: ToolbarSymbol.more)
                     }
                 }
             }

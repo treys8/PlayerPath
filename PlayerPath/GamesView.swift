@@ -548,7 +548,7 @@ struct GamesView: View {
                                 Label(listEditMode == .active ? "Done" : "Edit", systemImage: "pencil")
                             }
                         } label: {
-                            Image(systemName: "ellipsis.circle")
+                            Image(systemName: ToolbarSymbol.more)
                         }
                         .accessibilityLabel("More options")
                     }

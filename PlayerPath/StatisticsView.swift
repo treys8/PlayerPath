@@ -249,7 +249,7 @@ struct StatisticsView: View {
                                 }
                             }
                         } label: {
-                            Image(systemName: "ellipsis.circle")
+                            Image(systemName: ToolbarSymbol.more)
                         }
                         .accessibilityLabel("Statistics actions")
                     }

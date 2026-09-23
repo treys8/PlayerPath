@@ -719,7 +719,7 @@ struct GameDetailView: View {
                     }
                 }
             } label: {
-                Image(systemName: "ellipsis.circle")
+                Image(systemName: ToolbarSymbol.more)
                     .font(.title3)
             }
         }

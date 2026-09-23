@@ -481,7 +481,7 @@ struct HighlightsView: View {
                 Label("Share", systemImage: "square.and.arrow.up")
             }
         } label: {
-            Label("Actions", systemImage: "ellipsis.circle")
+            Label("Actions", systemImage: ToolbarSymbol.more)
         }
         .disabled(selection.isEmpty)
 

@@ -159,7 +159,7 @@ struct VideoClipsView: View {
                     }
                     .disabled(selectedVideos.isEmpty)
                 } label: {
-                    Image(systemName: "ellipsis.circle")
+                    Image(systemName: ToolbarSymbol.more)
                 }
                 .accessibilityLabel("Selection actions")
             }
@@ -228,7 +228,7 @@ struct VideoClipsView: View {
                         }
                     }
                 } label: {
-                    Image(systemName: "ellipsis.circle")
+                    Image(systemName: ToolbarSymbol.more)
                 }
                 .accessibilityLabel("More options")
             }

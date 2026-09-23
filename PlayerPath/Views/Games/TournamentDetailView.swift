@@ -104,7 +104,7 @@ struct TournamentDetailView: View {
                         Label("Edit Tournament", systemImage: "pencil")
                     }
                 } label: {
-                    Image(systemName: "ellipsis.circle")
+                    Image(systemName: ToolbarSymbol.more)
                 }
             }
         }

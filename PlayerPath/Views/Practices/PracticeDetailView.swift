@@ -488,7 +488,7 @@ struct PracticeDetailView: View {
                     Label("Delete Practice", systemImage: "trash")
                 }
             } label: {
-                Image(systemName: "ellipsis.circle")
+                Image(systemName: ToolbarSymbol.more)
                     .font(.title3)
             }
         }

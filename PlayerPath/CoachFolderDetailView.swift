@@ -227,7 +227,7 @@ struct CoachFolderDetailView: View {
                 Label("Leave Folder", systemImage: "rectangle.portrait.and.arrow.right")
             }
         } label: {
-            Image(systemName: "ellipsis.circle")
+            Image(systemName: ToolbarSymbol.more)
                 .foregroundColor(.primary)
         }
     }

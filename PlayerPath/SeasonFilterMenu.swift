@@ -58,9 +58,7 @@ struct SeasonFilterMenu: View {
                 }
             }
         } label: {
-            Image(systemName: selectedSeasonID != nil
-                  ? "line.3.horizontal.decrease.circle.fill"
-                  : "line.3.horizontal.decrease.circle")
+            Image(systemName: ToolbarSymbol.filter(active: selectedSeasonID != nil))
                 .foregroundColor(ppAccent)
         }
         .accessibilityLabel("Filter by season")

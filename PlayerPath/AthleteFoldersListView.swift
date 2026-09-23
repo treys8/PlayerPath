@@ -110,7 +110,7 @@ struct AthleteFoldersListView: View {
                             }
                             Toggle("Unread only", isOn: $unreadOnly)
                         } label: {
-                            Image(systemName: "line.3.horizontal.decrease.circle")
+                            Image(systemName: ToolbarSymbol.filter(active: false))
                         }
                     }
                 }
@@ -537,7 +537,7 @@ struct AthleteFolderDetailContent: View {
                         }
                     }
                 } label: {
-                    Image(systemName: "ellipsis.circle")
+                    Image(systemName: ToolbarSymbol.more)
                 }
             }
         }

@@ -62,7 +62,7 @@ struct AdvancedSearchView: View {
                     Button {
                         showingFilters.toggle()
                     } label: {
-                        Image(systemName: showingFilters ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                        Image(systemName: ToolbarSymbol.filter(active: showingFilters))
                     }
                 }
             }
