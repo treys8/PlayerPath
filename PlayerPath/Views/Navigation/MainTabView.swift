@@ -105,17 +105,22 @@ struct MainTabView: View {
         switch liveItem {
         case .game(let game):
             let isGolf = game.season?.sport == .golf
+            // A fully scored round has nothing left to score (presentScoreHole
+            // no-ops) — LiveGameCard hides Score then and leaves only End, so
+            // the bar does the same instead of showing a dead button.
+            let roundFullyScored = isGolf && LiveHoleTracker.shared.nextUnscoredHole(for: game) == nil
             LiveNowAccessory(
                 // Same wording as LiveGameCard.titleText: golf rounds are
                 // "at {course}", baseball "vs {opponent}".
                 title: "\(isGolf ? "at" : "vs") \(game.opponent.isEmpty ? "Unknown" : game.opponent)",
-                actionTitle: isGolf ? "Score" : "Record",
-                actionIcon: isGolf ? "flag" : "video.fill",
+                actionTitle: roundFullyScored ? "End" : (isGolf ? "Score" : "Record"),
+                actionIcon: roundFullyScored ? "stop.fill" : (isGolf ? "flag" : "video.fill"),
                 staleAt: staleAt(start: game.liveStartDate, isRound: isGolf),
                 isEnding: liveAccessory.isEnding(game),
                 onOpen: { selectedTab = MainTab.home.rawValue },
                 onAction: {
-                    if isGolf { liveAccessory.presentScoreHole(for: game) }
+                    if roundFullyScored { showingLiveEndConfirm = true }
+                    else if isGolf { liveAccessory.presentScoreHole(for: game) }
                     else { liveAccessory.recordInto(game: game, context: "TabAccessoryRecord") }
                 },
                 onEnd: { showingLiveEndConfirm = true }
@@ -378,7 +383,7 @@ struct MainTabView: View {
                 Button(liveEndConfirmTitle) { endLiveItem() }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("It's been running a while. End it now to finalize stats.")
+                Text("Ending finalizes its stats.")
             }
             .onReceive(NotificationCenter.default.publisher(for: .showSubscriptionPaywall)) { _ in
                 showingPaywall = true
