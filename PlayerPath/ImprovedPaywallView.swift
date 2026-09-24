@@ -21,6 +21,7 @@ struct ImprovedPaywallView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.ppAccent) private var ppAccent
     @ObservedObject private var storeManager = StoreKitManager.shared
 
     // Selection state
@@ -138,7 +139,8 @@ struct ImprovedPaywallView: View {
             Image(systemName: "crown.fill")
                 .font(.system(size: 52))
                 .foregroundStyle(
-                    LinearGradient.premiumAccent
+                    LinearGradient(colors: [ppAccent, ppAccent.opacity(0.7)],
+                                   startPoint: .topLeading, endPoint: .bottomTrailing)
                 )
                 .padding(.top, 8)
 
@@ -153,10 +155,10 @@ struct ImprovedPaywallView: View {
             if let req = requiredTier {
                 Label(requiredTierMessage(req), systemImage: "lock.fill")
                     .font(.labelMedium)
-                    .foregroundStyle(Color.brandNavy)
+                    .foregroundStyle(ppAccent)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
-                    .background(Color.brandNavy.opacity(0.1))
+                    .background(ppAccent.opacity(0.1))
                     .clipShape(Capsule())
                     .multilineTextAlignment(.center)
             }
@@ -209,7 +211,7 @@ struct ImprovedPaywallView: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 10)
-            .background(selected ? Color.brandNavy : Color.clear)
+            .background(selected ? ppAccent : Color.clear)
             .cornerRadius(9)
         }
         .buttonStyle(.plain)
@@ -255,7 +257,7 @@ struct ImprovedPaywallView: View {
             } plus: {
                 Text("\(SubscriptionTier.plus.athleteLimit)").font(.ppStatSmall).monospacedDigit()
             } pro: {
-                Text("\(SubscriptionTier.pro.athleteLimit)").font(.ppStatSmall).monospacedDigit().foregroundColor(.brandNavy)
+                Text("\(SubscriptionTier.pro.athleteLimit)").font(.ppStatSmall).monospacedDigit().foregroundColor(ppAccent)
             }
 
             tableRow(feature: "Storage") {
@@ -263,7 +265,7 @@ struct ImprovedPaywallView: View {
             } plus: {
                 Text("\(SubscriptionTier.plus.storageLimitGB) GB").font(.labelMedium)
             } pro: {
-                Text("\(SubscriptionTier.pro.storageLimitGB) GB").font(.labelMedium).foregroundColor(.brandNavy)
+                Text("\(SubscriptionTier.pro.storageLimitGB) GB").font(.labelMedium).foregroundColor(ppAccent)
             }
 
             tableRow(feature: "Export Reports") {
@@ -317,7 +319,7 @@ struct ImprovedPaywallView: View {
                 .foregroundStyle(isSelected ? .white : (isLocked ? .secondary : .primary))
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
-                .background(isSelected ? Color.brandNavy : Color.clear)
+                .background(isSelected ? ppAccent : Color.clear)
                 .cornerRadius(tier == .plus ? 0 : (tier == .pro ? 9 : 0), corners: tier == .pro ? [.topRight] : [])
                 .opacity(isLocked ? 0.45 : 1)
         }
@@ -351,11 +353,11 @@ struct ImprovedPaywallView: View {
                 Spacer(minLength: 0)
 
                 cellFrame { free() }
-                    .background(selectedTier == .free ? Color.brandNavy.opacity(0.06) : Color.clear)
+                    .background(selectedTier == .free ? ppAccent.opacity(0.06) : Color.clear)
                 cellFrame { plus() }
-                    .background(selectedTier == .plus ? Color.brandNavy.opacity(0.06) : Color.clear)
+                    .background(selectedTier == .plus ? ppAccent.opacity(0.06) : Color.clear)
                 cellFrame { pro() }
-                    .background(selectedTier == .pro ? Color.brandNavy.opacity(0.06) : Color.clear)
+                    .background(selectedTier == .pro ? ppAccent.opacity(0.06) : Color.clear)
             }
         }
     }
@@ -441,10 +443,11 @@ struct ImprovedPaywallView: View {
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 16)
-                    .background(LinearGradient.primaryButton)
+                    .background(LinearGradient(colors: [ppAccent, ppAccent.opacity(0.85)],
+                                               startPoint: .topLeading, endPoint: .bottomTrailing))
                     .foregroundStyle(.white)
                     .cornerRadius(14)
-                    .shadow(color: Color.brandNavy.opacity(0.3), radius: 8, x: 0, y: 4)
+                    .shadow(color: ppAccent.opacity(0.3), radius: 8, x: 0, y: 4)
                 }
                 .disabled(isPurchasing || storeManager.currentTier >= selectedTier)
                 .buttonStyle(.plain)
@@ -498,9 +501,9 @@ struct ImprovedPaywallView: View {
                 .foregroundStyle(.secondary)
             HStack(spacing: 16) {
                 Button("Terms of Use (EULA)") { showingTerms = true }
-                    .font(.bodySmall).foregroundColor(.brandNavy)
+                    .font(.bodySmall).foregroundColor(ppAccent)
                 Button("Privacy Policy") { showingPrivacyPolicy = true }
-                    .font(.bodySmall).foregroundColor(.brandNavy)
+                    .font(.bodySmall).foregroundColor(ppAccent)
             }
         }
         .multilineTextAlignment(.center)
