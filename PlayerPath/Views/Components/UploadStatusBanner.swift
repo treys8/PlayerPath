@@ -9,6 +9,7 @@ import SwiftUI
 import SwiftData
 
 struct UploadStatusBanner: View {
+    @Environment(\.ppAccent) private var ppAccent
     @State private var uploadManager = UploadQueueManager.shared
     @State private var networkMonitor = ConnectivityMonitor.shared
     @Query private var preferences: [UserPreferences]
@@ -73,7 +74,7 @@ struct UploadStatusBanner: View {
                             .cornerRadius(2)
 
                         Rectangle()
-                            .fill(Color.brandNavy)
+                            .fill(ppAccent)
                             .frame(width: geometry.size.width * progress, height: 4)
                             .cornerRadius(2)
                             .animation(.linear(duration: 0.3), value: progress)
@@ -118,7 +119,7 @@ struct UploadStatusBanner: View {
     private var pendingUploadsView: some View {
         HStack {
             Image(systemName: "icloud.and.arrow.up")
-                .foregroundColor(.brandNavy)
+                .foregroundColor(ppAccent)
 
             Text("\(uploadManager.totalPendingCount) video\(uploadManager.totalPendingCount == 1 ? "" : "s") queued for upload")
                 .font(.bodyMedium)
@@ -128,7 +129,7 @@ struct UploadStatusBanner: View {
 
             Text("Waiting...")
                 .font(.bodySmall)
-                .foregroundColor(.brandNavy)
+                .foregroundColor(ppAccent)
         }
         .padding()
     }
@@ -234,6 +235,7 @@ struct UploadStatusBanner: View {
 
 /// A compact upload badge for showing in tab bars or navigation bars
 struct UploadBadge: View {
+    @Environment(\.ppAccent) private var ppAccent
     @State private var uploadManager = UploadQueueManager.shared
 
     var body: some View {
@@ -262,7 +264,7 @@ struct UploadBadge: View {
         if !uploadManager.failedUploads.isEmpty {
             return Theme.warning
         } else if uploadManager.isProcessing {
-            return .brandNavy
+            return ppAccent
         } else {
             return .gray
         }
