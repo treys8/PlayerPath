@@ -176,10 +176,7 @@ struct ModernCameraView: View {
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundColor(.white)
                 .frame(width: 44, height: 44)
-                .background(
-                    Circle()
-                        .fill(.ultraThinMaterial)
-                )
+                .ppOverlayGlass(in: Circle(), interactive: true)
         }
         .disabled(viewModel.isRecording)
         .opacity(viewModel.isRecording ? 0.5 : 1)
@@ -233,10 +230,7 @@ struct ModernCameraView: View {
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundColor(viewModel.flashMode == .on ? .yellow : .white)
                 .frame(width: 44, height: 44)
-                .background(
-                    Circle()
-                        .fill(.ultraThinMaterial)
-                )
+                .ppOverlayGlass(in: Circle(), interactive: true)
         }
         .disabled(viewModel.isRecording)
         .opacity(viewModel.isRecording ? 0.5 : 1)
@@ -251,10 +245,7 @@ struct ModernCameraView: View {
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundColor(.white)
                 .frame(width: 44, height: 44)
-                .background(
-                    Circle()
-                        .fill(.ultraThinMaterial)
-                )
+                .ppOverlayGlass(in: Circle(), interactive: true)
         }
         .disabled(viewModel.isRecording)
         .opacity(viewModel.isRecording ? 0.5 : 1)
@@ -271,10 +262,7 @@ struct ModernCameraView: View {
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundColor(.white)
                 .frame(width: 44, height: 44)
-                .background(
-                    Circle()
-                        .fill(.ultraThinMaterial)
-                )
+                .ppOverlayGlass(in: Circle(), interactive: true)
         }
     }
 
@@ -287,10 +275,7 @@ struct ModernCameraView: View {
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundColor(.white)
                 .frame(width: 44, height: 44)
-                .background(
-                    Circle()
-                        .fill(.ultraThinMaterial)
-                )
+                .ppOverlayGlass(in: Circle(), interactive: true)
         }
         .disabled(viewModel.isRecording)
         .opacity(viewModel.isRecording ? 0.5 : 1)
@@ -325,10 +310,7 @@ struct ModernCameraView: View {
             .foregroundColor(.white)
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
-            .background(
-                Capsule()
-                    .fill(.ultraThinMaterial)
-            )
+            .ppOverlayGlass(in: Capsule())
     }
 
     private var qualityText: some View {

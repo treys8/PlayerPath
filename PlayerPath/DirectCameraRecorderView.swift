@@ -255,10 +255,7 @@ struct DirectCameraRecorderView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
-        .background(
-            Capsule()
-                .fill(.ultraThinMaterial)
-        )
+        .ppOverlayGlass(in: Capsule())
         .allowsHitTesting(false)
     }
 
@@ -276,7 +273,7 @@ struct DirectCameraRecorderView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
-        .background(Capsule().fill(.ultraThinMaterial))
+        .ppOverlayGlass(in: Capsule())
         .allowsHitTesting(false)
     }
 

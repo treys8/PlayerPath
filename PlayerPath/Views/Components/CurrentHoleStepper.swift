@@ -55,8 +55,10 @@ struct CurrentHoleStepper: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
-        .background(Capsule().fill(.ultraThinMaterial))
-        .overlay(Capsule().stroke(Color.white.opacity(0.15), lineWidth: 0.5))
+        .ppDarkGlassPanel(in: Capsule()) {
+            $0.background(Capsule().fill(.ultraThinMaterial))
+                .overlay(Capsule().stroke(Color.white.opacity(0.15), lineWidth: 0.5))
+        }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(atRange ? "Range session, no hole" : "Hole \(context.currentHole!)")
         .accessibilityHint("Sets the hole the next clip is tagged with")
