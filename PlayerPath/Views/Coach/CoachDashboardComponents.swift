@@ -19,6 +19,7 @@ struct CoachAthleteGroup {
 // MARK: - Athlete Section
 
 struct AthleteSection: View {
+    @Environment(\.ppAccent) private var ppAccent
     let athleteID: String
     let athleteName: String
     let folders: [SharedFolder]
@@ -37,9 +38,9 @@ struct AthleteSection: View {
                 HStack {
                     Image(systemName: "figure.baseball")
                         .font(.title3)
-                        .foregroundColor(.brandNavy)
+                        .foregroundColor(ppAccent)
                         .frame(width: 40, height: 40)
-                        .background(Color.brandNavy.opacity(0.1))
+                        .background(ppAccent.opacity(0.1))
                         .clipShape(Circle())
 
                     VStack(alignment: .leading, spacing: 4) {
@@ -90,6 +91,7 @@ struct AthleteSection: View {
 // MARK: - Folder Row
 
 struct CoachFolderRowView: View {
+    @Environment(\.ppAccent) private var ppAccent
     let folder: SharedFolder
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @ObservedObject private var activityNotifService = ActivityNotificationService.shared
@@ -104,9 +106,8 @@ struct CoachFolderRowView: View {
 
     private var folderIconColor: Color {
         switch folder.folderType {
-        case "games":   return .brandNavy
-        case "lessons": return .green
-        default:        return .brandNavy
+        case "lessons": return Theme.chipGreenText
+        default:        return ppAccent   // "games" + any other type
         }
     }
 
@@ -132,12 +133,12 @@ struct CoachFolderRowView: View {
                         if permissions.canUpload {
                             Image(systemName: "arrow.up.circle.fill")
                                 .font(.caption)
-                                .foregroundColor(.brandNavy)
+                                .foregroundColor(Theme.textSecondary)
                         }
                         if permissions.canComment {
                             Image(systemName: "bubble.left.fill")
                                 .font(.caption)
-                                .foregroundColor(.brandNavy)
+                                .foregroundColor(Theme.textSecondary)
                         }
                     }
                 }
@@ -173,6 +174,7 @@ struct CoachFolderRowView: View {
 // MARK: - Empty State
 
 struct CoachEmptyStateView: View {
+    @Environment(\.ppAccent) private var ppAccent
     @Binding var showingInvitations: Bool
     /// Opens the Invitations sheet on the Sent tab — wired from the host so a
     /// coach with no connections yet can still see (and cancel) the invites
@@ -193,14 +195,14 @@ struct CoachEmptyStateView: View {
 
             ZStack {
                 Circle()
-                    .fill(Color.brandNavy.opacity(0.1))
+                    .fill(ppAccent.opacity(0.1))
                     .frame(width: 120, height: 120)
 
                 Image(systemName: "person.3.sequence")
                     .font(.system(size: 50))
                     .foregroundStyle(
                         LinearGradient(
-                            colors: [.brandNavy, .brandNavy.opacity(0.6)],
+                            colors: [ppAccent, ppAccent.opacity(0.6)],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         )
@@ -234,7 +236,7 @@ struct CoachEmptyStateView: View {
                     }
                     .frame(maxWidth: .infinity)
                     .frame(height: 54)
-                    .background(Color.brandNavy)
+                    .background(ppAccent)
                     .foregroundColor(.white)
                     .cornerRadius(14)
                 }
@@ -270,6 +272,7 @@ struct CoachEmptyStateView: View {
 // MARK: - Pending Invitations Banner
 
 struct PendingInvitationsBanner: View {
+    @Environment(\.ppAccent) private var ppAccent
     @Binding var showingInvitations: Bool
     private var invitationManager: CoachInvitationManager { .shared }
 
@@ -281,7 +284,7 @@ struct PendingInvitationsBanner: View {
             }) {
                 HStack {
                     Image(systemName: "envelope.badge.fill")
-                        .foregroundColor(.brandNavy)
+                        .foregroundColor(ppAccent)
 
                     Text("You have \(invitationManager.pendingInvitationsCount) pending invitation\(invitationManager.pendingInvitationsCount == 1 ? "" : "s")")
                         .font(.subheadline)
@@ -295,7 +298,7 @@ struct PendingInvitationsBanner: View {
                 .padding()
                 .background(
                     LinearGradient(
-                        colors: [Color.brandNavy.opacity(0.1), Color.brandNavy.opacity(0.05)],
+                        colors: [ppAccent.opacity(0.1), ppAccent.opacity(0.05)],
                         startPoint: .leading,
                         endPoint: .trailing
                     )
