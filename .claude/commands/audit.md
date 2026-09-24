@@ -91,7 +91,7 @@ Severity at baseline: **High.**
 **Measure this category by symbol name, never by a `DesignTokens.` prefix.** `DesignTokens.swift` defines *extensions on system types* (`CGFloat`, `CGSize`, `Font`, `Color`, `LinearGradient`, `View`, `Animation`), so every call site reads `.bodySmall` / `.spacingLarge` / `Color(hex:)` — never `DesignTokens.something`. A prefix grep returns 3 comment hits and looks like dead code. It is not: **1,525 real usages** outside the file. `Color(hex:)` alone has 23 call sites and `Theme/Theme.swift` is built on it. Deleting the file breaks the build.
 
 The actual problem is that **two palettes are live at once**:
-- `DesignTokens.swift` — `.brandNavy` (**271 uses**), `.brandGold` (34), `.brandPrimary`, `.brandSecondary`, `.premium`
+- `DesignTokens.swift` — `.brandNavy` (**197 uses** at 2026-09-23), `.brandGold` (34). The aliases `.brandPrimary`/`.brandSecondary`/`.premium`/`.premiumBackground` and the brand/button `LinearGradient` tokens were deleted 2026-09-23 — don't measure them.
 - `Theme/Theme.swift` — the Calm Keepsake tokens, 619 references
 
 `docs/PRICING_MODEL_V2_IMPLEMENTATION_PLAN.md` used to assert `brandNavy` was "removed in the seasons pass." It was not — 271 call sites remain. Corrected 2026-08-09.

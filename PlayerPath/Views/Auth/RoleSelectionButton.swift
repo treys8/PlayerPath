@@ -56,7 +56,7 @@ struct RoleSelectionButton: View {
 
                     Text(description)
                         .font(.labelSmall)
-                        .foregroundColor(isSelected ? .white.opacity(0.85) : .secondary)
+                        .foregroundColor(isSelected ? .white : .secondary)
                 }
             }
             .frame(maxWidth: .infinity)
