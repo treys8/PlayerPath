@@ -244,7 +244,7 @@ struct QuickScoreContent: View {
             .padding(.spacingLarge)
         }
         .ppDetailBackground()
-        .safeAreaInset(edge: .bottom) {
+        .ppBottomBar(fallbackBackground: .bar) {
             // While a fresh hole is untouched the primary just navigates (no
             // write), so label it as plain navigation until the user enters
             // something.

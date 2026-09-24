@@ -3,9 +3,9 @@
 //  PlayerPath
 //
 //  Bottom navigation bar for continuous hole-by-hole golf scoring. Pinned via
-//  `.safeAreaInset(edge: .bottom)` by both scoring bodies (`QuickScoreContent`,
-//  `ShotByShotContent`) so a round flows hole → hole without dismissing the
-//  sheet. Layout: ‹ Prev | "Hole X of N" | primary action. The owning content
+//  `ppBottomBar(fallbackBackground: .bar)` by both scoring bodies
+//  (`QuickScoreContent`, `ShotByShotContent`) so a round flows hole → hole
+//  without dismissing the sheet. Layout: ‹ Prev | "Hole X of N" | primary action. The owning content
 //  view supplies the primary title/disabled state and the prev/primary actions
 //  (Quick saves first via its closures; shot-by-shot persists live, so it just
 //  navigates).
@@ -43,18 +43,20 @@ struct HoleNavBar: View {
                 Text(primaryTitle)
                     .font(.bodyLarge)
                     .fontWeight(.semibold)
-                    .foregroundColor(.white)
-                    .padding(.horizontal, .spacingLarge)
-                    .frame(height: 44)
-                    .background(
-                        Capsule().fill(primaryDisabled ? Color.secondary.opacity(0.5) : Theme.golfAccent)
-                    )
+                    .ppLegacyBarLabel {
+                        $0
+                            .foregroundColor(.white)
+                            .padding(.horizontal, .spacingLarge)
+                            .frame(height: 44)
+                            .background(
+                                Capsule().fill(primaryDisabled ? Color.secondary.opacity(0.5) : Theme.golfAccent)
+                            )
+                    }
             }
-            .buttonStyle(ScaleButtonStyle())
+            .ppGlassBarButton(tint: Theme.golfAccent) { $0.buttonStyle(ScaleButtonStyle()) }
             .disabled(primaryDisabled)
         }
         .padding(.horizontal, .spacingLarge)
         .padding(.vertical, .spacingSmall)
-        .background(.bar)
     }
 }

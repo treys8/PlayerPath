@@ -206,7 +206,7 @@ struct ShotByShotContent: View {
             .padding(.spacingLarge)
         }
         .ppDetailBackground()
-        .safeAreaInset(edge: .bottom) {
+        .ppBottomBar(fallbackBackground: .bar) {
             // Shots persist live, so the bar just navigates — no save flush. The
             // primary becomes "Done" on the last hole (advance() dismisses there).
             HoleNavBar(currentHole: holeNumber, holeCount: holeCount,
