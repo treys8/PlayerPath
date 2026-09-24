@@ -32,6 +32,11 @@ struct AdvancedSearchView: View {
     @State private var cachedFilteredPractices: [Practice] = []
     @State private var cachedFilteredPhotos: [Photo] = []
 
+    // Result presentation — the pager takes IDs (never models) so a clip deleted
+    // inside it can't be held here.
+    @State private var playerSession: VideoPlayerSession?
+    @State private var viewerPhoto: Photo?
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
@@ -71,6 +76,15 @@ struct AdvancedSearchView: View {
             }
             .sheet(isPresented: $showingSaveSearch) {
                 saveSearchSheet
+            }
+            .fullScreenCover(item: $playerSession, onDismiss: updateFilteredResults) { session in
+                VideoClipPagerView(athlete: athlete, session: session)
+            }
+            .photoViewer($viewerPhoto, in: cachedFilteredPhotos, onDelete: deletePhoto)
+            .onChange(of: viewerPhoto) { _, photo in
+                // Viewer closed: re-derive from the relationship so a photo
+                // deleted (or re-tagged) inside it drops out of the results.
+                if photo == nil { updateFilteredResults() }
             }
             .onAppear {
                 loadSavedSearches()
@@ -231,8 +245,17 @@ struct AdvancedSearchView: View {
                         // Results header with count and save button
                         resultsHeaderView(count: results.count)
 
-                        ForEach(results) { video in
-                            VideoSearchResultCard(video: video)
+                        ForEach(results.filter { $0.modelContext != nil }) { video in
+                            Button {
+                                playerSession = VideoPlayerSession(
+                                    clipIDs: results.map(\.id),
+                                    startID: video.id
+                                )
+                                Haptics.light()
+                            } label: {
+                                VideoSearchResultCard(video: video)
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
                     .padding()
@@ -279,7 +302,11 @@ struct AdvancedSearchView: View {
                     }
 
                     ForEach(results) { practice in
-                        PracticeSearchResultRow(practice: practice, searchText: searchText)
+                        NavigationLink {
+                            PracticeDetailView(practice: practice)
+                        } label: {
+                            PracticeSearchResultRow(practice: practice, searchText: searchText)
+                        }
                     }
                 }
                 .listStyle(.plain)
@@ -298,8 +325,13 @@ struct AdvancedSearchView: View {
                     LazyVStack(spacing: 12) {
                         resultsHeaderView(count: results.count)
 
-                        ForEach(results) { photo in
-                            PhotoSearchResultCard(photo: photo)
+                        ForEach(results.filter { $0.modelContext != nil }) { photo in
+                            Button {
+                                viewerPhoto = photo
+                            } label: {
+                                PhotoSearchResultCard(photo: photo)
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
                     .padding()
@@ -578,6 +610,13 @@ struct AdvancedSearchView: View {
         selectedGame = nil
         selectedPlayResults.removeAll()
         highlightsOnly = false
+    }
+
+    private func deletePhoto(_ photo: Photo) {
+        // Drop it from the cache BEFORE deleting so no render touches a dead model.
+        cachedFilteredPhotos.removeAll { $0.id == photo.id }
+        PhotoPersistenceService().deletePhoto(photo, context: modelContext)
+        Haptics.light()
     }
 
     private func saveSearch() {
