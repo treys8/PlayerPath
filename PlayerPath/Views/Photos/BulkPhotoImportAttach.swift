@@ -145,7 +145,7 @@ struct BulkPhotoImportAttach: ViewModifier {
                             }
                         }
                         .padding(24)
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+                        .ppHUDGlass(cornerRadius: 16)
                     }
                 }
             }

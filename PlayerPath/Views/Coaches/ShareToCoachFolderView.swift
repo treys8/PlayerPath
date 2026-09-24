@@ -191,7 +191,7 @@ struct ShareToCoachFolderView: View {
                     .foregroundColor(.white)
             }
             .padding(32)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+            .ppHUDGlass(cornerRadius: 16)
         }
     }
 

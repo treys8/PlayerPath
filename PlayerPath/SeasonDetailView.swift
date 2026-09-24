@@ -383,7 +383,7 @@ struct SeasonDetailView: View {
                     ProgressView()
                         .scaleEffect(1.2)
                         .padding()
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+                        .ppHUDGlass(cornerRadius: 12)
                 }
             }
         }

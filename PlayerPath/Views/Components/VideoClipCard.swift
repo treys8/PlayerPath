@@ -213,7 +213,7 @@ struct VideoClipCard: View {
                             .foregroundColor(.secondary)
                     }
                     .padding()
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: .cornerLarge))
+                    .ppHUDGlass(cornerRadius: .cornerLarge)
                 }
                 .allowsHitTesting(false)
             }
