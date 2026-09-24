@@ -206,7 +206,7 @@ Use for all new UI:
 - `DesignTokens.swift` for the non-color primitives that were never superseded: spacing (`.spacingSmall/Medium/Large`), corner radii (`.cornerLarge`), thumbnail sizes, animation curves, and the `Color(hex:)` initializer `Theme` itself is built on.
 
 ⚠️ **Legacy, still load-bearing — never use in new UI, do not bulk-delete:**
-- Old palette: `.brandNavy` (~290 uses — and still *growing*; check new diffs for it), `.brandGold`, `.brandPrimary`, the blue/purple/green gradients.
+- Old palette: `.brandNavy` (~200 uses as of 2026-09-23 — being retired batch by batch; check new diffs for it) and `.brandGold`. The aliases (`.brandPrimary`, `.premium`…) and the blue/purple/green `LinearGradient` tokens were deleted 2026-09-23. `glassShine/Dark` survive only as the pre-iOS-26 fallback inside `GlassChrome.ppVideoOverlayPanel`; `glassBorder` is also the white hairline on the capture-overlay buttons.
 - Old type scale: `.bodySmall` (~290), `.headingMedium` (~180), `.bodyMedium` (~140), `.displayLarge`, `.labelSmall`… — these still outnumber the `.pp*` scale roughly 5:1 because most screens are un-migrated.
 - These are **deprecated, not deleted** — they still compile and resolve, so nothing fails loudly when someone reaches for one. Treat any doc claiming the palette migration "finished" as stale; verify with a symbol-name grep.
 
