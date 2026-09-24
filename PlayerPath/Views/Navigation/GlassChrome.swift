@@ -133,6 +133,22 @@ extension View {
         }
     }
 
+    /// A tall control panel pinned by `ppBottomBar(fallbackBackground:)` (the
+    /// scorecard's hole editor). iOS 26: a regular-glass card inset from the
+    /// screen edges, so the controls get their own surface while the content
+    /// scrolls behind. No-op before 26 — the bar's fallback background covers it.
+    @ViewBuilder
+    func ppBarPanelGlass(cornerRadius: CGFloat = 24) -> some View {
+        if #available(iOS 26, *) {
+            self
+                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                .padding(.horizontal, .spacingMedium)
+                .padding(.bottom, .spacingSmall)
+        } else {
+            self
+        }
+    }
+
     /// A control panel floating over video or the camera: Liquid Glass tinted
     /// dark on iOS 26, with the dark scheme forced so the glass never flips light
     /// behind the panels' white glyphs over a bright frame. Before 26, `fallback`

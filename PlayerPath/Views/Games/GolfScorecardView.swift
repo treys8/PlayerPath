@@ -128,7 +128,7 @@ struct GolfScorecardView: View {
                     }
                 }
             }
-            .safeAreaInset(edge: .bottom) { editorPanel }
+            .ppBottomBar(fallbackBackground: .bar) { editorPanel }
             .sheet(item: $shotEntryTarget, onDismiss: { seedEntries() }) { target in
                 // Re-seed on dismiss so the grid reflects the freshly derived
                 // score / putts after logging shots. A shot-owned hole opens the
@@ -249,13 +249,15 @@ struct GolfScorecardView: View {
 
     // MARK: - Bottom editor panel (selected hole)
 
-    @ViewBuilder
     private var editorPanel: some View {
-        if isHoleShotLocked(selectedHole) {
-            shotTrackedHint
-        } else {
-            scoreEditorPanel
+        Group {
+            if isHoleShotLocked(selectedHole) {
+                shotTrackedHint
+            } else {
+                scoreEditorPanel
+            }
         }
+        .ppBarPanelGlass()
     }
 
     /// Read-only footer shown when the selected hole is shot-owned — inline
@@ -272,7 +274,6 @@ struct GolfScorecardView: View {
         }
         .padding(.spacingMedium)
         .frame(maxWidth: .infinity)
-        .background(.bar)
     }
 
     private var scoreEditorPanel: some View {
@@ -346,7 +347,6 @@ struct GolfScorecardView: View {
             }
         }
         .padding(.spacingMedium)
-        .background(.bar)
     }
 
     // MARK: - Detailed-field bindings
