@@ -75,6 +75,7 @@ extension Font {
 // MARK: - Colors (Semantic)
 
 extension Color {
+    /// LEGACY — do not use in new UI (Theme / ppAccent). Still used widely; retired batch by batch.
     /// Primary brand colors — derived from the app icon (navy + gold)
     static let brandNavy = Color(UIColor { traits in
         traits.userInterfaceStyle == .dark
@@ -86,14 +87,6 @@ extension Color {
             ? UIColor(red: 0.90, green: 0.72, blue: 0.28, alpha: 1) // brighter for dark mode
             : UIColor(red: 0.83, green: 0.63, blue: 0.16, alpha: 1) // #D4A029
     })
-
-    /// Legacy aliases
-    static let brandPrimary = Color.brandNavy
-    static let brandSecondary = Color.purple
-
-    /// Premium colors
-    static let premium = Color.brandGold
-    static let premiumBackground = Color.brandGold.opacity(0.1)
 
     /// Play result colors
     static let gold = Color(red: 1.0, green: 0.75, blue: 0.0)
@@ -150,45 +143,6 @@ extension Color {
 // MARK: - Gradients
 
 extension LinearGradient {
-    /// Brand navy gradient. `@MainActor` because it is built from the
-    /// trait-reactive `Color.brandNavy`, which the dynamic-provider `UIColor`
-    /// init pins to the main actor; a gradient token is only ever read from a
-    /// view body, so matching that isolation costs nothing.
-    @MainActor static let brandNavy = LinearGradient(
-        colors: [.brandNavy, .brandNavy.opacity(0.85)],
-        startPoint: .topLeading, endPoint: .bottomTrailing
-    )
-
-    /// Brand gold gradient (main-actor for the same reason as `brandNavy`).
-    @MainActor static let brandGold = LinearGradient(
-        colors: [.brandGold, .brandGold.opacity(0.8)],
-        startPoint: .topLeading, endPoint: .bottomTrailing
-    )
-
-    /// Primary button gradient (blue CTA buttons)
-    static let primaryButton = LinearGradient(
-        colors: [.blue, .blue.opacity(0.85)],
-        startPoint: .topLeading, endPoint: .bottomTrailing
-    )
-
-    /// Coach/green button gradient
-    static let coachButton = LinearGradient(
-        colors: [.green, .green.opacity(0.8)],
-        startPoint: .leading, endPoint: .trailing
-    )
-
-    /// Premium/purple button gradient
-    static let premiumButton = LinearGradient(
-        colors: [.purple, .purple.opacity(0.8)],
-        startPoint: .leading, endPoint: .trailing
-    )
-
-    /// Premium accent gradient (yellow-orange)
-    static let premiumAccent = LinearGradient(
-        colors: [.yellow, .orange],
-        startPoint: .topLeading, endPoint: .bottomTrailing
-    )
-
     /// Glass panel border highlight
     static let glassBorder = LinearGradient(
         colors: [.white.opacity(0.3), .white.opacity(0.1)],
