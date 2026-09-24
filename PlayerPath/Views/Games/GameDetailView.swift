@@ -9,6 +9,7 @@ import SwiftUI
 import SwiftData
 
 struct GameDetailView: View {
+    @Environment(\.ppAccent) private var ppAccent
     let game: Game
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
@@ -237,7 +238,7 @@ struct GameDetailView: View {
                                     .foregroundColor(.white)
                                     .padding(.horizontal, 8)
                                     .padding(.vertical, 4)
-                                    .background(Color.brandNavy)
+                                    .background(Theme.textPrimary)
                                     .cornerRadius(4)
                             }
                         }
@@ -453,7 +454,7 @@ struct GameDetailView: View {
                             Spacer()
                             Text(String(format: "%.3f", Double(stats.hits) / Double(stats.atBats)))
                                 .font(.headingMedium)
-                                .foregroundColor(.brandNavy)
+                                .foregroundColor(ppAccent)
                         }
                     }
                 }
