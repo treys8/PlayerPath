@@ -12,6 +12,7 @@
 import SwiftUI
 
 struct PendingSentInvitationsBanner: View {
+    @Environment(\.ppAccent) private var ppAccent
     private var invitationManager: CoachInvitationManager { .shared }
 
     /// Invoked on tap — the host opens the Invitations sheet to the Sent tab.
@@ -26,7 +27,7 @@ struct PendingSentInvitationsBanner: View {
             } label: {
                 HStack(spacing: 12) {
                     Image(systemName: "paperplane")
-                        .foregroundColor(.brandNavy)
+                        .foregroundColor(ppAccent)
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text("\(count) invitation\(count == 1 ? "" : "s") awaiting response")
@@ -45,7 +46,7 @@ struct PendingSentInvitationsBanner: View {
                         .foregroundColor(.secondary)
                 }
                 .padding()
-                .background(Color.brandNavy.opacity(0.06))
+                .background(ppAccent.opacity(0.06))
                 .cornerRadius(12)
             }
             .buttonStyle(.plain)

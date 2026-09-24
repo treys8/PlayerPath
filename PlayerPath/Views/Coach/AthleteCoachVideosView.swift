@@ -9,6 +9,7 @@
 import SwiftUI
 
 struct AthleteCoachVideosView: View {
+    @Environment(\.ppAccent) private var ppAccent
     let athlete: Athlete
 
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
@@ -98,7 +99,7 @@ struct AthleteCoachVideosView: View {
         VStack(spacing: 24) {
             Image(systemName: "folder.badge.person.crop")
                 .font(.system(size: 72))
-                .foregroundColor(.brandNavy)
+                .foregroundColor(ppAccent)
 
             Text("No Shared Folders Yet")
                 .font(.title2)

@@ -9,6 +9,7 @@ import SwiftUI
 import FirebaseAuth
 
 struct InviteAthleteSheet: View {
+    @Environment(\.ppAccent) private var ppAccent
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
 
@@ -66,12 +67,12 @@ struct InviteAthleteSheet: View {
                     VStack(spacing: 12) {
                         ZStack {
                             Circle()
-                                .fill(Color.brandNavy.opacity(0.1))
+                                .fill(ppAccent.opacity(0.1))
                                 .frame(width: 80, height: 80)
 
                             Image(systemName: "person.badge.plus")
                                 .font(.system(size: 36))
-                                .foregroundColor(.brandNavy)
+                                .foregroundColor(ppAccent)
                         }
 
                         Text("Invite an Athlete")
@@ -161,14 +162,14 @@ struct InviteAthleteSheet: View {
                     // Info box
                     HStack(alignment: .top, spacing: 12) {
                         Image(systemName: "info.circle.fill")
-                            .foregroundColor(.brandNavy)
+                            .foregroundColor(ppAccent)
 
                         Text("The athlete's parent will receive an email invitation. Once they accept, you'll be able to view their shared videos and send practice content.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
                     .padding()
-                    .background(Color.brandNavy.opacity(0.1))
+                    .background(ppAccent.opacity(0.1))
                     .cornerRadius(12)
                     .padding(.horizontal)
 
@@ -203,7 +204,7 @@ struct InviteAthleteSheet: View {
                         }
                         .frame(maxWidth: .infinity)
                         .frame(height: 54)
-                        .background(canSend ? Color.brandNavy : Color.gray)
+                        .background(canSend ? ppAccent : Color.gray)
                         .foregroundColor(.white)
                         .cornerRadius(14)
                     }

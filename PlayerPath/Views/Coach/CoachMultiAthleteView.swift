@@ -9,6 +9,7 @@
 import SwiftUI
 
 struct CoachMultiAthleteView: View {
+    @Environment(\.ppAccent) private var ppAccent
     private var sharedFolderManager: SharedFolderManager { .shared }
     private var archiveManager: CoachFolderArchiveManager { .shared }
     @Environment(\.dismiss) private var dismiss
@@ -43,7 +44,7 @@ struct CoachMultiAthleteView: View {
                 VStack(spacing: 12) {
                     Image(systemName: "figure.baseball")
                         .font(.system(size: 40))
-                        .foregroundColor(.brandNavy.opacity(0.4))
+                        .foregroundColor(ppAccent.opacity(0.4))
                     Text("No Athletes Yet")
                         .font(.headline)
                     Text("Athletes will appear here once they accept your invitation.")
@@ -82,15 +83,16 @@ struct AthleteComparisonData: Identifiable {
 // MARK: - Row
 
 private struct AthleteComparisonRow: View {
+    @Environment(\.ppAccent) private var ppAccent
     let data: AthleteComparisonData
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Image(systemName: "figure.baseball")
-                    .foregroundColor(.brandNavy)
+                    .foregroundColor(ppAccent)
                     .frame(width: 32, height: 32)
-                    .background(Color.brandNavy.opacity(0.1))
+                    .background(ppAccent.opacity(0.1))
                     .clipShape(Circle())
 
                 Text(data.athleteName)
@@ -124,7 +126,7 @@ private struct StatPill: View {
         HStack(spacing: 4) {
             Image(systemName: icon)
                 .font(.caption2)
-                .foregroundColor(.brandNavy)
+                .foregroundColor(Theme.textSecondary)
             Text(value)
                 .font(.caption)
                 .fontWeight(.semibold)

@@ -10,6 +10,7 @@
 import SwiftUI
 
 struct StartSessionSheet: View {
+    @Environment(\.ppAccent) private var ppAccent
     var onInviteAthlete: (() -> Void)?
 
     @Environment(\.dismiss) private var dismiss
@@ -104,11 +105,11 @@ struct StartSessionSheet: View {
                             HStack {
                                 ZStack {
                                     Circle()
-                                        .fill(Color.brandNavy.opacity(0.1))
+                                        .fill(ppAccent.opacity(0.1))
                                         .frame(width: 40, height: 40)
                                     Text(String(athlete.athleteName.prefix(1)).uppercased())
                                         .font(.headline)
-                                        .foregroundColor(.brandNavy)
+                                        .foregroundColor(ppAccent)
                                 }
                                 .accessibilityHidden(true)
 
@@ -120,7 +121,7 @@ struct StartSessionSheet: View {
 
                                 if selectedAthleteIDs.contains(athlete.athleteID) {
                                     Image(systemName: "checkmark.circle.fill")
-                                        .foregroundColor(.brandNavy)
+                                        .foregroundColor(ppAccent)
                                 } else {
                                     Image(systemName: "circle")
                                         .foregroundColor(.gray)
@@ -170,7 +171,7 @@ struct StartSessionSheet: View {
                 }
                 .frame(maxWidth: .infinity)
                 .frame(height: 50)
-                .background(selectedAthleteIDs.isEmpty ? Color.gray : Color.brandNavy)
+                .background(selectedAthleteIDs.isEmpty ? Color.gray : ppAccent)
                 .foregroundColor(.white)
                 .cornerRadius(12)
             }
@@ -205,7 +206,7 @@ struct StartSessionSheet: View {
                         .fontWeight(.semibold)
                         .frame(maxWidth: .infinity)
                         .frame(height: 50)
-                        .background(Color.brandNavy)
+                        .background(ppAccent)
                         .foregroundColor(.white)
                         .cornerRadius(12)
                 }

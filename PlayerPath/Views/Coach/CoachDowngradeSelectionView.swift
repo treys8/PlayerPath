@@ -160,7 +160,6 @@ struct CoachDowngradeSelectionView: View {
                     }
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(.brandNavy)
                 .disabled(selectedIDs.isEmpty || selectedIDs.count > limit || isSubmitting)
             }
         }

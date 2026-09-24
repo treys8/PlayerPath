@@ -62,7 +62,6 @@ struct CoachAthletesTab: View {
                             showingInvitations = true
                         } label: {
                             Image(systemName: "envelope.badge")
-                                .foregroundColor(.brandNavy)
                         }
                         .overlay(alignment: .topTrailing) {
                             Text("\(invitationManager.pendingInvitationsCount)")
@@ -81,7 +80,6 @@ struct CoachAthletesTab: View {
                         showingStartSession = true
                     } label: {
                         Image(systemName: "record.circle")
-                            .foregroundColor(.brandNavy)
                     }
 
                     Menu {
@@ -96,7 +94,6 @@ struct CoachAthletesTab: View {
                         }
                     } label: {
                         Image(systemName: ToolbarSymbol.more)
-                            .foregroundColor(.brandNavy)
                     }
                 }
             }

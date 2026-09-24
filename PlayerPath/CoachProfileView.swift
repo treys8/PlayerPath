@@ -10,6 +10,7 @@ import SwiftUI
 import FirebaseAuth
 
 struct CoachProfileView: View {
+    @Environment(\.ppAccent) private var ppAccent
     @EnvironmentObject var authManager: ComprehensiveAuthManager
     private var sharedFolderManager: SharedFolderManager { .shared }
     @ObservedObject private var storeManager = StoreKitManager.shared
@@ -36,12 +37,12 @@ struct CoachProfileView: View {
                     HStack(spacing: 16) {
                         ZStack {
                             Circle()
-                                .fill(Color.brandNavy.opacity(0.1))
+                                .fill(ppAccent.opacity(0.1))
                                 .frame(width: 60, height: 60)
                             Text(coachInitials)
                                 .font(.title2)
                                 .fontWeight(.bold)
-                                .foregroundColor(.brandNavy)
+                                .foregroundColor(ppAccent)
                         }
 
                         VStack(alignment: .leading, spacing: 4) {
@@ -59,7 +60,7 @@ struct CoachProfileView: View {
                                 Text("Coach Account")
                                     .font(.caption)
                             }
-                            .foregroundColor(.brandNavy)
+                            .foregroundColor(ppAccent)
                         }
                     }
                     .padding(.vertical, 8)
@@ -107,7 +108,7 @@ struct CoachProfileView: View {
                     } label: {
                         Label(authManager.currentCoachTier == .free ? "Upgrade Plan" : "Manage Plan",
                               systemImage: "arrow.up.circle")
-                            .foregroundColor(.brandNavy)
+                            .foregroundColor(ppAccent)
                     }
 
                     RedeemOfferCodeRow()
@@ -191,7 +192,7 @@ struct CoachProfileView: View {
                                     .font(.caption)
                                     .padding(.horizontal, 8)
                                     .padding(.vertical, 3)
-                                    .background(Color.brandNavy)
+                                    .background(ppAccent)
                                     .foregroundStyle(.white)
                                     .clipShape(Capsule())
                             }
