@@ -75,13 +75,7 @@ extension Font {
 // MARK: - Colors (Semantic)
 
 extension Color {
-    /// LEGACY — do not use in new UI (Theme / ppAccent). Still used widely; retired batch by batch.
-    /// Primary brand colors — derived from the app icon (navy + gold)
-    static let brandNavy = Color(UIColor { traits in
-        traits.userInterfaceStyle == .dark
-            ? UIColor(red: 0.25, green: 0.66, blue: 0.97, alpha: 1) // #40A8F7
-            : UIColor(red: 0.0, green: 0.20, blue: 0.45, alpha: 1)  // #003373 original navy
-    })
+    /// LEGACY gold — do not use in new UI; retired batch by batch.
     static let brandGold = Color(UIColor { traits in
         traits.userInterfaceStyle == .dark
             ? UIColor(red: 0.90, green: 0.72, blue: 0.28, alpha: 1) // brighter for dark mode
@@ -265,7 +259,7 @@ enum ReelOverlayTextStyle {
 
 /// UIKit-facing style for the reel intro title card (see `ReelCardRenderer`). The card is
 /// rasterized into the video, so colors are FIXED (video has no light/dark context) —
-/// always the original navy, never the trait-reactive `Color.brandNavy`.
+/// always the original brand navy (#003373), fixed.
 enum ReelCardStyle {
     /// Card duration prepended ahead of the first clip.
     static let durationSeconds: Double = 2.5
