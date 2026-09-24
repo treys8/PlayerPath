@@ -9,6 +9,7 @@ import SwiftUI
 import SwiftData
 
 struct CoachDetailView: View {
+    @Environment(\.ppAccent) private var ppAccent
     let coach: Coach
     let athlete: Athlete
 
@@ -26,7 +27,7 @@ struct CoachDetailView: View {
                 HStack {
                     Image(systemName: "person.circle.fill")
                         .font(.system(size: 60))
-                        .foregroundColor(.brandNavy)
+                        .foregroundColor(ppAccent)
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text(coach.name)
@@ -100,7 +101,7 @@ struct CoachDetailView: View {
                             NavigationLink(destination: AthleteFolderDetailView(folder: folder)) {
                                 HStack {
                                     Image(systemName: "folder.fill")
-                                        .foregroundColor(.brandNavy)
+                                        .foregroundColor(ppAccent)
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(folder.name)
                                             .font(.subheadline)
@@ -116,7 +117,7 @@ struct CoachDetailView: View {
                         } else {
                             HStack {
                                 Image(systemName: "folder.fill")
-                                    .foregroundColor(.brandNavy)
+                                    .foregroundColor(ppAccent)
                                 Text("Folder")
                                     .foregroundColor(.secondary)
                             }
@@ -132,7 +133,6 @@ struct CoachDetailView: View {
                         LabeledContent {
                             if let url = createPhoneURL(from: coach.phone) {
                                 Link(coach.phone, destination: url)
-                                    .foregroundColor(.brandNavy)
                             } else {
                                 Text(coach.phone)
                             }
@@ -145,7 +145,6 @@ struct CoachDetailView: View {
                         LabeledContent {
                             if let url = createEmailURL(from: coach.email) {
                                 Link(coach.email, destination: url)
-                                    .foregroundColor(.brandNavy)
                             } else {
                                 Text(coach.email)
                             }

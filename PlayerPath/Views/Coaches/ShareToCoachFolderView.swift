@@ -10,6 +10,7 @@ import SwiftUI
 import SwiftData
 
 struct ShareToCoachFolderView: View {
+    @Environment(\.ppAccent) private var ppAccent
     let clip: VideoClip
     /// Folder to select once folders load — set when sharing from inside a folder.
     var preselectedFolderID: String? = nil
@@ -135,7 +136,7 @@ struct ShareToCoachFolderView: View {
                             Spacer()
                             if selectedFolder?.id == folder.id {
                                 Image(systemName: "checkmark")
-                                    .foregroundColor(.brandNavy)
+                                    .foregroundColor(ppAccent)
                             }
                         }
                     }
