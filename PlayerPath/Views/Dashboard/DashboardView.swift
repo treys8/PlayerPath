@@ -17,6 +17,7 @@ enum HomeDestination: Hashable {
 }
 
 struct DashboardView: View {
+    @Environment(\.ppAccent) private var ppAccent
     let user: User
     let athlete: Athlete
     let authManager: ComprehensiveAuthManager
@@ -511,7 +512,7 @@ struct DashboardView: View {
     @ViewBuilder
     private var golfQuickActions: some View {
         VStack(spacing: 16) {
-            DashboardSectionHeader(title: "Quick Actions", icon: "bolt.fill", color: .brandNavy)
+            DashboardSectionHeader(title: "Quick Actions", icon: "bolt.fill", color: ppAccent)
 
             HStack(spacing: 12) {
                 if hasLiveActivity {
@@ -530,7 +531,7 @@ struct DashboardView: View {
                     QuickActionButton(
                         icon: "plus.circle.fill",
                         title: "New Tournament",
-                        color: .brandNavy
+                        color: ppAccent
                     ) {
                         createNewGame()
                     }
@@ -550,13 +551,13 @@ struct DashboardView: View {
     @ViewBuilder
     private var baseballLiveQuickActions: some View {
         VStack(spacing: 16) {
-            DashboardSectionHeader(title: "Quick Actions", icon: "bolt.fill", color: .brandNavy)
+            DashboardSectionHeader(title: "Quick Actions", icon: "bolt.fill", color: ppAccent)
 
             HStack(spacing: 12) {
                 QuickActionButton(
                     icon: "plus.circle.fill",
                     title: "New Game",
-                    color: .brandNavy
+                    color: ppAccent
                 ) {
                     createNewGame()
                 }
@@ -597,7 +598,7 @@ struct DashboardView: View {
     private func managementGridSection(viewModel: GamesDashboardViewModel) -> some View {
         VStack(spacing: 16) {
             HStack {
-                DashboardSectionHeader(title: seasonSectionTitle, icon: "square.grid.2x2.fill", color: .brandNavy)
+                DashboardSectionHeader(title: seasonSectionTitle, icon: "square.grid.2x2.fill", color: ppAccent)
 
                 Button {
                     createNewGame()
@@ -613,23 +614,23 @@ struct DashboardView: View {
                     icon: activeSport == .golf ? "figure.golf" : "baseball.diamond.bases",
                     title: activeSport == .golf ? "Rounds" : "Games",
                     subtitle: "\(viewModel.totalGames) Total",
-                    color: .brandNavy
+                    color: ppAccent
                 ) {
                     postSwitchTab(.games)
                 }
-                DashboardFeatureCard(icon: "video", title: "Video Clips", subtitle: "\(viewModel.totalVideos) Recorded", color: .brandNavy) {
+                DashboardFeatureCard(icon: "video", title: "Video Clips", subtitle: "\(viewModel.totalVideos) Recorded", color: ppAccent) {
                     postSwitchTab(.videos)
                 }
-                DashboardFeatureCard(icon: "chart.bar.fill", title: "Statistics", subtitle: statisticsCardSubtitle, color: .brandNavy) {
+                DashboardFeatureCard(icon: "chart.bar.fill", title: "Statistics", subtitle: statisticsCardSubtitle, color: ppAccent) {
                     postSwitchTab(.stats)
                 }
-                DashboardFeatureCard(icon: "calendar", title: "Seasons", subtitle: "\(cachedSeasonCount) Total", color: .brandNavy) {
+                DashboardFeatureCard(icon: "calendar", title: "Seasons", subtitle: "\(cachedSeasonCount) Total", color: ppAccent) {
                     showingSeasons = true
                 }
-                DashboardFeatureCard(icon: "figure.run", title: "Practice", subtitle: "\(cachedPracticeCount.pluralized("Session"))", color: .brandNavy) {
+                DashboardFeatureCard(icon: "figure.run", title: "Practice", subtitle: "\(cachedPracticeCount.pluralized("Session"))", color: ppAccent) {
                     NotificationCenter.default.post(name: .navigateToMorePractice, object: nil)
                 }
-                DashboardFeatureCard(icon: "photo.on.rectangle.angled", title: "Photos", subtitle: "\(cachedPhotoCount.pluralized("Photo"))", color: .brandNavy) {
+                DashboardFeatureCard(icon: "photo.on.rectangle.angled", title: "Photos", subtitle: "\(cachedPhotoCount.pluralized("Photo"))", color: ppAccent) {
                     homePath.append(HomeDestination.photos)
                 }
                 DashboardPremiumFeatureCard(icon: "star.fill", title: "Highlights", subtitle: "\(viewModel.totalHighlights.pluralized("Highlight"))", color: .brandGold, isPremium: authManager.currentTier >= .plus, badgeLabel: "PLUS") {
@@ -667,7 +668,7 @@ struct DashboardView: View {
     @ViewBuilder
     private var quickStatsSection: some View {
         VStack(spacing: 16) {
-            DashboardSectionHeader(title: "Quick Stats", icon: "chart.bar.fill", color: .brandNavy)
+            DashboardSectionHeader(title: "Quick Stats", icon: "chart.bar.fill", color: ppAccent)
 
             HStack(spacing: 12) {
                 if activeSport == .golf {
@@ -728,6 +729,7 @@ struct DashboardView: View {
 // MARK: - Athlete Picker Label
 
 struct AthletePickerLabel: View {
+    @Environment(\.ppAccent) private var ppAccent
     let name: String
     let initials: String
 
@@ -739,7 +741,7 @@ struct AthletePickerLabel: View {
                 .frame(width: 28, height: 28)
                 .background(
                     Circle()
-                        .fill(Color.brandNavy)
+                        .fill(ppAccent)
                 )
                 .clipShape(Circle())
 
@@ -754,7 +756,7 @@ struct AthletePickerLabel: View {
         .padding(.vertical, 6)
         .background(
             Capsule()
-                .fill(Color.brandNavy.opacity(0.08))
+                .fill(ppAccent.opacity(0.08))
         )
     }
 }
