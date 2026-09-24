@@ -34,6 +34,15 @@ struct AdvancedSearchView: View {
     @State private var playerSession: VideoPlayerSession?
     @State private var viewerPhoto: Photo?
 
+    @State private var selectedClubs: Set<Club> = []
+
+    private var isGolf: Bool { athlete.sport == .golf }
+
+    /// Sport-aware tab label: golfers see "Rounds", not "Games".
+    private func label(for type: ContentType) -> String {
+        type == .games && isGolf ? "Rounds" : type.displayName
+    }
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
@@ -102,6 +111,9 @@ struct AdvancedSearchView: View {
             .onChange(of: selectedPlayResults) { _, _ in
                 updateFilteredResults()
             }
+            .onChange(of: selectedClubs) { _, _ in
+                updateFilteredResults()
+            }
             .onChange(of: highlightsOnly) { _, _ in
                 updateFilteredResults()
             }
@@ -115,7 +127,7 @@ struct AdvancedSearchView: View {
             Image(systemName: "magnifyingglass")
                 .foregroundColor(.secondary)
 
-            TextField("Search \(selectedContentType.displayName.lowercased())...", text: $searchText)
+            TextField("Search \(label(for: selectedContentType).lowercased())...", text: $searchText)
                 .textFieldStyle(.plain)
                 .autocorrectionDisabled()
                 .submitLabel(.search)
@@ -141,7 +153,7 @@ struct AdvancedSearchView: View {
     private var contentTypeSelectorView: some View {
         Picker("Content Type", selection: $selectedContentType) {
             ForEach(ContentType.allCases) { type in
-                Label(type.displayName, systemImage: type.icon)
+                Label(label(for: type), systemImage: type == .games && isGolf ? "figure.golf" : type.icon)
                     .tag(type)
             }
         }
@@ -154,7 +166,7 @@ struct AdvancedSearchView: View {
     private var hasActiveFilters: Bool {
         selectedDateRange != .allTime ||
         selectedSeason != nil ||
-        (selectedContentType == .videos && (selectedGame != nil || !selectedPlayResults.isEmpty || highlightsOnly))
+        (selectedContentType == .videos && (selectedGame != nil || !selectedPlayResults.isEmpty || !selectedClubs.isEmpty || highlightsOnly))
     }
 
     private var activeFiltersSummaryView: some View {
@@ -188,6 +200,12 @@ struct AdvancedSearchView: View {
                     if !selectedPlayResults.isEmpty {
                         FilterChip(text: "\(selectedPlayResults.count) play types") {
                             selectedPlayResults.removeAll()
+                        }
+                    }
+
+                    if !selectedClubs.isEmpty {
+                        FilterChip(text: "\(selectedClubs.count) club\(selectedClubs.count == 1 ? "" : "s")") {
+                            selectedClubs.removeAll()
                         }
                     }
                 }
@@ -409,7 +427,7 @@ struct AdvancedSearchView: View {
                         Section(isGolfAthlete ? "Tournament" : "Game") {
                             Picker(isGolfAthlete ? "Tournament" : "Game", selection: $selectedGame) {
                                 Text(isGolfAthlete ? "All Tournaments" : "All Games").tag(nil as Game?)
-                                ForEach(games.sorted(by: { ($0.date ?? Date.distantPast) > ($1.date ?? Date.distantPast) }).prefix(20)) { game in
+                                ForEach(games.sorted(by: { ($0.date ?? Date.distantPast) > ($1.date ?? Date.distantPast) })) { game in
                                     let isGolfGame = game.season?.sport == .golf
                                     Text("\(isGolfGame ? "at" : "vs") \(game.opponent)").tag(game as Game?)
                                 }
@@ -417,19 +435,28 @@ struct AdvancedSearchView: View {
                         }
                     }
 
-                    // Play Result Filter
-                    Section("Play Results") {
-                        ForEach(PlayResultType.allCases, id: \.self) { resultType in
-                            Toggle(resultType.displayName, isOn: Binding(
-                                get: { selectedPlayResults.contains(resultType) },
-                                set: { isOn in
-                                    if isOn {
-                                        selectedPlayResults.insert(resultType)
-                                    } else {
-                                        selectedPlayResults.remove(resultType)
+                    // Tag filter: clubs for golf, play results otherwise
+                    if isGolf {
+                        Section("Clubs") {
+                            ForEach(Club.allCases, id: \.self) { club in
+                                Toggle(club.displayName, isOn: Binding(
+                                    get: { selectedClubs.contains(club) },
+                                    set: { isOn in
+                                        if isOn { selectedClubs.insert(club) } else { selectedClubs.remove(club) }
                                     }
-                                }
-                            ))
+                                ))
+                            }
+                        }
+                    } else {
+                        Section("Play Results") {
+                            ForEach(PlayResultType.allCases, id: \.self) { resultType in
+                                Toggle(resultType.displayName, isOn: Binding(
+                                    get: { selectedPlayResults.contains(resultType) },
+                                    set: { isOn in
+                                        if isOn { selectedPlayResults.insert(resultType) } else { selectedPlayResults.remove(resultType) }
+                                    }
+                                ))
+                            }
                         }
                     }
 
@@ -495,6 +522,7 @@ struct AdvancedSearchView: View {
         if selectedSeason != nil { videos = videos.filter { matchesSeason($0.season?.id) } }
         if let game = selectedGame { videos = videos.filter { $0.game?.id == game.id } }
         if !selectedPlayResults.isEmpty { videos = videos.filter { $0.playResult.map { selectedPlayResults.contains($0.type) } ?? false } }
+        if !selectedClubs.isEmpty { videos = videos.filter { $0.club.map { selectedClubs.contains($0) } ?? false } }
         if highlightsOnly { videos = videos.filter { $0.isHighlight } }
         return videos.sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
     }
@@ -553,6 +581,7 @@ struct AdvancedSearchView: View {
         selectedSeason = nil
         selectedGame = nil
         selectedPlayResults.removeAll()
+        selectedClubs.removeAll()
         highlightsOnly = false
     }
 
@@ -713,10 +742,9 @@ struct VideoSearchResultCard: View {
     var body: some View {
         SearchResultCard(thumbnailPath: video.thumbnailPath, placeholderIcon: "video.fill") {
             HStack {
-                if let tag = video.displayTagName {
-                    Text(tag)
-                        .font(.headingMedium)
-                }
+                Text(video.displayTagName ?? "Untagged")
+                    .font(.headingMedium)
+                    .foregroundColor(video.displayTagName == nil ? .secondary : .primary)
                 if video.isHighlight {
                     Image(systemName: "star.fill")
                         .font(.caption)
