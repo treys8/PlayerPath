@@ -60,8 +60,7 @@ struct ActivityNotificationBanner: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: .cornerXLarge))
-        .shadow(color: .black.opacity(0.12), radius: 8, x: 0, y: 4)
+        .ppBannerGlass()
         .padding(.horizontal, 16)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(notification.title). \(notification.body)")

@@ -204,4 +204,42 @@ extension View {
                 .shadow(color: .black.opacity(0.4), radius: 30, x: 0, y: 15)
         }
     }
+
+    /// A light surface floating over content — toasts, top banners. iOS 26:
+    /// regular Liquid Glass in the app's (light) scheme; glass draws its own
+    /// depth, so no shadow. Before 26: `fallback` applies the material + shadow
+    /// the surface has always used.
+    @ViewBuilder
+    func ppFloatingGlass<S: Shape, Fallback: View>(
+        in shape: S,
+        fallback: (Self) -> Fallback
+    ) -> some View {
+        if #available(iOS 26, *) {
+            self.glassEffect(.regular, in: shape)
+        } else {
+            fallback(self)
+        }
+    }
+
+    /// The top-of-screen notification card (activity, highlight reel, milestone).
+    /// iOS 26: floating glass. Before 26: the regular-material card with its soft
+    /// drop shadow.
+    func ppBannerGlass() -> some View {
+        let shape = RoundedRectangle(cornerRadius: .cornerXLarge)
+        return ppFloatingGlass(in: shape) {
+            $0
+                .background(.regularMaterial, in: shape)
+                .shadow(color: .black.opacity(0.12), radius: 8, x: 0, y: 4)
+        }
+    }
+
+    /// A progress HUD centered over a dimmed screen. iOS 26: dark Liquid Glass,
+    /// so the white copy and spinner stay legible over whatever sits behind the
+    /// dimmer. Before 26: the `.ultraThinMaterial` card these HUDs always used.
+    func ppHUDGlass(cornerRadius: CGFloat) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius)
+        return ppDarkGlassPanel(in: shape) {
+            $0.background(.ultraThinMaterial, in: shape)
+        }
+    }
 }

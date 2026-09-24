@@ -202,7 +202,7 @@ struct UserMainFlow: View {
                         .font(.headingMedium)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
-                        .background(.ultraThinMaterial, in: Capsule())
+                        .ppFloatingGlass(in: Capsule()) { $0.background(.ultraThinMaterial, in: Capsule()) }
                         .padding(.top, 12)
                         .transition(.move(edge: .top).combined(with: .opacity))
                         .animation(.spring(response: 0.4, dampingFraction: 0.8), value: showCreationToast)
