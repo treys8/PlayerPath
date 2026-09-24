@@ -179,7 +179,7 @@ struct InviteCoachSheet: View {
             .background(Theme.surface)
             .tint(ppAccent)
             .scrollDismissesKeyboard(.interactively)
-            .safeAreaInset(edge: .bottom) { sendButton }
+            .ppBottomBar(fallbackBackground: Theme.surface) { sendButton }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -195,9 +195,9 @@ struct InviteCoachSheet: View {
         }
     }
 
-    /// Primary action, pinned to the bottom safe area so it's always visible
-    /// without scrolling. The opaque surface background keeps form content from
-    /// bleeding behind it as it scrolls underneath.
+    /// Primary action, pinned to the bottom so it's always visible without
+    /// scrolling. iOS 26: a glass button on a `safeAreaBar`, with the form
+    /// scrolling under it. Before 26: the filled button on an opaque surface.
     private var sendButton: some View {
         Button(action: sendInvitation) {
             HStack(spacing: 10) {
@@ -211,20 +211,22 @@ struct InviteCoachSheet: View {
                     .fontWeight(.semibold)
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 54)
-            .foregroundColor(.white)
-            .background(
-                RoundedRectangle(cornerRadius: .cornerXLarge, style: .continuous)
-                    .fill(canSend ? ppAccent : Theme.textTertiary)
-            )
-            .shadow(color: canSend ? ppAccent.opacity(0.3) : .clear, radius: 12, x: 0, y: 6)
+            .ppLegacyBarLabel {
+                $0
+                    .frame(height: 54)
+                    .foregroundColor(.white)
+                    .background(
+                        RoundedRectangle(cornerRadius: .cornerXLarge, style: .continuous)
+                            .fill(canSend ? ppAccent : Theme.textTertiary)
+                    )
+                    .shadow(color: canSend ? ppAccent.opacity(0.3) : .clear, radius: 12, x: 0, y: 6)
+            }
         }
-        .buttonStyle(PremiumButtonStyle())
+        .ppGlassBarButton(tint: ppAccent) { $0.buttonStyle(PremiumButtonStyle()) }
         .disabled(!canSend)
         .padding(.horizontal)
         .padding(.top, 12)
         .padding(.bottom, 8)
-        .background(Theme.surface)
     }
 
     private func sendInvitation() {
