@@ -18,18 +18,18 @@ struct FilterChip: View {
     var body: some View {
         HStack(spacing: 4) {
             Text(text)
-                .font(.labelMedium)
+                .font(.ppCaptionBold)
 
             Button(action: onRemove) {
                 Image(systemName: "xmark.circle.fill")
                     .font(.caption)
             }
         }
-        .foregroundColor(ppAccent)
+        .foregroundStyle(ppAccent)
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .background(ppAccent.opacity(0.1))
-        .cornerRadius(16)
+        .background(ppAccent.opacity(0.12))
+        .clipShape(Capsule())
     }
 }
 
@@ -44,15 +44,14 @@ struct SearchResultCard<Content: View>: View {
             if let thumbnailPath {
                 AsyncThumbnailView(path: thumbnailPath, size: .thumbnailSmall)
                     .frame(width: CGSize.thumbnailSmall.width, height: CGSize.thumbnailSmall.height)
-                    .cornerRadius(8)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             } else {
-                Rectangle()
-                    .fill(Color.gray.opacity(0.3))
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Theme.divider)
                     .frame(width: CGSize.thumbnailSmall.width, height: CGSize.thumbnailSmall.height)
-                    .cornerRadius(8)
                     .overlay(
                         Image(systemName: placeholderIcon)
-                            .foregroundColor(.white)
+                            .foregroundStyle(Theme.textTertiary)
                     )
             }
 
@@ -63,9 +62,7 @@ struct SearchResultCard<Content: View>: View {
             Spacer()
         }
         .padding()
-        .background(Color(.systemBackground))
-        .cornerRadius(12)
-        .shadow(color: Color.black.opacity(0.05), radius: 3, x: 0, y: 1)
+        .ppCard()
     }
 }
 
@@ -76,36 +73,38 @@ struct VideoSearchResultCard: View {
         SearchResultCard(thumbnailPath: video.thumbnailPath, placeholderIcon: "video.fill") {
             HStack {
                 Text(video.displayTagName ?? "Untagged")
-                    .font(.headingMedium)
-                    .foregroundColor(video.displayTagName == nil ? .secondary : .primary)
+                    .font(.ppHeadline)
+                    .foregroundStyle(video.displayTagName == nil ? Theme.textSecondary : Theme.textPrimary)
                 if video.isHighlight {
                     Image(systemName: "star.fill")
-                        .font(.caption)
-                        .foregroundColor(.yellow)
+                        .font(.ppCaption)
+                        .foregroundStyle(Theme.warning)
                 }
             }
             if let game = video.game {
                 Text(game.opponentLabel)
-                    .font(.bodySmall)
-                    .foregroundColor(.secondary)
+                    .font(.ppSubheadline)
+                    .foregroundStyle(Theme.textSecondary)
             }
             if let createdAt = video.createdAt {
                 Text(createdAt.formatted(date: .abbreviated, time: .shortened))
-                    .font(.labelSmall)
-                    .foregroundColor(.secondary)
+                    .font(.ppCaption)
+                    .foregroundStyle(Theme.textTertiary)
             }
         }
     }
 }
 
 struct GameSearchResultRow: View {
+    @Environment(\.ppAccent) private var ppAccent
     let game: Game
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text(game.opponentLabel)
-                    .font(.headingLarge)
+                    .font(.ppHeadline)
+                    .foregroundStyle(Theme.textPrimary)
 
                 Spacer()
 
@@ -113,14 +112,14 @@ struct GameSearchResultRow: View {
                 case .live:
                     Text("LIVE")
                         .font(.custom("Inter18pt-Bold", size: 11, relativeTo: .caption2))
-                        .foregroundColor(.white)
+                        .foregroundStyle(.white)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
-                        .background(Color.red)
-                        .cornerRadius(4)
+                        .background(ppAccent)
+                        .clipShape(Capsule())
                 case .completed:
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(.green)
+                        .foregroundStyle(Theme.chipGreenText)
                 case .scheduled:
                     EmptyView()
                 }
@@ -128,17 +127,16 @@ struct GameSearchResultRow: View {
 
             if let date = game.date {
                 Text(date.formatted(date: .abbreviated, time: .omitted))
-                    .font(.bodySmall)
-                    .foregroundColor(.secondary)
+                    .font(.ppFootnote)
+                    .foregroundStyle(Theme.textSecondary)
             }
 
             if let stats = game.gameStats {
                 Text("\(stats.hits)-for-\(stats.atBats), \(StatisticsService.shared.formatBattingAverage(stats.battingAverage)) AVG")
-                    .font(.bodySmall)
-                    .foregroundColor(.secondary)
+                    .font(.ppFootnote)
+                    .foregroundStyle(Theme.textSecondary)
             }
         }
-        .padding(.vertical, 4)
     }
 }
 
@@ -158,32 +156,32 @@ struct PracticeSearchResultRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Practice")
-                .font(.headingLarge)
+                .font(.ppHeadline)
+                .foregroundStyle(Theme.textPrimary)
 
             if let date = practice.date {
                 Text(date.formatted(date: .abbreviated, time: .shortened))
-                    .font(.bodySmall)
-                    .foregroundColor(.secondary)
+                    .font(.ppFootnote)
+                    .foregroundStyle(Theme.textSecondary)
             }
 
             if let note = matchingNote {
                 // Show the note that matched, not just a count — this is the
                 // "where did I write that" payoff.
                 Text(note.content)
-                    .font(.bodySmall)
-                    .foregroundColor(.secondary)
+                    .font(.ppFootnote)
+                    .foregroundStyle(Theme.textSecondary)
                     .lineLimit(2)
                     .truncationMode(.tail)
             } else {
                 let notesCount = practice.notes?.count ?? 0
                 if notesCount > 0 {
                     Text("\(notesCount) note\(notesCount == 1 ? "" : "s")")
-                        .font(.labelSmall)
-                        .foregroundColor(.secondary)
+                        .font(.ppCaption)
+                        .foregroundStyle(Theme.textTertiary)
                 }
             }
         }
-        .padding(.vertical, 4)
     }
 }
 
@@ -194,23 +192,24 @@ struct PhotoSearchResultCard: View {
         SearchResultCard(thumbnailPath: photo.thumbnailPath, placeholderIcon: "photo") {
             if let caption = photo.caption, !caption.isEmpty {
                 Text(caption)
-                    .font(.headingMedium)
+                    .font(.ppHeadline)
+                    .foregroundStyle(Theme.textPrimary)
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
             if let game = photo.game {
                 Text(game.opponentLabel)
-                    .font(.bodySmall)
-                    .foregroundColor(.secondary)
+                    .font(.ppSubheadline)
+                    .foregroundStyle(Theme.textSecondary)
             } else if photo.practice != nil {
                 Text("Practice")
-                    .font(.bodySmall)
-                    .foregroundColor(.secondary)
+                    .font(.ppSubheadline)
+                    .foregroundStyle(Theme.textSecondary)
             }
             if let createdAt = photo.createdAt {
                 Text(createdAt.formatted(date: .abbreviated, time: .shortened))
-                    .font(.labelSmall)
-                    .foregroundColor(.secondary)
+                    .font(.ppCaption)
+                    .foregroundStyle(Theme.textTertiary)
             }
         }
     }
@@ -229,7 +228,7 @@ struct AsyncThumbnailView: View {
                     .resizable()
                     .aspectRatio(contentMode: .fill)
             } else {
-                Color.gray.opacity(0.3)
+                Theme.divider
                     .overlay(
                         ProgressView()
                     )

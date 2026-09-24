@@ -9,6 +9,7 @@ import SwiftUI
 import SwiftData
 
 struct AdvancedSearchView: View {
+    @Environment(\.ppAccent) private var ppAccent
     let athlete: Athlete
 
     @Environment(\.modelContext) private var modelContext
@@ -60,6 +61,7 @@ struct AdvancedSearchView: View {
                 // Results
                 resultsView
             }
+            .background(Theme.surface)
             .navigationTitle("Search")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -125,7 +127,7 @@ struct AdvancedSearchView: View {
     private var searchBarView: some View {
         HStack {
             Image(systemName: "magnifyingglass")
-                .foregroundColor(.secondary)
+                .foregroundStyle(Theme.textSecondary)
 
             TextField("Search \(label(for: selectedContentType).lowercased())...", text: $searchText)
                 .textFieldStyle(.plain)
@@ -138,26 +140,32 @@ struct AdvancedSearchView: View {
                     searchText = ""
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(Theme.textSecondary)
                 }
             }
         }
+        .font(.ppBody)
         .padding(12)
-        .background(Color(.systemGray6))
-        .cornerRadius(10)
+        .background(
+            RoundedRectangle(cornerRadius: .cornerLarge, style: .continuous)
+                .fill(Theme.card)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: .cornerLarge, style: .continuous)
+                .strokeBorder(Theme.divider, lineWidth: 1)
+        )
+        .tint(ppAccent)
         .padding()
     }
 
     // MARK: - Content Type Selector
 
     private var contentTypeSelectorView: some View {
-        Picker("Content Type", selection: $selectedContentType) {
-            ForEach(ContentType.allCases) { type in
-                Label(label(for: type), systemImage: type == .games && isGolf ? "figure.golf" : type.icon)
-                    .tag(type)
-            }
-        }
-        .pickerStyle(.segmented)
+        PPFilterPillRow(
+            options: ContentType.allCases,
+            title: { label(for: $0) },
+            selection: $selectedContentType
+        )
         .padding(.horizontal)
     }
 
@@ -214,18 +222,17 @@ struct AdvancedSearchView: View {
                     clearAllFilters()
                 } label: {
                     Text("Clear all")
-                        .font(.labelMedium)
-                        .foregroundColor(.red)
+                        .font(.ppCaptionBold)
+                        .foregroundStyle(ppAccent)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
-                        .background(Color.red.opacity(0.1))
-                        .cornerRadius(16)
+                        .background(ppAccent.opacity(0.12))
+                        .clipShape(Capsule())
                 }
             }
             .padding(.horizontal)
             .padding(.vertical, 8)
         }
-        .background(Color(.systemGray6).opacity(0.5))
     }
 
     // MARK: - Results
@@ -283,20 +290,25 @@ struct AdvancedSearchView: View {
             if results.isEmpty {
                 emptyResultsView
             } else {
-                List {
-                    Section {
+                ScrollView {
+                    LazyVStack(spacing: 12) {
                         resultsHeaderView(count: results.count)
-                    }
 
-                    ForEach(results) { game in
-                        NavigationLink {
-                            GameDetailView(game: game)
-                        } label: {
-                            GameSearchResultRow(game: game)
+                        ForEach(results.filter { $0.modelContext != nil }) { game in
+                            NavigationLink {
+                                GameDetailView(game: game)
+                            } label: {
+                                GameSearchResultRow(game: game)
+                                    .padding()
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .ppCard()
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
+                    .padding()
                 }
-                .listStyle(.plain)
             }
         }
     }
@@ -308,20 +320,25 @@ struct AdvancedSearchView: View {
             if results.isEmpty {
                 emptyResultsView
             } else {
-                List {
-                    Section {
+                ScrollView {
+                    LazyVStack(spacing: 12) {
                         resultsHeaderView(count: results.count)
-                    }
 
-                    ForEach(results) { practice in
-                        NavigationLink {
-                            PracticeDetailView(practice: practice)
-                        } label: {
-                            PracticeSearchResultRow(practice: practice, searchText: searchText)
+                        ForEach(results.filter { $0.modelContext != nil }) { practice in
+                            NavigationLink {
+                                PracticeDetailView(practice: practice)
+                            } label: {
+                                PracticeSearchResultRow(practice: practice, searchText: searchText)
+                                    .padding()
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .ppCard()
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
+                    .padding()
                 }
-                .listStyle(.plain)
             }
         }
     }
@@ -355,8 +372,8 @@ struct AdvancedSearchView: View {
     private func resultsHeaderView(count: Int) -> some View {
         HStack {
             Text("\(count) result\(count == 1 ? "" : "s")")
-                .font(.bodyMedium)
-                .foregroundColor(.secondary)
+                .font(.ppFootnote)
+                .foregroundStyle(Theme.textSecondary)
 
             Spacer()
         }
@@ -366,15 +383,15 @@ struct AdvancedSearchView: View {
         VStack(spacing: 16) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 60))
-                .foregroundColor(.secondary)
+                .foregroundStyle(Theme.textTertiary)
 
             Text("No results found")
-                .font(.headingLarge)
-                .foregroundColor(.secondary)
+                .font(.ppTitle3)
+                .foregroundStyle(Theme.textPrimary)
 
             Text("Try adjusting your search or filters")
-                .font(.bodyMedium)
-                .foregroundColor(.secondary)
+                .font(.ppFootnote)
+                .foregroundStyle(Theme.textSecondary)
                 .multilineTextAlignment(.center)
 
             if hasActiveFilters {
@@ -382,9 +399,10 @@ struct AdvancedSearchView: View {
                     clearAllFilters()
                 } label: {
                     Text("Clear filters")
-                        .font(.labelLarge)
+                        .font(.ppCallout)
                 }
                 .buttonStyle(.bordered)
+                .tint(ppAccent)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -466,6 +484,8 @@ struct AdvancedSearchView: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(Theme.surface)
             .navigationTitle("Filters")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -609,15 +629,6 @@ enum ContentType: String, CaseIterable, Identifiable, Codable {
         case .games: return "Games"
         case .practices: return "Practices"
         case .photos: return "Photos"
-        }
-    }
-
-    var icon: String {
-        switch self {
-        case .videos: return "video"
-        case .games: return "baseball.fill"
-        case .practices: return "figure.run"
-        case .photos: return "photo.fill"
         }
     }
 }
