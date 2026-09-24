@@ -41,7 +41,9 @@ struct CoachTabView: View {
 
     var body: some View {
         tabViewContent
-        .tint(.brandNavy)
+        // Coach UI is always the base (terracotta) accent — same injector as the
+        // athlete MainTabView, pinned to non-golf.
+        .ppAccent(forGolf: false)
         .task {
             coordinator.restoreSelectedTab()
             setupNotificationObservers()
