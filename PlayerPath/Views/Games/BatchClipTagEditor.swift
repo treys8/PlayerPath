@@ -100,16 +100,15 @@ struct BatchClipTagEditor: View {
                     Button("Cancel") { dismiss() }
                 }
             }
-            .safeAreaInset(edge: .bottom) {
+            .ppBottomBar(fallbackBackground: .ultraThinMaterial) {
                 Button(action: apply) {
                     Text(applyLabel)
                         .font(.headingMedium)
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
+                .ppGlassBarButton(tint: ppAccent) { $0.buttonStyle(.borderedProminent) }
                 .disabled(!canApply)
                 .padding()
-                .background(.ultraThinMaterial)
             }
         }
     }
