@@ -14,6 +14,7 @@ import SwiftData
 /// View that displays a specific invitation from a deep link.
 /// Determines the invitation type automatically and shows the appropriate UI.
 struct InvitationDetailView: View {
+    @Environment(\.ppAccent) private var ppAccent
     let invitationId: String
 
     @Environment(\.dismiss) private var dismiss
@@ -63,7 +64,7 @@ struct InvitationDetailView: View {
                 VStack(spacing: 12) {
                     Image(systemName: "envelope.open.fill")
                         .font(.system(size: 60))
-                        .foregroundColor(.brandNavy)
+                        .foregroundColor(ppAccent)
                     Text("You're Invited!")
                         .font(.displayLarge)
                     Text("from \(invitation.athleteName)")
@@ -76,7 +77,7 @@ struct InvitationDetailView: View {
                         Text("Folder")
                             .font(.labelSmall).foregroundColor(.secondary).textCase(.uppercase)
                         HStack {
-                            Image(systemName: "folder.fill").foregroundColor(.brandNavy)
+                            Image(systemName: "folder.fill").foregroundColor(ppAccent)
                             Text(folderName).font(.headingMedium)
                         }
                         .padding()
@@ -198,7 +199,7 @@ struct InvitationDetailView: View {
     private var notFoundView: some View {
         VStack(spacing: 16) {
             Image(systemName: "envelope.badge.fill")
-                .font(.system(size: 60)).foregroundColor(.brandNavy)
+                .font(.system(size: 60)).foregroundColor(ppAccent)
             Text("Invitation Not Found")
                 .font(.displayMedium)
             Text("This invitation may have expired or been removed.")

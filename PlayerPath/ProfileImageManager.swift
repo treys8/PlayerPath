@@ -159,6 +159,7 @@ class ProfileImageManager {
 // MARK: - Profile Image View Components
 
 struct ProfileImageView: View {
+    @Environment(\.ppAccent) private var ppAccent
     let user: User
     let size: CGFloat
     @State private var profileImage: UIImage?
@@ -183,18 +184,18 @@ struct ProfileImageView: View {
                     )
             } else {
                 Circle()
-                    .fill(Color.brandNavy.opacity(0.1))
+                    .fill(ppAccent.opacity(0.1))
                     .frame(width: size, height: size)
                     .overlay(
                         Group {
                             if isLoading {
                                 ProgressView()
-                                    .progressViewStyle(CircularProgressViewStyle(tint: .brandNavy))
+                                    .progressViewStyle(CircularProgressViewStyle(tint: ppAccent))
                                     .scaleEffect(0.8)
                             } else {
                                 Image(systemName: "person.fill")
                                     .font(.system(size: size * 0.4))
-                                    .foregroundColor(.brandNavy)
+                                    .foregroundColor(ppAccent)
                             }
                         }
                     )
@@ -226,6 +227,7 @@ struct ProfileImageView: View {
 }
 
 struct EditableProfileImageView: View {
+    @Environment(\.ppAccent) private var ppAccent
     let user: User
     let size: CGFloat
     let onImageUpdated: (String?) -> Void  // Returns new path or nil on removal
@@ -259,18 +261,18 @@ struct EditableProfileImageView: View {
                             )
                     } else {
                         Circle()
-                            .fill(Color.brandNavy.opacity(0.1))
+                            .fill(ppAccent.opacity(0.1))
                             .frame(width: size, height: size)
                             .overlay(
                                 Group {
                                     if isLoading {
                                         ProgressView()
-                                            .progressViewStyle(CircularProgressViewStyle(tint: .brandNavy))
+                                            .progressViewStyle(CircularProgressViewStyle(tint: ppAccent))
                                             .scaleEffect(0.8)
                                     } else {
                                         Image(systemName: "person.fill")
                                             .font(.system(size: size * 0.4))
-                                            .foregroundColor(.brandNavy)
+                                            .foregroundColor(ppAccent)
                                     }
                                 }
                             )
@@ -283,7 +285,7 @@ struct EditableProfileImageView: View {
                 
                 // Edit button overlay
                 Circle()
-                    .fill(Color.brandNavy)
+                    .fill(ppAccent)
                     .frame(width: size * 0.3, height: size * 0.3)
                     .overlay(
                         Image(systemName: "pencil")

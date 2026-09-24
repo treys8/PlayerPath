@@ -20,6 +20,7 @@ import SwiftData
 /// Sheet for creating a new athlete profile in a different sport, linked to
 /// the source via `personGroupID` so both count as one subscription slot.
 struct AddSportProfileSheet: View {
+    @Environment(\.ppAccent) private var ppAccent
     let sourceAthlete: Athlete
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
@@ -125,7 +126,7 @@ struct AddSportProfileSheet: View {
                 Image(systemName: sport.icon)
                     .font(.title3)
                     .frame(width: 28)
-                    .foregroundColor(isSelected ? .brandNavy : .secondary)
+                    .foregroundColor(isSelected ? ppAccent : .secondary)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(sport.displayName)
                         .font(.bodyLarge)
@@ -143,18 +144,18 @@ struct AddSportProfileSheet: View {
                 Spacer()
                 if isSelected {
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(.brandNavy)
+                        .foregroundColor(ppAccent)
                 }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 14)
             .background(
                 RoundedRectangle(cornerRadius: 12)
-                    .fill(isSelected ? Color.brandNavy.opacity(0.1) : Color(.systemGray6))
+                    .fill(isSelected ? ppAccent.opacity(0.1) : Color(.systemGray6))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 12)
-                    .stroke(isSelected ? Color.brandNavy.opacity(0.4) : .clear, lineWidth: 1)
+                    .stroke(isSelected ? ppAccent.opacity(0.4) : .clear, lineWidth: 1)
             )
             .opacity(isTaken ? 0.5 : 1.0)
         }

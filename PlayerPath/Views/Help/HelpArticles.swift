@@ -671,6 +671,7 @@ enum HelpArticle: HelpArticleProtocol {
 }
 
 struct HelpArticleDetailView<Article: HelpArticleProtocol>: View {
+    @Environment(\.ppAccent) private var ppAccent
     let article: Article
 
     var body: some View {
@@ -682,7 +683,7 @@ struct HelpArticleDetailView<Article: HelpArticleProtocol>: View {
                         .font(.title)
                         .foregroundColor(.white)
                         .frame(width: 60, height: 60)
-                        .background(Color.brandNavy)
+                        .background(ppAccent)
                         .cornerRadius(12)
 
                     Text(article.title)

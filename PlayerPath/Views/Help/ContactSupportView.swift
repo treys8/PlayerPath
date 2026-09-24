@@ -8,6 +8,7 @@
 import SwiftUI
 
 struct ContactSupportView: View {
+    @Environment(\.ppAccent) private var ppAccent
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @State private var subject = ""
     @State private var message = ""
@@ -32,7 +33,7 @@ struct ContactSupportView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     Image(systemName: "envelope.fill")
                         .font(.largeTitle)
-                        .foregroundColor(.brandNavy)
+                        .foregroundColor(ppAccent)
 
                     Text("Get Help")
                         .font(.displayMedium)

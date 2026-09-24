@@ -922,12 +922,12 @@ struct AthleteProfileRow: View {
                         ForEach(athleteSports.prefix(3), id: \.self) { sport in
                             Image(systemName: sport.icon)
                                 .font(.title3)
-                                .foregroundColor(.brandNavy)
+                                .foregroundColor(ppAccent)
                         }
                         if athleteSports.count > 3 {
                             Text("+\(athleteSports.count - 3)")
                                 .font(.labelSmall)
-                                .foregroundColor(.brandNavy)
+                                .foregroundColor(ppAccent)
                         }
                     }
                     .frame(minWidth: 30, alignment: .leading)
