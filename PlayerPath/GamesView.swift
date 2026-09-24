@@ -11,6 +11,7 @@ import Foundation
 import Combine
 
 struct GamesView: View {
+    @Environment(\.ppAccent) private var ppAccent
     let athlete: Athlete?
     @Environment(\.modelContext) private var modelContext
     private var activeSport: Season.SportType { athlete?.sportType ?? .baseball }
@@ -377,7 +378,7 @@ struct GamesView: View {
                         Button("Complete") {
                             completeGame(game)
                         }
-                        .tint(Color.brandNavy)
+                        .tint(ppAccent)
                     }
                     .swipeActions(edge: .leading) {
                         Button(role: .destructive) {

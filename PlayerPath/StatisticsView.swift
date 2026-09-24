@@ -55,6 +55,11 @@ struct StatisticsView: View {
         career.atBats > season.atBats && season.atBats >= 10
     }
 
+    /// The Stats scope accent. Not `@Environment(\.ppAccent)`: this view injects
+    /// `.ppAccent(forGolf: isGolf)` on its own body, so an environment read here
+    /// would see the tab's accent, not the Baseball/Golf selection.
+    private var statsAccent: Color { Theme.accent(forGolf: isGolf) }
+
     private var isGolf: Bool {
         // When a specific season is filtered, prefer its sport; otherwise the
         // tab-bar's active sport context wins.
@@ -427,7 +432,7 @@ struct StatisticsView: View {
     private func statTrackingOffBanner(athlete: Athlete) -> some View {
         HStack(spacing: 10) {
             Image(systemName: "info.circle")
-                .foregroundColor(.brandNavy)
+                .foregroundColor(statsAccent)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Stat tracking is off for \(athlete.name)")
                     .font(.headingSmall)
@@ -441,11 +446,11 @@ struct StatisticsView: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.small)
-            .tint(.brandNavy)
+            .tint(statsAccent)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(Color.brandNavy.opacity(0.08))
+        .background(statsAccent.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .padding(.horizontal, 16)
         .padding(.top, 8)

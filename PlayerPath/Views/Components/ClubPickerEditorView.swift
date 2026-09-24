@@ -12,6 +12,7 @@ import SwiftUI
 import SwiftData
 
 struct ClubPickerEditorView: View {
+    @Environment(\.ppAccent) private var ppAccent
     let clip: VideoClip
     let modelContext: ModelContext
 
@@ -109,7 +110,7 @@ struct ClubPickerEditorView: View {
                             .font(.headingMedium)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 16)
-                            .background(Color.brandNavy)
+                            .background(ppAccent)
                             .foregroundColor(.white)
                             .cornerRadius(12)
                     }

@@ -14,6 +14,7 @@ import SwiftData
 import Charts
 
 struct GolfStatsSection: View {
+    @Environment(\.ppAccent) private var ppAccent
     let athlete: Athlete?
     /// When non-nil, only rounds in this season are counted. nil = all golf rounds.
     let season: Season?
@@ -368,12 +369,12 @@ struct GolfStatsSection: View {
                             x: .value("Date", date),
                             y: .value("Score", score)
                         )
-                        .foregroundStyle(Color.brandNavy)
+                        .foregroundStyle(ppAccent)
                         PointMark(
                             x: .value("Date", date),
                             y: .value("Score", score)
                         )
-                        .foregroundStyle(Color.brandNavy)
+                        .foregroundStyle(ppAccent)
                     }
                 }
                 .frame(height: 160)

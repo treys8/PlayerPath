@@ -19,6 +19,7 @@ import SwiftUI
 import SwiftData
 
 struct GolfScorecardView: View {
+    @Environment(\.ppAccent) private var ppAccent
     let round: GolfRoundRef
 
     @Environment(\.modelContext) private var modelContext
@@ -203,7 +204,7 @@ struct GolfScorecardView: View {
         // Cell wash: selection wins; else a scored hole gets its par-relative
         // wash (par stays neutral); else the plain unscored fill.
         let cellFill: Color = isSelected
-            ? Color.brandNavy.opacity(0.12)
+            ? ppAccent.opacity(0.12)
             : (entry?.score == nil
                ? Color(.secondarySystemBackground)
                : ScoreNotation(diff: entry!.score! - entry!.par).wash)
@@ -241,7 +242,7 @@ struct GolfScorecardView: View {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: .cornerMedium)
-                    .stroke(isSelected ? Color.brandNavy : Color.clear, lineWidth: 2)
+                    .stroke(isSelected ? ppAccent : Color.clear, lineWidth: 2)
             )
         }
         .buttonStyle(.plain)

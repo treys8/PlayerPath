@@ -13,6 +13,7 @@ import SwiftUI
 import Charts
 
 struct GolfChartsView: View {
+    @Environment(\.ppAccent) private var ppAccent
     let athlete: Athlete
     /// When non-nil, only this season's rounds are charted. nil = all rounds.
     var initialSeason: Season? = nil
@@ -212,14 +213,14 @@ struct GolfChartsView: View {
                             x: .value("Date", point.date),
                             y: .value(metric.rawValue, point.value * drawProgress)
                         )
-                        .foregroundStyle(Color.brandNavy)
+                        .foregroundStyle(ppAccent)
                         .interpolationMethod(.catmullRom)
 
                         PointMark(
                             x: .value("Date", point.date),
                             y: .value(metric.rawValue, point.value * drawProgress)
                         )
-                        .foregroundStyle(Color.brandNavy)
+                        .foregroundStyle(ppAccent)
                     }
                     if metric == .toPar || metric == .strokesGained {
                         RuleMark(y: .value("Baseline", 0))

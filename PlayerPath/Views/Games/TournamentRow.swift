@@ -10,6 +10,7 @@
 import SwiftUI
 
 struct TournamentRow: View {
+    @Environment(\.ppAccent) private var ppAccent
     let tournament: GolfTournament
 
     private var roundCount: Int { (tournament.rounds ?? []).count }
@@ -33,7 +34,7 @@ struct TournamentRow: View {
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: "trophy.fill")
-                .foregroundStyle(Color.brandNavy)
+                .foregroundStyle(ppAccent)
                 .font(.title3)
                 .frame(width: 28)
 

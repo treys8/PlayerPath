@@ -25,6 +25,7 @@ struct GolfRoundDetails: Equatable {
 }
 
 struct GameCreationView: View {
+    @Environment(\.ppAccent) private var ppAccent
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     let athlete: Athlete?
@@ -258,7 +259,7 @@ struct GameCreationView: View {
                             } label: {
                                 HStack {
                                     Image(systemName: "clock.arrow.circlepath")
-                                        .foregroundColor(.brandNavy)
+                                        .foregroundColor(ppAccent)
                                         .font(.caption)
                                     Text(suggestion)
                                         .foregroundColor(.primary)
@@ -291,7 +292,7 @@ struct GameCreationView: View {
                                 .font(.bodySmall)
                         } icon: {
                             Image(systemName: "info.circle")
-                                .foregroundColor(.brandNavy)
+                                .foregroundColor(ppAccent)
                         }
                     } else if selectedSeason?.isActive == false {
                         Label {

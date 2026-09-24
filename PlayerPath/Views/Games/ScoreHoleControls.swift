@@ -73,6 +73,7 @@ struct ScoreHeroCard: View {
 /// styling (navy fill when chosen). `isPar` faintly rings the chip equal to par
 /// so the score grid orients the golfer toward the expected number.
 private struct NumberChip: View {
+    @Environment(\.ppAccent) private var ppAccent
     let value: Int
     let isSelected: Bool
     let isPar: Bool
@@ -92,12 +93,12 @@ private struct NumberChip: View {
                 .frame(height: 48)
                 .background(
                     RoundedRectangle(cornerRadius: .cornerLarge)
-                        .fill(isSelected ? Color.brandNavy : Color(.secondarySystemBackground))
+                        .fill(isSelected ? ppAccent : Color(.secondarySystemBackground))
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: .cornerLarge)
                         .stroke(
-                            isPar && !isSelected ? Color.brandNavy.opacity(0.4) : Color.clear,
+                            isPar && !isSelected ? ppAccent.opacity(0.4) : Color.clear,
                             lineWidth: 1.5
                         )
                 )

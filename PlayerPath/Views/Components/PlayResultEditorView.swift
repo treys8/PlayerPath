@@ -9,6 +9,7 @@ import SwiftUI
 import SwiftData
 
 struct PlayResultEditorView: View {
+    @Environment(\.ppAccent) private var ppAccent
     let clip: VideoClip
     let modelContext: ModelContext
 
@@ -133,7 +134,7 @@ struct PlayResultEditorView: View {
                                 .font(.headingMedium)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 16)
-                                .background(Color.brandNavy)
+                                .background(ppAccent)
                                 .foregroundColor(.white)
                                 .cornerRadius(12)
                         }

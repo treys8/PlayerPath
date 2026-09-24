@@ -25,10 +25,13 @@ struct TrendPoint: Identifiable {
 /// caller pre-computes the points, so this view carries no sport knowledge —
 /// golf feeds scoring averages, baseball could feed rate stats, etc.
 struct MetricTrendChart: View {
+    @Environment(\.ppAccent) private var ppAccent
     let title: String
     let points: [TrendPoint]
     let format: (Double) -> String
-    var accent: Color = .brandNavy
+    /// nil = the environment's sport accent (golf comparison → green).
+    var accent: Color? = nil
+    private var lineColor: Color { accent ?? ppAccent }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -49,14 +52,14 @@ struct MetricTrendChart: View {
                         x: .value("Season", point.label),
                         y: .value("Value", point.value)
                     )
-                    .foregroundStyle(accent)
+                    .foregroundStyle(lineColor)
                     .interpolationMethod(.catmullRom)
 
                     PointMark(
                         x: .value("Season", point.label),
                         y: .value("Value", point.value)
                     )
-                    .foregroundStyle(accent)
+                    .foregroundStyle(lineColor)
                 }
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("\(title) trend across \(points.count) seasons, from \(points.first?.label ?? "") to \(points.last?.label ?? "")")
@@ -74,11 +77,11 @@ struct MetricTrendChart: View {
                             Text(format(point.value))
                                 .font(.ppStatMedium)
                                 .monospacedDigit()
-                                .foregroundStyle(accent)
+                                .foregroundStyle(lineColor)
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 8)
-                        .background(accent.opacity(0.1))
+                        .background(lineColor.opacity(0.1))
                         .cornerRadius(8)
                     }
                 }
