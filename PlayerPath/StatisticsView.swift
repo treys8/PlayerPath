@@ -275,13 +275,18 @@ struct StatisticsView: View {
                     ShareSheet(items: [url])
                 }
             }
+            // Both sheets chain outside the body's own `.ppAccent(forGolf: isGolf)`,
+            // so each re-applies the Stats scope accent.
             .sheet(isPresented: $showingSeasonComparison) {
                 if let ath = athlete {
-                    if isGolf {
-                        GolfSeasonComparisonView(athlete: ath)
-                    } else {
-                        SeasonComparisonView(athlete: ath)
+                    Group {
+                        if isGolf {
+                            GolfSeasonComparisonView(athlete: ath)
+                        } else {
+                            SeasonComparisonView(athlete: ath)
+                        }
                     }
+                    .ppAccent(forGolf: isGolf)
                 }
             }
             .sheet(isPresented: $showingCharts) {
@@ -307,6 +312,7 @@ struct StatisticsView: View {
                             }
                         }
                     }
+                    .ppAccent(forGolf: isGolf)
                 }
             }
             .alert("Export Error", isPresented: $showingExportError) {

@@ -402,12 +402,17 @@ struct MainTabView: View {
                 DirectCameraRecorderView(athlete: selectedAthlete, practice: practice)
             }
             .sheet(item: $liveActivity.scoreTarget) { target in
-                switch target.parent {
-                case .game(let game):
-                    HoleScoringSheet(game: game, holeNumber: target.holeNumber)
-                case .practice(let practice):
-                    HoleScoringSheet(practice: practice, holeNumber: target.holeNumber)
+                // Golf-only sheet, chained outside the tab-content accent scope
+                // above, so it resolves the golf accent itself.
+                Group {
+                    switch target.parent {
+                    case .game(let game):
+                        HoleScoringSheet(game: game, holeNumber: target.holeNumber)
+                    case .practice(let practice):
+                        HoleScoringSheet(practice: practice, holeNumber: target.holeNumber)
+                    }
                 }
+                .ppAccent(forGolf: true)
             }
             // Ending recalculates stats — never one tap from a bar on every tab.
             .confirmationDialog(liveEndConfirmTitle + "?", isPresented: $showingLiveEndConfirm, titleVisibility: .visible) {

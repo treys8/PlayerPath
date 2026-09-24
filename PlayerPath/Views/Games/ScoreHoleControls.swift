@@ -70,7 +70,7 @@ struct ScoreHeroCard: View {
 }
 
 /// A single tappable number pill. Mirrors InlineSpeedControl's selected/idle
-/// styling (navy fill when chosen). `isPar` faintly rings the chip equal to par
+/// styling (accent fill when chosen). `isPar` faintly rings the chip equal to par
 /// so the score grid orients the golfer toward the expected number.
 private struct NumberChip: View {
     @Environment(\.ppAccent) private var ppAccent

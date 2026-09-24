@@ -89,7 +89,7 @@ struct AnnotationBadgeCluster: View {
 
     private func backgroundTint(for kind: BadgeKind) -> Color {
         switch kind {
-        case .drawing: return ppAccent.opacity(0.65)
+        case .drawing: return ppAccent.opacity(0.9)   // terracotta needs near-full strength under white 10pt text
         case .comment: return Color.black.opacity(0.3)
         }
     }
