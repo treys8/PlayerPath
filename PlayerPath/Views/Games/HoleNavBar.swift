@@ -5,10 +5,10 @@
 //  Bottom navigation bar for continuous hole-by-hole golf scoring. Pinned via
 //  `ppBottomBar(fallbackBackground: .bar)` by both scoring bodies
 //  (`QuickScoreContent`, `ShotByShotContent`) so a round flows hole → hole
-//  without dismissing the sheet. Layout: ‹ Prev | "Hole X of N" | primary action. The owning content
-//  view supplies the primary title/disabled state and the prev/primary actions
-//  (Quick saves first via its closures; shot-by-shot persists live, so it just
-//  navigates).
+//  without dismissing the sheet. Layout: ‹ Prev | "Hole X of N" | primary
+//  action. The owning content view supplies the primary title/disabled state
+//  and the prev/primary actions (Quick saves first via its closures;
+//  shot-by-shot persists live, so it just navigates).
 //
 
 import SwiftUI
