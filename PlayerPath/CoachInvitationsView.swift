@@ -261,6 +261,7 @@ struct CoachInvitationsView: View {
 // MARK: - Received Invitation Row
 
 struct InvitationRow: View {
+    @Environment(\.ppAccent) private var ppAccent
     let invitation: CoachInvitation
     var isAtLimit: Bool = false
     let onAccept: () async -> Void
@@ -276,7 +277,7 @@ struct InvitationRow: View {
             HStack {
                 Image(systemName: "person.crop.circle.badge.plus")
                     .font(.title2)
-                    .foregroundColor(.brandNavy)
+                    .foregroundColor(ppAccent)
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(invitation.athleteName)
@@ -365,7 +366,7 @@ struct InvitationRow: View {
                                 .fontWeight(.medium)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 8)
-                                .background(Color.brandNavy)
+                                .background(ppAccent)
                                 .foregroundColor(.white)
                                 .cornerRadius(8)
                         }
@@ -402,7 +403,7 @@ struct AcceptedInvitationRow: View {
     var body: some View {
         HStack {
             Image(systemName: "checkmark.circle.fill")
-                .foregroundColor(.brandNavy)
+                .foregroundColor(Theme.chipGreenText)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(invitation.athleteName)
@@ -418,7 +419,7 @@ struct AcceptedInvitationRow: View {
 
             Text("Accepted")
                 .font(.caption2)
-                .foregroundColor(.brandNavy)
+                .foregroundColor(Theme.chipGreenText)
         }
     }
 }
@@ -456,6 +457,7 @@ struct DeclinedInvitationRow: View {
 // MARK: - Sent Invitation Row
 
 struct SentInvitationRow: View {
+    @Environment(\.ppAccent) private var ppAccent
     let invitation: CoachToAthleteInvitation
     var onCancel: (() async -> Void)?
 
@@ -498,7 +500,7 @@ struct SentInvitationRow: View {
                         Text(folderName)
                             .font(.caption)
                     }
-                    .foregroundColor(.brandNavy)
+                    .foregroundColor(ppAccent)
                 }
             }
 
@@ -532,7 +534,7 @@ struct SentInvitationRow: View {
                 .foregroundColor(Theme.warning)
         case .accepted:
             Image(systemName: "checkmark.circle.fill")
-                .foregroundColor(.brandNavy)
+                .foregroundColor(Theme.chipGreenText)
         case .declined:
             Image(systemName: "xmark.circle.fill")
                 .foregroundColor(.gray)
@@ -563,8 +565,8 @@ struct SentInvitationRow: View {
                 .fontWeight(.medium)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 3)
-                .background(Color.brandNavy.opacity(0.15))
-                .foregroundColor(.brandNavy)
+                .background(Theme.chipGreenBg)
+                .foregroundColor(Theme.chipGreenText)
                 .cornerRadius(6)
         case .declined:
             Text("Declined")
