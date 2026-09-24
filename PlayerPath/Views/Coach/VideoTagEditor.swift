@@ -10,6 +10,7 @@
 import SwiftUI
 
 struct VideoTagEditor: View {
+    @Environment(\.ppAccent) private var ppAccent
     @Binding var selectedTags: [String]
     @Binding var drillType: String?
     var isGolf: Bool = false
@@ -45,7 +46,7 @@ struct VideoTagEditor: View {
                                 Spacer()
                                 if drillType == drill.raw {
                                     Image(systemName: "checkmark")
-                                        .foregroundColor(.brandNavy)
+                                        .foregroundColor(ppAccent)
                                 }
                             }
                         }
@@ -80,7 +81,7 @@ struct VideoTagEditor: View {
                                 addCustomTag()
                             } label: {
                                 Image(systemName: "plus.circle.fill")
-                                    .foregroundColor(.brandNavy)
+                                    .foregroundColor(ppAccent)
                             }
                         }
                     }
@@ -141,6 +142,7 @@ struct VideoTagEditor: View {
 // MARK: - Tag Chip
 
 struct TagChip: View {
+    @Environment(\.ppAccent) private var ppAccent
     let text: String
     let isSelected: Bool
     let onTap: () -> Void
@@ -152,12 +154,12 @@ struct TagChip: View {
                 .fontWeight(.medium)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
-                .background(isSelected ? Color.brandNavy.opacity(0.2) : Color(.systemGray5))
-                .foregroundColor(isSelected ? .brandNavy : .primary)
+                .background(isSelected ? ppAccent.opacity(0.2) : Color(.systemGray5))
+                .foregroundColor(isSelected ? ppAccent : .primary)
                 .cornerRadius(16)
                 .overlay(
                     RoundedRectangle(cornerRadius: 16)
-                        .stroke(isSelected ? Color.brandNavy : Color.clear, lineWidth: 1)
+                        .stroke(isSelected ? ppAccent : Color.clear, lineWidth: 1)
                 )
         }
         .buttonStyle(.plain)

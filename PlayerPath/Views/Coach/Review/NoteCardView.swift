@@ -9,6 +9,7 @@
 import SwiftUI
 
 struct NoteCardView: View {
+    @Environment(\.ppAccent) private var ppAccent
     let note: VideoAnnotation
     let canDelete: Bool
     let onDelete: () -> Void
@@ -22,12 +23,12 @@ struct NoteCardView: View {
             HStack {
                 Image(systemName: note.isCoachComment ? "person.fill.checkmark" : "person.fill")
                     .font(.caption)
-                    .foregroundColor(note.isCoachComment ? .brandNavy : .secondary)
+                    .foregroundColor(note.isCoachComment ? ppAccent : .secondary)
 
                 Text(note.userName)
                     .font(.caption)
                     .fontWeight(.medium)
-                    .foregroundColor(note.isCoachComment ? .brandNavy : .secondary)
+                    .foregroundColor(note.isCoachComment ? ppAccent : .secondary)
 
                 if note.isCoachComment {
                     Text("COACH")
@@ -35,8 +36,8 @@ struct NoteCardView: View {
                         .fontWeight(.bold)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .background(Color.brandNavy.opacity(0.2))
-                        .foregroundColor(.brandNavy)
+                        .background(ppAccent.opacity(0.2))
+                        .foregroundColor(ppAccent)
                         .cornerRadius(4)
                 }
 
@@ -56,10 +57,10 @@ struct NoteCardView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "pencil.tip")
                         .font(.subheadline)
-                        .foregroundColor(.brandNavy)
+                        .foregroundColor(ppAccent)
                     Text("Tap to view drawing")
                         .font(.subheadline)
-                        .foregroundColor(.brandNavy)
+                        .foregroundColor(ppAccent)
                 }
             } else {
                 Text(note.text)

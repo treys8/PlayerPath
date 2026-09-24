@@ -9,6 +9,7 @@
 import SwiftUI
 
 struct FilmstripScrubberView: View {
+    @Environment(\.ppAccent) private var ppAccent
     let thumbnails: [FilmstripThumbnail]
     let currentTime: Double
     let duration: Double
@@ -95,7 +96,7 @@ struct FilmstripScrubberView: View {
                     ZStack {
                         Color.clear.frame(width: 24, height: markerRowHeight)
                         Rectangle()
-                            .fill(Color.brandNavy)
+                            .fill(ppAccent)
                             .frame(width: 3, height: 12)
                     }
                     .contentShape(Rectangle())
@@ -129,13 +130,13 @@ struct FilmstripScrubberView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 4))
                 .overlay(
                     RoundedRectangle(cornerRadius: 4)
-                        .stroke(isActive ? Color.brandNavy : .clear, lineWidth: 2)
+                        .stroke(isActive ? ppAccent : .clear, lineWidth: 2)
                 )
 
                 Text(formatTimestamp(thumb.timestamp))
                     .font(.system(size: 9, weight: isActive ? .bold : .regular))
                     .monospacedDigit()
-                    .foregroundColor(isActive ? .brandNavy : .secondary)
+                    .foregroundColor(isActive ? ppAccent : .secondary)
             }
         }
         .buttonStyle(.plain)

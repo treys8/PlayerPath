@@ -9,6 +9,7 @@
 import SwiftUI
 
 struct DrillCardTabView: View {
+    @Environment(\.ppAccent) private var ppAccent
     let drillCards: [DrillCard]
     /// True only for a folder coach with comment permission (not the folder-owner
     /// athlete). Gates the "New Drill Card" button — drill cards are coach
@@ -38,8 +39,8 @@ struct DrillCardTabView: View {
                         .font(.headline)
                         .frame(maxWidth: .infinity)
                         .padding()
-                        .background(Color.brandNavy.opacity(0.1))
-                        .foregroundColor(.brandNavy)
+                        .background(ppAccent.opacity(0.1))
+                        .foregroundColor(ppAccent)
                 }
             }
 

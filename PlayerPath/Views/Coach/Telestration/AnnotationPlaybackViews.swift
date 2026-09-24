@@ -49,7 +49,7 @@ struct AnnotationMarkersOverlay: View {
             ZStack(alignment: .bottomLeading) {
                 ForEach(annotations) { annotation in
                     let x = (CGFloat(annotation.timestamp) / CGFloat(duration)) * geometry.size.width
-                    let color: Color = annotation.isCoachComment ? Color.brandNavy : ppAccent
+                    let color: Color = annotation.isCoachComment ? ppAccent : Theme.textSecondary
 
                     if let onTapDrawing, annotation.isDrawing {
                         // Interactive marker: expand hit region with a padded

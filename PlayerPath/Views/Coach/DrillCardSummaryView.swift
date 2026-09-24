@@ -8,6 +8,7 @@
 import SwiftUI
 
 struct DrillCardSummaryView: View {
+    @Environment(\.ppAccent) private var ppAccent
     let card: DrillCard
     /// Coach-only edit/delete affordances. When either is provided, an overflow
     /// menu appears in the header. Nil for the athlete (read-only) side.
@@ -21,7 +22,7 @@ struct DrillCardSummaryView: View {
             // Header
             HStack {
                 Image(systemName: "clipboard.fill")
-                    .foregroundColor(.brandNavy)
+                    .foregroundColor(ppAccent)
                 Text(card.template?.displayName ?? "Drill Card")
                     .font(.headline)
                 Spacer()

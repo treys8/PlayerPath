@@ -9,6 +9,7 @@
 import SwiftUI
 
 struct InlineSpeedControl: View {
+    @Environment(\.ppAccent) private var ppAccent
     let selectedRate: Double
     let onRateChanged: (Double) -> Void
 
@@ -36,7 +37,7 @@ struct InlineSpeedControl: View {
                                 .padding(.vertical, 6)
                                 .background(
                                     rate == selectedRate
-                                        ? Color.brandNavy
+                                        ? ppAccent
                                         : Color(.secondarySystemBackground)
                                 )
                                 .foregroundColor(
