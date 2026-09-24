@@ -133,6 +133,7 @@ struct CoachDetailView: View {
                         LabeledContent {
                             if let url = createPhoneURL(from: coach.phone) {
                                 Link(coach.phone, destination: url)
+                                    .foregroundStyle(ppAccent)   // LabeledContent would render it secondary
                             } else {
                                 Text(coach.phone)
                             }
@@ -145,6 +146,7 @@ struct CoachDetailView: View {
                         LabeledContent {
                             if let url = createEmailURL(from: coach.email) {
                                 Link(coach.email, destination: url)
+                                    .foregroundStyle(ppAccent)   // LabeledContent would render it secondary
                             } else {
                                 Text(coach.email)
                             }

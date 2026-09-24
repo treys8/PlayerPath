@@ -49,7 +49,10 @@ struct AnnotationMarkersOverlay: View {
             ZStack(alignment: .bottomLeading) {
                 ForEach(annotations) { annotation in
                     let x = (CGFloat(annotation.timestamp) / CGFloat(duration)) * geometry.size.width
-                    let color: Color = annotation.isCoachComment ? ppAccent : Theme.textSecondary
+                    // Coach-authored = accent; the athlete's own = light neutral. The
+                    // bars sit on the video frame itself, so a mid-tone grey would
+                    // vanish over dirt/turf/sand footage.
+                    let color: Color = annotation.isCoachComment ? ppAccent : Color.white.opacity(0.85)
 
                     if let onTapDrawing, annotation.isDrawing {
                         // Interactive marker: expand hit region with a padded
