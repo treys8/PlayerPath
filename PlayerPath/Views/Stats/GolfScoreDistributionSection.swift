@@ -65,7 +65,7 @@ struct GolfScoreDistributionSection: View {
         switch order {
         case 0:  return .green      // Eagle or better
         case 1:  return .mint       // Birdie
-        case 2:  return .brandNavy  // Par
+        case 2:  return Theme.tileNavy  // Par
         case 3:  return .orange     // Bogey
         default: return .red        // Double bogey or worse
         }

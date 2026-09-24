@@ -141,7 +141,7 @@ struct ManualPitchingEntryView: View {
                 }
 
                 Section(header: Text("Optional Detail").smallCapsLabel()) {
-                    PitchNumberRow(title: "Batters Faced", value: $battersFaced, icon: "person.2.fill", color: .brandNavy, focus: $keyboardActive)
+                    PitchNumberRow(title: "Batters Faced", value: $battersFaced, icon: "person.2.fill", color: Theme.tileNavy, focus: $keyboardActive)
                     PitchNumberRow(title: "Pitch Count", value: $pitchCount, icon: "number.circle.fill", color: .purple, focus: $keyboardActive)
                     PitchNumberRow(title: "Strikes", value: $strikes, icon: "scope", color: .green, focus: $keyboardActive)
                 }

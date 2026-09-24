@@ -37,7 +37,7 @@ struct VideoMetadataView: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            MetadataBadge(icon: "clock.fill", text: metadata.formattedDuration, color: .brandNavy)
+            MetadataBadge(icon: "clock.fill", text: metadata.formattedDuration, color: Theme.tileNavy)
             MetadataBadge(icon: "doc.fill", text: metadata.formattedFileSize, color: .green)
             if let resolution = metadata.resolution {
                 MetadataBadge(icon: "video", text: resolution, color: .purple)

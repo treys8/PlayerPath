@@ -16,7 +16,7 @@ private let log = Logger(subsystem: "com.playerpath.app", category: "Practices")
 extension PracticeType {
     var color: Color {
         switch self {
-        case .general:        return .brandNavy
+        case .general:        return Theme.tileNavy
         case .batting:        return .orange
         case .fielding:       return .green
         case .bullpen:        return .red

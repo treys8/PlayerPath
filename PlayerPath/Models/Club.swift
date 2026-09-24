@@ -80,7 +80,7 @@ enum Club: String, CaseIterable, Codable {
         var color: Color {
             switch self {
             case .wood:   return .brandGold
-            case .iron:   return .brandNavy
+            case .iron:   return Theme.tileNavy
             case .wedge:  return .green
             case .putter: return .purple
             }

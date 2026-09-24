@@ -91,7 +91,7 @@ struct UploadStatisticsView: View {
                         title: "Total Size",
                         value: formatBytes(totalUploadedSize),
                         icon: "externaldrive.fill",
-                        color: .brandNavy
+                        color: Theme.tileNavy
                     )
 
                     StatColumn(
@@ -132,7 +132,7 @@ struct UploadStatisticsView: View {
                     label: "Uploading",
                     count: uploadManager.activeUploads.count,
                     icon: "arrow.up.circle.fill",
-                    color: .brandNavy,
+                    color: Theme.tileNavy,
                     isAnimated: true
                 )
             }

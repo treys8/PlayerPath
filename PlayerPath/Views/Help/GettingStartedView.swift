@@ -54,7 +54,7 @@ struct GettingStartedView: View {
                             HelpResourceRow(
                                 icon: "questionmark.circle.fill",
                                 title: "Frequently Asked Questions",
-                                color: .brandNavy
+                                color: Theme.tileNavy
                             )
                         }
 
@@ -93,7 +93,7 @@ struct GettingStartedView: View {
             number: 1,
             title: "Create Your Athlete Profile",
             icon: "person.fill",
-            iconColor: .brandNavy,
+            iconColor: Theme.tileNavy,
             description: "If you haven't already, create your first athlete profile. This represents you or a player you're tracking.",
             steps: [
                 "Tap your name at the top of the Dashboard",
@@ -198,7 +198,7 @@ struct GettingStartedView: View {
 
                 NextStepRow(
                     icon: "arrow.triangle.2.circlepath",
-                    color: .brandNavy,
+                    color: Theme.tileNavy,
                     title: "Sync Across Devices",
                     description: "Sign in on other devices to access your data anywhere"
                 )
@@ -213,7 +213,7 @@ struct GettingStartedView: View {
             number: 1,
             title: "Create Your Athlete Profile",
             icon: "person.fill",
-            iconColor: .brandNavy,
+            iconColor: Theme.tileNavy,
             description: "If you haven't already, create your first athlete profile. This represents you or a player you're tracking.",
             steps: [
                 "Tap your name at the top of the Dashboard",
@@ -314,7 +314,7 @@ struct GettingStartedView: View {
 
                 NextStepRow(
                     icon: "arrow.triangle.2.circlepath",
-                    color: .brandNavy,
+                    color: Theme.tileNavy,
                     title: "Sync Across Devices",
                     description: "Sign in on other devices to access your data anywhere"
                 )
@@ -329,7 +329,7 @@ struct GettingStartedView: View {
             number: 1,
             title: "Connect with Your Athletes",
             icon: "person.crop.circle.badge.plus",
-            iconColor: .brandNavy,
+            iconColor: Theme.tileNavy,
             description: "Athletes can invite you, or you can invite them.",
             steps: [
                 "Open Invitations → 'Received' to accept athletes who invited you",
@@ -426,7 +426,7 @@ struct GettingStartedView: View {
 
                 NextStepRow(
                     icon: "arrow.triangle.2.circlepath",
-                    color: .brandNavy,
+                    color: Theme.tileNavy,
                     title: "Sync Across Devices",
                     description: "Sign in on other devices to access your athletes anywhere"
                 )

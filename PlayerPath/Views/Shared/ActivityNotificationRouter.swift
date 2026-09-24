@@ -85,7 +85,7 @@ enum ActivityNotificationRouter {
 
     static func iconColor(for type: ActivityNotification.NotificationType) -> Color {
         switch type {
-        case .newVideo:           return .brandNavy
+        case .newVideo:           return Theme.tileNavy
         case .coachComment:       return .green
         case .invitationReceived: return .indigo
         case .invitationAccepted: return .green

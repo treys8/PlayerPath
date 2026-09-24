@@ -16,7 +16,7 @@ struct LoadingView: View {
     init(
         title: String = "Setting up your profile...",
         subtitle: String = "This will only take a moment",
-        tint: Color = .brandNavy,
+        tint: Color = Theme.accent,
         systemImage: String? = nil
     ) {
         self.title = title

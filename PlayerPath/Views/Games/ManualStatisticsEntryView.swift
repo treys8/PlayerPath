@@ -88,7 +88,7 @@ struct ManualStatisticsEntryView: View {
 
                 Section(header: Text("Batting Statistics").smallCapsLabel()) {
                     StatEntryRow(title: "Singles", value: $singles, icon: "1.circle.fill", color: .green, field: .singles, focusedField: $focusedStatField)
-                    StatEntryRow(title: "Doubles", value: $doubles, icon: "2.circle.fill", color: .brandNavy, field: .doubles, focusedField: $focusedStatField)
+                    StatEntryRow(title: "Doubles", value: $doubles, icon: "2.circle.fill", color: Theme.tileNavy, field: .doubles, focusedField: $focusedStatField)
                     StatEntryRow(title: "Triples", value: $triples, icon: "3.circle.fill", color: .orange, field: .triples, focusedField: $focusedStatField)
                     StatEntryRow(title: "Home Runs", value: $homeRuns, icon: "4.circle.fill", color: .gold, field: .homeRuns, focusedField: $focusedStatField)
                 }
@@ -107,8 +107,8 @@ struct ManualStatisticsEntryView: View {
                 }
 
                 Section(header: Text("Current Game Statistics").smallCapsLabel()) {
-                    CurrentStatRow(title: "Hits", current: existingGameStats?.hits ?? 0, color: .brandNavy)
-                    CurrentStatRow(title: "At Bats", current: existingGameStats?.atBats ?? 0, color: .brandNavy)
+                    CurrentStatRow(title: "Hits", current: existingGameStats?.hits ?? 0, color: Theme.tileNavy)
+                    CurrentStatRow(title: "At Bats", current: existingGameStats?.atBats ?? 0, color: Theme.tileNavy)
                     CurrentStatRow(title: "Runs", current: existingGameStats?.runs ?? 0, color: .purple)
                     CurrentStatRow(title: "RBIs", current: existingGameStats?.rbis ?? 0, color: .pink)
                     CurrentStatRow(title: "Strikeouts", current: existingGameStats?.strikeouts ?? 0, color: .red)
