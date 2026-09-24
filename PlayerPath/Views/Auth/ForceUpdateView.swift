@@ -9,6 +9,7 @@ import SwiftUI
 
 struct ForceUpdateView: View {
     let updateURL: String?
+    @Environment(\.ppAccent) private var ppAccent
 
     var body: some View {
         VStack(spacing: 28) {
@@ -17,14 +18,14 @@ struct ForceUpdateView: View {
             ZStack {
                 Circle()
                     .fill(LinearGradient(
-                        colors: [Color.brandNavy.opacity(0.2), Color.brandNavy.opacity(0.05)],
+                        colors: [ppAccent.opacity(0.2), ppAccent.opacity(0.05)],
                         startPoint: .topLeading, endPoint: .bottomTrailing
                     ))
                     .frame(width: 100, height: 100)
                 Image(systemName: "arrow.up.circle.fill")
                     .font(.system(size: 44, weight: .medium))
                     .foregroundStyle(LinearGradient(
-                        colors: [Color.brandNavy, Color.brandNavy.opacity(0.7)],
+                        colors: [ppAccent, ppAccent.opacity(0.7)],
                         startPoint: .topLeading, endPoint: .bottomTrailing
                     ))
             }
@@ -48,12 +49,12 @@ struct ForceUpdateView: View {
                     .frame(maxWidth: .infinity).frame(height: 54)
                     .background(
                         LinearGradient(
-                            colors: [Color.brandNavy, Color.brandNavy.opacity(0.85)],
+                            colors: [ppAccent, ppAccent.opacity(0.85)],
                             startPoint: .topLeading, endPoint: .bottomTrailing
                         )
                     )
                     .foregroundColor(.white).cornerRadius(14)
-                    .shadow(color: .brandNavy.opacity(0.3), radius: 8, x: 0, y: 4)
+                    .shadow(color: ppAccent.opacity(0.3), radius: 8, x: 0, y: 4)
                 }
                 .padding(.horizontal, 20)
             }

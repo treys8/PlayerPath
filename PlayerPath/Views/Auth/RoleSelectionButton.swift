@@ -15,6 +15,8 @@ struct RoleSelectionButton: View {
     let description: String
     let action: () -> Void
 
+    @Environment(\.ppAccent) private var ppAccent
+
     var body: some View {
         Button(action: action) {
             VStack(spacing: 14) {
@@ -25,7 +27,7 @@ struct RoleSelectionButton: View {
                             LinearGradient(
                                 colors: isSelected
                                     ? [Color.white.opacity(0.2), Color.white.opacity(0.1)]
-                                    : [Color.brandNavy.opacity(0.12), Color.brandNavy.opacity(0.06)],
+                                    : [ppAccent.opacity(0.12), ppAccent.opacity(0.06)],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
                             )
@@ -39,7 +41,7 @@ struct RoleSelectionButton: View {
                                 ? AnyShapeStyle(Color.white)
                                 : AnyShapeStyle(
                                     LinearGradient(
-                                        colors: [Color.brandNavy, Color.brandNavy.opacity(0.8)],
+                                        colors: [ppAccent, ppAccent.opacity(0.8)],
                                         startPoint: .topLeading,
                                         endPoint: .bottomTrailing
                                     )
@@ -65,7 +67,7 @@ struct RoleSelectionButton: View {
                     .fill(
                         isSelected
                             ? LinearGradient(
-                                colors: [Color.brandNavy, Color.brandNavy.opacity(0.85)],
+                                colors: [ppAccent, ppAccent.opacity(0.85)],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
                             )
@@ -76,7 +78,7 @@ struct RoleSelectionButton: View {
                             )
                     )
                     .shadow(
-                        color: isSelected ? .brandNavy.opacity(0.3) : .black.opacity(0.06),
+                        color: isSelected ? ppAccent.opacity(0.3) : .black.opacity(0.06),
                         radius: isSelected ? 10 : 4,
                         x: 0,
                         y: isSelected ? 5 : 2

@@ -9,6 +9,7 @@ import SwiftUI
 
 struct EmailVerificationView: View {
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
+    @Environment(\.ppAccent) private var ppAccent
 
     @State private var isCheckingVerification = false
     @State private var isResending = false
@@ -24,14 +25,14 @@ struct EmailVerificationView: View {
             ZStack {
                 Circle()
                     .fill(LinearGradient(
-                        colors: [Color.brandNavy.opacity(0.2), Color.brandNavy.opacity(0.05)],
+                        colors: [ppAccent.opacity(0.2), ppAccent.opacity(0.05)],
                         startPoint: .topLeading, endPoint: .bottomTrailing
                     ))
                     .frame(width: 100, height: 100)
                 Image(systemName: "envelope.badge.shield.half.filled")
                     .font(.system(size: 44, weight: .medium))
                     .foregroundStyle(LinearGradient(
-                        colors: [Color.brandNavy, Color.brandNavy.opacity(0.7)],
+                        colors: [ppAccent, ppAccent.opacity(0.7)],
                         startPoint: .topLeading, endPoint: .bottomTrailing
                     ))
             }
@@ -44,7 +45,7 @@ struct EmailVerificationView: View {
                     .font(.bodyMedium).foregroundColor(.secondary)
                 Text(authManager.userEmail ?? "your email")
                     .font(.headingSmall)
-                    .foregroundColor(.brandNavy)
+                    .foregroundColor(ppAccent)
             }
 
             // Instructions
@@ -93,12 +94,12 @@ struct EmailVerificationView: View {
                     .frame(maxWidth: .infinity).frame(height: 54)
                     .background(
                         LinearGradient(
-                            colors: [Color.brandNavy, Color.brandNavy.opacity(0.85)],
+                            colors: [ppAccent, ppAccent.opacity(0.85)],
                             startPoint: .topLeading, endPoint: .bottomTrailing
                         )
                     )
                     .foregroundColor(.white).cornerRadius(14)
-                    .shadow(color: .brandNavy.opacity(0.3), radius: 8, x: 0, y: 4)
+                    .shadow(color: ppAccent.opacity(0.3), radius: 8, x: 0, y: 4)
                 }
                 .disabled(isCheckingVerification || isResending)
 
@@ -116,7 +117,7 @@ struct EmailVerificationView: View {
                         Text(isResending ? "Sending..." : "Resend Verification Email")
                     }
                     .font(.labelLarge)
-                    .foregroundColor(.brandNavy)
+                    .foregroundColor(ppAccent)
                 }
                 .disabled(isCheckingVerification || isResending)
 
@@ -145,7 +146,7 @@ struct EmailVerificationView: View {
         HStack(spacing: 12) {
             Image(systemName: icon)
                 .font(.title3)
-                .foregroundColor(.brandNavy)
+                .foregroundColor(ppAccent)
                 .frame(width: 28)
             Text(text)
                 .font(.bodyMedium)

@@ -11,6 +11,7 @@ import Combine
 struct ComprehensiveSignInView: View {
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.ppAccent) private var ppAccent
 
     let isSignUpMode: Bool
     var onSwitchToSignIn: (() -> Void)?
@@ -144,11 +145,11 @@ struct ComprehensiveSignInView: View {
         VStack(spacing: 16) {
             ZStack {
                 Circle()
-                    .fill(LinearGradient(colors: [Color.brandNavy.opacity(0.2), Color.brandNavy.opacity(0.05)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .fill(LinearGradient(colors: [ppAccent.opacity(0.2), ppAccent.opacity(0.05)], startPoint: .topLeading, endPoint: .bottomTrailing))
                     .frame(width: 80, height: 80)
                 Image(systemName: isSignUpMode ? "person.crop.circle.badge.plus" : "person.crop.circle.fill")
                     .font(.system(size: 36, weight: .medium))
-                    .foregroundStyle(LinearGradient(colors: [Color.brandNavy, Color.brandNavy.opacity(0.7)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .foregroundStyle(LinearGradient(colors: [ppAccent, ppAccent.opacity(0.7)], startPoint: .topLeading, endPoint: .bottomTrailing))
             }
             VStack(spacing: 8) {
                 Text(isSignUpMode ? "Create Account" : "Welcome Back")
@@ -227,7 +228,7 @@ struct ComprehensiveSignInView: View {
             } label: {
                 HStack(alignment: .top, spacing: 10) {
                     Image(systemName: confirmedAge ? "checkmark.square.fill" : "square")
-                        .foregroundColor(confirmedAge ? .brandNavy : .gray).font(.title3)
+                        .foregroundColor(confirmedAge ? ppAccent : .gray).font(.title3)
                     Text("I confirm that I am at least 18 years old, or a parent/guardian creating this account on behalf of my child.")
                         .font(.bodySmall).foregroundColor(.secondary).multilineTextAlignment(.leading)
                 }
@@ -240,9 +241,9 @@ struct ComprehensiveSignInView: View {
             VStack(spacing: 6) {
                 Text("By creating an account, you agree to our").font(.bodySmall).foregroundColor(.secondary)
                 HStack(spacing: 4) {
-                    Button("Terms of Use (EULA)") { showingTerms = true }.font(.bodySmall).foregroundColor(.brandNavy)
+                    Button("Terms of Use (EULA)") { showingTerms = true }.font(.bodySmall).foregroundColor(ppAccent)
                     Text("and").font(.bodySmall).foregroundColor(.secondary)
-                    Button("Privacy Policy") { showingPrivacyPolicy = true }.font(.bodySmall).foregroundColor(.brandNavy)
+                    Button("Privacy Policy") { showingPrivacyPolicy = true }.font(.bodySmall).foregroundColor(ppAccent)
                 }
             }
             .multilineTextAlignment(.center)
@@ -266,12 +267,12 @@ struct ComprehensiveSignInView: View {
                 .frame(maxWidth: .infinity).frame(height: 54)
                 .background(
                     LinearGradient(
-                        colors: canSubmitForm() && !authManager.isLoading ? [Color.brandNavy, Color.brandNavy.opacity(0.85)] : [Color(.systemGray4), Color(.systemGray4)],
+                        colors: canSubmitForm() && !authManager.isLoading ? [ppAccent, ppAccent.opacity(0.85)] : [Color(.systemGray4), Color(.systemGray4)],
                         startPoint: .topLeading, endPoint: .bottomTrailing
                     )
                 )
                 .foregroundColor(.white).cornerRadius(14)
-                .shadow(color: canSubmitForm() && !authManager.isLoading ? .brandNavy.opacity(0.3) : .clear, radius: 8, x: 0, y: 4)
+                .shadow(color: canSubmitForm() && !authManager.isLoading ? ppAccent.opacity(0.3) : .clear, radius: 8, x: 0, y: 4)
             }
             .buttonStyle(ScaleButtonStyle())
             .disabled(!canSubmitForm() || authManager.isLoading || appleSignInManager.isLoading)
@@ -299,7 +300,7 @@ struct ComprehensiveSignInView: View {
 
             if !isSignUpMode {
                 Button { Haptics.light(); showingResetPasswordSheet = true } label: {
-                    Text("Forgot Password?").font(.labelLarge).foregroundColor(.brandNavy)
+                    Text("Forgot Password?").font(.labelLarge).foregroundColor(ppAccent)
                 }
             }
 
@@ -307,7 +308,7 @@ struct ComprehensiveSignInView: View {
                 HStack(spacing: 4) {
                     Text("Already have an account?").font(.bodyMedium).foregroundColor(.secondary)
                     Button { Haptics.light(); dismiss(); onSwitchToSignIn?() } label: {
-                        Text("Sign in").font(.labelLarge).foregroundColor(.brandNavy)
+                        Text("Sign in").font(.labelLarge).foregroundColor(ppAccent)
                     }
                 }
             }

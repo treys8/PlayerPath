@@ -10,13 +10,14 @@ import SwiftUI
 struct WhatsNewView: View {
     let items: [String]
     let onDismiss: () -> Void
+    @Environment(\.ppAccent) private var ppAccent
 
     var body: some View {
         VStack(spacing: 24) {
             VStack(spacing: 8) {
                 Image(systemName: "sparkles")
                     .font(.system(size: 36))
-                    .foregroundColor(.brandNavy)
+                    .foregroundColor(ppAccent)
                 Text("What's New")
                     .font(.displayMedium)
                 Text("Version \(Bundle.main.appVersion)")
@@ -28,7 +29,7 @@ struct WhatsNewView: View {
                 ForEach(Array(items.enumerated()), id: \.offset) { _, item in
                     HStack(alignment: .top, spacing: 12) {
                         Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.brandNavy)
+                            .foregroundColor(ppAccent)
                             .font(.title3)
                             .frame(width: 24)
                         Text(item)
@@ -48,12 +49,12 @@ struct WhatsNewView: View {
                     .frame(maxWidth: .infinity).frame(height: 54)
                     .background(
                         LinearGradient(
-                            colors: [Color.brandNavy, Color.brandNavy.opacity(0.85)],
+                            colors: [ppAccent, ppAccent.opacity(0.85)],
                             startPoint: .topLeading, endPoint: .bottomTrailing
                         )
                     )
                     .foregroundColor(.white).cornerRadius(14)
-                    .shadow(color: .brandNavy.opacity(0.3), radius: 8, x: 0, y: 4)
+                    .shadow(color: ppAccent.opacity(0.3), radius: 8, x: 0, y: 4)
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 32)
