@@ -22,9 +22,6 @@ struct AdvancedSearchView: View {
     @State private var selectedPlayResults: Set<PlayResultType> = []
     @State private var highlightsOnly = false
     @State private var showingFilters = false
-    @State private var savedSearches: [SavedSearch] = []
-    @State private var showingSaveSearch = false
-    @State private var newSearchName = ""
 
     // Cached filtered results (updated via updateFilteredResults)
     @State private var cachedFilteredVideos: [VideoClip] = []
@@ -74,9 +71,6 @@ struct AdvancedSearchView: View {
             .sheet(isPresented: $showingFilters) {
                 filtersSheet
             }
-            .sheet(isPresented: $showingSaveSearch) {
-                saveSearchSheet
-            }
             .fullScreenCover(item: $playerSession, onDismiss: updateFilteredResults) { session in
                 VideoClipPagerView(athlete: athlete, session: session)
             }
@@ -87,7 +81,7 @@ struct AdvancedSearchView: View {
                 if photo == nil { updateFilteredResults() }
             }
             .onAppear {
-                loadSavedSearches()
+                UserDefaults.standard.removeObject(forKey: "savedSearches") // retired Save Search
                 updateFilteredResults()
             }
             .onChange(of: searchText) { _, _ in
@@ -347,15 +341,6 @@ struct AdvancedSearchView: View {
                 .foregroundColor(.secondary)
 
             Spacer()
-
-            if hasActiveFilters && count > 0 {
-                Button {
-                    showingSaveSearch = true
-                } label: {
-                    Label("Save Search", systemImage: "bookmark")
-                        .font(.labelMedium)
-                }
-            }
         }
     }
 
@@ -472,47 +457,6 @@ struct AdvancedSearchView: View {
         }
     }
 
-    // MARK: - Save Search Sheet
-
-    private var saveSearchSheet: some View {
-        NavigationStack {
-            Form {
-                Section("Search Name") {
-                    TextField("My saved search", text: $newSearchName)
-                }
-
-                Section("Filters") {
-                    if selectedDateRange != .allTime {
-                        Label(selectedDateRange.displayName, systemImage: "calendar")
-                    }
-                    if let season = selectedSeason {
-                        Label(season.displayName, systemImage: "calendar.badge.checkmark")
-                    }
-                    if highlightsOnly {
-                        Label("Highlights only", systemImage: "star.fill")
-                    }
-                }
-            }
-            .navigationTitle("Save Search")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        showingSaveSearch = false
-                        newSearchName = ""
-                    }
-                }
-
-                ToolbarItem(placement: .primaryAction) {
-                    Button("Save") {
-                        saveSearch()
-                    }
-                    .disabled(newSearchName.isEmpty)
-                }
-            }
-        }
-    }
-
     // MARK: - Filtering Logic
 
     private func updateFilteredResults() {
@@ -618,34 +562,6 @@ struct AdvancedSearchView: View {
         PhotoPersistenceService().deletePhoto(photo, context: modelContext)
         Haptics.light()
     }
-
-    private func saveSearch() {
-        let search = SavedSearch(
-            name: newSearchName,
-            contentType: selectedContentType,
-            dateRange: selectedDateRange,
-            seasonID: selectedSeason?.id,
-            gameID: selectedGame?.id,
-            playResults: selectedPlayResults,
-            highlightsOnly: highlightsOnly
-        )
-        savedSearches.append(search)
-        showingSaveSearch = false
-        newSearchName = ""
-        persistSavedSearches()
-    }
-
-    private func persistSavedSearches() {
-        if let data = try? JSONEncoder().encode(savedSearches) {
-            UserDefaults.standard.set(data, forKey: "savedSearches")
-        }
-    }
-
-    private func loadSavedSearches() {
-        guard let data = UserDefaults.standard.data(forKey: "savedSearches"),
-              let decoded = try? JSONDecoder().decode([SavedSearch].self, from: data) else { return }
-        savedSearches = decoded
-    }
 }
 
 // MARK: - Supporting Types
@@ -727,28 +643,6 @@ enum DateRange: String, CaseIterable, Identifiable, Codable {
             let startOfYear = calendar.dateInterval(of: .year, for: now)?.start ?? now
             return (startOfYear, endDate)
         }
-    }
-}
-
-struct SavedSearch: Identifiable, Codable {
-    let id: UUID
-    let name: String
-    let contentType: ContentType
-    let dateRange: DateRange
-    let seasonID: UUID?
-    let gameID: UUID?
-    let playResults: Set<PlayResultType>
-    let highlightsOnly: Bool
-
-    init(name: String, contentType: ContentType, dateRange: DateRange, seasonID: UUID?, gameID: UUID?, playResults: Set<PlayResultType>, highlightsOnly: Bool) {
-        self.id = UUID()
-        self.name = name
-        self.contentType = contentType
-        self.dateRange = dateRange
-        self.seasonID = seasonID
-        self.gameID = gameID
-        self.playResults = playResults
-        self.highlightsOnly = highlightsOnly
     }
 }
 
