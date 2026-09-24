@@ -501,7 +501,7 @@ struct CoachDashboardView: View {
                     HStack(spacing: 6) {
                         Image(systemName: "calendar.badge.clock")
                             .font(.caption)
-                            .foregroundColor(.blue)
+                            .foregroundColor(ppAccent)
                         Text("Upcoming Sessions")
                             .font(.title3)
                             .fontWeight(.bold)
@@ -510,10 +510,10 @@ struct CoachDashboardView: View {
                     Text("\(sessionManager.scheduledSessions.count)")
                         .font(.caption2)
                         .fontWeight(.bold)
-                        .foregroundColor(.blue)
+                        .foregroundColor(ppAccent)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 3)
-                        .background(Capsule().fill(Color.blue.opacity(0.12)))
+                        .background(Capsule().fill(ppAccent.opacity(0.12)))
                 }
 
                 ForEach(sessionManager.scheduledSessions) { session in
@@ -553,7 +553,7 @@ struct CoachDashboardView: View {
 
     private var quickActionsSection: some View {
         VStack(spacing: 16) {
-            DashboardSectionHeader(title: "Quick Actions", icon: "bolt.fill", color: .brandGold)
+            DashboardSectionHeader(title: "Quick Actions", icon: "bolt.fill", color: ppAccent)
 
             HStack(spacing: 12) {
                 switch sessionManager.activeSession?.status {
@@ -571,7 +571,7 @@ struct CoachDashboardView: View {
                     QuickActionButton(
                         icon: "eye",
                         title: "Review Clips",
-                        color: .brandNavy
+                        color: ppAccent
                     ) {
                         if let session = sessionManager.activeSession {
                             reviewSession(session)
@@ -581,7 +581,7 @@ struct CoachDashboardView: View {
                     QuickActionButton(
                         icon: "plus.circle.fill",
                         title: "New Session",
-                        color: .brandNavy
+                        color: ppAccent
                     ) {
                         showingStartSession = true
                     }
@@ -590,7 +590,7 @@ struct CoachDashboardView: View {
                 QuickActionButton(
                     icon: "person.badge.plus",
                     title: "Invite Athlete",
-                    color: .brandNavy.opacity(0.7)
+                    color: ppAccent
                 ) {
                     showingInviteAthlete = true
                 }
@@ -602,7 +602,7 @@ struct CoachDashboardView: View {
 
     private var recentAthletesSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            DashboardSectionHeader(title: "Recent Athletes", icon: "clock.fill", color: .brandGold)
+            DashboardSectionHeader(title: "Recent Athletes", icon: "clock.fill", color: ppAccent)
 
             if isRegularWidth {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 140, maximum: 180), spacing: 12)], spacing: 12) {
@@ -638,9 +638,9 @@ struct CoachDashboardView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Image(systemName: "figure.baseball")
                     .font(.title2)
-                    .foregroundColor(.brandNavy)
+                    .foregroundColor(ppAccent)
                     .frame(width: 40, height: 40)
-                    .background(Color.brandNavy.opacity(0.1))
+                    .background(ppAccent.opacity(0.1))
                     .clipShape(Circle())
 
                 Text(card.athleteName)
@@ -714,7 +714,7 @@ struct CoachDashboardView: View {
 
     private var summarySection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            DashboardSectionHeader(title: "Overview", icon: "chart.bar.fill", color: .brandGold)
+            DashboardSectionHeader(title: "Overview", icon: "chart.bar.fill", color: ppAccent)
 
             HStack(spacing: 12) {
                 CoachSummaryCard(
@@ -742,7 +742,7 @@ struct CoachDashboardView: View {
 
     private var gettingStartedSection: some View {
         VStack(spacing: 16) {
-            DashboardSectionHeader(title: "Getting Started", icon: "sparkles", color: .brandGold)
+            DashboardSectionHeader(title: "Getting Started", icon: "sparkles", color: ppAccent)
 
             VStack(spacing: 12) {
                 gettingStartedStep(
@@ -773,11 +773,11 @@ struct CoachDashboardView: View {
         HStack(spacing: 14) {
             ZStack {
                 Circle()
-                    .fill(Color.brandNavy.opacity(0.1))
+                    .fill(ppAccent.opacity(0.1))
                     .frame(width: 44, height: 44)
                 Image(systemName: icon)
                     .font(.title3)
-                    .foregroundColor(.brandNavy)
+                    .foregroundColor(ppAccent)
             }
 
             VStack(alignment: .leading, spacing: 2) {
@@ -803,13 +803,13 @@ struct CoachDashboardView: View {
         if !cachedThisMonthSessions.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
-                    DashboardSectionHeader(title: "This Month", icon: "calendar", color: .brandGold)
+                    DashboardSectionHeader(title: "This Month", icon: "calendar", color: ppAccent)
                     Spacer()
                     Button("View all") {
                         showingCompletedSessions = true
                     }
                     .font(.subheadline)
-                    .foregroundColor(.brandNavy)
+                    .foregroundColor(ppAccent)
                 }
 
                 HStack(spacing: 12) {
@@ -1086,7 +1086,7 @@ private struct CoachSummaryCard: View {
         VStack(spacing: 8) {
             Image(systemName: icon)
                 .font(.title3)
-                .foregroundColor(.brandGold)
+                .foregroundColor(Theme.textSecondary)
 
             Text(value)
                 .font(.title2)
