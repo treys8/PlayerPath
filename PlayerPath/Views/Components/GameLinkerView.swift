@@ -9,6 +9,7 @@ import SwiftUI
 import SwiftData
 
 struct GameLinkerView: View {
+    @Environment(\.ppAccent) private var ppAccent
     /// One clip from a card/player menu, or several from Videos-tab selection
     /// mode. All clips belong to the same athlete. Read through `clips`.
     private let inputClips: [VideoClip]
@@ -88,7 +89,7 @@ struct GameLinkerView: View {
                             Spacer()
                             if isChecked(nil) {
                                 Image(systemName: "checkmark")
-                                    .foregroundColor(.brandNavy)
+                                    .foregroundColor(ppAccent)
                             }
                         }
                     }
@@ -122,13 +123,13 @@ struct GameLinkerView: View {
                                         if let season = game.season {
                                             Text(season.displayName)
                                                 .font(.labelSmall)
-                                                .foregroundColor(.brandNavy)
+                                                .foregroundColor(ppAccent)
                                         }
                                     }
                                     Spacer()
                                     if isChecked(game.id) {
                                         Image(systemName: "checkmark")
-                                            .foregroundColor(.brandNavy)
+                                            .foregroundColor(ppAccent)
                                     }
                                 }
                             }

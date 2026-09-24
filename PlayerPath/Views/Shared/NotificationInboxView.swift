@@ -103,6 +103,7 @@ struct NotificationInboxView: View {
 // MARK: - Row
 
 private struct NotificationInboxRow: View {
+    @Environment(\.ppAccent) private var ppAccent
     let notification: ActivityNotification
 
     private var iconColor: Color {
@@ -129,7 +130,7 @@ private struct NotificationInboxRow: View {
 
                     if !notification.isRead {
                         Circle()
-                            .fill(Color.brandNavy)
+                            .fill(ppAccent)
                             .frame(width: 8, height: 8)
                     }
                 }

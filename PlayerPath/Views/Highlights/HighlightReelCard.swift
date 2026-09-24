@@ -13,6 +13,7 @@ import SwiftUI
 import SwiftData
 
 struct HighlightReelCard: View {
+    @Environment(\.ppAccent) private var ppAccent
     let reel: HighlightReel
     let onPlay: () -> Void
     var isDimmed: Bool = false
@@ -40,7 +41,7 @@ struct HighlightReelCard: View {
                                 .foregroundColor(.white)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 4)
-                                .background(Capsule().fill(Color.brandNavy))
+                                .background(Capsule().fill(ppAccent))
                                 .shadow(color: .black.opacity(0.25), radius: 2, x: 0, y: 1)
                                 .padding(8)
                         }
@@ -57,7 +58,7 @@ struct HighlightReelCard: View {
                     HStack(spacing: 4) {
                         Text(reel.displayName)
                             .font(.bodySmall)
-                            .foregroundColor(.brandNavy)
+                            .foregroundColor(ppAccent)
                             .lineLimit(1)
                         if !reel.courseOrOpponent.isEmpty {
                             Text("·")
@@ -121,7 +122,7 @@ struct HighlightReelCard: View {
         } else {
             ZStack {
                 LinearGradient(
-                    colors: [Color.brandNavy, Color.brandNavy.opacity(0.7)],
+                    colors: [ppAccent, ppAccent.opacity(0.7)],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )

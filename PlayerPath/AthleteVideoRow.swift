@@ -10,6 +10,7 @@ import SwiftUI
 // MARK: - Compact Video Row
 
 struct AthleteVideoRow: View {
+    @Environment(\.ppAccent) private var ppAccent
     let video: CoachVideoItem
     var isUnread: Bool = false
     /// True when the unread signal is specifically *new coach feedback*
@@ -42,7 +43,7 @@ struct AthleteVideoRow: View {
                             .foregroundColor(.white)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 1)
-                            .background(Color.brandNavy)
+                            .background(ppAccent)
                             .clipShape(Capsule())
                     } else if isUnread {
                         Text("New")
@@ -86,7 +87,7 @@ struct AthleteVideoRow: View {
         .padding(.horizontal, 8)
         .background(
             RoundedRectangle(cornerRadius: 10)
-                .fill(Color.brandNavy.opacity(isHighlighted ? 0.14 : 0))
+                .fill(ppAccent.opacity(isHighlighted ? 0.14 : 0))
         )
         .animation(.easeInOut(duration: 0.45), value: isHighlighted)
     }

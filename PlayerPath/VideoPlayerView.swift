@@ -15,6 +15,7 @@ import Photos
 import FirebaseFirestore
 
 struct VideoPlayerView: View {
+    @Environment(\.ppAccent) private var ppAccent
     let clip: VideoClip
     /// Which coach-feedback doc to load, when the caller knows. Set by surfaces
     /// that open the player from a specific coach's feedback (the Journal
@@ -698,7 +699,7 @@ struct VideoPlayerView: View {
                     }
                     .padding(.horizontal, 20)
                     .padding(.vertical, 8)
-                    .background(Color.brandNavy)
+                    .background(ppAccent)
                     .foregroundColor(.white)
                     .cornerRadius(8)
                     .padding(.top)

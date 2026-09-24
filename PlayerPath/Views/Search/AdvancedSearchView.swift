@@ -716,6 +716,7 @@ struct SavedSearch: Identifiable, Codable {
 // MARK: - Supporting Views
 
 struct FilterChip: View {
+    @Environment(\.ppAccent) private var ppAccent
     let text: String
     let onRemove: () -> Void
 
@@ -729,10 +730,10 @@ struct FilterChip: View {
                     .font(.caption)
             }
         }
-        .foregroundColor(.brandNavy)
+        .foregroundColor(ppAccent)
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .background(Color.brandNavy.opacity(0.1))
+        .background(ppAccent.opacity(0.1))
         .cornerRadius(16)
     }
 }

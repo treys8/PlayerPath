@@ -21,6 +21,7 @@ enum AnnotationBadgeStyle {
 }
 
 struct AnnotationBadgeCluster: View {
+    @Environment(\.ppAccent) private var ppAccent
     let annotationCount: Int
     /// Nil means "legacy, no split available" — renders the lumped bubble so
     /// counts don't silently disappear on videos written before drawingCount existed.
@@ -88,7 +89,7 @@ struct AnnotationBadgeCluster: View {
 
     private func backgroundTint(for kind: BadgeKind) -> Color {
         switch kind {
-        case .drawing: return Color.brandNavy.opacity(0.65)
+        case .drawing: return ppAccent.opacity(0.65)
         case .comment: return Color.black.opacity(0.3)
         }
     }

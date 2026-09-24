@@ -9,6 +9,7 @@ import SwiftUI
 import SwiftData
 
 struct UploadStatisticsView: View {
+    @Environment(\.ppAccent) private var ppAccent
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -62,7 +63,7 @@ struct UploadStatisticsView: View {
                         .trim(from: 0, to: uploadPercentage)
                         .stroke(
                             LinearGradient(
-                                colors: [Color.brandNavy, .cyan],
+                                colors: [ppAccent, ppAccent.opacity(0.6)],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
                             ),
@@ -203,7 +204,7 @@ struct UploadStatisticsView: View {
             if let prefs = preferences.first {
                 HStack {
                     Image(systemName: prefs.allowCellularUploads ? "antenna.radiowaves.left.and.right" : "wifi")
-                        .foregroundColor(prefs.allowCellularUploads ? Theme.warning : .brandNavy)
+                        .foregroundColor(prefs.allowCellularUploads ? Theme.warning : Theme.textSecondary)
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Upload Policy")

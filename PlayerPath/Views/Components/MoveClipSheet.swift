@@ -221,7 +221,7 @@ struct MoveClipSheet: View {
                                 Spacer()
                                 if selectedGame?.id == game.id {
                                     Image(systemName: "checkmark")
-                                        .foregroundColor(.brandNavy)
+                                        .foregroundColor(ppAccent)
                                         .fontWeight(.semibold)
                                 }
                             }

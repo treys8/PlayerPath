@@ -80,7 +80,7 @@ struct BulkVideoImportSheet: View {
                 HStack {
                     Image(systemName: "square.and.arrow.down.on.square.fill")
                         .font(.title2)
-                        .foregroundStyle(Color.brandNavy)
+                        .foregroundStyle(ppAccent)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Ready to Import")
                             .font(.headingLarge)
@@ -139,7 +139,7 @@ struct BulkVideoImportSheet: View {
 
             Image(systemName: "square.and.arrow.down.on.square.fill")
                 .font(.system(size: 64))
-                .foregroundStyle(Color.brandNavy)
+                .foregroundStyle(ppAccent)
 
             Text("Importing Videos")
                 .font(.displayMedium)
@@ -147,7 +147,7 @@ struct BulkVideoImportSheet: View {
             if case .importing(let current, let total) = viewModel.status {
                 VStack(spacing: 12) {
                     ProgressView(value: Double(current), total: Double(total))
-                        .tint(.brandNavy)
+                        .tint(ppAccent)
                         .padding(.horizontal, 40)
                     Text("\(current) of \(total)")
                         .font(.bodyMedium)

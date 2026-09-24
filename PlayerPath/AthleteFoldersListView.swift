@@ -294,6 +294,7 @@ struct AthleteFoldersListView: View {
 // MARK: - Folder Row
 
 struct FolderRow: View {
+    @Environment(\.ppAccent) private var ppAccent
     let folder: SharedFolder
     @ObservedObject private var activityNotifService = ActivityNotificationService.shared
 
@@ -337,9 +338,8 @@ struct FolderRow: View {
 
     private var folderIconColor: Color {
         switch folder.folderType {
-        case "games":   return .brandNavy
-        case "lessons": return .green
-        default:        return .brandNavy
+        case "lessons": return Theme.chipGreenText
+        default:        return ppAccent   // "games" + any other type
         }
     }
 
