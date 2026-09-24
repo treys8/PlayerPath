@@ -83,7 +83,6 @@ struct PreUploadTrimmerView: View {
 
     @Environment(\.verticalSizeClass) private var vSizeClass
     @Environment(\.ppAccent) private var ppAccent
-    @Environment(\.ppAccentLight) private var ppAccentLight
     private var isLandscape: Bool { vSizeClass == .compact }
     /// Choose the preview fill from the CLIP, not the device: a landscape clip
     /// on a portrait phone uses fit (full frame visible while trimming, matching
@@ -228,7 +227,7 @@ struct PreUploadTrimmerView: View {
             HStack {
                 TrimTimeBadge(label: "START", time: formatTime(startTime), color: .green)
                 Spacer()
-                TrimTimeBadge(label: "DURATION", time: formatTime(endTime - startTime), color: ppAccentLight)
+                TrimTimeBadge(label: "DURATION", time: formatTime(endTime - startTime), color: .white)
                 Spacer()
                 TrimTimeBadge(label: "END", time: formatTime(endTime), color: .red)
             }

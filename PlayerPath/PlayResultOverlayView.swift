@@ -213,7 +213,7 @@ struct PlayResultOverlayView: View {
                         .foregroundColor(.white)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
-                        .ppOverlayGlass(in: Capsule(), interactive: true)
+                        .ppOverlayGlass(in: Capsule(), interactive: !isSaving)
                     }
                     .accessibilityLabel("Go back")
                     .disabled(isSaving)

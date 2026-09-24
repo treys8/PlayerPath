@@ -176,7 +176,7 @@ struct ModernCameraView: View {
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundColor(.white)
                 .frame(width: 44, height: 44)
-                .ppOverlayGlass(in: Circle(), interactive: true)
+                .ppOverlayGlass(in: Circle(), interactive: !viewModel.isRecording)
         }
         .disabled(viewModel.isRecording)
         .opacity(viewModel.isRecording ? 0.5 : 1)
@@ -230,7 +230,7 @@ struct ModernCameraView: View {
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundColor(viewModel.flashMode == .on ? .yellow : .white)
                 .frame(width: 44, height: 44)
-                .ppOverlayGlass(in: Circle(), interactive: true)
+                .ppOverlayGlass(in: Circle(), interactive: !viewModel.isRecording)
         }
         .disabled(viewModel.isRecording)
         .opacity(viewModel.isRecording ? 0.5 : 1)
@@ -245,7 +245,7 @@ struct ModernCameraView: View {
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundColor(.white)
                 .frame(width: 44, height: 44)
-                .ppOverlayGlass(in: Circle(), interactive: true)
+                .ppOverlayGlass(in: Circle(), interactive: !viewModel.isRecording)
         }
         .disabled(viewModel.isRecording)
         .opacity(viewModel.isRecording ? 0.5 : 1)
@@ -275,7 +275,7 @@ struct ModernCameraView: View {
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundColor(.white)
                 .frame(width: 44, height: 44)
-                .ppOverlayGlass(in: Circle(), interactive: true)
+                .ppOverlayGlass(in: Circle(), interactive: !viewModel.isRecording)
         }
         .disabled(viewModel.isRecording)
         .opacity(viewModel.isRecording ? 0.5 : 1)
