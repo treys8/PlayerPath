@@ -100,41 +100,47 @@ struct GameSearchResultRow: View {
     let game: Game
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text(game.opponentLabel)
-                    .font(.ppHeadline)
-                    .foregroundStyle(Theme.textPrimary)
+        // Offscreen rows can redraw mid-delete (a detail view pushed from
+        // search deleting this game); never read a dead model.
+        if game.isDeleted || game.modelContext == nil {
+            EmptyView()
+        } else {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text(game.opponentLabel)
+                        .font(.ppHeadline)
+                        .foregroundStyle(Theme.textPrimary)
 
-                Spacer()
+                    Spacer()
 
-                switch game.displayStatus {
-                case .live:
-                    Text("LIVE")
-                        .font(.custom("Inter18pt-Bold", size: 11, relativeTo: .caption2))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(ppAccent)
-                        .clipShape(Capsule())
-                case .completed:
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(Theme.chipGreenText)
-                case .scheduled:
-                    EmptyView()
+                    switch game.displayStatus {
+                    case .live:
+                        Text("LIVE")
+                            .font(.custom("Inter18pt-Bold", size: 11, relativeTo: .caption2))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(ppAccent)
+                            .clipShape(Capsule())
+                    case .completed:
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(Theme.chipGreenText)
+                    case .scheduled:
+                        EmptyView()
+                    }
                 }
-            }
 
-            if let date = game.date {
-                Text(date.formatted(date: .abbreviated, time: .omitted))
-                    .font(.ppFootnote)
-                    .foregroundStyle(Theme.textSecondary)
-            }
+                if let date = game.date {
+                    Text(date.formatted(date: .abbreviated, time: .omitted))
+                        .font(.ppFootnote)
+                        .foregroundStyle(Theme.textSecondary)
+                }
 
-            if let stats = game.gameStats {
-                Text("\(stats.hits)-for-\(stats.atBats), \(StatisticsService.shared.formatBattingAverage(stats.battingAverage)) AVG")
-                    .font(.ppFootnote)
-                    .foregroundStyle(Theme.textSecondary)
+                if let stats = game.gameStats {
+                    Text("\(stats.hits)-for-\(stats.atBats), \(StatisticsService.shared.formatBattingAverage(stats.battingAverage)) AVG")
+                        .font(.ppFootnote)
+                        .foregroundStyle(Theme.textSecondary)
+                }
             }
         }
     }
@@ -154,31 +160,37 @@ struct PracticeSearchResultRow: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Practice")
-                .font(.ppHeadline)
-                .foregroundStyle(Theme.textPrimary)
+        // Offscreen rows can redraw mid-delete (a detail view pushed from
+        // search deleting this practice); never read a dead model.
+        if practice.isDeleted || practice.modelContext == nil {
+            EmptyView()
+        } else {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Practice")
+                    .font(.ppHeadline)
+                    .foregroundStyle(Theme.textPrimary)
 
-            if let date = practice.date {
-                Text(date.formatted(date: .abbreviated, time: .shortened))
-                    .font(.ppFootnote)
-                    .foregroundStyle(Theme.textSecondary)
-            }
+                if let date = practice.date {
+                    Text(date.formatted(date: .abbreviated, time: .shortened))
+                        .font(.ppFootnote)
+                        .foregroundStyle(Theme.textSecondary)
+                }
 
-            if let note = matchingNote {
-                // Show the note that matched, not just a count — this is the
-                // "where did I write that" payoff.
-                Text(note.content)
-                    .font(.ppFootnote)
-                    .foregroundStyle(Theme.textSecondary)
-                    .lineLimit(2)
-                    .truncationMode(.tail)
-            } else {
-                let notesCount = practice.notes?.count ?? 0
-                if notesCount > 0 {
-                    Text("\(notesCount) note\(notesCount == 1 ? "" : "s")")
-                        .font(.ppCaption)
-                        .foregroundStyle(Theme.textTertiary)
+                if let note = matchingNote {
+                    // Show the note that matched, not just a count — this is the
+                    // "where did I write that" payoff.
+                    Text(note.content)
+                        .font(.ppFootnote)
+                        .foregroundStyle(Theme.textSecondary)
+                        .lineLimit(2)
+                        .truncationMode(.tail)
+                } else {
+                    let notesCount = practice.notes?.count ?? 0
+                    if notesCount > 0 {
+                        Text("\(notesCount) note\(notesCount == 1 ? "" : "s")")
+                            .font(.ppCaption)
+                            .foregroundStyle(Theme.textTertiary)
+                    }
                 }
             }
         }

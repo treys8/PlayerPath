@@ -85,7 +85,7 @@ struct AdvancedSearchView: View {
             .fullScreenCover(item: $playerSession, onDismiss: updateFilteredResults) { session in
                 VideoClipPagerView(athlete: athlete, session: session)
             }
-            .photoViewer($viewerPhoto, in: cachedFilteredPhotos, onDelete: deletePhoto)
+            .photoViewer($viewerPhoto, in: cachedFilteredPhotos.filter(isLive), onDelete: deletePhoto)
             .onChange(of: viewerPhoto) { _, photo in
                 // Viewer closed: re-derive from the relationship so a photo
                 // deleted (or re-tagged) inside it drops out of the results.
@@ -194,7 +194,7 @@ struct AdvancedSearchView: View {
 
                 if selectedContentType == .videos {
                     if let game = selectedGame {
-                        FilterChip(text: "vs \(game.opponent)") {
+                        FilterChip(text: game.opponentLabel) {
                             selectedGame = nil
                         }
                     }
@@ -264,10 +264,10 @@ struct AdvancedSearchView: View {
                         // Results header with count and save button
                         resultsHeaderView(count: results.count)
 
-                        ForEach(results.filter { $0.modelContext != nil }) { video in
+                        ForEach(results.filter(isLive)) { video in
                             Button {
                                 playerSession = VideoPlayerSession(
-                                    clipIDs: results.map(\.id),
+                                    clipIDs: results.filter(isLive).map(\.id),
                                     startID: video.id
                                 )
                                 Haptics.light()
@@ -294,7 +294,7 @@ struct AdvancedSearchView: View {
                     LazyVStack(spacing: 12) {
                         resultsHeaderView(count: results.count)
 
-                        ForEach(results.filter { $0.modelContext != nil }) { game in
+                        ForEach(results.filter(isLive)) { game in
                             NavigationLink {
                                 GameDetailView(game: game)
                             } label: {
@@ -309,6 +309,8 @@ struct AdvancedSearchView: View {
                     }
                     .padding()
                 }
+                // Back from a pushed detail that may have deleted this row.
+                .onAppear(perform: updateFilteredResults)
             }
         }
     }
@@ -324,7 +326,7 @@ struct AdvancedSearchView: View {
                     LazyVStack(spacing: 12) {
                         resultsHeaderView(count: results.count)
 
-                        ForEach(results.filter { $0.modelContext != nil }) { practice in
+                        ForEach(results.filter(isLive)) { practice in
                             NavigationLink {
                                 PracticeDetailView(practice: practice)
                             } label: {
@@ -339,6 +341,8 @@ struct AdvancedSearchView: View {
                     }
                     .padding()
                 }
+                // Back from a pushed detail that may have deleted this row.
+                .onAppear(perform: updateFilteredResults)
             }
         }
     }
@@ -354,7 +358,7 @@ struct AdvancedSearchView: View {
                     LazyVStack(spacing: 12) {
                         resultsHeaderView(count: results.count)
 
-                        ForEach(results.filter { $0.modelContext != nil }) { photo in
+                        ForEach(results.filter(isLive)) { photo in
                             Button {
                                 viewerPhoto = photo
                             } label: {
@@ -442,9 +446,9 @@ struct AdvancedSearchView: View {
                     let games = athlete.games ?? []
                     let isGolfAthlete = athlete.sport == .golf
                     if !games.isEmpty {
-                        Section(isGolfAthlete ? "Tournament" : "Game") {
-                            Picker(isGolfAthlete ? "Tournament" : "Game", selection: $selectedGame) {
-                                Text(isGolfAthlete ? "All Tournaments" : "All Games").tag(nil as Game?)
+                        Section(isGolfAthlete ? "Round" : "Game") {
+                            Picker(isGolfAthlete ? "Round" : "Game", selection: $selectedGame) {
+                                Text(isGolfAthlete ? "All Rounds" : "All Games").tag(nil as Game?)
                                 ForEach(games.sorted(by: { ($0.date ?? Date.distantPast) > ($1.date ?? Date.distantPast) })) { game in
                                     let isGolfGame = game.season?.sport == .golf
                                     Text("\(isGolfGame ? "at" : "vs") \(game.opponent)").tag(game as Game?)
@@ -507,10 +511,19 @@ struct AdvancedSearchView: View {
     // MARK: - Filtering Logic
 
     private func updateFilteredResults() {
-        cachedFilteredVideos = filteredVideos()
-        cachedFilteredGames = filteredGames()
-        cachedFilteredPractices = filteredPractices()
-        cachedFilteredPhotos = filteredPhotos()
+        // A game/season picked as a filter can be deleted from a detail view
+        // pushed inside this sheet; drop it before anything reads it.
+        if let game = selectedGame, !isLive(game) { selectedGame = nil }
+        if let season = selectedSeason, !isLive(season) { selectedSeason = nil }
+        cachedFilteredVideos = filteredVideos().filter(isLive)
+        cachedFilteredGames = filteredGames().filter(isLive)
+        cachedFilteredPractices = filteredPractices().filter(isLive)
+        cachedFilteredPhotos = filteredPhotos().filter(isLive)
+    }
+
+    /// False once a model is deleted (saved or not) — never read other props then.
+    private func isLive(_ model: some PersistentModel) -> Bool {
+        !model.isDeleted && model.modelContext != nil
     }
 
     // MARK: - Filtering Helpers
