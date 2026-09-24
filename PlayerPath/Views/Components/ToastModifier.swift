@@ -55,7 +55,10 @@ private struct ToastModifier: ViewModifier {
                         .font(.headingMedium)
                         .padding(.horizontal, .spacingLarge)
                         .padding(.vertical, 10)
-                        .ppFloatingGlass(in: Capsule()) {
+                        // Cream tint: the toast also shows over black screens
+                        // (photo viewer, reel export), where untinted glass can
+                        // go dark behind the dark copy.
+                        .ppFloatingGlass(in: Capsule(), tint: Theme.surface.opacity(0.6)) {
                             $0
                                 .background(.regularMaterial, in: Capsule())
                                 .shadow(color: .black.opacity(0.12), radius: 8, x: 0, y: 4)

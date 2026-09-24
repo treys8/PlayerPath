@@ -207,15 +207,18 @@ extension View {
 
     /// A light surface floating over content — toasts, top banners. iOS 26:
     /// regular Liquid Glass in the app's (light) scheme; glass draws its own
-    /// depth, so no shadow. Before 26: `fallback` applies the material + shadow
-    /// the surface has always used.
+    /// depth, so no shadow. `tint` keeps the glass light over a dark backdrop
+    /// (e.g. a toast over a black photo viewer) so dark copy stays legible.
+    /// Before 26: `fallback` applies the material + shadow the surface has
+    /// always used.
     @ViewBuilder
     func ppFloatingGlass<S: Shape, Fallback: View>(
         in shape: S,
+        tint: Color? = nil,
         fallback: (Self) -> Fallback
     ) -> some View {
         if #available(iOS 26, *) {
-            self.glassEffect(.regular, in: shape)
+            self.glassEffect(.regular.tint(tint), in: shape)
         } else {
             fallback(self)
         }
