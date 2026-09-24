@@ -35,11 +35,14 @@ struct LoadingOverlay: View {
                 }
             }
             .padding(32)
-            .background(
-                RoundedRectangle(cornerRadius: .cornerXLarge)
-                    .fill(.ultraThinMaterial)
-            )
-            .shadow(radius: 10)
+            .ppDarkGlassPanel(in: RoundedRectangle(cornerRadius: .cornerXLarge)) {
+                $0
+                    .background(
+                        RoundedRectangle(cornerRadius: .cornerXLarge)
+                            .fill(.ultraThinMaterial)
+                    )
+                    .shadow(radius: 10)
+            }
         }
         .transition(.opacity)
     }
@@ -85,7 +88,7 @@ struct LoadingButtonContent: View {
 
 #Preview("Loading Overlay") {
     ZStack {
-        Color.brandNavy.ignoresSafeArea()
+        Theme.surface.ignoresSafeArea()
         
         LoadingOverlay(message: "Signing out...")
     }
