@@ -25,7 +25,7 @@ struct FolderInfoHeader: View {
                 HStack(spacing: 4) {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.caption2)
-                        .foregroundColor(.brandNavy)
+                        .foregroundColor(Theme.chipGreenText)
                     Text("Updated \(refreshed.formatted(.relative(presentation: .named)))")
                         .font(.caption2)
                         .foregroundColor(.secondary)
@@ -42,6 +42,7 @@ struct FolderInfoHeader: View {
 // MARK: - All Videos Tab View
 
 struct AllVideosTabView: View {
+    @Environment(\.ppAccent) private var ppAccent
     let folder: SharedFolder
     let videos: [CoachVideoItem]
     var isLoading: Bool = false
@@ -162,7 +163,7 @@ struct AllVideosTabView: View {
                 } else {
                     Text("Load More Videos")
                         .font(.subheadline.weight(.medium))
-                        .foregroundColor(.brandNavy)
+                        .foregroundColor(ppAccent)
                         .frame(maxWidth: .infinity)
                         .padding()
                 }
@@ -271,6 +272,7 @@ struct AllVideosTabView: View {
 // MARK: - Video Row Component
 
 struct CoachVideoCard: View {
+    @Environment(\.ppAccent) private var ppAccent
     let video: CoachVideoItem
     var isUnread: Bool = false
     var isHighlighted: Bool = false
@@ -380,8 +382,8 @@ struct CoachVideoCard: View {
                                 .font(.caption2)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
-                                .background(Color.brandNavy.opacity(0.1))
-                                .foregroundColor(.brandNavy)
+                                .background(Theme.cueBg)
+                                .foregroundColor(Theme.cueText)
                                 .cornerRadius(4)
                         }
                         if video.tags.count > 3 {
@@ -393,7 +395,7 @@ struct CoachVideoCard: View {
                 }
 
                 if let club = video.club {
-                    let clubColor = Club(rawValue: club)?.category.color ?? .brandNavy
+                    let clubColor = Club(rawValue: club)?.category.color ?? Theme.textSecondary
                     HStack(spacing: 4) {
                         Text(club)
                             .font(.caption2)
@@ -422,7 +424,7 @@ struct CoachVideoCard: View {
         .shadow(color: .black.opacity(0.04), radius: 2, x: 0, y: 1)
         .overlay(
             RoundedRectangle(cornerRadius: .cornerLarge, style: .continuous)
-                .stroke(Color.brandNavy.opacity(isHighlighted ? 0.9 : 0), lineWidth: 3)
+                .stroke(ppAccent.opacity(isHighlighted ? 0.9 : 0), lineWidth: 3)
         )
         .animation(.easeInOut(duration: 0.45), value: isHighlighted)
     }

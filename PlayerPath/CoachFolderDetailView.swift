@@ -10,6 +10,7 @@ import SwiftUI
 
 /// Shows the contents of a shared folder. Games folders display a flat video list; lessons folders use My Drafts / Shared tabs.
 struct CoachFolderDetailView: View {
+    @Environment(\.ppAccent) private var ppAccent
     let folder: SharedFolder
 
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
@@ -163,7 +164,6 @@ struct CoachFolderDetailView: View {
                     ProgressView()
                 } else {
                     Image(systemName: "arrow.clockwise")
-                        .foregroundColor(.brandNavy)
                 }
             }
             .disabled(isRefreshingPermissions)
@@ -462,7 +462,7 @@ struct CoachFolderDetailView: View {
                                     if isSelectionMode {
                                         Image(systemName: selectedClipIDs.contains(clip.id) ? "checkmark.circle.fill" : "circle")
                                             .font(.title2)
-                                            .foregroundColor(selectedClipIDs.contains(clip.id) ? .brandNavy : .white)
+                                            .foregroundColor(selectedClipIDs.contains(clip.id) ? ppAccent : .white)
                                             .background(Circle().fill(.ultraThinMaterial))
                                             .padding(10)
                                     }

@@ -16,7 +16,7 @@ enum ClipQueueStyle {
 
     var accent: Color {
         switch self {
-        case .myDrafts: return .brandNavy
+        case .myDrafts: return Theme.textPrimary
         case .needsReview: return Theme.accent
         }
     }

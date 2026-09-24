@@ -54,7 +54,7 @@ struct CoachVideoUploadView: View {
                     Section("Selected Video") {
                         HStack {
                             Image(systemName: "checkmark.circle.fill")
-                                .foregroundColor(.brandNavy)
+                                .foregroundColor(Theme.chipGreenText)
                             Text("Video selected")
                             Spacer()
                             Button("Change") {
@@ -139,7 +139,6 @@ struct CoachVideoUploadView: View {
                                         .frame(maxWidth: .infinity)
                                 }
                                 .buttonStyle(.borderedProminent)
-                                .tint(Color.brandNavy)
                             }
                         }
                     } else if viewModel.isUploadStuck {
@@ -253,7 +252,7 @@ struct CoachVideoUploadView: View {
                         VStack(spacing: 20) {
                             Image(systemName: "checkmark.circle.fill")
                                 .font(.system(size: 72))
-                                .foregroundColor(.brandNavy)
+                                .foregroundColor(Theme.chipGreenText)
                             Text("Upload Complete!")
                                 .font(.title2)
                                 .fontWeight(.bold)
