@@ -82,6 +82,8 @@ struct PreUploadTrimmerView: View {
     @State private var clipOrientation: VideoOrientation?
 
     @Environment(\.verticalSizeClass) private var vSizeClass
+    @Environment(\.ppAccent) private var ppAccent
+    @Environment(\.ppAccentLight) private var ppAccentLight
     private var isLandscape: Bool { vSizeClass == .compact }
     /// Choose the preview fill from the CLIP, not the device: a landscape clip
     /// on a portrait phone uses fit (full frame visible while trimming, matching
@@ -226,7 +228,7 @@ struct PreUploadTrimmerView: View {
             HStack {
                 TrimTimeBadge(label: "START", time: formatTime(startTime), color: .green)
                 Spacer()
-                TrimTimeBadge(label: "DURATION", time: formatTime(endTime - startTime), color: .brandNavy)
+                TrimTimeBadge(label: "DURATION", time: formatTime(endTime - startTime), color: ppAccentLight)
                 Spacer()
                 TrimTimeBadge(label: "END", time: formatTime(endTime), color: .red)
             }
@@ -302,13 +304,13 @@ struct PreUploadTrimmerView: View {
                     .padding(.vertical, 16)
                     .background(
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .fill(LinearGradient.primaryButton)
+                            .fill(ppAccent)
                     )
                     .overlay(
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
                             .strokeBorder(LinearGradient.glassBorder, lineWidth: 1)
                     )
-                    .shadow(color: Color.brandNavy.opacity(0.4), radius: 8, x: 0, y: 4)
+                    .shadow(color: ppAccent.opacity(0.4), radius: 8, x: 0, y: 4)
                 }
                 .disabled(isExporting || endTime - startTime < 0.5)
                 .opacity(isExporting || endTime - startTime < 0.5 ? 0.6 : 1)

@@ -217,6 +217,8 @@ struct PlayResultModePicker: View {
         let isSelected: Bool
         let action: () -> Void
 
+        @Environment(\.ppAccent) private var ppAccent
+
         var body: some View {
             Button(action: action) {
                 HStack(spacing: 6) {
@@ -233,8 +235,8 @@ struct PlayResultModePicker: View {
                     ZStack {
                         if isSelected {
                             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .fill(LinearGradient.primaryButton)
-                                .shadow(color: Color.brandNavy.opacity(0.4), radius: 8, x: 0, y: 2)
+                                .fill(ppAccent)
+                                .shadow(color: ppAccent.opacity(0.4), radius: 8, x: 0, y: 2)
                         }
                     }
                 )
@@ -251,6 +253,8 @@ struct PitchTypeButton: View {
     let isSelected: Bool
     let action: () -> Void
 
+    @Environment(\.ppAccent) private var ppAccent
+
     var body: some View {
         Button(action: action) {
             Text(title)
@@ -262,8 +266,8 @@ struct PitchTypeButton: View {
                     ZStack {
                         if isSelected {
                             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .fill(LinearGradient(colors: [.purple, .purple.opacity(0.7)], startPoint: .topLeading, endPoint: .bottomTrailing))
-                                .shadow(color: .purple.opacity(0.4), radius: 8, x: 0, y: 2)
+                                .fill(ppAccent)
+                                .shadow(color: ppAccent.opacity(0.4), radius: 8, x: 0, y: 2)
                         }
                     }
                 )
@@ -286,10 +290,11 @@ struct PlayResultActionButton: View {
     }
 
     @State private var isPressed = false
+    @Environment(\.ppAccent) private var ppAccent
 
     private var shadowColor: Color {
         switch style {
-        case .primary: return .brandNavy.opacity(0.4)
+        case .primary: return ppAccent.opacity(0.4)
         case .secondary: return .clear
         }
     }
@@ -299,7 +304,7 @@ struct PlayResultActionButton: View {
         switch style {
         case .primary:
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(LinearGradient.primaryButton)
+                .fill(ppAccent)
         case .secondary:
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(Color.white.opacity(0.15))

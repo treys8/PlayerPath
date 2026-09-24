@@ -33,6 +33,10 @@ struct RetrimSavedClipFlow: View {
         case failed
     }
 
+    /// Sport accent for this clip. Injected below for the trimmer; read directly
+    /// by the Continue button, which lives in this view (above the injection).
+    private var isGolfClip: Bool { (clip.season?.sport ?? athlete.sportType) == .golf }
+
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
@@ -61,6 +65,7 @@ struct RetrimSavedClipFlow: View {
                 failureCard
             }
         }
+        .ppAccent(forGolf: isGolfClip)
         .onChange(of: cloudManager.uploadProgress[clip.id]) { _, newValue in
             if phase == .saving, currentStage == .uploadingVideo, let newValue {
                 uploadPercent = newValue
@@ -98,7 +103,7 @@ struct RetrimSavedClipFlow: View {
                         .padding(.vertical, 14)
                         .background(
                             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .fill(LinearGradient.primaryButton)
+                                .fill(Theme.accent(forGolf: isGolfClip))
                         )
                 }
 

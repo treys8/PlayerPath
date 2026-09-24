@@ -104,6 +104,9 @@ struct DirectCameraRecorderView: View {
                 playResultPhaseView
             }
         }
+        // Sport accent for the whole capture flow (trimmer, tag overlay, practice
+        // save). Coach capture stays on the base accent, like all coach UI.
+        .ppAccent(forGolf: !isCoachMode && clipSport == .golf)
         .confirmationDialog(
             "Discard Recording?",
             isPresented: $showingDiscardConfirmation,

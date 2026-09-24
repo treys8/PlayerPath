@@ -20,6 +20,8 @@ struct PlayResultOverlayView: View {
     let onCancel: () -> Void
     @Binding var isSaving: Bool
 
+    @Environment(\.ppAccentLight) private var ppAccentLight
+
     @State private var selectedResult: PlayResultType?
     @State private var selectedClub: Club?
     @State private var showingConfirmation = false
@@ -388,7 +390,7 @@ struct PlayResultOverlayView: View {
                         } label: {
                             Text("Done")
                                 .font(.headingMedium)
-                                .foregroundColor(.brandNavy)
+                                .foregroundColor(ppAccentLight)
                         }
                     }
                 }
@@ -565,7 +567,7 @@ struct PlayResultOverlayView: View {
 
             // Walk Section
             VStack(alignment: .leading, spacing: 10) {
-                PlayResultSectionHeader(icon: "figure.walk", title: "WALK", color: .brandNavy)
+                PlayResultSectionHeader(icon: "figure.walk", title: "WALK", color: PlayResultType.walk.color)
 
                 PlayResultButton(result: .walk, isSelected: selectedResult == .walk, fullWidth: true) {
                     selectResult(.walk)
@@ -645,7 +647,7 @@ struct PlayResultOverlayView: View {
             PlayResultDivider()
 
             VStack(alignment: .leading, spacing: 10) {
-                PlayResultSectionHeader(icon: "figure.walk", title: "WALK", color: .brandNavy)
+                PlayResultSectionHeader(icon: "figure.walk", title: "WALK", color: PlayResultType.pitchingWalk.color)
 
                 PlayResultButton(result: .pitchingWalk, isSelected: selectedResult == .pitchingWalk, fullWidth: true) {
                     selectResult(.pitchingWalk)
