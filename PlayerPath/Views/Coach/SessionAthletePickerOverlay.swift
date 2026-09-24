@@ -42,7 +42,7 @@ struct SessionAthletePickerOverlay: View {
                                 HStack(spacing: 6) {
                                     ZStack {
                                         Circle()
-                                            .fill(isSelected(athlete.id) ? Color.brandNavy : Color.white.opacity(0.2))
+                                            .fill(isSelected(athlete.id) ? Theme.accent : Color.white.opacity(0.2))
                                             .frame(width: 32, height: 32)
                                         Text(String(athlete.name.prefix(1)).uppercased())
                                             .font(.subheadline)
@@ -58,11 +58,11 @@ struct SessionAthletePickerOverlay: View {
                                 .padding(.vertical, 10)
                                 .background(
                                     Capsule()
-                                        .fill(isSelected(athlete.id) ? Color.brandNavy.opacity(0.3) : Color.white.opacity(0.15))
+                                        .fill(isSelected(athlete.id) ? Theme.accent.opacity(0.3) : Color.white.opacity(0.15))
                                 )
                                 .overlay(
                                     Capsule()
-                                        .strokeBorder(isSelected(athlete.id) ? Color.brandNavy : Color.clear, lineWidth: 2)
+                                        .strokeBorder(isSelected(athlete.id) ? Theme.accentLight : Color.clear, lineWidth: 2)
                                 )
                             }
                             .disabled(hasSelected)
