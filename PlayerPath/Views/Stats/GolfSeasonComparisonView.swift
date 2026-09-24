@@ -179,7 +179,7 @@ struct GolfSeasonComparisonView: View {
                                 .frame(width: 100, alignment: .center)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 12)
-                                .background(Color.brandNavy.opacity(0.1))
+                                .background(Theme.golfAccent.opacity(0.1))
                         }
                     }
 
@@ -248,7 +248,7 @@ struct GolfSeasonComparisonView: View {
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
             .background(Theme.surface)
-            .safeAreaInset(edge: .bottom) { compareBar }
+            .ppBottomBar(fallbackBackground: Theme.surface) { compareBar }
         }
     }
 
@@ -268,18 +268,21 @@ struct GolfSeasonComparisonView: View {
         } label: {
             Text(canCompare ? "Compare \(selectedSeasons.count) Seasons" : "Compare")
                 .font(.headingMedium)
-                .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
-                .background(
-                    RoundedRectangle(cornerRadius: .cornerLarge, style: .continuous)
-                        .fill(canCompare ? Theme.golfAccent : Theme.textTertiary)
-                )
+                .ppLegacyBarLabel {
+                    $0
+                        .foregroundStyle(.white)
+                        .padding(.vertical, 14)
+                        .background(
+                            RoundedRectangle(cornerRadius: .cornerLarge, style: .continuous)
+                                .fill(canCompare ? Theme.golfAccent : Theme.textTertiary)
+                        )
+                }
         }
+        .ppGlassBarButton(tint: Theme.golfAccent) { $0 }
         .disabled(!canCompare)
         .padding(.horizontal)
         .padding(.vertical, 12)
-        .background(Theme.surface)
     }
 
     private var notEnoughSeasons: some View {
@@ -382,7 +385,7 @@ private struct GolfSeasonSelectionRow: View {
                             .foregroundStyle(.white)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(Color.brandNavy)
+                            .background(Theme.golfAccent)
                             .cornerRadius(4)
                     }
                 }
@@ -401,7 +404,7 @@ private struct GolfSeasonSelectionRow: View {
             Spacer()
 
             Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                .foregroundStyle(isSelected ? Color.brandNavy : Color.gray)
+                .foregroundStyle(isSelected ? Theme.golfAccent : Color.gray)
                 .font(.title3)
         }
         .padding(.vertical, 4)

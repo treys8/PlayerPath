@@ -86,6 +86,53 @@ extension View {
         }
     }
 
+    /// Pins an always-visible bottom action bar over a List/ScrollView. iOS 26:
+    /// `safeAreaBar`, so content scrolls under the bar with the system
+    /// scroll-edge effect and the bar draws no background of its own. Before 26:
+    /// `safeAreaInset` on `fallbackBackground` — the layout these bars had
+    /// before iOS 26 (content scrolls under the translucent ones).
+    @ViewBuilder
+    func ppBottomBar<Bar: View, Background: ShapeStyle>(
+        fallbackBackground: Background,
+        @ViewBuilder bar: () -> Bar
+    ) -> some View {
+        if #available(iOS 26, *) {
+            self.safeAreaBar(edge: .bottom) { bar() }
+        } else {
+            self.safeAreaInset(edge: .bottom) { bar().background(fallbackBackground) }
+        }
+    }
+
+    /// The primary button in a `ppBottomBar`. iOS 26: large `.glassProminent`
+    /// tinted `tint` (the system draws the disabled state). Before 26: `fallback`
+    /// re-applies the button style the bar has always used.
+    @ViewBuilder
+    func ppGlassBarButton<Fallback: View>(
+        tint: Color,
+        fallback: (Self) -> Fallback
+    ) -> some View {
+        if #available(iOS 26, *) {
+            self
+                .buttonStyle(.glassProminent)
+                .tint(tint)
+                .controlSize(.large)
+        } else {
+            fallback(self)
+        }
+    }
+
+    /// The label half of `ppGlassBarButton`: before 26, `legacy` adds the fill,
+    /// padding and foreground the label has always drawn itself. On iOS 26 the
+    /// label stays bare so the glass button supplies them.
+    @ViewBuilder
+    func ppLegacyBarLabel<Legacy: View>(_ legacy: (Self) -> Legacy) -> some View {
+        if #available(iOS 26, *) {
+            self
+        } else {
+            legacy(self)
+        }
+    }
+
     /// A control panel floating over video or the camera: Liquid Glass tinted
     /// dark on iOS 26, with the dark scheme forced so the glass never flips light
     /// behind the panels' white glyphs over a bright frame. Before 26, `fallback`

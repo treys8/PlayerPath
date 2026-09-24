@@ -168,7 +168,7 @@ struct SeasonComparisonView: View {
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
             .background(Theme.surface)
-            .safeAreaInset(edge: .bottom) { compareBar }
+            .ppBottomBar(fallbackBackground: Theme.surface) { compareBar }
         }
     }
 
@@ -188,18 +188,21 @@ struct SeasonComparisonView: View {
         } label: {
             Text(canCompare ? "Compare \(selectedSeasons.count) Seasons" : "Compare")
                 .font(.headingMedium)
-                .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
-                .background(
-                    RoundedRectangle(cornerRadius: .cornerLarge, style: .continuous)
-                        .fill(canCompare ? ppAccent : Theme.textTertiary)
-                )
+                .ppLegacyBarLabel {
+                    $0
+                        .foregroundStyle(.white)
+                        .padding(.vertical, 14)
+                        .background(
+                            RoundedRectangle(cornerRadius: .cornerLarge, style: .continuous)
+                                .fill(canCompare ? ppAccent : Theme.textTertiary)
+                        )
+                }
         }
+        .ppGlassBarButton(tint: ppAccent) { $0 }
         .disabled(!canCompare)
         .padding(.horizontal)
         .padding(.vertical, 12)
-        .background(Theme.surface)
     }
 
     private var notEnoughSeasonsView: some View {
