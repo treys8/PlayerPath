@@ -22,9 +22,9 @@ enum ToastType {
 
     var color: Color {
         switch self {
-        case .success: .success
-        case .info: .info
-        case .warning: .warning
+        case .success: Theme.chipGreenText
+        case .info: Theme.textSecondary
+        case .warning: Theme.warning
         }
     }
 
@@ -47,12 +47,19 @@ private struct ToastModifier: ViewModifier {
         content
             .overlay(alignment: .bottom) {
                 if isPresenting {
-                    Label(message, systemImage: type.icon)
+                    Label {
+                        Text(message).foregroundStyle(.primary)
+                    } icon: {
+                        Image(systemName: type.icon).foregroundStyle(type.color)
+                    }
                         .font(.headingMedium)
-                        .foregroundStyle(.white)
                         .padding(.horizontal, .spacingLarge)
                         .padding(.vertical, 10)
-                        .background(.ultraThinMaterial, in: Capsule())
+                        .ppFloatingGlass(in: Capsule()) {
+                            $0
+                                .background(.regularMaterial, in: Capsule())
+                                .shadow(color: .black.opacity(0.12), radius: 8, x: 0, y: 4)
+                        }
                         .padding(.bottom, 100)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                         // .task(id:) auto-cancels when the toast disappears, so a
