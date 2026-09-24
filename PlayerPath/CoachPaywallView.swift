@@ -10,6 +10,7 @@ import StoreKit
 
 struct CoachPaywallView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.ppAccent) private var ppAccent
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @ObservedObject private var storeManager = StoreKitManager.shared
 
@@ -110,7 +111,7 @@ struct CoachPaywallView: View {
             Image(systemName: "whistle.fill")
                 .font(.system(size: 52))
                 .foregroundStyle(
-                    LinearGradient(colors: [.brandNavy, .brandNavy.opacity(0.7)],
+                    LinearGradient(colors: [ppAccent, ppAccent.opacity(0.7)],
                                    startPoint: .topLeading, endPoint: .bottomTrailing)
                 )
                 .padding(.top, 8)
@@ -152,7 +153,7 @@ struct CoachPaywallView: View {
                 .foregroundStyle(selected ? .white : .secondary)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 10)
-                .background(selected ? Color.brandNavy : Color.clear)
+                .background(selected ? ppAccent : Color.clear)
                 .cornerRadius(9)
         }
         .buttonStyle(.plain)
@@ -311,7 +312,7 @@ struct CoachPaywallView: View {
     private func coachCheckIcon(included: Bool) -> some View {
         Image(systemName: included ? "checkmark" : "xmark")
             .font(.caption)
-            .foregroundStyle(included ? Color.brandNavy : Color.secondary)
+            .foregroundStyle(included ? ppAccent : Color.secondary)
             .accessibilityLabel(included ? "Included" : "Not included")
     }
 
@@ -355,7 +356,8 @@ struct CoachPaywallView: View {
                         .font(.headline).fontWeight(.semibold)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 16)
-                        .background(LinearGradient.premiumButton)
+                        .background(LinearGradient(colors: [ppAccent, ppAccent.opacity(0.85)],
+                                                   startPoint: .topLeading, endPoint: .bottomTrailing))
                         .foregroundStyle(.white)
                         .cornerRadius(14)
                         .shadow(color: CoachSubscriptionTier.academy.color.opacity(0.3), radius: 8, x: 0, y: 4)
@@ -412,7 +414,8 @@ struct CoachPaywallView: View {
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 16)
-                    .background(LinearGradient.coachButton)
+                    .background(LinearGradient(colors: [ppAccent, ppAccent.opacity(0.85)],
+                                               startPoint: .topLeading, endPoint: .bottomTrailing))
                     .foregroundStyle(.white)
                     .cornerRadius(14)
                     .shadow(color: selectedTier.color.opacity(0.3), radius: 8, x: 0, y: 4)
@@ -467,9 +470,9 @@ struct CoachPaywallView: View {
                 .foregroundStyle(.secondary)
             HStack(spacing: 16) {
                 Button("Terms of Use (EULA)") { showingTerms = true }
-                    .font(.caption).foregroundStyle(Color.brandNavy)
+                    .font(.caption).foregroundStyle(ppAccent)
                 Button("Privacy Policy") { showingPrivacyPolicy = true }
-                    .font(.caption).foregroundStyle(Color.brandNavy)
+                    .font(.caption).foregroundStyle(ppAccent)
             }
         }
         .multilineTextAlignment(.center)

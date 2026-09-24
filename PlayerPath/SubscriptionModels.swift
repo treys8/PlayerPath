@@ -135,14 +135,13 @@ enum CoachSubscriptionTier: String, Comparable, CaseIterable {
         }
     }
 
-    /// Canonical display color for this tier.
-    /// Free = neutral, Instructor = brand primary, Pro Instructor = premium, Academy = enterprise.
+    /// Canonical display color for this tier. Free = neutral; every paid tier =
+    /// the brand accent (Theme's ONE-accent rule — the old navy/gold/purple split
+    /// is retired). Coach UI is always the base (terracotta) accent.
     var color: Color {
         switch self {
-        case .free:          return .secondary
-        case .instructor:    return .brandNavy
-        case .proInstructor: return .brandGold
-        case .academy:       return .purple
+        case .free:                                return .secondary
+        case .instructor, .proInstructor, .academy: return Theme.accent
         }
     }
 
