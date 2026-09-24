@@ -74,7 +74,7 @@ struct PracticeVideoSaveView: View {
                         .foregroundStyle(.white)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
-                        .background(Capsule().fill(.ultraThinMaterial))
+                        .ppOverlayGlass(in: Capsule(), interactive: true)
                     }
                     .disabled(isSaving)
 
@@ -279,25 +279,7 @@ struct PracticeVideoSaveView: View {
             .offset(y: showContent ? 0 : 20)
         }
         .padding(20)
-        .background(
-            ZStack {
-                RoundedRectangle(cornerRadius: 28, style: .continuous).fill(.ultraThinMaterial)
-                RoundedRectangle(cornerRadius: 28, style: .continuous)
-                    .fill(LinearGradient.glassDark)
-                VStack {
-                    RoundedRectangle(cornerRadius: 28, style: .continuous)
-                        .fill(LinearGradient.glassShine)
-                        .frame(height: 100)
-                    Spacer()
-                }
-                .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-            }
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .strokeBorder(LinearGradient.glassBorder, lineWidth: 1)
-        )
-        .shadow(color: .black.opacity(0.4), radius: 30, x: 0, y: 15)
+        .ppVideoOverlayPanel()
     }
 
     // MARK: - Helpers

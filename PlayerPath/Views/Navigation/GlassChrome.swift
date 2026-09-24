@@ -90,18 +90,55 @@ extension View {
     /// dark on iOS 26, with the dark scheme forced so the glass never flips light
     /// behind the panels' white glyphs over a bright frame. Before 26, `fallback`
     /// applies the panel's existing material so its look is unchanged.
+    /// `interactive` adds the glass press response — pass it for buttons.
     @ViewBuilder
     func ppDarkGlassPanel<S: Shape, Fallback: View>(
         in shape: S,
         tint: Color? = nil,
+        interactive: Bool = false,
         fallback: (Self) -> Fallback
     ) -> some View {
         if #available(iOS 26, *) {
             self
-                .glassEffect(.regular.tint(tint), in: shape)
+                .glassEffect(.regular.tint(tint).interactive(interactive), in: shape)
                 .environment(\.colorScheme, .dark)
         } else {
             fallback(self)
+        }
+    }
+
+    /// A small control or badge floating over video or the camera — circle
+    /// buttons, the Back capsule, the zoom readout. iOS 26: dark Liquid Glass
+    /// (`interactive` for buttons). Before 26: the plain `.ultraThinMaterial`
+    /// fill these controls always had.
+    func ppOverlayGlass<S: Shape>(in shape: S, interactive: Bool = false) -> some View {
+        ppDarkGlassPanel(in: shape, interactive: interactive) {
+            $0.background(.ultraThinMaterial, in: shape)
+        }
+    }
+
+    /// The large tag / trim / save panel floating over a paused clip. iOS 26:
+    /// dark Liquid Glass with a light black tint so its white copy holds up over
+    /// a bright frame (glass draws its own depth, so no shadow). Before 26: the
+    /// hand-built material + gradient stack these panels have always used.
+    func ppVideoOverlayPanel(cornerRadius: CGFloat = 28) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        return ppDarkGlassPanel(in: shape, tint: .black.opacity(0.25)) {
+            $0
+                .background(
+                    ZStack {
+                        shape.fill(.ultraThinMaterial)
+                        shape.fill(LinearGradient.glassDark)
+                        VStack {
+                            shape.fill(LinearGradient.glassShine)
+                                .frame(height: 100)
+                            Spacer()
+                        }
+                        .clipShape(shape)
+                    }
+                )
+                .overlay(shape.strokeBorder(LinearGradient.glassBorder, lineWidth: 1))
+                .shadow(color: .black.opacity(0.4), radius: 30, x: 0, y: 15)
         }
     }
 }
