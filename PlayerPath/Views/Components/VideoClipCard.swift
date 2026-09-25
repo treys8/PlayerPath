@@ -33,6 +33,9 @@ struct VideoClipCard: View {
     @State private var showingRetrimFlow = false
     @State private var isSavingToPhotos = false
     @State private var showingTagSheet = false
+    /// Friendly-named share link, built on tap (makeShareURL touches the
+    /// filesystem, so never in a body). Non-nil presents the share sheet.
+    @State private var shareURL: URL?
 
     var body: some View {
         Button(action: {
@@ -191,6 +194,18 @@ struct VideoClipCard: View {
         .sheet(isPresented: $showingGameLinker) {
             GameLinkerView(clip: video)
         }
+        .sheet(isPresented: Binding(
+            get: { shareURL != nil },
+            set: { if !$0 { shareURL = nil } }
+        )) {
+            if let shareURL {
+                // cleanupFilesOnDismiss MUST stay false: makeShareURL() falls
+                // back to the clip's REAL file when link + copy both fail, and
+                // cleanup would delete the athlete's original video. The temp
+                // link is replaced on the next share anyway.
+                ShareSheet(items: [shareURL], cleanupFilesOnDismiss: false)
+            }
+        }
         .fullScreenCover(isPresented: $showingRetrimFlow) {
             if let athlete = video.athlete {
                 RetrimSavedClipFlow(clip: video, athlete: athlete)
@@ -296,7 +311,14 @@ struct VideoClipCard: View {
         Divider()
 
         if FileManager.default.fileExists(atPath: video.resolvedFilePath) {
-            ShareLink(item: video.resolvedFileURL) {
+            Button {
+                if let url = video.makeShareURL() {
+                    shareURL = url
+                } else {
+                    errorMessage = "Could not prepare this video for sharing."
+                    showingError = true
+                }
+            } label: {
                 Label("Share", systemImage: "square.and.arrow.up")
             }
 

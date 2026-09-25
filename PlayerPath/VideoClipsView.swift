@@ -689,7 +689,6 @@ struct VideoClipsView: View {
                                         clipIDs: viewModel.allFilteredVideos.map(\.id),
                                         startID: video.id
                                     )
-                                    Haptics.light()
                                 }
                             },
                             onDelete: {
