@@ -74,8 +74,7 @@ enum JournalFeedBuilder {
         practices: [Practice],
         orphanClips: [VideoClip],
         orphanPhotos: [Photo],
-        coachFeedback: [CoachFeedbackFeedItem] = [],
-        filter: JournalFilter
+        coachFeedback: [CoachFeedbackFeedItem] = []
     ) -> [JournalEntry] {
         var entries: [JournalEntry] = []
         entries.reserveCapacity(games.count + practices.count + orphanClips.count + orphanPhotos.count + coachFeedback.count)
@@ -89,8 +88,9 @@ enum JournalFeedBuilder {
         // stable, so date-only ordering lets same-date rows shuffle between
         // rebuilds (which happen on every body render, including mid-scroll
         // @Query invalidations).
+        // Pill filtering happens in JournalView on the built feed (the pills,
+        // the empty checks and On This Day all need the unfiltered list).
         return entries
-            .filter { filter.matches($0) }
             .sorted { $0.date == $1.date ? $0.id > $1.id : $0.date > $1.date }
     }
 

@@ -2,15 +2,16 @@
 //  JournalView.swift
 //  PlayerPath
 //
-//  Visual overhaul — the Journal landing tab.
-//  A calm, reverse-chronological feed of the athlete's games, practices, and
-//  standalone clips. A compact "Live Now" strip pins to the top when an
-//  activity is live: tapping a card opens its detail screen, and the card's own
-//  pills run the activity in place (Score Hole / Record / End) via the shared
-//  `LiveActivityController`. Filter pills scope the feed: All / Games / Golf /
-//  Highlights.
+//  The athlete Home tab. A calm, reverse-chronological record of what happened:
+//  games, practices, standalone clips/photos, and coach feedback, scoped to the
+//  profile's pinned sport. Above it: pending coach invitations, a "Live Now"
+//  strip (cards run Score Hole / Record / End in place via the shared
+//  `LiveActivityController`) and an "Up Next" strip for scheduled events
+//  (`JournalUpNextStrip`). Content-type pills (All / Games-or-Rounds /
+//  Practices / Photos / Highlights / Feedback) appear only when they match
+//  something. On the All pill an "On This Day" card can lead the feed.
 //
-//  This is a NEW screen; DashboardView is preserved and reachable elsewhere.
+//  Replaced DashboardView as the athlete home; DashboardView is retired.
 //
 
 import SwiftUI
@@ -205,8 +206,7 @@ struct JournalView: View {
             practices: practices.filter { !$0.isLive && !JournalUpcoming.isScheduled($0, now: now) },
             orphanClips: orphanClips,
             orphanPhotos: orphanPhotos,
-            coachFeedback: feedbackItems,
-            filter: .all
+            coachFeedback: feedbackItems
         )
         .filter { sportMatches($0.sport) }
     }
@@ -409,7 +409,7 @@ struct JournalView: View {
 
                 // Pills only earn their place once there's something to filter.
                 // A brand-new athlete sees the welcome state instead — no point
-                // offering a "Golf" filter over an empty page.
+                // offering filters over an empty page.
                 if hasContent {
                     if hasFeed {
                         PPFilterPillRow(
