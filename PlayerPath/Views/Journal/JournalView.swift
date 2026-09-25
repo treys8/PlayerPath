@@ -235,6 +235,46 @@ struct JournalView: View {
     }
     @State private var milestoneCache = MilestoneCache()
 
+    /// Memo for the On This Day pick. Same pattern as MilestoneCache: the pick
+    /// does calendar math per feed entry, so it runs only when the feed's
+    /// dates/count or the day change, not on every body pass. (Starring a
+    /// clip doesn't re-rank until the feed changes; the rendered card itself is
+    /// always live.)
+    private final class MemoryCache {
+        var token: Int?
+        var memory: JournalMemory?
+    }
+    @State private var memoryCache = MemoryCache()
+
+    /// "athleteUUID|2026-09-25" of the last On This Day card hidden. One slot,
+    /// shared by all profiles: hiding on profile B re-shows A's card today, at
+    /// worst.
+    @AppStorage("journal.onThisDay.hidden") private var hiddenMemoryKey = ""
+
+    private var todayMemoryKey: String {
+        "\(athleteID.uuidString)|\(JournalAnniversary.dayKey())"
+    }
+
+    private func onThisDayMemory(from feed: [JournalEntry]) -> JournalMemory? {
+        var hasher = Hasher()
+        hasher.combine(JournalAnniversary.dayKey())
+        // Dates + count only, no `entry.id`: building ids allocates a
+        // uuidString per entry (and a Calendar call per photo group) on every
+        // body pass. Swapping one entry for another with the exact same
+        // timestamp is the only change this misses, and it can't happen in
+        // practice.
+        hasher.combine(feed.count)
+        for entry in feed {
+            hasher.combine(entry.date)
+        }
+        let token = hasher.finalize()
+        if memoryCache.token == token { return memoryCache.memory }
+        let memory = JournalMemoryPicker.pick(from: feed)
+        memoryCache.token = token
+        memoryCache.memory = memory
+        return memory
+    }
+
     /// Highest-significance milestone per game across every season in the feed,
     /// resolved ONCE per body so each row does an O(1) lookup instead of scanning
     /// (and re-ranking) the full milestone list twice — once for the marker, once
@@ -324,6 +364,11 @@ struct JournalView: View {
         let visibleEntries = feed.filter { filter.matches($0) }
         let filters = availableFilters(from: feed)
         let milestonesByGame = milestoneIndex()
+        // All pill only: it's a memory, not a filter result. Hidden for the rest
+        // of today once dismissed.
+        let memory = (hasFeed && filter == .all && hiddenMemoryKey != todayMemoryKey)
+            ? onThisDayMemory(from: feed)
+            : nil
 
         // Windowing: render only the first `displayLimit` rows and grow on scroll.
         // Filters/pills/empty-state above stay on the FULL feed; only the rendered
@@ -376,6 +421,9 @@ struct JournalView: View {
                         if visibleEntries.isEmpty {
                             filteredEmptyState
                         } else {
+                            if let memory {
+                                onThisDayCard(memory, milestonesByGame: milestonesByGame)
+                            }
                             ForEach(sections) { section in
                                 sectionHeader(section.title)
                                 ForEach(section.entries) { entry in
@@ -720,6 +768,36 @@ struct JournalView: View {
                 feedRow(entry, milestone: milestone, onWatchReel: reel.map { r -> () -> Void in { playingReel = r } })
             }
             .buttonStyle(.plain)
+        }
+    }
+
+    /// The On This Day card: an accent header ("On This Day · 1 Year Ago") with
+    /// a hide-for-today ✕, over the entry's normal feed card, which taps through
+    /// exactly like it does in the feed.
+    private func onThisDayCard(_ memory: JournalMemory, milestonesByGame: [UUID: Milestone]) -> some View {
+        VStack(alignment: .leading, spacing: .spacingSmall) {
+            HStack(spacing: 6) {
+                Image(systemName: "clock.arrow.circlepath")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(ppAccent)
+                Text(memory.anniversary.title).smallCapsLabel(color: ppAccent)
+                Spacer()
+                Button {
+                    Haptics.light()
+                    withAnimation(.easeOut(duration: 0.2)) { hiddenMemoryKey = todayMemoryKey }
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Theme.textTertiary)
+                        .frame(width: 32, height: 32)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Hide for today")
+            }
+            .padding(.horizontal, 18)
+
+            entryCell(memory.entry, milestone: memory.entry.gameID.flatMap { milestonesByGame[$0] })
         }
     }
 
