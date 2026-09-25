@@ -39,6 +39,16 @@ final class SyncCoordinator {
     /// Recomputed every pass — 0 clears the banner.
     var photosBlockedByQuota: Int = 0
 
+    /// A photo-sync pass is running. `syncPhotos` has callers outside the
+    /// `isSyncing` guard (post-save kicks, bulk-import reroute, pull-to-refresh),
+    /// and two overlapping passes would both upload the same new photo and each
+    /// create a Firestore doc (`createPhoto` uses the non-idempotent
+    /// `addDocument`) — a duplicate on every other device. See `syncPhotos(for:)`.
+    @ObservationIgnored var isSyncingPhotos = false
+    /// A `syncPhotos` call arrived mid-pass; the running pass loops once more so
+    /// the caller's new photo isn't left for the next full sync.
+    @ObservationIgnored var photoSyncRequested = false
+
     // MARK: - Active Athlete Scoping
 
     /// UUID string of the currently selected athlete. Set by UserMainFlow on

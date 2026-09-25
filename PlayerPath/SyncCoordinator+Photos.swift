@@ -9,6 +9,28 @@ import os
 // closure below without tripping Swift 6 main-actor isolation. Logger is Sendable.
 nonisolated private let syncLog = Logger(subsystem: "com.playerpath.app", category: "Sync")
 
+/// The user-editable fields of a photo, captured when its create payload is
+/// built. Compared after the upload's awaits: a difference means an edit
+/// (tag, star, caption, season re-home) landed mid-upload and never reached the
+/// created doc, so the photo must stay dirty for the metadata-update loop.
+private nonisolated struct PhotoEditSnapshot: Equatable {
+    let caption: String?
+    let isHighlight: Bool
+    let isScorecardPhoto: Bool
+    let gameID: UUID?
+    let practiceID: UUID?
+    let seasonID: UUID?
+
+    @MainActor init(_ photo: Photo) {
+        caption = photo.caption
+        isHighlight = photo.isHighlight
+        isScorecardPhoto = photo.isScorecardPhoto
+        gameID = photo.game?.id
+        practiceID = photo.practice?.id
+        seasonID = photo.season?.id
+    }
+}
+
 extension SyncCoordinator {
 
     /// Ceiling on how many missing-file photos one sync pass re-queues for download,
@@ -23,7 +45,47 @@ extension SyncCoordinator {
 
     // MARK: - Photos Sync
 
+    /// Runs photo sync passes one at a time. A call that lands mid-pass returns
+    /// at once and makes the running pass loop again — so overlapping callers
+    /// can never double-create a photo's Firestore doc, and a just-saved photo
+    /// still uploads promptly. (A coalesced caller doesn't wait for that pass.)
     func syncPhotos(for user: User) async throws {
+        guard !isSyncingPhotos else {
+            photoSyncRequested = true
+            return
+        }
+        isSyncingPhotos = true
+        defer { isSyncingPhotos = false }
+        repeat {
+            photoSyncRequested = false
+            try await runPhotoSyncPass(for: user)
+        } while photoSyncRequested
+    }
+
+    /// Fire-and-forget photo upload after a local photo save, so a capture or
+    /// import backs up now rather than at the next full sync — up to 30 min,
+    /// since the 5-minute periodic sync skips photos. Failures only log: the
+    /// photo stays `needsSync` and the next pass retries it.
+    func syncPhotosSoon(for user: User?) {
+        guard let user else { return }
+        Task {
+            do {
+                try await syncPhotos(for: user)
+            } catch {
+                syncLog.error("Post-save photo sync failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// `isDeleted` / `modelContext` are safe to read on a deleted model, unlike
+    /// its attributes — check this after every await before touching `photo`.
+    private static func isLive(_ photo: Photo) -> Bool {
+        !photo.isDeleted && photo.modelContext != nil
+    }
+
+    /// One full photo pass: upload new, push metadata edits, pull remote, delete
+    /// remotely-deleted, re-queue missing files. Call via `syncPhotos(for:)`.
+    private func runPhotoSyncPass(for user: User) async throws {
         guard let context = modelContext else { return }
         guard let ownerUID = Auth.auth().currentUser?.uid else { return }
 
@@ -59,11 +121,15 @@ extension SyncCoordinator {
             // exists under a different firestoreId on the server. Respect parent-sync
             // ordering, exactly as the Games/Seasons upload paths do.
             guard let athleteStableId = athlete.firestoreId else { continue }
-            let photos = athlete.photos ?? []
+            var photos = athlete.photos ?? []
 
             // Upload new photos that haven't been synced
             for photo in photos where photo.cloudURL == nil && photo.needsSync {
                 let resolvedPath = photo.resolvedFilePath
+                // Captured before any await — the photo can be deleted mid-upload
+                // (a post-save sync starts seconds after capture), and a deleted
+                // model's attributes must not be read.
+                let fileName = photo.fileName
                 guard FileManager.default.fileExists(atPath: resolvedPath) else { continue }
                 // Enforce storage limit before uploading (use live StoreKit tier)
                 let fileSize: Int64
@@ -86,25 +152,55 @@ extension SyncCoordinator {
                         at: URL(fileURLWithPath: resolvedPath),
                         ownerUID: ownerUID
                     )
-                    photo.cloudURL = cloudURL
+                    // Deleted while the file uploaded. Don't create a doc — the next
+                    // pass's download loop would resurrect the photo — and drop the blob.
+                    guard Self.isLive(photo) else {
+                        syncLog.info("Photo deleted mid-upload — removing uploaded blob")
+                        Task {
+                            await retryAsync {
+                                try await VideoCloudManager.shared.deleteAthletePhoto(fileName: fileName)
+                            }
+                        }
+                        continue
+                    }
+                    // `cloudURL` goes into the payload but NOT onto the model until the
+                    // doc exists: `Photo.delete` treats a non-nil cloudURL as "counted
+                    // against quota", and these bytes aren't counted yet.
+                    var payload = photo.toFirestoreData(ownerUID: ownerUID)
+                    payload["downloadURL"] = cloudURL
+                    let sent = PhotoEditSnapshot(photo)
+                    let firestoreId: String
                     do {
-                        let firestoreId = try await FirestoreManager.shared.createPhoto(
-                            data: photo.toFirestoreData(ownerUID: ownerUID)
-                        )
-                        photo.firestoreId = firestoreId
+                        firestoreId = try await FirestoreManager.shared.createPhoto(data: payload)
                     } catch {
                         // Firestore write failed after Storage upload — clean up orphaned file
                         syncLog.error("Firestore photo create failed, cleaning up Storage: \(error.localizedDescription)")
-                        let capturedFileName = photo.fileName
                         Task {
                             await retryAsync {
-                                try await VideoCloudManager.shared.deleteAthletePhoto(fileName: capturedFileName)
+                                try await VideoCloudManager.shared.deleteAthletePhoto(fileName: fileName)
                             }
                         }
-                        photo.cloudURL = nil
                         throw error
                     }
-                    photo.needsSync = false
+                    // Deleted while the doc was being created: undo both.
+                    guard Self.isLive(photo) else {
+                        syncLog.info("Photo deleted mid-create — removing doc and blob")
+                        Task {
+                            await retryAsync {
+                                try await FirestoreManager.shared.deletePhoto(photoId: firestoreId)
+                            }
+                            await retryAsync {
+                                try await VideoCloudManager.shared.deleteAthletePhoto(fileName: fileName)
+                            }
+                        }
+                        continue
+                    }
+                    photo.cloudURL = cloudURL
+                    photo.firestoreId = firestoreId
+                    // An edit made during the two awaits isn't in the created doc.
+                    // Leave the photo dirty so the metadata-update loop below — this
+                    // same pass — sends it, instead of clearing the edit unsent.
+                    photo.needsSync = PhotoEditSnapshot(photo) != sent
                     if let uploadedSize = (try? FileManager.default.attributesOfItem(atPath: resolvedPath)[.size] as? Int64) {
                         user.cloudStorageUsedBytes += uploadedSize
                     } else {
@@ -122,6 +218,10 @@ extension SyncCoordinator {
                     syncLog.error("Failed to sync photo: \(error.localizedDescription)")
                 }
             }
+
+            // The uploads above awaited; a photo deleted meanwhile is still in this
+            // snapshot, and everything below reads its attributes. Drop dead rows.
+            photos = photos.filter { Self.isLive($0) }
 
             // Update metadata for photos that have been edited locally
             let updatedPhotos = photos.filter { $0.needsSync && $0.firestoreId != nil && $0.cloudURL != nil }
