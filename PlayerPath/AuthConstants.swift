@@ -56,6 +56,9 @@ enum AuthConstants {
         static let hasAthleteTierOverride = "hasAthleteTierOverride"
         static let failedSignInAttempts = "failedSignInAttempts"
         static let signInLockedUntil = "signInLockedUntil"
+        /// UID whose sign-up finished but onboarding hasn't. Survives relaunch
+        /// and sign-out on purpose — see ComprehensiveAuthManager+Onboarding.
+        static let pendingOnboardingUID = "pendingOnboardingUID"
     }
 
     // MARK: - Roles

@@ -234,6 +234,9 @@ final class ComprehensiveAuthManager: ObservableObject {
 
     func resetNewUserFlag() {
         isNewUser = false
+        // Both onboarding finish lines (OnboardingBackupView for athletes,
+        // completeOnboarding for coaches) come through here.
+        clearPendingOnboarding()
     }
 
     // Method to allow external sign-in managers (like Apple Sign In) to update the user.
@@ -249,6 +252,7 @@ final class ComprehensiveAuthManager: ObservableObject {
         // Only set isSignedIn immediately for new users (role is already known).
         // Returning users need the auth state listener to load their profile first.
         if isNewUser {
+            markOnboardingPending(uid: user.uid)
             isSignedIn = true
         }
     }

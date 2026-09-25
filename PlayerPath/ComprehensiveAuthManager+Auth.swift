@@ -94,6 +94,7 @@ extension ComprehensiveAuthManager {
                         _ = try? await user.getIDToken(forcingRefresh: true)
                     }
 
+                    if let user { self?.restorePendingOnboardingIfNeeded(for: user) }
                     self?.isSignedIn = true
 
                     // Apple Sign In can provide mixed-case emails (e.g. Trey@Gmail.com).
@@ -148,6 +149,7 @@ extension ComprehensiveAuthManager {
                 return
             }
 
+            restorePendingOnboardingIfNeeded(for: result.user)
             isSignedIn = true
 
             // Track successful sign in
@@ -199,6 +201,7 @@ extension ComprehensiveAuthManager {
                 try await changeRequest.commitChanges()
             }
             currentFirebaseUser = result.user
+            markOnboardingPending(uid: result.user.uid)
 
             authLog.debug("Creating athlete profile for \(email, privacy: .private)")
 
@@ -266,6 +269,7 @@ extension ComprehensiveAuthManager {
             try await changeRequest.commitChanges()
 
             currentFirebaseUser = result.user
+            markOnboardingPending(uid: result.user.uid)
 
             authLog.debug("Creating coach profile for \(email, privacy: .private)")
 
@@ -462,6 +466,7 @@ extension ComprehensiveAuthManager {
                 // subsequent UI render has the correct role.
                 await loadUserProfile()
                 needsEmailVerification = false
+                restorePendingOnboardingIfNeeded(for: refreshedUser)
                 isSignedIn = true
                 authLog.info("Email verified for \(refreshedUser.email ?? "unknown", privacy: .private)")
                 return true
