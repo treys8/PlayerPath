@@ -20,8 +20,9 @@ struct WhatsNewView: View {
                     .foregroundColor(ppAccent)
                 Text("What's New")
                     .font(.displayMedium)
+                    .foregroundColor(Theme.textPrimary)
                 Text("Version \(Bundle.main.appVersion)")
-                    .font(.bodySmall).foregroundColor(.secondary)
+                    .font(.bodySmall).foregroundColor(Theme.textSecondary)
             }
             .padding(.top, 24)
 
@@ -34,7 +35,7 @@ struct WhatsNewView: View {
                             .frame(width: 24)
                         Text(item)
                             .font(.bodyMedium)
-                            .foregroundColor(.primary)
+                            .foregroundColor(Theme.textPrimary)
                         Spacer()
                     }
                 }
@@ -59,5 +60,7 @@ struct WhatsNewView: View {
             .padding(.horizontal, 20)
             .padding(.bottom, 32)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.surface)
     }
 }

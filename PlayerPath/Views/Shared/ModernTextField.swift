@@ -17,9 +17,9 @@ enum FieldValidationState {
 
     var borderColor: Color {
         switch self {
-        case .idle: return Color(.systemGray4)
-        case .valid: return .green
-        case .invalid: return .red
+        case .idle: return Theme.pillBorder
+        case .valid: return Theme.success
+        case .invalid: return Theme.warning
         case .warning: return Theme.warning
         }
     }
@@ -36,8 +36,8 @@ enum FieldValidationState {
     var iconColor: Color {
         switch self {
         case .idle: return .clear
-        case .valid: return .green
-        case .invalid: return .red
+        case .valid: return Theme.success
+        case .invalid: return Theme.warning
         case .warning: return Theme.warning
         }
     }
@@ -76,7 +76,7 @@ struct ModernTextField: View {
             if let icon = icon {
                 Image(systemName: icon)
                     .font(.system(size: 18, weight: .medium))
-                    .foregroundColor(isFocused ? ppAccent : Color(.systemGray2))
+                    .foregroundColor(isFocused ? ppAccent : Theme.textTertiary)
                     .frame(width: 24)
                     .animation(.easeInOut(duration: 0.2), value: isFocused)
             }
@@ -116,7 +116,7 @@ struct ModernTextField: View {
                     } label: {
                         Image(systemName: showPassword ? "eye.slash.fill" : "eye.fill")
                             .font(.system(size: 16))
-                            .foregroundColor(Color(.systemGray2))
+                            .foregroundColor(Theme.textTertiary)
                     }
                     .buttonStyle(.plain)
                 }
@@ -171,10 +171,10 @@ struct PasswordStrengthIndicator: View {
         if password.range(of: "[^A-Za-z0-9]", options: .regularExpression) != nil { score += 1 }
 
         switch score {
-        case 0...2: return (1, "Weak", .red)
-        case 3...4: return (2, "Medium", .orange)
-        case 5: return (3, "Strong", .green)
-        default: return (4, "Very Strong", .green)
+        case 0...2: return (1, "Weak", Theme.warning)
+        case 3...4: return (2, "Medium", Theme.textSecondary)
+        case 5: return (3, "Strong", Theme.success)
+        default: return (4, "Very Strong", Theme.success)
         }
     }
 
@@ -184,7 +184,7 @@ struct PasswordStrengthIndicator: View {
             HStack(spacing: 4) {
                 ForEach(1...4, id: \.self) { index in
                     RoundedRectangle(cornerRadius: 2)
-                        .fill(index <= strength.level ? strength.color : Color(.systemGray5))
+                        .fill(index <= strength.level ? strength.color : Theme.divider)
                         .frame(height: 4)
                 }
             }
@@ -218,11 +218,11 @@ struct PasswordRequirementsList: View {
                 HStack(spacing: 8) {
                     Image(systemName: isMet ? "checkmark.circle.fill" : "circle")
                         .font(.caption)
-                        .foregroundColor(isMet ? .green : Color(.systemGray3))
+                        .foregroundColor(isMet ? Theme.success : Theme.textTertiary)
 
                     Text(requirement)
                         .font(.bodySmall)
-                        .foregroundColor(isMet ? .primary : .secondary)
+                        .foregroundColor(isMet ? Theme.textPrimary : Theme.textSecondary)
                 }
             }
         }

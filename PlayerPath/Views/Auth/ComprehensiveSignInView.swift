@@ -60,7 +60,6 @@ struct ComprehensiveSignInView: View {
             if authManager.needsEmailVerification {
                 EmailVerificationView()
                     .environmentObject(authManager)
-                    .background(Color(.systemGroupedBackground))
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
                         ToolbarItem(placement: .cancellationAction) {
@@ -71,7 +70,7 @@ struct ComprehensiveSignInView: View {
                                 Image(systemName: "xmark.circle.fill")
                                     .font(.title3)
                                     .symbolRenderingMode(.hierarchical)
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(Theme.textSecondary)
                             }
                         }
                     }
@@ -102,7 +101,7 @@ struct ComprehensiveSignInView: View {
                         if focused { withAnimation(.easeInOut(duration: 0.3)) { proxy.scrollTo("actionButtons", anchor: .bottom) } }
                     }
                 }
-                .background(Color(.systemGroupedBackground))
+                .background(Theme.surface)
                 .onAppear { appleSignInManager.configure(with: authManager) }
                 .onDisappear { appleSignInManager.cleanup() }
                 .navigationBarTitleDisplayMode(.inline)
@@ -112,7 +111,7 @@ struct ComprehensiveSignInView: View {
                             Image(systemName: "xmark.circle.fill")
                                 .font(.title3)
                                 .symbolRenderingMode(.hierarchical)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(Theme.textSecondary)
                         }
                     }
                 }
@@ -156,8 +155,9 @@ struct ComprehensiveSignInView: View {
             VStack(spacing: 8) {
                 Text(isSignUpMode ? "Create Account" : "Welcome Back")
                     .font(.displayMedium)
+                    .foregroundColor(Theme.textPrimary)
                 Text(isSignUpMode ? (selectedRole == .athlete ? "Join PlayerPath to track your sports journey" : "Join PlayerPath to coach your athletes") : "Sign in to continue to PlayerPath")
-                    .font(.bodyMedium).foregroundColor(.secondary).multilineTextAlignment(.center)
+                    .font(.bodyMedium).foregroundColor(Theme.textSecondary).multilineTextAlignment(.center)
             }
         }
         .padding(.top, 8)
@@ -166,7 +166,7 @@ struct ComprehensiveSignInView: View {
     private var roleSelectionSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Account type")
-                .font(.headingSmall).foregroundColor(.secondary)
+                .font(.headingSmall).foregroundColor(Theme.textSecondary)
             HStack(spacing: 12) {
                 RoleSelectionButton(role: .athlete, isSelected: selectedRole == .athlete, icon: "figure.baseball", title: "Athlete", description: "Track my progress") {
                     Haptics.light(); selectedRole = .athlete
@@ -193,7 +193,7 @@ struct ComprehensiveSignInView: View {
                     if selectedRole == .athlete {
                         Text("You'll add your athlete's name in the next step.")
                             .font(.bodySmall)
-                            .foregroundColor(.secondary)
+                            .foregroundColor(Theme.textSecondary)
                             .padding(.leading, 4)
                             .accessibilityHidden(true)
                     }
@@ -230,9 +230,9 @@ struct ComprehensiveSignInView: View {
             } label: {
                 HStack(alignment: .top, spacing: 10) {
                     Image(systemName: confirmedAge ? "checkmark.square.fill" : "square")
-                        .foregroundColor(confirmedAge ? ppAccent : .gray).font(.title3)
+                        .foregroundColor(confirmedAge ? ppAccent : Theme.textTertiary).font(.title3)
                     Text("I confirm that I am at least 18 years old, or a parent/guardian creating this account on behalf of my child.")
-                        .font(.bodySmall).foregroundColor(.secondary).multilineTextAlignment(.leading)
+                        .font(.bodySmall).foregroundColor(Theme.textSecondary).multilineTextAlignment(.leading)
                 }
             }
             .buttonStyle(.plain)
@@ -241,10 +241,10 @@ struct ComprehensiveSignInView: View {
             .accessibilityValue(confirmedAge ? "Confirmed" : "Not confirmed")
 
             VStack(spacing: 6) {
-                Text("By creating an account, you agree to our").font(.bodySmall).foregroundColor(.secondary)
+                Text("By creating an account, you agree to our").font(.bodySmall).foregroundColor(Theme.textSecondary)
                 HStack(spacing: 4) {
                     Button("Terms of Use (EULA)") { showingTerms = true }.font(.bodySmall).foregroundColor(ppAccent)
-                    Text("and").font(.bodySmall).foregroundColor(.secondary)
+                    Text("and").font(.bodySmall).foregroundColor(Theme.textSecondary)
                     Button("Privacy Policy") { showingPrivacyPolicy = true }.font(.bodySmall).foregroundColor(ppAccent)
                 }
             }
@@ -269,7 +269,7 @@ struct ComprehensiveSignInView: View {
                 .frame(maxWidth: .infinity).frame(height: 54)
                 .background(
                     LinearGradient(
-                        colors: canSubmitForm() && !authManager.isLoading ? [ppAccent, ppAccent.opacity(0.85)] : [Color(.systemGray4), Color(.systemGray4)],
+                        colors: canSubmitForm() && !authManager.isLoading ? [ppAccent, ppAccent.opacity(0.85)] : [Theme.textTertiary, Theme.textTertiary],
                         startPoint: .topLeading, endPoint: .bottomTrailing
                     )
                 )
@@ -281,9 +281,9 @@ struct ComprehensiveSignInView: View {
 
             // Divider
             HStack {
-                Rectangle().frame(height: 1).foregroundColor(.secondary.opacity(0.3))
-                Text("or").font(.bodyMedium).foregroundColor(.secondary)
-                Rectangle().frame(height: 1).foregroundColor(.secondary.opacity(0.3))
+                Rectangle().frame(height: 1).foregroundColor(Theme.divider)
+                Text("or").font(.bodyMedium).foregroundColor(Theme.textSecondary)
+                Rectangle().frame(height: 1).foregroundColor(Theme.divider)
             }
 
             // Sign in with Apple (required by App Store Guideline 4.8)
@@ -309,7 +309,7 @@ struct ComprehensiveSignInView: View {
 
             if isSignUpMode {
                 HStack(spacing: 4) {
-                    Text("Already have an account?").font(.bodyMedium).foregroundColor(.secondary)
+                    Text("Already have an account?").font(.bodyMedium).foregroundColor(Theme.textSecondary)
                     Button { Haptics.light(); dismiss(); onSwitchToSignIn?() } label: {
                         Text("Sign in").font(.labelLarge).foregroundColor(ppAccent)
                     }

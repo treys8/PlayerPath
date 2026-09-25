@@ -41,8 +41,9 @@ struct EmailVerificationView: View {
             VStack(spacing: 10) {
                 Text("Verify Your Email")
                     .font(.displayMedium)
+                    .foregroundColor(Theme.textPrimary)
                 Text("We sent a verification link to:")
-                    .font(.bodyMedium).foregroundColor(.secondary)
+                    .font(.bodyMedium).foregroundColor(Theme.textSecondary)
                 Text(authManager.userEmail ?? "your email")
                     .font(.headingSmall)
                     .foregroundColor(ppAccent)
@@ -60,16 +61,16 @@ struct EmailVerificationView: View {
             if let statusMessage {
                 HStack(spacing: 8) {
                     Image(systemName: isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
-                        .foregroundColor(isError ? .red : .green)
+                        .foregroundColor(isError ? Theme.warning : Theme.success)
                     Text(statusMessage)
                         .font(.bodySmall)
-                        .foregroundColor(isError ? .red : .green)
+                        .foregroundColor(isError ? Theme.warning : Theme.success)
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
                 .background(
                     RoundedRectangle(cornerRadius: 10)
-                        .fill((isError ? Color.red : Color.green).opacity(0.1))
+                        .fill((isError ? Theme.warning : Theme.success).opacity(0.1))
                 )
             }
 
@@ -128,7 +129,7 @@ struct EmailVerificationView: View {
                 } label: {
                     Text("Use a Different Account")
                         .font(.labelLarge)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(Theme.textSecondary)
                 }
                 .disabled(isCheckingVerification || isResending)
             }
@@ -136,6 +137,8 @@ struct EmailVerificationView: View {
             Spacer()
         }
         .padding(.horizontal, 20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.surface)
         .onAppear { startPolling() }
         .onDisappear { stopPolling() }
     }
@@ -150,7 +153,7 @@ struct EmailVerificationView: View {
                 .frame(width: 28)
             Text(text)
                 .font(.bodyMedium)
-                .foregroundColor(.primary)
+                .foregroundColor(Theme.textPrimary)
             Spacer()
         }
     }

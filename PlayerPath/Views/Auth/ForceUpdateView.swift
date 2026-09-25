@@ -33,9 +33,10 @@ struct ForceUpdateView: View {
             VStack(spacing: 10) {
                 Text("Update Required")
                     .font(.displayMedium)
+                    .foregroundColor(Theme.textPrimary)
                 Text("A new version of PlayerPath is available with important updates. Please update to continue.")
                     .font(.bodyMedium)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(Theme.textSecondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 32)
             }
@@ -61,9 +62,11 @@ struct ForceUpdateView: View {
 
             Text("Version \(Bundle.main.appVersion)")
                 .font(.bodySmall)
-                .foregroundColor(.secondary)
+                .foregroundColor(Theme.textSecondary)
 
             Spacer()
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.surface)
     }
 }

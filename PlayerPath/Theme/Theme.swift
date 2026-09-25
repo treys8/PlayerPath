@@ -72,6 +72,10 @@ enum Theme {
     /// reads as a call-to-action. (`Color.warning` points here.)
     static let warning = Color(hex: "C0852E")
 
+    /// Confirmation — valid field, met requirement, "email sent". Same forest as
+    /// `chipGreenText` so "good" reads identically everywhere.
+    static let success = chipGreenText
+
     // MARK: - Media tiles (sport / variety only — not meaning)
     static let tileNavy = Color(hex: "2D3D52")
     /// Video player surface.
