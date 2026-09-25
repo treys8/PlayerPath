@@ -45,8 +45,8 @@ extension CoachProfileView {
                        keywords: ["app", "preferences", "haptics", "tips", "analytics", "interface"]) {
                 UserPreferencesView()
             },
-            searchItem("Video Recording", icon: "video.fill",
-                       keywords: ["video", "recording", "quality", "camera", "resolution", "fps", "4k"]) {
+            searchItem("Recording & Uploads", icon: "video.fill",
+                       keywords: ["video", "recording", "quality", "camera", "resolution", "fps", "4k", "upload", "cellular", "wifi"]) {
                 VideoRecordingSettingsView(role: .coach)
             },
             searchItem("Manage Storage", icon: "internaldrive",

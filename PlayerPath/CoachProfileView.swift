@@ -211,7 +211,7 @@ struct CoachProfileView: View {
                     }
 
                     NavigationLink(destination: VideoRecordingSettingsView(role: .coach)) {
-                        Label("Video Recording", systemImage: "video.fill")
+                        Label("Recording & Uploads", systemImage: "video.fill")
                     }
 
                     NavigationLink(destination: StorageSettingsView()) {
@@ -220,10 +220,6 @@ struct CoachProfileView: View {
 
                     NavigationLink(destination: NotificationSettingsView(athleteId: nil)) {
                         Label("Notifications", systemImage: "bell")
-                    }
-
-                    NavigationLink(destination: CoachReviewReminderSettingsView()) {
-                        Label("Review Reminders", systemImage: "bell.badge")
                     }
 
                     let provider = Auth.auth().currentUser?.providerData.first?.providerID ?? "email"
