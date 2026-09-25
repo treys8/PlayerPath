@@ -569,10 +569,33 @@ struct MainTabView: View {
         }
     }
     
+    /// TabView selection that also catches a tap on the ALREADY-selected tab
+    /// (the setter fires with an unchanged value). Standard iOS behavior for Home:
+    /// the first re-tap pops to the Journal root, and a re-tap at the root scrolls
+    /// the feed to the top. Other tabs behave as before.
+    private var tabSelection: Binding<Int> {
+        Binding(
+            get: { selectedTab },
+            set: { newValue in
+                if newValue == selectedTab { handleTabReselect(newValue) }
+                selectedTab = newValue
+            }
+        )
+    }
+
+    private func handleTabReselect(_ tab: Int) {
+        guard tab == MainTab.home.rawValue else { return }
+        if homePath.isEmpty {
+            NotificationCenter.default.post(name: .journalScrollToTop, object: nil)
+        } else {
+            homePath = NavigationPath()
+        }
+    }
+
     @ViewBuilder
     private var tabViewContent: some View {
         if #available(iOS 18.0, *), horizontalSizeClass == .regular {
-            TabView(selection: $selectedTab) {
+            TabView(selection: tabSelection) {
                 homeTab
                 gamesTab
                 videosTab
@@ -581,7 +604,7 @@ struct MainTabView: View {
             }
             .tabViewStyle(.sidebarAdaptable)
         } else {
-            TabView(selection: $selectedTab) {
+            TabView(selection: tabSelection) {
                 homeTab
                 gamesTab
                 videosTab

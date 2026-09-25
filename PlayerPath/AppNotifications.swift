@@ -12,6 +12,9 @@ extension Notification.Name {
     /// Mirrors `.gameEnded`; drives the post-event highlight-reel banner.
     static let practiceEnded = Notification.Name("PracticeEnded")
     static let switchTab = Notification.Name("switchTab")
+    /// Posted by MainTabView when the Home tab is re-tapped while the Journal is
+    /// already at its root. JournalView scrolls its feed back to the top.
+    static let journalScrollToTop = Notification.Name("journalScrollToTop")
     static let presentVideoRecorder = Notification.Name("presentVideoRecorder")
     static let showAthleteSelection = Notification.Name("showAthleteSelection")
     static let switchAthlete = Notification.Name("switchAthlete")

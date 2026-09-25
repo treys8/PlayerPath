@@ -37,6 +37,9 @@ struct JournalView: View {
     @State private var displayLimit = pageSize
     private static let pageSize = 50
 
+    /// Scroll target for Home-tab re-tap (`.journalScrollToTop`).
+    private static let scrollTopID = "journal-scroll-top"
+
     /// Drives the Home search sheet — the app's single advanced-search surface
     /// (`AdvancedSearchView`), previously reachable only from the Videos tab.
     /// Promoting it here makes search discoverable from the landing screen;
@@ -305,7 +308,12 @@ struct JournalView: View {
         let loadMoreTriggerIDs: Set<String> = hasMore ? Set(windowedEntries.suffix(10).map(\.id)) : []
         let sections = JournalFeedSections.build(from: windowedEntries)
 
-        return ScrollView {
+        return ScrollViewReader { proxy in
+        ScrollView {
+            // Zero-height anchor ABOVE the LazyVStack (in a spacing-0 VStack), so
+            // it adds no gap and is never lazily unloaded.
+            VStack(spacing: 0) {
+            Color.clear.frame(height: 0).id(Self.scrollTopID)
             LazyVStack(spacing: .spacingLarge) {
                 // Pending coach invitations — self-hides when none. Ported from
                 // the retired DashboardView: the home tab carries an invitation
@@ -377,12 +385,19 @@ struct JournalView: View {
                 }
             }
             .padding(.vertical, .spacingLarge)
+            }
         }
-        .background(Theme.surface)
         // Photo-led feed: the default soft edge left the clock and header
         // unreadable over dark images scrolled under the nav bar.
         .ppHardTopScrollEdge()
         .refreshable { await refreshFeed() }
+        .onReceive(NotificationCenter.default.publisher(for: .journalScrollToTop)) { _ in
+            withAnimation(.easeOut(duration: 0.3)) {
+                proxy.scrollTo(Self.scrollTopID, anchor: .top)
+            }
+        }
+        }
+        .background(Theme.surface)
         // The empty state carries its own in-body serif title block, so suppress
         // the large nav title there — otherwise "The Journal." renders twice.
         .navigationTitle(hasContent ? "The Journal." : "")
