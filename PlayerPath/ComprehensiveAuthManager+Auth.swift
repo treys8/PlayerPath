@@ -417,8 +417,21 @@ extension ComprehensiveAuthManager {
     }
 
     /// Reloads the Firebase user and checks if their email is now verified.
-    /// If verified, transitions to the signed-in state.
+    /// If verified, transitions to the signed-in state. Concurrent callers share
+    /// one check, so isHandlingVerification and the success path run once.
     func checkEmailVerification() async -> Bool {
+        if let inFlight = verificationCheckTask {
+            return await inFlight.value
+        }
+        let task = Task { await performEmailVerificationCheck() }
+        verificationCheckTask = task
+        defer { verificationCheckTask = nil }
+        return await task.value
+    }
+
+    /// Does the actual reload/verification-check work. Always call through
+    /// `checkEmailVerification()`, which coalesces concurrent callers.
+    private func performEmailVerificationCheck() async -> Bool {
         guard let user = currentFirebaseUser else { return false }
         // Suppress the auth state listener while we're in the middle of
         // verification — user.reload() can fire the listener and race with

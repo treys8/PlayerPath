@@ -157,9 +157,11 @@ struct EmailVerificationView: View {
             if phase == .active {
                 // Coming back from Mail/Safari is the moment they verified —
                 // check now instead of waiting up to 5s for the next tick.
-                // Check FIRST, then resume polling, so a timer tick can't run a
-                // second checkEmailVerification concurrently (both would flip
-                // isHandlingVerification and, on success, load the profile twice).
+                // Check FIRST, then resume polling, so ordering alone avoids an
+                // immediate double tick; checkEmailVerification() itself coalesces
+                // any remaining overlap (e.g. a timer tick already in flight when
+                // the app backgrounded) so isHandlingVerification and the success
+                // path only ever run once.
                 Task {
                     let verified = await authManager.checkEmailVerification()
                     if !verified { startPolling() }

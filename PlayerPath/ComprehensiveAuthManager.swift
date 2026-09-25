@@ -133,6 +133,10 @@ final class ComprehensiveAuthManager: ObservableObject {
     /// True while `checkEmailVerification()` is in flight. Prevents the listener
     /// from racing with verification (user.reload() can fire the listener).
     var isHandlingVerification = false
+    /// In-flight email-verification check. checkEmailVerification() joins it
+    /// instead of starting a second reload (timer tick + foreground return +
+    /// manual button can all fire together).
+    var verificationCheckTask: Task<Bool, Never>?
     /// Stored Apple credential-revoked observer so we can remove it on deinit.
     var appleCredentialObserver: NSObjectProtocol?
 
