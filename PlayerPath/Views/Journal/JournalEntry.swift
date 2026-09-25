@@ -107,17 +107,20 @@ enum JournalEntry: Identifiable {
         }
     }
 
-    /// True when any contained clip is starred. Cross-cuts entry type, so it's
-    /// used by the feed's Highlights filter (`JournalFilter.matches`) and the
-    /// row's type tag — the only media accessor the row still reads off the
-    /// entry directly; counts + representatives come from `mediaSummary`.
+    /// True when any contained clip is starred or any contained photo is
+    /// favorited (`Photo.isHighlight`, the star in the photo viewer). Cross-cuts
+    /// entry type, so it's used by the feed's Highlights filter
+    /// (`JournalFilter.matches`) and the row's type tag — the only media accessor
+    /// the row still reads off the entry directly; counts + representatives come
+    /// from `mediaSummary`. Clips are checked first so the common case never
+    /// faults the photos relationship.
     var containsHighlight: Bool {
         // A coach-feedback card stands in for its orphan clip (the plain clip card
         // is deduped out of the feed once feedback arrives), so it MUST still count
         // as a highlight when that clip is starred — otherwise a coach comment would
         // silently drop a starred clip out of the Highlights pill.
         if case .coachFeedback(let item) = self { return item.clip.isHighlight }
-        return clips.contains { $0.isHighlight }
+        return clips.contains { $0.isHighlight } || photos.contains { $0.isHighlight }
     }
 
     // MARK: - Per-row media summary

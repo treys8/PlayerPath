@@ -800,7 +800,7 @@ struct JournalView: View {
         case .games:      return "No \(eventNoun.lowercased())s logged yet."
         case .practices:  return "No practices logged yet."
         case .photos:     return "No photos yet."
-        case .highlights: return "No highlights yet — star a clip to add one."
+        case .highlights: return "No highlights yet — star a clip or photo to add one."
         case .feedback:   return "No coach feedback yet."
         }
     }
