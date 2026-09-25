@@ -194,8 +194,15 @@ struct EnhancedVideoPlayer: View {
                         .onEnded { _ in lastPanOffset = panOffset }
                 )
             )
-            .onTapGesture(count: 2) { resetZoom() }
-            .onTapGesture { togglePlayPause(); showControlsTemporarily() }
+            // Double-tap resets zoom, so it only exists while zoomed. Left on at
+            // 1×, SwiftUI holds every single tap ~0.3s to rule out a double.
+            // `.subviews`, never `.none`: `.none` would also disable the
+            // pinch/pan gesture attached above.
+            .gesture(
+                TapGesture(count: 2).onEnded { resetZoom() },
+                including: zoomScale > 1 ? .all : .subviews
+            )
+            .onTapGesture { handleSingleTap() }
     }
 
     private func handleScenePhaseChange(_ newPhase: ScenePhase) {
@@ -538,6 +545,13 @@ struct EnhancedVideoPlayer: View {
             player.play()
         }
         Haptics.light()
+    }
+
+    /// Hidden controls: the tap just brings them back (reaching for the
+    /// scrubber shouldn't pause the clip). Visible controls: play/pause.
+    private func handleSingleTap() {
+        if showControls { togglePlayPause() }
+        showControlsTemporarily()
     }
 
     private func seek(to time: Double) {
