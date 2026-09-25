@@ -50,6 +50,9 @@ struct VideoRecordingSettingsView: View {
             slowMotionSection
             additionalSettingsSection
             cloudUploadSection
+            if role == .athlete {
+                deviceCopySection
+            }
             workflowSection
             summarySection
             resetSection
@@ -57,7 +60,7 @@ struct VideoRecordingSettingsView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.surface)
         .tint(ppAccent)
-        .navigationTitle("Recording Settings")
+        .navigationTitle("Recording & Uploads")
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(false)  // Explicitly show system back button
         .toolbar {
@@ -330,6 +333,49 @@ struct VideoRecordingSettingsView: View {
             }
         } else {
             Text("Videos will only be stored locally on this device. Enable auto-upload to backup videos to the cloud and share with coaches.")
+        }
+    }
+
+    /// Athlete-only: what happens to the copy on this iPhone. Coach recordings
+    /// don't go through ClipPersistenceService or the athlete upload queue, so
+    /// neither toggle applies to them.
+    @ViewBuilder
+    private var deviceCopySection: some View {
+        if let prefs = preferences {
+            Section {
+                Toggle(isOn: Binding(
+                    get: { prefs.saveToPhotosLibrary },
+                    set: { prefs.saveToPhotosLibrary = $0; ErrorHandlerService.shared.saveContext(modelContext, caller: "RecordingSettings.saveToPhotos") }
+                )) {
+                    HStack {
+                        Image(systemName: "photo.on.rectangle")
+                            .foregroundColor(ppAccent)
+                        Text("Save to Photos Library")
+                    }
+                }
+
+                Toggle(isOn: Binding(
+                    get: { prefs.autoDeleteAfterUpload },
+                    set: { prefs.autoDeleteAfterUpload = $0; ErrorHandlerService.shared.saveContext(modelContext, caller: "RecordingSettings.autoDelete") }
+                )) {
+                    HStack {
+                        Image(systemName: "iphone.slash")
+                            .foregroundColor(prefs.autoDeleteAfterUpload ? Theme.warning : .secondary)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Remove After Upload")
+                            Text("Frees space on this iPhone")
+                                .font(.bodySmall)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            } header: {
+                Text("On This iPhone")
+            } footer: {
+                // Honest about the trade-off: VideoPlayerView re-downloads on play,
+                // but the reel stitcher only uses clips present on this device.
+                Text("Removed clips download again when you play them. Highlight reels can only include clips that are still on this iPhone.")
+            }
         }
     }
 
