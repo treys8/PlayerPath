@@ -364,6 +364,7 @@ extension ComprehensiveAuthManager {
         isSignedIn = false
         isNewUser = false
         needsEmailVerification = false
+        verificationEmailSendFailed = false
         userRole = .athlete
 
         userProfile = nil

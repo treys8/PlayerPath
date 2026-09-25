@@ -17,6 +17,10 @@ struct EmailVerificationView: View {
     @State private var statusMessage: String?
     @State private var isError = false
     @State private var pollTimer: Timer?
+    // Guards startPolling() so an in-flight scenePhase check that completes
+    // after the view has gone away (e.g. "Use a Different Account" or X)
+    // can't resurrect a Timer nothing will ever invalidate.
+    @State private var isVisible = false
 
     var body: some View {
         VStack(spacing: 28) {
@@ -151,8 +155,14 @@ struct EmailVerificationView: View {
         .padding(.horizontal, 20)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.surface)
-        .onAppear { startPolling() }
-        .onDisappear { stopPolling() }
+        .onAppear {
+            isVisible = true
+            startPolling()
+        }
+        .onDisappear {
+            isVisible = false
+            stopPolling()
+        }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 // Coming back from Mail/Safari is the moment they verified —
@@ -216,6 +226,9 @@ struct EmailVerificationView: View {
     /// Polls Firebase every 5 seconds to auto-detect verification.
     private func startPolling() {
         stopPolling()
+        // The view may have disappeared while an awaited check (e.g. from the
+        // scenePhase handler) was in flight; don't schedule a timer for a gone view.
+        guard isVisible else { return }
         pollTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { _ in
             Task { @MainActor in
                 let verified = await authManager.checkEmailVerification()

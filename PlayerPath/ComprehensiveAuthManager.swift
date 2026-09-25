@@ -140,7 +140,7 @@ final class ComprehensiveAuthManager: ObservableObject {
     /// Stored Apple credential-revoked observer so we can remove it on deinit.
     var appleCredentialObserver: NSObjectProtocol?
 
-    // MARK: - Coach signup carryover
+    // MARK: - Email verification state
     /// True when the verification email could not be sent during signup.
     /// UI should show a "couldn't send — tap Resend" hint when true.
     @Published var verificationEmailSendFailed: Bool = false

@@ -1437,14 +1437,20 @@ export const cleanupUserDataOnDelete = functions
     }
   };
 
-  // Read BEFORE step 1 deletes it. An account with no profile never used the app —
-  // e.g. a first-time Apple ID the client discarded on the Sign In sheet
-  // (AppleSignInManager.discardUnconsentedAccount). Invitations addressed to its
-  // email belong to the people who sent them, so the email-keyed sweep below must
-  // not erase them; the uid-keyed sweeps still run.
+  // Read BEFORE step 1 deletes it. An account with no profile MIGHT never have used
+  // the app — e.g. a first-time Apple ID the client discarded on the Sign In sheet
+  // (AppleSignInManager.discardUnconsentedAccount) — but a missing profile alone
+  // isn't proof of that; a real signup can also end up profile-less if it broke
+  // partway through. isFreshDiscard below narrows this to accounts that are also
+  // minutes old, which is what the discard flow actually produces.
   const hadProfile = await db.collection('users').doc(uid).get()
     .then((s) => s.exists)
     .catch(() => true); // fail toward the full GDPR sweep
+
+  // Discarded-at-sign-in accounts are minutes old; anything older with no
+  // profile is a real (if broken) account and gets the full GDPR sweep.
+  const createdMs = Date.parse(user.metadata.creationTime);
+  const isFreshDiscard = !hadProfile && Number.isFinite(createdMs) && Date.now() - createdMs < 15 * 60 * 1000;
 
   // 1. Entire user document tree: profile + all subcollections at any depth
   //    (athletes→coaches, seasons, games→holes→shots, practices→notes).
@@ -1553,7 +1559,7 @@ export const cleanupUserDataOnDelete = functions
   await step('coach invitations', () =>
     deleteByQuery(db.collection('invitations').where('coachID', '==', uid))
   );
-  if (email && hadProfile) {
+  if (email && !isFreshDiscard) {
     await step('coachEmail invitations', () =>
       deleteByQuery(db.collection('invitations').where('coachEmail', '==', email))
     );

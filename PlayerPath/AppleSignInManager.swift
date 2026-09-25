@@ -10,6 +10,9 @@ import AuthenticationServices
 import FirebaseAuth
 import CryptoKit
 import Combine
+import os
+
+private let appleSignInLog = Logger(subsystem: "com.playerpath.app", category: "AppleSignIn")
 
 /// Result of an Apple re-authentication: the Firebase credential plus the raw
 /// Apple `authorizationCode`. The code is required to revoke the Sign in with
@@ -169,12 +172,14 @@ final class AppleSignInManager: NSObject, ObservableObject {
     /// Deletes a Firebase account Apple sign-in just created without consent
     /// (Sign In sheet). Revokes the Apple token, then deletes the account, which
     /// fires cleanupUserDataOnDelete. Because no users/{uid} profile was ever
-    /// written, that function skips its email-keyed invitation sweep, so pending
-    /// invites to this email survive (this needs the functions deploy).
-    /// backfillInvitationsOnSignup may briefly write notifications, but the
-    /// delete trigger's notifications step removes them. Revoking also makes
-    /// Apple treat the next authorization as first-time, so the real sign-up
-    /// still receives the user's full name.
+    /// written and the account is fresh, that function's isFreshDiscard check
+    /// skips its email-keyed invitation sweep, so pending invites to this email
+    /// survive (this needs the functions deploy). backfillInvitationsOnSignup
+    /// may briefly write notifications; those are USUALLY removed by the delete
+    /// trigger's notifications step, since the two run independently and the
+    /// backfill write isn't guaranteed to land first. Revoking also makes Apple
+    /// treat the next authorization as first-time, so the real sign-up still
+    /// receives the user's full name.
     private func discardUnconsentedAccount(_ user: FirebaseAuth.User, authorizationCode: Data?, authManager: ComprehensiveAuthManager?) async {
         if let code = authorizationCode.flatMap({ String(data: $0, encoding: .utf8) }) {
             do {
@@ -186,6 +191,12 @@ final class AppleSignInManager: NSObject, ObservableObject {
         do {
             try await user.delete()
         } catch {
+            // If this delete failed, a profile-less Firebase account now exists
+            // permanently: Apple's token was already revoked above, but the
+            // Firebase user survives, so the person's next "Sign in with Apple"
+            // comes back as a RETURNING credential, not a first-time one — they
+            // silently skip the consent/role screen this discard flow exists to enforce.
+            appleSignInLog.error("discardUnconsentedAccount: user.delete() failed, profile-less account persists — next Apple sign-in will be treated as returning: \(error.localizedDescription, privacy: .public)")
             ErrorHandlerService.shared.handle(error, context: "AppleSignIn.deleteUnconsented", showAlert: false)
             await authManager?.signOut()   // the parameter, not self.authManager
         }

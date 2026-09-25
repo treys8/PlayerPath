@@ -298,6 +298,7 @@ struct ComprehensiveSignInView: View {
                 SignInWithAppleButton(isSignUp: isSignUpMode) {
                     appleSignInManager.pendingRole = selectedRole
                     appleSignInManager.allowsAccountCreation = isSignUpMode && confirmedAge
+                    authManager.clearError()
                     appleSignInManager.signInWithApple()
                 }
                 .disabled(authManager.isLoading || (isSignUpMode && !confirmedAge))
@@ -419,6 +420,7 @@ struct ComprehensiveSignInView: View {
 
     private func performAuth() {
         guard !authManager.isLoading else { return }
+        appleSignInManager.accountCreationBlocked = false
         // Dismiss keyboard so the error message (if any) is visible
         nameFocused = false
         emailFocused = false

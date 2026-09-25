@@ -606,6 +606,13 @@ private struct CoachReadyPage: View {
 
     private var waiting: [CoachInvitation] { CoachInvitationManager.shared.pendingInvitations }
 
+    /// Trimmed name of the single waiting invite, falling back when it's blank
+    /// so the card never renders "already invited you" with nothing before it.
+    private var waitingAthleteDisplayName: String {
+        let trimmed = waiting.first?.athleteName.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? "An athlete" : trimmed
+    }
+
     private let checklist: [(icon: String, text: String)] = [
         ("tray.and.arrow.down.fill", "Check your Dashboard for athlete invitations"),
         ("video.badge.checkmark",    "Watch and annotate shared video clips"),
@@ -690,7 +697,7 @@ private struct CoachReadyPage: View {
                             .clipShape(Circle())
                         VStack(alignment: .leading, spacing: 2) {
                             Text(waiting.count == 1
-                                 ? "\(waiting[0].athleteName) already invited you"
+                                 ? "\(waitingAthleteDisplayName) already invited you"
                                  : "\(waiting.count) athletes already invited you")
                                 .font(.headingMedium)
                                 .foregroundColor(Theme.textPrimary)

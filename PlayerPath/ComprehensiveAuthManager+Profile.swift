@@ -460,6 +460,7 @@ extension ComprehensiveAuthManager {
         currentCoachTier = .free
         hasLoadedProfile = false
         hasCompletedOnboarding = false
+        verificationEmailSendFailed = false
 
         clearPersistedUserDefaults()
 

@@ -104,7 +104,7 @@ final class UserPreferences {
 
     /// Rows from before 2026-01-29 (4d3a4cf7 replaced the stored Bool with this
     /// optional) can be nil. `autoUploadToCloud` already reads nil as ON and
-    /// `uploadOnCellular` reads it as Wi-Fi-only, so `.wifiOnly` IS the live
+    /// `allowCellularUploads` reads it as Wi-Fi-only, so `.wifiOnly` IS the live
     /// behavior — this only makes Settings stop claiming "Off".
     private static func backfillAutoUploadMode(_ prefs: UserPreferences, in context: ModelContext) {
         guard prefs.autoUploadMode == nil else { return }
