@@ -3,7 +3,7 @@
 //  PlayerPath
 //
 //  Full-screen, swipeable photo viewer. Pages through a set of photos (pinch
-//  zoom + double-tap fit/fill per page live in ZoomablePhotoPage) while this
+//  zoom + double-tap zoom-to-point per page live in ZoomablePhotoPage) while this
 //  container owns the chrome — close button, "N of M" counter, favorite, the
 //  options menu, and the metadata overlay — so it renders once no matter how
 //  many pages are loaded.

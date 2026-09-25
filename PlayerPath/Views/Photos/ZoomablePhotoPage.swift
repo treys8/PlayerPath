@@ -23,14 +23,14 @@ struct ZoomablePhotoPage: View {
     @State private var loadFailed = false
     @State private var scale: CGFloat = 1.0
     @State private var lastScale: CGFloat = 1.0
-    /// `.fill` = photo crops to fill the screen (no letterbox), `.fit` =
-    /// letterboxes to show every pixel. Double-tap toggles between these two;
-    /// pinch only adjusts zoom on top.
-    @State private var photoContentMode: ContentMode = .fill
     /// Pan offset when zoomed in. Reset to `.zero` any time scale returns to 1×
     /// so the next zoom-in starts centered.
     @State private var offset: CGSize = .zero
     @State private var lastOffset: CGSize = .zero
+
+    /// Double-tap zooms the tapped point to this scale (Photos.app convention).
+    private static let doubleTapScale: CGFloat = 2.5
+    private static let maxScale: CGFloat = 5.0
 
     private var isZoomed: Bool { scale > 1.0 }
 
@@ -39,23 +39,28 @@ struct ZoomablePhotoPage: View {
             Color.black.ignoresSafeArea()
 
             if let fullImage {
-                // Fill the screen by default (no letterbox). Double-tap toggles
-                // fit (see the whole photo, letterboxed) vs fill (cropped). Pinch
-                // adjusts zoom from 1× to 5× on top of whichever mode is active.
-                // Drag pans when zoomed in.
+                // Aspect-FIT by default so the whole photo is visible, like
+                // Photos.app. The old `.fill` default cropped ~65% of a landscape
+                // shot on a portrait phone, and pinch can't zoom out below 1× to
+                // recover it. Pinch zooms 1×–5×; double-tap zooms to the tapped
+                // point; drag pans only while zoomed.
                 GeometryReader { geometry in
                     Image(uiImage: fullImage)
                         .resizable()
-                        .aspectRatio(contentMode: photoContentMode)
+                        .aspectRatio(contentMode: .fit)
                         .scaleEffect(scale)
                         .offset(offset)
                         .frame(width: geometry.size.width, height: geometry.size.height)
                         .clipped()
                         .contentShape(Rectangle())
                         .gesture(
-                            MagnificationGesture()
+                            MagnifyGesture()
                                 .onChanged { value in
-                                    scale = min(5.0, max(1.0, lastScale * value))
+                                    scale = min(Self.maxScale, max(1.0, lastScale * value.magnification))
+                                    // Zooming out shrinks the pannable area — pull the
+                                    // pan back inside it so an image edge never
+                                    // detaches from the screen edge mid-pinch.
+                                    offset = clampOffset(lastOffset, scale: scale, imageSize: fullImage.size, in: geometry.size)
                                 }
                                 .onEnded { _ in
                                     lastScale = scale
@@ -64,9 +69,9 @@ struct ZoomablePhotoPage: View {
                                         // so the next zoom starts centered.
                                         withAnimation(.spring(response: 0.3)) {
                                             offset = .zero
-                                            lastOffset = .zero
                                         }
                                     }
+                                    lastOffset = offset
                                     onZoomChanged(isZoomed)
                                 }
                         )
@@ -86,24 +91,22 @@ struct ZoomablePhotoPage: View {
                                         width: lastOffset.width + value.translation.width,
                                         height: lastOffset.height + value.translation.height
                                     )
-                                    offset = clampOffset(proposed, scale: scale, in: geometry.size)
+                                    offset = clampOffset(proposed, scale: scale, imageSize: fullImage.size, in: geometry.size)
                                 }
                                 .onEnded { _ in
                                     lastOffset = offset
                                 },
                             including: isZoomed ? .gesture : .subviews
                         )
-                        .onTapGesture(count: 2) {
+                        .onTapGesture(count: 2) { location in
                             withAnimation(.spring(response: 0.3)) {
                                 if isZoomed {
-                                    // Zoomed in → reset to default zoom + pan.
                                     scale = 1.0
                                     lastScale = 1.0
                                     offset = .zero
                                     lastOffset = .zero
                                 } else {
-                                    // At default zoom → toggle fit/fill.
-                                    photoContentMode = photoContentMode == .fill ? .fit : .fill
+                                    zoom(to: Self.doubleTapScale, at: location, imageSize: fullImage.size, in: geometry.size)
                                 }
                             }
                             onZoomChanged(isZoomed)
@@ -139,17 +142,33 @@ struct ZoomablePhotoPage: View {
     }
 
     /// Clamps a proposed pan offset so the zoomed image's edges can't be
-    /// dragged past the corresponding screen edges. The extra-per-side is
-    /// `(scale - 1) * viewport / 2` in each dimension, assuming the image's
-    /// base size at scale 1× is at least the viewport (true for `.fill`; for
-    /// `.fit` the bound is tighter but this cap is safe and intuitive).
-    private func clampOffset(_ proposed: CGSize, scale: CGFloat, in viewport: CGSize) -> CGSize {
-        let maxX = max(0, (scale - 1) * viewport.width / 2)
-        let maxY = max(0, (scale - 1) * viewport.height / 2)
+    /// dragged past the screen edges. Works from the image's aspect-FIT size in
+    /// `viewport`, so an axis where the zoomed image is still narrower than the
+    /// screen (e.g. the height of a landscape shot at 2.5×) gets no pan at all.
+    private func clampOffset(_ proposed: CGSize, scale: CGFloat, imageSize: CGSize, in viewport: CGSize) -> CGSize {
+        guard imageSize.width > 0, imageSize.height > 0 else { return .zero }
+        let fitRatio = min(viewport.width / imageSize.width, viewport.height / imageSize.height)
+        let maxX = max(0, (imageSize.width * fitRatio * scale - viewport.width) / 2)
+        let maxY = max(0, (imageSize.height * fitRatio * scale - viewport.height) / 2)
         return CGSize(
             width: min(maxX, max(-maxX, proposed.width)),
             height: min(maxY, max(-maxY, proposed.height))
         )
+    }
+
+    /// Zooms to `target` keeping the tapped point under the finger.
+    /// `scaleEffect` scales about the view's center `c`, sending a point `p` to
+    /// `c + s·(p − c)`; offsetting by `(1 − s)·(p − c)` puts it back at `p`.
+    /// The clamp then pulls a tap in the letterbox band onto the image edge.
+    private func zoom(to target: CGFloat, at location: CGPoint, imageSize: CGSize, in viewport: CGSize) {
+        let proposed = CGSize(
+            width: (1 - target) * (location.x - viewport.width / 2),
+            height: (1 - target) * (location.y - viewport.height / 2)
+        )
+        scale = target
+        lastScale = target
+        offset = clampOffset(proposed, scale: target, imageSize: imageSize, in: viewport)
+        lastOffset = offset
     }
 
     private func loadFullImage() async {
