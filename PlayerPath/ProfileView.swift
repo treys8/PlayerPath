@@ -46,8 +46,9 @@ struct ProfileView: View {
             quickSearchSection
             userProfileSection
             athletesSection
+            coachingSection
             settingsSection
-            legalSection
+            helpLegalSection
             shareSection
             accountSection
             appVersionSection
@@ -242,27 +243,27 @@ struct ProfileView: View {
 
         // Settings Section
         items.append(SearchResult(
-            title: "Settings",
-            icon: "gearshape",
-            keywords: ["settings", "preferences", "options"],
+            title: "Account & Sign-In",
+            icon: "person.crop.circle",
+            keywords: ["account", "sign in", "sign-in", "username", "email", "apple", "settings"],
             link: AnyView(
                 NavigationLink {
                     SettingsView(user: user)
                 } label: {
-                    Label("Settings", systemImage: "gearshape")
+                    Label("Account & Sign-In", systemImage: "person.crop.circle")
                 }
             )
         ))
 
         items.append(SearchResult(
-            title: "Video Recording",
+            title: "Recording & Uploads",
             icon: "video.fill",
-            keywords: ["video", "recording", "4k", "quality", "camera", "resolution", "fps"],
+            keywords: ["video", "recording", "4k", "quality", "camera", "resolution", "fps", "upload", "cloud", "wifi", "cellular", "highlights only", "photos library", "remove after upload", "trimmer"],
             link: AnyView(
                 NavigationLink {
                     VideoRecordingSettingsView()
                 } label: {
-                    Label("Video Recording", systemImage: "video.fill")
+                    Label("Recording & Uploads", systemImage: "video.fill")
                 }
             )
         ))
@@ -463,8 +464,7 @@ struct ProfileView: View {
             )
         ))
 
-        // Nested Settings children — surfaced so search finds screens that live
-        // one level under "Settings" (Edit Info / Storage / Preferences / Password).
+        // Nested children — surfaced so search finds screens one level down (Edit Info / Password).
         items.append(SearchResult(
             title: "Edit Information",
             icon: "pencil",
@@ -479,14 +479,14 @@ struct ProfileView: View {
         ))
 
         items.append(SearchResult(
-            title: "Manage Storage",
+            title: "Storage",
             icon: "internaldrive",
             keywords: ["storage", "manage", "space", "cache", "cleanup", "videos", "disk"],
             link: AnyView(
                 NavigationLink {
                     StorageSettingsView()
                 } label: {
-                    Label("Manage Storage", systemImage: "internaldrive")
+                    Label("Storage", systemImage: "internaldrive")
                 }
             )
         ))
@@ -494,7 +494,7 @@ struct ProfileView: View {
         items.append(SearchResult(
             title: "App Preferences",
             icon: "slider.horizontal.3",
-            keywords: ["app", "preferences", "haptics", "tips", "auto-upload", "analytics", "interface"],
+            keywords: ["app", "preferences", "haptics", "tips", "analytics", "interface", "golf", "shot-by-shot", "detailed stats", "fairway"],
             link: AnyView(
                 NavigationLink {
                     UserPreferencesView()
@@ -653,8 +653,10 @@ struct ProfileView: View {
         .accessibilityAddTraits(.isHeader)
     }
 
-    private var settingsSection: some View {
-        Section("Settings") {
+    /// Coach sharing + the activity inbox — the "people" rows, kept apart from
+    /// configuration so the Settings section below holds only settings.
+    private var coachingSection: some View {
+        Section("Coaching & Activity") {
             // Coach Sharing — free for athletes (the coach's seat covers the connection)
             if let folderAthlete = selectedAthlete ?? user.athletes?.first {
                 NavigationLink {
@@ -662,18 +664,6 @@ struct ProfileView: View {
                 } label: {
                     Label("Shared Folders", systemImage: "folder.badge.person.crop")
                 }
-            }
-
-            NavigationLink {
-                SettingsView(user: user)
-            } label: {
-                Label("Settings", systemImage: "gearshape")
-            }
-
-            NavigationLink {
-                VideoRecordingSettingsView()
-            } label: {
-                Label("Video Recording", systemImage: "video.fill")
             }
 
             NavigationLink {
@@ -692,6 +682,22 @@ struct ProfileView: View {
                     }
                 }
             }
+        }
+    }
+
+    private var settingsSection: some View {
+        Section("Settings") {
+            NavigationLink {
+                SettingsView(user: user)
+            } label: {
+                Label("Account & Sign-In", systemImage: "person.crop.circle")
+            }
+
+            NavigationLink {
+                VideoRecordingSettingsView()
+            } label: {
+                Label("Recording & Uploads", systemImage: "video.fill")
+            }
 
             NavigationLink {
                 NotificationSettingsView(athleteId: selectedAthlete?.id.uuidString)
@@ -700,15 +706,15 @@ struct ProfileView: View {
             }
 
             NavigationLink {
-                HelpSupportView()
+                UserPreferencesView()
             } label: {
-                Label("Help & Support", systemImage: "questionmark.circle")
+                Label("App Preferences", systemImage: "slider.horizontal.3")
             }
 
             NavigationLink {
-                AboutView()
+                StorageSettingsView()
             } label: {
-                Label("About PlayerPath", systemImage: "info.circle")
+                Label("Storage", systemImage: "internaldrive")
             }
         }
     }
@@ -740,8 +746,20 @@ struct ProfileView: View {
         }
     }
 
-    private var legalSection: some View {
-        Section("Legal") {
+    private var helpLegalSection: some View {
+        Section("Help & Legal") {
+            NavigationLink {
+                HelpSupportView()
+            } label: {
+                Label("Help & Support", systemImage: "questionmark.circle")
+            }
+
+            NavigationLink {
+                AboutView()
+            } label: {
+                Label("About PlayerPath", systemImage: "info.circle")
+            }
+
             NavigationLink {
                 PrivacyPolicyView()
             } label: {
@@ -802,6 +820,9 @@ struct ProfileView: View {
                         .badge(Text(authManager.currentTier.displayName).foregroundColor(.yellow))
                 }
             }
+
+            // Redeem sits beside the plan it changes (was Settings → Subscription).
+            RedeemOfferCodeRow()
 
             // Data Export (GDPR Compliance)
             NavigationLink {
