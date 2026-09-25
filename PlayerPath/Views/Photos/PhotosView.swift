@@ -689,6 +689,8 @@ struct PhotosView: View {
     // MARK: - Actions
 
     private func savePhoto(_ image: UIImage) {
+        // Snapshot before the await (model access across suspension).
+        let user = athlete.user
         Task {
             do {
                 _ = try await PhotoPersistenceService().savePhoto(
@@ -697,6 +699,9 @@ struct PhotosView: View {
                     athlete: athlete
                 )
                 Haptics.success()
+                // Back it up now — otherwise it sits local-only until the next
+                // full sync (the periodic sync skips photos).
+                SyncCoordinator.shared.syncPhotosSoon(for: user)
             } catch {
                 ErrorHandlerService.shared.handle(error, context: "PhotosView.savePhoto", showAlert: false)
             }

@@ -107,6 +107,7 @@ struct ScorecardScanFlow: View {
             photo.isScorecardPhoto = true
             photo.needsSync = true
             ErrorHandlerService.shared.saveContext(context, caller: "ScorecardScanFlow.persist")
+            SyncCoordinator.shared.syncPhotosSoon(for: athlete.user)
         } catch {
             ErrorHandlerService.shared.handle(error, context: "Saving scorecard photo", showAlert: false)
         }

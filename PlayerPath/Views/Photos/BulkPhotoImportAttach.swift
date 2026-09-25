@@ -367,6 +367,14 @@ struct BulkPhotoImportAttach: ViewModifier {
         isImporting = false
         importTask = nil
 
+        // Back the new photos up now rather than at the next full sync. Safe
+        // alongside the backfill prompt below: a season re-home that lands while
+        // these upload stays dirty (see PhotoEditSnapshot) and syncs in the
+        // same run.
+        if outcome.succeeded > 0 {
+            SyncCoordinator.shared.syncPhotosSoon(for: athlete.user)
+        }
+
         // Offer to re-home photos filed on the current season only because their
         // capture dates matched no season, BEFORE acting on the outcome — the
         // storage decision happens once every other sheet is gone.
