@@ -251,17 +251,16 @@ class CameraViewModel: NSObject, ObservableObject {
             forName: AVCaptureSession.wasInterruptedNotification,
             object: captureSession,
             queue: .main
-        ) { [weak self] notification in
-            // Extract value from notification before crossing concurrency boundary
-            _ = (notification.userInfo?[AVCaptureSessionInterruptionReasonKey] as? Int)
-                .flatMap { AVCaptureSession.InterruptionReason(rawValue: $0) }
+        ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
 
-                // If recording, stop gracefully — the delegate will receive the file
+                // If recording, stop gracefully — the delegate receives the file and
+                // is the single place that decides whether it survived. No alert
+                // here: a salvaged clip moves on to the trimmer, and a lost one is
+                // reported by the delegate's failure branch.
                 if self.isRecording {
                     self.stopRecording()
-                    self.handleError("Recording stopped — camera was interrupted", isFatal: false)
                 }
             }
         }
@@ -818,13 +817,17 @@ extension CameraViewModel: AVCaptureFileOutputRecordingDelegate {
         error: Error?
     ) {
         if let error = error {
-            // AVFoundation reports some "errors" (e.g. hitting max duration/file size)
-            // that still produce valid, complete video files. Don't delete those.
+            // AVFoundation reports some "errors" that still produce valid, complete
+            // video files — an interruption (phone call, backgrounding), disk full,
+            // or hitting max duration/file size. It flags those with
+            // AVErrorRecordingSuccessfullyFinishedKey; don't delete them. A salvaged
+            // file that turns out unplayable is still caught by saveClip's checks.
             let nsError = error as NSError
-            let isRecoverable = nsError.domain == AVFoundationErrorDomain
+            let finishedSuccessfully = (nsError.userInfo[AVErrorRecordingSuccessfullyFinishedKey] as? Bool) == true
+            let isKnownRecoverable = nsError.domain == AVFoundationErrorDomain
                 && [AVError.maximumDurationReached.rawValue,
                     AVError.maximumFileSizeReached.rawValue].contains(nsError.code)
-            if isRecoverable,
+            if finishedSuccessfully || isKnownRecoverable,
                FileManager.default.fileExists(atPath: outputFileURL.path) {
                 // File is valid despite the "error" — fall through to success path
             } else {
