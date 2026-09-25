@@ -147,7 +147,9 @@ struct ImprovedPaywallView: View {
             Text("Unlock PlayerPath")
                 .font(.displayMedium)
 
-            Text("Share film with your coach. Track every at-bat.")
+            // Sport-neutral, and never sells coach sharing — it's free on every
+            // plan (Pricing Model V2), as the table below says.
+            Text("More athletes, more storage, and highlights that build themselves.")
                 .font(.bodyMedium)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
