@@ -209,9 +209,11 @@ struct ComprehensiveSignInView: View {
                 .accessibilityLabel("Password")
                 .accessibilityHint("Enter your password")
 
-            if isSignUpMode && !password.isEmpty {
+            if isSignUpMode && (passwordFocused || !password.isEmpty) {
                 VStack(alignment: .leading, spacing: 8) {
-                    PasswordStrengthIndicator(password: password)
+                    if !password.isEmpty {
+                        PasswordStrengthIndicator(password: password)
+                    }
                     if !isValidPassword(password) {
                         PasswordRequirementsList(password: password).padding(.top, 4)
                     }
@@ -221,6 +223,7 @@ struct ComprehensiveSignInView: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: password.isEmpty)
+        .animation(.easeInOut(duration: 0.2), value: passwordFocused)
     }
 
     private var ageAndTermsSection: some View {
@@ -323,28 +326,66 @@ struct ComprehensiveSignInView: View {
         // Show errors from either auth manager or Apple Sign In manager
         let displayError = authManager.errorMessage ?? appleSignInManager.errorMessage
         if let errorMessage = displayError {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "exclamationmark.triangle.fill").font(.title3).foregroundColor(.red)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Authentication Error").font(.headingSmall).foregroundColor(.red)
-                    Text(errorMessage).font(.bodySmall).foregroundColor(.red.opacity(0.8)).fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: "exclamationmark.triangle.fill").font(.title3).foregroundColor(Theme.warning)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(isSignUpMode ? "Couldn't create your account" : "Couldn't sign you in")
+                            .font(.headingSmall).foregroundColor(Theme.textPrimary)
+                        Text(errorMessage).font(.bodySmall).foregroundColor(Theme.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer()
+                    Button {
+                        Haptics.light()
+                        authManager.clearError()
+                        appleSignInManager.errorMessage = nil
+                    } label: {
+                        Image(systemName: "xmark.circle.fill").font(.title3).foregroundColor(Theme.textTertiary)
+                    }
+                    .accessibilityLabel("Dismiss error")
                 }
-                Spacer()
-                Button {
-                    Haptics.light()
-                    authManager.clearError()
-                    appleSignInManager.errorMessage = nil
-                } label: {
-                    Image(systemName: "xmark.circle.fill").font(.title3).foregroundColor(.red.opacity(0.6))
+                if let recovery = errorRecovery {
+                    Button {
+                        Haptics.light()
+                        recovery.perform()
+                    } label: {
+                        Text(recovery.title).font(.labelLarge).foregroundColor(ppAccent)
+                    }
+                    .padding(.leading, 36)
                 }
             }
             .padding()
             .background(
-                RoundedRectangle(cornerRadius: 12).fill(Color.red.opacity(0.08))
-                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.red.opacity(0.2), lineWidth: 1))
+                RoundedRectangle(cornerRadius: 12).fill(Theme.warning.opacity(0.08))
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.warning.opacity(0.25), lineWidth: 1))
             )
             .transition(.opacity.combined(with: .move(edge: .top)))
         }
+    }
+
+    /// One next step for the error on screen. Email enumeration protection makes
+    /// "wrong password" and "no such user" indistinguishable (invalidCredential),
+    /// so all three credential messages offer a reset. Network, lockout and
+    /// generic errors get no action — a reset link would be misleading there.
+    private var errorRecovery: (title: String, perform: () -> Void)? {
+        let message = authManager.errorMessage
+        if isSignUpMode, message == AuthConstants.ErrorMessages.emailAlreadyInUse {
+            return ("Sign in instead", {
+                authManager.clearError()
+                dismiss()
+                onSwitchToSignIn?()
+            })
+        }
+        let credentialMessages = [
+            AuthConstants.ErrorMessages.invalidCredential,
+            AuthConstants.ErrorMessages.wrongPassword,
+            AuthConstants.ErrorMessages.userNotFound,
+        ]
+        if !isSignUpMode, let message, credentialMessages.contains(message) {
+            return ("Reset your password", { showingResetPasswordSheet = true })
+        }
+        return nil
     }
 
     private var appleNoAccountSection: some View {

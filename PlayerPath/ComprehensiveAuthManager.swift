@@ -307,7 +307,7 @@ final class ComprehensiveAuthManager: ObservableObject {
         case AuthErrorCode.wrongPassword.rawValue:
             return AuthConstants.ErrorMessages.wrongPassword
         case AuthErrorCode.invalidCredential.rawValue:
-            return "Invalid email or password. Please try again."
+            return AuthConstants.ErrorMessages.invalidCredential
         case AuthErrorCode.networkError.rawValue:
             return AuthConstants.ErrorMessages.networkError
         case AuthErrorCode.tooManyRequests.rawValue:

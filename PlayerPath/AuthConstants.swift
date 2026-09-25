@@ -20,6 +20,7 @@ enum AuthConstants {
         static let invalidEmail = "Please enter a valid email address."
         static let userNotFound = "No account found with this email. Please check your email or sign up for a new account."
         static let wrongPassword = "Incorrect password. Please try again or reset your password."
+        static let invalidCredential = "Invalid email or password. Please try again."
         static let networkError = "Network error. Please check your internet connection and try again."
         static let tooManyRequests = "Too many attempts. Please try again later."
         static let userDisabled = "This account has been disabled. Please contact support."

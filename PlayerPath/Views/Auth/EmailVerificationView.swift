@@ -10,6 +10,7 @@ import SwiftUI
 struct EmailVerificationView: View {
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @Environment(\.ppAccent) private var ppAccent
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var isCheckingVerification = false
     @State private var isResending = false
@@ -56,6 +57,17 @@ struct EmailVerificationView: View {
                 instructionRow(icon: "3.circle.fill", text: "Come back here and tap the button below")
             }
             .padding(.horizontal, 8)
+
+            if authManager.verificationEmailSendFailed && statusMessage == nil {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundColor(Theme.warning)
+                    Text("We couldn't send the email. Tap Resend below.")
+                        .font(.bodySmall).foregroundColor(Theme.warning)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(RoundedRectangle(cornerRadius: 10).fill(Theme.warning.opacity(0.1)))
+            }
 
             // Status message
             if let statusMessage {
@@ -141,6 +153,21 @@ struct EmailVerificationView: View {
         .background(Theme.surface)
         .onAppear { startPolling() }
         .onDisappear { stopPolling() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                // Coming back from Mail/Safari is the moment they verified —
+                // check now instead of waiting up to 5s for the next tick.
+                // Check FIRST, then resume polling, so a timer tick can't run a
+                // second checkEmailVerification concurrently (both would flip
+                // isHandlingVerification and, on success, load the profile twice).
+                Task {
+                    let verified = await authManager.checkEmailVerification()
+                    if !verified { startPolling() }
+                }
+            } else {
+                stopPolling()
+            }
+        }
     }
 
     // MARK: - Helpers
@@ -186,6 +213,7 @@ struct EmailVerificationView: View {
 
     /// Polls Firebase every 5 seconds to auto-detect verification.
     private func startPolling() {
+        stopPolling()
         pollTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { _ in
             Task { @MainActor in
                 let verified = await authManager.checkEmailVerification()
