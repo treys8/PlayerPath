@@ -69,6 +69,11 @@ struct JournalView: View {
     /// Nil = closed. Keyed by day so re-tapping the same group is idempotent.
     @State private var selectedPhotoDay: JournalPhotoDay?
 
+    /// Standalone photo tapped in the feed — opens the same full-screen swipe
+    /// viewer the photo grids use (`.photoViewer`), not a push.
+    @State private var viewerPhoto: Photo?
+    @Namespace private var photoNS
+
     /// Score / End / Record behavior for the live strip's cards. Owned by
     /// MainTabView and shared with its Live Now tab-bar accessory: one controller
     /// means one permission single-flight and one set of recorder/score
@@ -398,6 +403,10 @@ struct JournalView: View {
         .sheet(item: $selectedPhotoDay) { selection in
             JournalPhotoDaySheet(athlete: athlete, day: selection.day, sport: selection.sport)
         }
+        .photoViewer($viewerPhoto, in: viewerPhoto.map { [$0] } ?? [], namespace: photoNS) { photo in
+            PhotoPersistenceService().deletePhoto(photo, context: modelContext)
+            Haptics.light()
+        }
         // Live-card Record / "Score Hole X" present from MainTabView, which owns
         // `live` — binding covers here too would double-present the same item.
         .sheet(isPresented: $showingSearch) {
@@ -636,6 +645,17 @@ struct JournalView: View {
             // push surface exists), so a single photo-heavy day stays one feed card.
             Button { openPhotoDay(photos) } label: { feedRow(entry, milestone: milestone) }
                 .buttonStyle(.plain)
+        case .photo(let photo):
+            // One way to view a photo app-wide: the full-screen pager, with the
+            // iOS 18 zoom transition from this card.
+            Button {
+                Haptics.light()
+                viewerPhoto = photo
+            } label: {
+                feedRow(entry, milestone: milestone)
+                    .photoTransitionSource(photo.id, in: photoNS)
+            }
+            .buttonStyle(.plain)
         case .coachFeedback(let item):
             // Opens the clip in the same full-screen player as a regular clip card,
             // and clears the unread dot.
@@ -677,11 +697,9 @@ struct JournalView: View {
         // Photo groups open the day-scoped grid as a sheet (see `selectedPhotoDay`),
         // not a push, so they never route through here either.
         case .photoGroup:      EmptyView()
-        case .photo(let p):
-            PhotoDetailView(photo: p) {
-                PhotoPersistenceService().deletePhoto(p, context: modelContext)
-                Haptics.light()
-            }
+        // Standalone photos open the full-screen viewer (see `viewerPhoto`), not a
+        // push, so they never route through here.
+        case .photo:           EmptyView()
         // Coach-feedback cards open the clip as a full-screen cover (see
         // `selectedClip`), not a push, so they never route through here.
         case .coachFeedback:   EmptyView()
