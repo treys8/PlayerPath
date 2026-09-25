@@ -244,16 +244,7 @@ struct VideoPlayerView: View {
                     Spacer()
                 }
 
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.title2)
-                        .symbolRenderingMode(.hierarchical)
-                        .foregroundStyle(.white)
-                        .shadow(color: .black.opacity(0.5), radius: 4, x: 0, y: 2)
-                }
-                .accessibilityLabel("Close video player")
+                closeButton
             }
             .padding(.horizontal, 16)
             .padding(.top, 8)
@@ -351,7 +342,6 @@ struct VideoPlayerView: View {
             EnhancedVideoPlayer(
                 player: player,
                 preloadedDuration: videoDuration,
-                onClose: { dismiss() },
                 clipIsLandscape: clipIsLandscape,
                 // Any clip with a coach-folder counterpart can carry telestration
                 // drawings whose overlay fits to the true aspect — force aspect-fit

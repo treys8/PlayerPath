@@ -14,8 +14,6 @@ struct EnhancedVideoPlayer: View {
     /// Pre-loaded duration from the parent to avoid a redundant asset.load(.duration) call.
     /// Falls back to async loading if not provided (e.g. from contexts that don't pre-load).
     var preloadedDuration: Double?
-    /// Called when the user taps the close button (shown in landscape when the nav bar is hidden).
-    var onClose: (() -> Void)?
     /// When true, the controls bar stays visible during playback instead of
     /// auto-hiding after 3s. Used by editing surfaces (e.g. ClipReviewSheet)
     /// where the scrubber and frame-step must remain reachable.
@@ -102,22 +100,6 @@ struct EnhancedVideoPlayer: View {
                 }
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
-            .overlay(alignment: .topTrailing) {
-                if isLandscape, let onClose, showControls {
-                    Button {
-                        onClose()
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.title2)
-                            .symbolRenderingMode(.hierarchical)
-                            .foregroundStyle(.white)
-                            .shadow(color: .black.opacity(0.5), radius: 4)
-                    }
-                    .accessibilityLabel("Close video player")
-                    .padding(16)
-                    .transition(.opacity)
-                }
-            }
         }
         .accessibilityIgnoresInvertColors()
         .onAppear { setupPlayer(); showControlsTemporarily() }
