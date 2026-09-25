@@ -10,6 +10,7 @@ import SwiftData
 
 struct NotificationSettingsView: View {
     @Environment(\.ppAccent) private var ppAccent
+    @EnvironmentObject private var authManager: ComprehensiveAuthManager
     let athleteId: String?
 
     // notif_weeklyStats is single-source (UserDefaults only; WeeklySummaryScheduler
@@ -37,11 +38,11 @@ struct NotificationSettingsView: View {
     @State private var authorizationStatus: UNAuthorizationStatus = .notDetermined
     @Environment(\.scenePhase) private var scenePhase
 
-    /// Coach context is signaled by a nil athleteId at the call site
-    /// (`CoachProfileView` passes `athleteId: nil`). Game Reminders and
+    /// Role, not `athleteId == nil`: an athlete account with no selected athlete
+    /// also passes nil, and used to get the coach layout. Game Reminders and
     /// Weekly Statistics are athlete-scoped and dead/no-op for coaches —
-    /// gated off below to avoid showing irrelevant or broken toggles.
-    private var isCoach: Bool { athleteId == nil }
+    /// gated off below.
+    private var isCoach: Bool { authManager.userRole == .coach }
 
     private var isGolfAthlete: Bool {
         guard let athleteId, let uuid = UUID(uuidString: athleteId) else { return false }
