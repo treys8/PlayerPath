@@ -51,6 +51,9 @@ struct JournalView: View {
     @Query private var practices: [Practice]
     @Query private var clips: [VideoClip]
     @Query private var photos: [Photo]
+    /// This athlete's live golf birdie reels — feeds the card "Watch Reel"
+    /// union (`JournalEventReel`). Tiny: one row per birdie-or-better hole.
+    @Query private var reels: [HighlightReel]
 
     /// Drives the "Add a photo or video" action sheet and its two library
     /// pickers (video / photo). Inert outside the empty state.
@@ -76,6 +79,26 @@ struct JournalView: View {
     /// viewer the photo grids use (`.photoViewer`), not a push.
     @State private var viewerPhoto: Photo?
     @Namespace private var photoNS
+
+    /// Reel opened from a card's "Watch Reel".
+    @State private var playingReel: JournalEventReel?
+
+    /// Observed so the Watch Reel buttons appear the moment a purchase or comp
+    /// lands. `SubscriptionGate.effectiveAthleteTier` has the same value but is
+    /// a plain static read that no view observes. Both objects are injected
+    /// above MainTabView (`MainAppView.swift:54,76`), and JournalView's only
+    /// call site is `MainTabView.swift:600`.
+    @EnvironmentObject private var authManager: ComprehensiveAuthManager
+    @ObservedObject private var storeKit = StoreKitManager.shared
+
+    /// Plus-only in the FEED (product decision 2026-09-25): free baseball users
+    /// get highlights auto-starred, so a paywall button would sit on most game
+    /// cards on Home. Free users still get the post-event banner nudge and
+    /// GameDetailView's gated Generate Reel. Same max() as
+    /// `SubscriptionGate.effectiveAthleteTier` (StoreKit entitlement vs comp).
+    private var canWatchReels: Bool {
+        max(storeKit.currentTier, authManager.currentTier).hasAutoHighlights
+    }
 
     /// Score / End / Record behavior for the live strip's cards. Owned by
     /// MainTabView and shared with its Live Now tab-bar accessory: one controller
@@ -105,6 +128,9 @@ struct JournalView: View {
         self._photos = Query(
             filter: #Predicate<Photo> { $0.athlete?.id == id },
             sort: [SortDescriptor(\Photo.createdAt, order: .reverse)]
+        )
+        self._reels = Query(
+            filter: #Predicate<HighlightReel> { $0.athleteID == id && !$0.isDeletedRemotely }
         )
     }
 
@@ -422,6 +448,9 @@ struct JournalView: View {
             PhotoPersistenceService().deletePhoto(photo, context: modelContext)
             Haptics.light()
         }
+        .fullScreenCover(item: $playingReel) { reel in
+            GenerateReelView(clips: reel.clips, scopeKey: reel.scopeKey, title: reel.title)
+        }
         // Live-card Record / "Score Hole X" present from MainTabView, which owns
         // `live` — binding covers here too would double-present the same item.
         .sheet(isPresented: $showingSearch) {
@@ -633,8 +662,8 @@ struct JournalView: View {
     /// matters: without `.contentShape`, an eager NavigationLink in a LazyVStack
     /// claims a region that bleeds past its frame and — being a later (z-above)
     /// sibling — steals taps from the filter pills above it.
-    private func feedRow(_ entry: JournalEntry, milestone: Milestone?) -> some View {
-        JournalEntryRow(entry: entry, milestone: milestone)
+    private func feedRow(_ entry: JournalEntry, milestone: Milestone?, onWatchReel: (() -> Void)? = nil) -> some View {
+        JournalEntryRow(entry: entry, milestone: milestone, onWatchReel: onWatchReel)
             .padding(.horizontal, 18)
             .contentShape(Rectangle())
     }
@@ -683,8 +712,14 @@ struct JournalView: View {
             } label: { feedRow(entry, milestone: milestone) }
                 .buttonStyle(.plain)
         default:
-            NavigationLink { destination(for: entry) } label: { feedRow(entry, milestone: milestone) }
-                .buttonStyle(.plain)
+            // Resolved only for realized (on-screen) rows — LazyVStack never
+            // builds off-screen cells — so the per-event clip walk stays small.
+            // Free tier: no button, and no clip walk at all.
+            let reel = canWatchReels ? JournalEventReel.make(for: entry, reels: reels) : nil
+            NavigationLink { destination(for: entry) } label: {
+                feedRow(entry, milestone: milestone, onWatchReel: reel.map { r -> () -> Void in { playingReel = r } })
+            }
+            .buttonStyle(.plain)
         }
     }
 

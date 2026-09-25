@@ -18,6 +18,10 @@ struct JournalEntryRow: View {
     /// it once from a `[UUID: Milestone]` index, so the row never scans an array.
     var milestone: Milestone? = nil
 
+    /// Set by the feed only when this event card has a reel (2+ highlight
+    /// clips). Draws the "Watch Reel" button over the media.
+    var onWatchReel: (() -> Void)? = nil
+
     /// The displayed media's clamped aspect ratio, resolved once its photo/clip
     /// thumbnail loads (nil until then → a default). Drives the media tile's height
     /// so a card sizes to the media's own shape instead of forcing every photo or
@@ -102,6 +106,9 @@ struct JournalEntryRow: View {
             }
 
             media(summary)
+                // bottomLeading is PPMediaTile's one free overlay slot (play /
+                // outcome / star / duration take the others).
+                .overlay(alignment: .bottomLeading) { reelButton }
 
             footer(summary)
         }
@@ -341,6 +348,30 @@ struct JournalEntryRow: View {
         }
         .overlay(alignment: .bottomTrailing) {
             if stacked { photoStackBadge }
+        }
+    }
+
+    /// "Watch Reel" over an event card's media. Unlike a ▶ on a "3 CLIPS" card,
+    /// this says exactly what it plays: the event's highlight reel.
+    @ViewBuilder
+    private var reelButton: some View {
+        if let onWatchReel {
+            Button {
+                Haptics.light()
+                onWatchReel()
+            } label: {
+                Label("Watch Reel", systemImage: "play.fill")
+                    .font(.custom("Inter18pt-Bold", size: 12, relativeTo: .caption))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Capsule().fill(ppAccent))
+            }
+            // Borderless keeps the tap here instead of bubbling to the card's
+            // NavigationLink — the pattern LiveGameCard's pills use.
+            .buttonStyle(.borderless)
+            .padding(.spacingSmall)
+            .accessibilityLabel("Watch highlight reel")
         }
     }
 
