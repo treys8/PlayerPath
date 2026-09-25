@@ -18,8 +18,15 @@ struct AthleteNameSection: View {
 
     @Environment(\.modelContext) private var modelContext
     @Environment(\.ppAccent) private var ppAccent
-    @State private var draft = ""
+    @State private var draft: String
     @FocusState private var isFocused: Bool
+
+    init(athlete: Athlete) {
+        self.athlete = athlete
+        // Seed once. .onAppear would re-run whenever the Form reappears (e.g.
+        // back from Recruiting Profile) and wipe an unsaved edit.
+        _draft = State(initialValue: athlete.name)
+    }
 
     private var linkedProfiles: [Athlete] {
         let groupID = athlete.personGroupID ?? athlete.id
@@ -73,7 +80,6 @@ struct AthleteNameSection: View {
                      : "Coaches may see the old name on folders you've already shared.")
             }
         }
-        .onAppear { draft = athlete.name }
     }
 
     private func save() {
