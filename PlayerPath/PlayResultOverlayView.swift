@@ -669,7 +669,8 @@ struct PlayResultOverlayView: View {
 
     private var parsedPitchSpeed: Double? {
         guard recordingMode == .pitcher, !pitchSpeedText.isEmpty else { return nil }
-        return Double(pitchSpeedText)
+        // .decimalPad types "," in comma-decimal locales; Double() only parses ".".
+        return Double(pitchSpeedText.replacingOccurrences(of: ",", with: "."))
     }
 
     private var parsedPitchType: String? {
