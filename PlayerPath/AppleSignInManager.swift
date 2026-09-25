@@ -36,6 +36,15 @@ final class AppleSignInManager: NSObject, ObservableObject {
     /// Set this before calling signInWithApple() based on the user's role selection.
     var pendingRole: UserRole = .athlete
 
+    /// False on the Sign In sheet: a first-time Apple ID there has not
+    /// confirmed age or chosen a role, so the just-created Firebase account is
+    /// discarded and the UI offers the sign-up form instead.
+    var allowsAccountCreation = true
+
+    /// Set when a new Apple ID was turned away because allowsAccountCreation
+    /// was false. The sign-in view shows a "create an account" card.
+    @Published var accountCreationBlocked = false
+
     func configure(with authManager: ComprehensiveAuthManager) {
         self.authManager = authManager
     }
@@ -50,6 +59,7 @@ final class AppleSignInManager: NSObject, ObservableObject {
         guard !isLoading else { return }
         isLoading = true
         errorMessage = nil
+        accountCreationBlocked = false
 
         // Generate nonce and timestamp for security
         let nonce = randomNonceString()
@@ -155,6 +165,29 @@ final class AppleSignInManager: NSObject, ObservableObject {
             try await Auth.auth().signIn(with: credential)
         }
     }
+
+    /// Deletes a Firebase account Apple sign-in just created without consent
+    /// (Sign In sheet). Revokes the Apple token first, like account deletion.
+    /// Known residue: backfillInvitationsOnSignup may already have written
+    /// invitation notifications under this UID (only if the email had
+    /// pending invites) — harmless, unreachable. Revoking also makes Apple treat
+    /// the next authorization as first-time, so the real sign-up still receives
+    /// the user's full name.
+    private func discardUnconsentedAccount(_ user: FirebaseAuth.User, authorizationCode: Data?, authManager: ComprehensiveAuthManager?) async {
+        if let code = authorizationCode.flatMap({ String(data: $0, encoding: .utf8) }) {
+            do {
+                try await Auth.auth().revokeToken(withAuthorizationCode: code)
+            } catch {
+                ErrorHandlerService.shared.handle(error, context: "AppleSignIn.revokeUnconsented", showAlert: false)
+            }
+        }
+        do {
+            try await user.delete()
+        } catch {
+            ErrorHandlerService.shared.handle(error, context: "AppleSignIn.deleteUnconsented", showAlert: false)
+            await authManager?.signOut()   // the parameter, not self.authManager
+        }
+    }
 }
 
 // MARK: - ASAuthorizationControllerDelegate
@@ -176,6 +209,21 @@ extension AppleSignInManager: ASAuthorizationControllerDelegate {
                 isLoading = false
                 return
             }
+
+            // Capture strongly for the whole flow. ComprehensiveSignInView calls
+            // cleanup() (authManager = nil) in onDisappear, and the sheet
+            // dismisses 100ms after isSignedIn flips — which for a NEW user is
+            // inside updateCurrentUser, BEFORE commitChanges/createUserProfile
+            // finish. Reading self.authManager after that point races to nil
+            // (pre-existing: it can silently skip createUserProfile) and would
+            // leave isHandlingSignIn stuck true.
+            let authManager = self.authManager
+
+            // Own the whole Apple flow: the listener would otherwise race us —
+            // loading a profile, creating a local User and flipping isSignedIn
+            // for an account we may be about to discard.
+            authManager?.isHandlingSignIn = true
+            defer { authManager?.isHandlingSignIn = false }
 
             do {
                 guard let appleIDCredential = authorization.credential as? ASAuthorizationAppleIDCredential else {
@@ -237,6 +285,15 @@ extension AppleSignInManager: ASAuthorizationControllerDelegate {
                 // Check if this is a new user
                 let isNewUser = result.additionalUserInfo?.isNewUser ?? false
 
+                if isNewUser && !allowsAccountCreation {
+                    await discardUnconsentedAccount(result.user, authorizationCode: appleIDCredential.authorizationCode, authManager: authManager)
+                    currentNonce = nil
+                    nonceTimestamp = nil
+                    isLoading = false
+                    accountCreationBlocked = true
+                    return
+                }
+
                 // IMPORTANT: Update auth state BEFORE commitChanges() to prevent a race
                 // condition where the Firebase auth state listener fires during the
                 // commitChanges() await and sees isNewUser = false, incorrectly calling
@@ -279,6 +336,13 @@ extension AppleSignInManager: ASAuthorizationControllerDelegate {
                     } catch {
                         ErrorHandlerService.shared.handle(error, context: "AppleSignIn.createUserProfile", showAlert: false)
                     }
+                    await authManager.ensureLocalUser()
+                }
+
+                // Returning user: the listener was suppressed above, so run its
+                // restore path here (profile → local user → verification → isSignedIn).
+                if !isNewUser {
+                    await authManager?.finishSessionRestore(for: result.user)
                 }
 
                 await MainActor.run {

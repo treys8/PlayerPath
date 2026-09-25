@@ -189,14 +189,19 @@ struct WelcomeFlow: View {
         .sheet(item: $activeSheet) { sheet in
             switch sheet {
             case .signIn:
-                ComprehensiveSignInView(isSignUpMode: false)
+                ComprehensiveSignInView(isSignUpMode: false, onSwitchToSignUp: {
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(400))
+                        activeSheet = .signUp
+                    }
+                })
             case .signUp:
-                ComprehensiveSignInView(isSignUpMode: true) {
+                ComprehensiveSignInView(isSignUpMode: true, onSwitchToSignIn: {
                     Task { @MainActor in
                         try? await Task.sleep(for: .milliseconds(400))
                         activeSheet = .signIn
                     }
-                }
+                })
             }
         }
     }

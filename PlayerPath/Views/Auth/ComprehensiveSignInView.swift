@@ -15,6 +15,7 @@ struct ComprehensiveSignInView: View {
 
     let isSignUpMode: Bool
     var onSwitchToSignIn: (() -> Void)?
+    var onSwitchToSignUp: (() -> Void)?
 
     @State private var email = ""
     @State private var password = ""
@@ -84,6 +85,7 @@ struct ComprehensiveSignInView: View {
                             if isSignUpMode { ageAndTermsSection }
                             actionButtonsSection
                             authErrorSection
+                            if appleSignInManager.accountCreationBlocked { appleNoAccountSection }
                         }
                         .padding(.horizontal, 20)
                         .padding(.vertical, 16)
@@ -292,6 +294,7 @@ struct ComprehensiveSignInView: View {
             } else {
                 SignInWithAppleButton(isSignUp: isSignUpMode) {
                     appleSignInManager.pendingRole = selectedRole
+                    appleSignInManager.allowsAccountCreation = isSignUpMode && confirmedAge
                     appleSignInManager.signInWithApple()
                 }
                 .disabled(authManager.isLoading || (isSignUpMode && !confirmedAge))
@@ -342,6 +345,35 @@ struct ComprehensiveSignInView: View {
             )
             .transition(.opacity.combined(with: .move(edge: .top)))
         }
+    }
+
+    private var appleNoAccountSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "apple.logo").font(.title3).foregroundColor(Theme.textPrimary)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("No account for this Apple ID yet").font(.headingSmall).foregroundColor(Theme.textPrimary)
+                    Text("Create one first — it takes a minute, and you can keep using Sign in with Apple.")
+                        .font(.bodySmall).foregroundColor(Theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Button {
+                Haptics.light()
+                appleSignInManager.accountCreationBlocked = false
+                dismiss()
+                onSwitchToSignUp?()
+            } label: {
+                Text("Create an account").font(.labelLarge).foregroundColor(ppAccent)
+            }
+            .padding(.leading, 36)
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12).fill(Theme.card)
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.divider, lineWidth: 1))
+        )
     }
 
     private func performAuth() {

@@ -53,58 +53,51 @@ extension ComprehensiveAuthManager {
                     // signIn()/signUp() is in progress or user needs to verify email —
                     // skip automatic isSignedIn to prevent bypassing verification gate.
                     authLog.debug("Auth state changed - Skipping (handled by signIn/signUp or pending verification)")
-                } else {
-                    // User signed in via Apple Sign In or app relaunch —
-                    // load profile BEFORE setting isSignedIn so the UI
-                    // routes to the correct role (athlete vs coach).
-
-                    // Only load profile if this isn't a brand new signup.
-                    // signUp/signUpAsCoach handle profile creation themselves.
-                    if self?.isNewUser == false {
-                        authLog.debug("Auth state changed - Loading profile for existing user")
-                        // Use retry logic for the listener path (app relaunch, Apple Sign In).
-                        // A single-shot loadUserProfile() silently swallows errors, leaving
-                        // the role as the stale default. Retry with backoff gives Firestore
-                        // time to establish a connection after a cold launch.
-                        await self?.loadUserProfileWithRetry(maxAttempts: 3)
-                    } else {
-                        authLog.debug("Auth state changed - Skipping profile load (new user signup)")
-                    }
-
-                    // Sync local SwiftData user AFTER profile load so
-                    // the correct role is written (not the stale default).
-                    await self?.ensureLocalUser()
-
-                    // Block unverified non-grandfathered accounts on app relaunch
-                    if let user = user, self?.requiresEmailVerification(user) == true {
-                        self?.needsEmailVerification = true
-                        authLog.info("Auth state listener — email not verified, blocking access")
-                        return
-                    }
-
-                    // Established accounts verified under older builds can carry a cached
-                    // token whose email_verified claim is still false (user.reload() never
-                    // refreshed it). getIDTokenResult() reads the cached token locally; only
-                    // refresh over the network when the claim diverges from the user record,
-                    // so email_verified-gated reads (invitations) work this session instead
-                    // of waiting for the token to expire (~1h). Normal launches pay nothing.
-                    if let user, user.isEmailVerified,
-                       let result = try? await user.getIDTokenResult(),
-                       (result.claims["email_verified"] as? Bool) != true {
-                        _ = try? await user.getIDToken(forcingRefresh: true)
-                    }
-
-                    if let user { self?.restorePendingOnboardingIfNeeded(for: user) }
-                    self?.isSignedIn = true
-
-                    // Apple Sign In can provide mixed-case emails (e.g. Trey@Gmail.com).
-                    // Security rules use getUserEmail() (profile lookup) instead of
-                    // request.auth.token.email to avoid case-sensitivity mismatches.
-                    if let email = user?.email, email != email.lowercased() {
-                        authLog.info("Firebase Auth email is not lowercase: \(email, privacy: .private) — handled via profile email lookup in security rules")
-                    }
+                } else if let user {
+                    await self?.finishSessionRestore(for: user)
                 }
             }
+        }
+    }
+
+    /// The "existing session" path: app relaunch, and Apple sign-in for a
+    /// returning user (which suppresses the listener via isHandlingSignIn and
+    /// calls this itself). Loads the profile BEFORE setting isSignedIn so the UI
+    /// routes to the correct role.
+    func finishSessionRestore(for user: FirebaseAuth.User) async {
+        // signUp/signUpAsCoach/Apple-new create the profile themselves.
+        if !isNewUser {
+            authLog.debug("Restoring session — loading profile for existing user")
+            // Retry: a single-shot load swallows errors and leaves the stale
+            // default role; backoff gives Firestore time after a cold launch.
+            await loadUserProfileWithRetry(maxAttempts: 3)
+        }
+
+        // Sync local SwiftData user AFTER profile load so the correct role is written.
+        await ensureLocalUser()
+
+        // Block unverified non-grandfathered accounts.
+        if requiresEmailVerification(user) {
+            needsEmailVerification = true
+            authLog.info("Session restore — email not verified, blocking access")
+            return
+        }
+
+        // Established accounts verified under older builds can carry a cached
+        // token whose email_verified claim is still false. Refresh only when
+        // the claim diverges, so normal launches pay nothing.
+        if user.isEmailVerified,
+           let result = try? await user.getIDTokenResult(),
+           (result.claims["email_verified"] as? Bool) != true {
+            _ = try? await user.getIDToken(forcingRefresh: true)
+        }
+
+        restorePendingOnboardingIfNeeded(for: user)
+        isSignedIn = true
+
+        // Apple can provide mixed-case emails; rules use the profile email.
+        if let email = user.email, email != email.lowercased() {
+            authLog.info("Firebase Auth email is not lowercase: \(email, privacy: .private) — handled via profile email lookup in security rules")
         }
     }
 
