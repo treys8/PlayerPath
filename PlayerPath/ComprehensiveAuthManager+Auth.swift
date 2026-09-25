@@ -281,19 +281,6 @@ extension ComprehensiveAuthManager {
                 userRole = .coach
             }
 
-            // Stash any pending invitations so the coach onboarding flow can
-            // surface them after email verification (processing/accepting
-            // happens there, not here — verification is still pending).
-            do {
-                let invitations = try await SharedFolderManager.shared.checkPendingInvitations(forEmail: email)
-                self.pendingCoachInvitations = invitations
-                if !invitations.isEmpty {
-                    authLog.debug("Stashed \(invitations.count) pending invitations for new coach")
-                }
-            } catch {
-                authLog.warning("Failed to fetch pending invitations for new coach: \(error.localizedDescription)")
-            }
-
             // Send verification email and gate access until verified
             do {
                 try await result.user.sendEmailVerification()

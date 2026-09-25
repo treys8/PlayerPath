@@ -137,9 +137,6 @@ final class ComprehensiveAuthManager: ObservableObject {
     var appleCredentialObserver: NSObjectProtocol?
 
     // MARK: - Coach signup carryover
-    /// Pending shared-folder invitations discovered during coach signup.
-    /// Surfaced to the coach onboarding flow after email verification.
-    @Published var pendingCoachInvitations: [CoachInvitation] = []
     /// True when the verification email could not be sent during signup.
     /// UI should show a "couldn't send — tap Resend" hint when true.
     @Published var verificationEmailSendFailed: Bool = false
