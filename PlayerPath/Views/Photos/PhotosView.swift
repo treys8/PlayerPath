@@ -704,6 +704,14 @@ struct PhotosView: View {
                 SyncCoordinator.shared.syncPhotosSoon(for: user)
             } catch {
                 ErrorHandlerService.shared.handle(error, context: "PhotosView.savePhoto", showAlert: false)
+                // The camera already flashed and closed, so without this the photo
+                // just never appears. Toast, not alert: this lands while the
+                // camera cover is still dismissing, and an alert presented then
+                // is silently dropped.
+                Haptics.error()
+                actionToastType = .warning
+                actionToastMessage = "Couldn't save your photo. Please try again."
+                showActionToast = true
             }
         }
     }
