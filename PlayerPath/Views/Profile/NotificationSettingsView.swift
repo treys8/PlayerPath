@@ -195,18 +195,16 @@ struct NotificationSettingsView: View {
                 Section {
                     Toggle("Weekly Statistics", isOn: $weeklyStats)
                         .onChange(of: weeklyStats) { _, enabled in
-                            guard let athleteId else { return }
-                            if enabled {
-                                Task { @MainActor in
-                                    if let athlete = findAthlete(id: athleteId) {
-                                        await WeeklySummaryScheduler.schedule(for: athlete)
+                            // One global toggle, one pending request PER athlete
+                            // (`weekly_summary_<id>`). Act on all of them — cancelling only
+                            // the selected athlete left siblings' summaries firing on Sunday.
+                            Task { @MainActor in
+                                if enabled {
+                                    if let user = try? modelContext.fetch(FetchDescriptor<User>()).first {
+                                        await WeeklySummaryScheduler.scheduleAll(for: user)
                                     }
-                                }
-                            } else {
-                                Task { @MainActor in
-                                    PushNotificationService.shared.cancelNotifications(
-                                        withIdentifiers: ["weekly_summary_\(athleteId)"]
-                                    )
+                                } else {
+                                    await WeeklySummaryScheduler.cancelAll()
                                 }
                             }
                         }
