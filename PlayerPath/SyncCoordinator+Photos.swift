@@ -56,10 +56,20 @@ extension SyncCoordinator {
         }
         isSyncingPhotos = true
         defer { isSyncingPhotos = false }
+        // A queued request must survive a failed pass (one flaky upload would
+        // otherwise strand the just-saved photo until the next full sync), but it
+        // never carries across an account change or a cancelled sync.
+        let startUID = Auth.auth().currentUser?.uid
+        var firstError: Error?
         repeat {
             photoSyncRequested = false
-            try await runPhotoSyncPass(for: user)
-        } while photoSyncRequested
+            do {
+                try await runPhotoSyncPass(for: user)
+            } catch {
+                if firstError == nil { firstError = error }
+            }
+        } while photoSyncRequested && !Task.isCancelled && Auth.auth().currentUser?.uid == startUID
+        if let firstError { throw firstError }
     }
 
     /// Fire-and-forget photo upload after a local photo save, so a capture or
@@ -78,9 +88,9 @@ extension SyncCoordinator {
     }
 
     /// `isDeleted` / `modelContext` are safe to read on a deleted model, unlike
-    /// its attributes — check this after every await before touching `photo`.
-    private static func isLive(_ photo: Photo) -> Bool {
-        !photo.isDeleted && photo.modelContext != nil
+    /// its attributes — check this after every await before touching a model.
+    private static func isLive(_ model: some PersistentModel) -> Bool {
+        !model.isDeleted && model.modelContext != nil
     }
 
     /// One full photo pass: upload new, push metadata edits, pull remote, delete
@@ -88,6 +98,15 @@ extension SyncCoordinator {
     private func runPhotoSyncPass(for user: User) async throws {
         guard let context = modelContext else { return }
         guard let ownerUID = Auth.auth().currentUser?.uid else { return }
+        // Sign-out deletes every model a runloop later, and a new sign-in changes
+        // the uid. A pass started by a post-save kick isn't tracked by syncAll's
+        // between-step checks, so it re-checks this itself after its awaits:
+        // reading a wiped `user`/`athlete` traps, and a new account must never
+        // get the old one's photos uploaded under its uid.
+        func stillOurs() -> Bool {
+            Auth.auth().currentUser?.uid == ownerUID && Self.isLive(user)
+        }
+        guard stillOurs() else { return }
 
         let athletes = user.athletes ?? []
 
@@ -115,6 +134,9 @@ extension SyncCoordinator {
         )
 
         for athlete in athletes {
+            // Each iteration follows the previous athlete's awaits.
+            guard stillOurs() else { return }
+            guard Self.isLive(athlete) else { continue }
             // Skip athletes whose parent record hasn't synced yet. Keying photos on
             // the local UUID (the old `?? athlete.id.uuidString` fallback) silos them
             // per device and risks ghost-double-athletes when the same logical athlete
@@ -124,7 +146,12 @@ extension SyncCoordinator {
             var photos = athlete.photos ?? []
 
             // Upload new photos that haven't been synced
-            for photo in photos where photo.cloudURL == nil && photo.needsSync {
+            for photo in photos {
+                // Checked per photo, not in a `where` clause over the snapshot:
+                // each iteration follows the previous photo's upload awaits, so
+                // this photo (or the whole account) may be gone by now.
+                guard stillOurs() else { return }
+                guard Self.isLive(photo), photo.cloudURL == nil, photo.needsSync else { continue }
                 let resolvedPath = photo.resolvedFilePath
                 // Captured before any await — the photo can be deleted mid-upload
                 // (a post-save sync starts seconds after capture), and a deleted
@@ -219,20 +246,23 @@ extension SyncCoordinator {
                 }
             }
 
-            // The uploads above awaited; a photo deleted meanwhile is still in this
-            // snapshot, and everything below reads its attributes. Drop dead rows.
+            // The uploads above awaited; drop photos deleted meanwhile before the
+            // update filter reads their attributes.
             photos = photos.filter { Self.isLive($0) }
 
             // Update metadata for photos that have been edited locally
             let updatedPhotos = photos.filter { $0.needsSync && $0.firestoreId != nil && $0.cloudURL != nil }
             for photo in updatedPhotos {
-                guard let firestoreId = photo.firestoreId else { continue }
+                guard stillOurs() else { return }
+                guard Self.isLive(photo), let firestoreId = photo.firestoreId else { continue }
+                let data = photo.updatableFirestoreData()
+                let sent = PhotoEditSnapshot(photo)
                 do {
-                    try await FirestoreManager.shared.updatePhoto(
-                        photoId: firestoreId,
-                        data: photo.updatableFirestoreData()
-                    )
-                    photo.needsSync = false
+                    try await FirestoreManager.shared.updatePhoto(photoId: firestoreId, data: data)
+                    guard Self.isLive(photo) else { continue }
+                    // Same rule as the create path: an edit made during the await
+                    // wasn't sent, so it stays dirty for the next pass.
+                    photo.needsSync = PhotoEditSnapshot(photo) != sent
                     syncedPhotos.append(photo)
                 } catch {
                     syncLog.error("Failed to update photo metadata in Firestore: \(error.localizedDescription)")
@@ -244,6 +274,11 @@ extension SyncCoordinator {
                 uploadedBy: ownerUID,
                 athleteId: athleteStableId
             )
+            guard stillOurs() else { return }
+            guard Self.isLive(athlete) else { continue }
+            // Re-filter: a photo deleted during the update/fetch awaits above is
+            // still in `photos`, and the maps below read its firestoreId.
+            photos = photos.filter { Self.isLive($0) }
             for r in remotePhotos { if let id = r.id { globalRemotePhotoIds.insert(id) } }
             let localPhotoIds = Set(photos.compactMap { $0.firestoreId })
             let localPhotosByFirestoreId = Dictionary(
@@ -294,6 +329,10 @@ extension SyncCoordinator {
                 // instead of inserting a duplicate — keeps the downloaded file. Skip
                 // if the local row has pending edits (let the local upload win).
                 if let rid = remotePhoto.id, let existing = globalLocalPhotosByFirestoreId[rid] {
+                    // This map was built before the pass's awaits. A photo deleted
+                    // since must be skipped — NOT fall through to the download
+                    // branch, which would insert it again.
+                    guard Self.isLive(existing) else { continue }
                     if !existing.needsSync, existing.athlete?.id != athlete.id {
                         existing.athlete = athlete
                         existing.isScorecardPhoto = remotePhoto.isScorecardPhoto ?? false
@@ -360,10 +399,14 @@ extension SyncCoordinator {
         // still present under its new owner, so it survives. Gated on connectivity
         // (see +HoleScores): an offline/partial cached fetch must not drive deletions,
         // which would make a network blip look like a bulk delete.
+        guard stillOurs() else { return }
+        // Re-read after the loop's awaits: an athlete deleted mid-pass is skipped.
+        let liveAthletes = athletes.filter { Self.isLive($0) }
+
         if !ConnectivityMonitor.shared.isConnected {
             syncLog.warning("Skipping photo deletion pass — offline (would risk wiping synced photos)")
         } else {
-            for localPhoto in athletes.flatMap({ $0.photos ?? [] }) {
+            for localPhoto in liveAthletes.flatMap({ $0.photos ?? [] }) {
                 guard let fsId = localPhoto.firestoreId, !globalRemotePhotoIds.contains(fsId) else { continue }
                 syncLog.info("Photo \(localPhoto.id) deleted remotely — removing local copy")
                 localPhoto.delete(in: context)
@@ -377,7 +420,7 @@ extension SyncCoordinator {
             do {
                 try context.save()
             } catch {
-                for photo in syncedPhotos { photo.needsSync = true }
+                for photo in syncedPhotos where Self.isLive(photo) { photo.needsSync = true }
                 throw error
             }
         }
@@ -390,7 +433,7 @@ extension SyncCoordinator {
         // large gap can't queue thousands at once; the rest rides the next sync.
         let alreadyQueued = Set(pendingPhotoDownloads.map(\.photoID))
         var missingFileCount = 0
-        for photo in athletes.flatMap({ $0.photos ?? [] }) {
+        for photo in liveAthletes.flatMap({ $0.photos ?? [] }) {
             guard let cloudURL = photo.cloudURL, !cloudURL.isEmpty,
                   !alreadyQueued.contains(photo.id),
                   !photo.isAvailableOffline else { continue }
