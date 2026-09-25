@@ -1437,6 +1437,15 @@ export const cleanupUserDataOnDelete = functions
     }
   };
 
+  // Read BEFORE step 1 deletes it. An account with no profile never used the app —
+  // e.g. a first-time Apple ID the client discarded on the Sign In sheet
+  // (AppleSignInManager.discardUnconsentedAccount). Invitations addressed to its
+  // email belong to the people who sent them, so the email-keyed sweep below must
+  // not erase them; the uid-keyed sweeps still run.
+  const hadProfile = await db.collection('users').doc(uid).get()
+    .then((s) => s.exists)
+    .catch(() => true); // fail toward the full GDPR sweep
+
   // 1. Entire user document tree: profile + all subcollections at any depth
   //    (athletes→coaches, seasons, games→holes→shots, practices→notes).
   await step('user tree', () =>
@@ -1544,7 +1553,7 @@ export const cleanupUserDataOnDelete = functions
   await step('coach invitations', () =>
     deleteByQuery(db.collection('invitations').where('coachID', '==', uid))
   );
-  if (email) {
+  if (email && hadProfile) {
     await step('coachEmail invitations', () =>
       deleteByQuery(db.collection('invitations').where('coachEmail', '==', email))
     );

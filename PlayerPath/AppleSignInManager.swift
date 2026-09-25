@@ -167,12 +167,14 @@ final class AppleSignInManager: NSObject, ObservableObject {
     }
 
     /// Deletes a Firebase account Apple sign-in just created without consent
-    /// (Sign In sheet). Revokes the Apple token first, like account deletion.
-    /// Known residue: backfillInvitationsOnSignup may already have written
-    /// invitation notifications under this UID (only if the email had
-    /// pending invites) — harmless, unreachable. Revoking also makes Apple treat
-    /// the next authorization as first-time, so the real sign-up still receives
-    /// the user's full name.
+    /// (Sign In sheet). Revokes the Apple token, then deletes the account, which
+    /// fires cleanupUserDataOnDelete. Because no users/{uid} profile was ever
+    /// written, that function skips its email-keyed invitation sweep, so pending
+    /// invites to this email survive (this needs the functions deploy).
+    /// backfillInvitationsOnSignup may briefly write notifications, but the
+    /// delete trigger's notifications step removes them. Revoking also makes
+    /// Apple treat the next authorization as first-time, so the real sign-up
+    /// still receives the user's full name.
     private func discardUnconsentedAccount(_ user: FirebaseAuth.User, authorizationCode: Data?, authManager: ComprehensiveAuthManager?) async {
         if let code = authorizationCode.flatMap({ String(data: $0, encoding: .utf8) }) {
             do {
