@@ -467,10 +467,17 @@ final class ClipPersistenceService {
         do {
             try context.save()
         } catch {
-            try? fileManager.removeItem(at: destinationURL)
+            // Same rule as the checks above: never delete a file that was already
+            // in Documents/Clips before this call.
+            if sourceNeedsDeletion { try? fileManager.removeItem(at: destinationURL) }
             if let absoluteThumbnailPath = videoClip.resolvedThumbnailPath {
                 try? fileManager.removeItem(atPath: absoluteThumbnailPath)
             }
+            // Un-stage the unsaved rows. The context is shared, so they'd otherwise
+            // ride along on the next successful save — a retry would then persist a
+            // duplicate clip pointing at the file removed above.
+            if let result = videoClip.playResult { context.delete(result) }
+            context.delete(videoClip)
             throw error
         }
 

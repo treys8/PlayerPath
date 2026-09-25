@@ -63,6 +63,10 @@ struct DirectCameraRecorderView: View {
     @State private var showingDiscardConfirmation = false
     @State private var showingSaveError = false
     @State private var showingSaveFailedError = false
+    /// Re-runs the last failed athlete save with the same arguments. Set only
+    /// when a retry can succeed (the recording is intact); nil for a damaged
+    /// file and for the coach/guard paths that share the "Save Failed" alert.
+    @State private var retrySave: (() -> Void)?
 
     // Coach mode state
     @State private var lastSelectedAthleteID: String?
@@ -125,9 +129,29 @@ struct DirectCameraRecorderView: View {
             Text("No athlete profile found. Please create an athlete profile first.")
         }
         .alert("Save Failed", isPresented: $showingSaveFailedError) {
-            Button("OK", role: .cancel) { dismiss() }
+            if let retry = retrySave {
+                Button("Try Again") {
+                    retrySave = nil
+                    retry()
+                }
+                Button("Discard Video", role: .destructive) {
+                    retrySave = nil
+                    cleanupAndDismiss()
+                }
+            } else if recordedVideoURL != nil && !isCoachMode {
+                // Athlete save failed on a damaged recording — retrying can't help.
+                Button("Discard Video", role: .destructive) { cleanupAndDismiss() }
+            } else {
+                Button("OK", role: .cancel) { dismiss() }
+            }
         } message: {
-            Text("The video could not be saved. Please try recording again.")
+            if retrySave != nil {
+                Text("The video couldn't be saved. Try again, or discard it.")
+            } else if recordedVideoURL != nil && !isCoachMode {
+                Text("This recording is damaged and can't be saved.")
+            } else {
+                Text("The video could not be saved. Please try recording again.")
+            }
         }
         .alert("Recording Error", isPresented: errorBinding) {
             Button("OK", role: .cancel) {
@@ -384,7 +408,6 @@ struct DirectCameraRecorderView: View {
                     clipOrientation: clipOrientation,
                     isSaving: $isSavingTaggedClip,
                     onSave: { result, pitchSpeed, pitchType, role, club, markAsHighlight in
-                        isSavingTaggedClip = true
                         saveVideoWithResult(
                             videoURL: finalVideoURL,
                             playResult: result,
@@ -393,6 +416,7 @@ struct DirectCameraRecorderView: View {
                             club: club,
                             role: role,
                             markAsHighlight: markAsHighlight,
+                            onStart: { isSavingTaggedClip = true },
                             onError: { isSavingTaggedClip = false }
                         ) { dismiss() }
                     },
@@ -448,7 +472,7 @@ struct DirectCameraRecorderView: View {
         }
     }
 
-    private func saveVideoWithResult(videoURL: URL, playResult: PlayResultType?, pitchSpeed: Double? = nil, pitchType: String? = nil, club: Club? = nil, role: AthleteRole = .batter, note: String? = nil, markAsHighlight: Bool = false, onError: (() -> Void)? = nil, onComplete: @escaping () -> Void) {
+    private func saveVideoWithResult(videoURL: URL, playResult: PlayResultType?, pitchSpeed: Double? = nil, pitchType: String? = nil, club: Club? = nil, role: AthleteRole = .batter, note: String? = nil, markAsHighlight: Bool = false, onStart: (() -> Void)? = nil, onError: (() -> Void)? = nil, onComplete: @escaping () -> Void) {
         guard let athlete = athlete else {
             Haptics.error()
             showingSaveError = true
@@ -457,6 +481,7 @@ struct DirectCameraRecorderView: View {
 
         // Prevent double-saves
         guard saveTask == nil else { return }
+        onStart?()
 
         // Optimistic success feedback: the user's decision is committed the instant
         // they tap Save, and the recorded file already exists on disk — buzz now so
@@ -485,10 +510,11 @@ struct DirectCameraRecorderView: View {
                     practice: practice
                 )
 
-                // Save succeeded — now dismiss (success haptic already fired optimistically on tap)
-                VideoFileManager.cleanup(url: videoURL)
-                if let trimmed = trimmedVideoURL {
-                    VideoFileManager.cleanup(url: trimmed)
+                // Save succeeded — now dismiss (success haptic already fired optimistically on tap).
+                // saveClip already deleted `videoURL` (its source). When trimmed, the
+                // untrimmed original is a separate temp file nobody else owns.
+                if let original = recordedVideoURL, original != videoURL {
+                    VideoFileManager.cleanup(url: original)
                 }
                 recordedVideoURL = nil
                 trimmedVideoURL = nil
@@ -501,6 +527,21 @@ struct DirectCameraRecorderView: View {
                     showAlert: false
                 )
                 onError?()
+                // saveClip never deletes its source on failure, so the recording is
+                // still on disk — offer a retry unless the file itself is the problem.
+                switch error as? ClipPersistenceError {
+                case .corruptedVideo, .failedToCreateAsset, .fileNotFound:
+                    retrySave = nil
+                default:
+                    retrySave = {
+                        saveVideoWithResult(
+                            videoURL: videoURL, playResult: playResult, pitchSpeed: pitchSpeed,
+                            pitchType: pitchType, club: club, role: role, note: note,
+                            markAsHighlight: markAsHighlight, onStart: onStart,
+                            onError: onError, onComplete: onComplete
+                        )
+                    }
+                }
                 showingSaveFailedError = true
             }
         }
