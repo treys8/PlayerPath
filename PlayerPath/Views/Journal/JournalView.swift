@@ -83,6 +83,9 @@ struct JournalView: View {
 
     /// Reel opened from a card's "Watch Reel".
     @State private var playingReel: JournalEventReel?
+    /// Identity-stable tap target handed to eligible rows (see JournalReelTap).
+    /// Its handler is refreshed each body pass so it reads the current reels.
+    @State private var reelTap = JournalReelTap()
 
     /// Observed so the Watch Reel buttons appear the moment a purchase or comp
     /// lands. `SubscriptionGate.effectiveAthleteTier` has the same value but is
@@ -255,6 +258,21 @@ struct JournalView: View {
         "\(athleteID.uuidString)|\(JournalAnniversary.dayKey())"
     }
 
+    /// Backstop for the memo: never hand a cached entry whose model(s) were
+    /// deleted to the row — reading any attribute of a deleted @Model traps.
+    private static func isLive(_ memory: JournalMemory?) -> Bool {
+        guard let memory else { return true }
+        func ok(_ m: some PersistentModel) -> Bool { !m.isDeleted && m.modelContext != nil }
+        switch memory.entry {
+        case .game(let g):             return ok(g)
+        case .practice(let p):         return ok(p)
+        case .clip(let c):             return ok(c)
+        case .photo(let p):            return ok(p)
+        case .photoGroup(let photos):  return photos.allSatisfy(ok)
+        case .coachFeedback(let item): return ok(item.clip)
+        }
+    }
+
     private func onThisDayMemory(from feed: [JournalEntry]) -> JournalMemory? {
         var hasher = Hasher()
         hasher.combine(JournalAnniversary.dayKey())
@@ -266,9 +284,14 @@ struct JournalView: View {
         hasher.combine(feed.count)
         for entry in feed {
             hasher.combine(entry.date)
+            // A photo group is a frozen [Photo] snapshot whose date is its NEWEST
+            // photo — deleting (or re-tagging away) an older one changes neither
+            // the count nor any date, so the member count must be in the token or
+            // the cache would keep serving the old group, deleted Photo included.
+            if case .photoGroup(let photos) = entry { hasher.combine(photos.count) }
         }
         let token = hasher.finalize()
-        if memoryCache.token == token { return memoryCache.memory }
+        if memoryCache.token == token, Self.isLive(memoryCache.memory) { return memoryCache.memory }
         let memory = JournalMemoryPicker.pick(from: feed)
         memoryCache.token = token
         memoryCache.memory = memory
@@ -364,6 +387,11 @@ struct JournalView: View {
         let visibleEntries = feed.filter { filter.matches($0) }
         let filters = availableFilters(from: feed)
         let milestonesByGame = milestoneIndex()
+        // Refresh the Watch Reel handler in place (a reference write, no
+        // re-render) so a tap builds the reel from the current reels.
+        reelTap.handler = { [reels] entry in
+            playingReel = JournalEventReel.make(for: entry, reels: reels)
+        }
         // All pill only: it's a memory, not a filter result. Hidden for the rest
         // of today once dismissed.
         let memory = (hasFeed && filter == .all && hiddenMemoryKey != todayMemoryKey)
@@ -495,6 +523,9 @@ struct JournalView: View {
         .photoViewer($viewerPhoto, in: viewerPhoto.map { [$0] } ?? [], namespace: photoNS) { photo in
             PhotoPersistenceService().deletePhoto(photo, context: modelContext)
             Haptics.light()
+        }
+        .navigationDestination(for: JournalRoute.self) { route in
+            routeDestination(route)
         }
         .fullScreenCover(item: $playingReel) { reel in
             GenerateReelView(clips: reel.clips, scopeKey: reel.scopeKey, title: reel.title)
@@ -637,9 +668,7 @@ struct JournalView: View {
             // action, and clip attribution depends on it), baseball gets Record —
             // the two never coexist on one card.
             ForEach(liveGames) { game in
-                NavigationLink {
-                    GameDetailView(game: game)
-                } label: {
+                NavigationLink(value: JournalRoute.game(game.id)) {
                     LiveGameCard(
                         game: game,
                         isEnding: live.isEnding(game),
@@ -658,9 +687,7 @@ struct JournalView: View {
             }
 
             ForEach(livePractices) { practice in
-                NavigationLink {
-                    PracticeDetailView(practice: practice)
-                } label: {
+                NavigationLink(value: JournalRoute.practice(practice.id)) {
                     // Range sessions have no holes/scoring — they get the
                     // lighter RANGE SESSION card (Record + End), practice rounds
                     // the fuller round card (Score Hole + End). Mirrors
@@ -710,8 +737,8 @@ struct JournalView: View {
     /// matters: without `.contentShape`, an eager NavigationLink in a LazyVStack
     /// claims a region that bleeds past its frame and — being a later (z-above)
     /// sibling — steals taps from the filter pills above it.
-    private func feedRow(_ entry: JournalEntry, milestone: Milestone?, onWatchReel: (() -> Void)? = nil) -> some View {
-        JournalEntryRow(entry: entry, milestone: milestone, onWatchReel: onWatchReel)
+    private func feedRow(_ entry: JournalEntry, milestone: Milestone?, reelTap: JournalReelTap? = nil) -> some View {
+        JournalEntryRow(entry: entry, milestone: milestone, reelTap: reelTap)
             .padding(.horizontal, 18)
             .contentShape(Rectangle())
     }
@@ -759,16 +786,24 @@ struct JournalView: View {
                 selectedClip = item.clip
             } label: { feedRow(entry, milestone: milestone) }
                 .buttonStyle(.plain)
-        default:
-            // Resolved only for realized (on-screen) rows — LazyVStack never
-            // builds off-screen cells — so the per-event clip walk stays small.
-            // Free tier: no button, and no clip walk at all.
-            let reel = canWatchReels ? JournalEventReel.make(for: entry, reels: reels) : nil
-            NavigationLink { destination(for: entry) } label: {
-                feedRow(entry, milestone: milestone, onWatchReel: reel.map { r -> () -> Void in { playingReel = r } })
-            }
-            .buttonStyle(.plain)
+        case .game(let game):
+            eventLink(.game(game.id), entry: entry, milestone: milestone)
+        case .practice(let practice):
+            eventLink(.practice(practice.id), entry: entry, milestone: milestone)
         }
+    }
+
+    /// A game/practice card: a value-based push (so `homePath` tracks it), with
+    /// the Watch Reel button when the event has a reel. Eligibility is a cheap
+    /// count on realized rows only (LazyVStack never builds off-screen cells);
+    /// the reel's clip list is built on TAP, not per render. Free tier: no
+    /// button and no clip walk at all.
+    private func eventLink(_ route: JournalRoute, entry: JournalEntry, milestone: Milestone?) -> some View {
+        let hasReel = canWatchReels && JournalEventReel.hasReel(for: entry, reels: reels)
+        return NavigationLink(value: route) {
+            feedRow(entry, milestone: milestone, reelTap: hasReel ? reelTap : nil)
+        }
+        .buttonStyle(.plain)
     }
 
     /// The On This Day card: an accent header ("On This Day · 1 Year Ago") with
@@ -814,23 +849,17 @@ struct JournalView: View {
 
     // MARK: - Destinations
 
+    /// Resolves a pushed `JournalRoute` against the live @Query arrays. Only
+    /// games/practices push; clips, feedback, photos and photo groups present
+    /// as covers/sheets. A route whose model was deleted resolves to nothing
+    /// (its detail screen dismisses itself on delete anyway).
     @ViewBuilder
-    private func destination(for entry: JournalEntry) -> some View {
-        switch entry {
-        case .game(let g):     GameDetailView(game: g)
-        case .practice(let p): PracticeDetailView(practice: p)
-        // Clips are presented as a full-screen cover (see `selectedClip`), not a
-        // push, so they never route through here.
-        case .clip:            EmptyView()
-        // Photo groups open the day-scoped grid as a sheet (see `selectedPhotoDay`),
-        // not a push, so they never route through here either.
-        case .photoGroup:      EmptyView()
-        // Standalone photos open the full-screen viewer (see `viewerPhoto`), not a
-        // push, so they never route through here.
-        case .photo:           EmptyView()
-        // Coach-feedback cards open the clip as a full-screen cover (see
-        // `selectedClip`), not a push, so they never route through here.
-        case .coachFeedback:   EmptyView()
+    private func routeDestination(_ route: JournalRoute) -> some View {
+        switch route {
+        case .game(let id):
+            if let game = games.first(where: { $0.id == id }) { GameDetailView(game: game) }
+        case .practice(let id):
+            if let practice = practices.first(where: { $0.id == id }) { PracticeDetailView(practice: practice) }
         }
     }
 

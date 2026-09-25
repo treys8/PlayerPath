@@ -109,9 +109,7 @@ struct JournalUpNextStrip: View {
             .padding(.horizontal, 18)
 
             ForEach(items.prefix(Self.visibleLimit)) { item in
-                NavigationLink {
-                    destination(item)
-                } label: {
+                NavigationLink(value: route(item)) {
                     row(item)
                         .padding(.horizontal, 18)
                         .contentShape(Rectangle())
@@ -183,11 +181,12 @@ struct JournalUpNextStrip: View {
         }
     }
 
-    @ViewBuilder
-    private func destination(_ item: JournalUpcomingItem) -> some View {
+    /// Value-based push so MainTabView's `homePath` tracks it (see JournalRoute);
+    /// JournalView's `.navigationDestination` resolves it.
+    private func route(_ item: JournalUpcomingItem) -> JournalRoute {
         switch item {
-        case .game(let g):     GameDetailView(game: g)
-        case .practice(let p): PracticeDetailView(practice: p)
+        case .game(let g):     return .game(g.id)
+        case .practice(let p): return .practice(p.id)
         }
     }
 }

@@ -19,8 +19,9 @@ struct JournalEntryRow: View {
     var milestone: Milestone? = nil
 
     /// Set by the feed only when this event card has a reel (2+ highlight
-    /// clips). Draws the "Watch Reel" button over the media.
-    var onWatchReel: (() -> Void)? = nil
+    /// clips). Draws the "Watch Reel" button over the media. A reference-stable
+    /// object, not a closure, so SwiftUI can still skip re-rendering this row.
+    var reelTap: JournalReelTap? = nil
 
     /// The displayed media's clamped aspect ratio, resolved once its photo/clip
     /// thumbnail loads (nil until then → a default). Drives the media tile's height
@@ -355,10 +356,10 @@ struct JournalEntryRow: View {
     /// this says exactly what it plays: the event's highlight reel.
     @ViewBuilder
     private var reelButton: some View {
-        if let onWatchReel {
+        if let reelTap {
             Button {
                 Haptics.light()
-                onWatchReel()
+                reelTap.play(entry)
             } label: {
                 Label("Watch Reel", systemImage: "play.fill")
                     .font(.custom("Inter18pt-Bold", size: 12, relativeTo: .caption))

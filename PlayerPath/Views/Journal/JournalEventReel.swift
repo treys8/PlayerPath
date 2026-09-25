@@ -9,6 +9,7 @@
 //
 
 import Foundation
+import SwiftData
 
 struct JournalEventReel: Identifiable {
     let clips: [VideoClip]
@@ -19,6 +20,37 @@ struct JournalEventReel: Identifiable {
 
     /// A reel needs at least two clips — one clip is just a clip.
     static let minimumClips = 2
+
+    /// Cheap eligibility check for the card button: counts qualifying clips and
+    /// stops at the threshold — no sort, no array building. Must accept exactly
+    /// the clips `GolfHighlightUnion.highlightClips` would (live, not remotely
+    /// deleted, starred or in one of the event's birdie reels), so the button
+    /// never promises a reel `make` then refuses to build.
+    static func hasReel(for entry: JournalEntry, reels: [HighlightReel]) -> Bool {
+        let clips: [VideoClip]
+        let reelClipIDs: Set<String>
+        switch entry {
+        case .game(let game):
+            clips = game.videoClips ?? []
+            reelClipIDs = game.season?.sport == .golf
+                ? GolfHighlightUnion.reelClipIDStrings(gameIDs: [game.id], practiceIDs: [], reels: reels)
+                : []
+        case .practice(let practice):
+            clips = practice.videoClips ?? []
+            reelClipIDs = practice.season?.sport == .golf
+                ? GolfHighlightUnion.reelClipIDStrings(gameIDs: [], practiceIDs: [practice.id], reels: reels)
+                : []
+        default:
+            return false
+        }
+        var count = 0
+        for clip in clips where !clip.isDeleted && !clip.isDeletedRemotely {
+            guard clip.isHighlight || (!reelClipIDs.isEmpty && reelClipIDs.contains(clip.id.uuidString)) else { continue }
+            count += 1
+            if count >= minimumClips { return true }
+        }
+        return false
+    }
 
     /// The reel for a `.game`/`.practice` entry, or nil when it's another entry
     /// type or has fewer than two highlight clips. Golf unions starred clips
@@ -74,4 +106,13 @@ struct JournalEventReel: Identifiable {
         guard let date = practice.date else { return base }
         return "\(base) · \(DateFormatter.mediumDate.string(from: date))"
     }
+}
+
+/// Identity-stable tap target for a row's Watch Reel button. A closure
+/// parameter would be a new value on every JournalView body pass, so SwiftUI
+/// could never skip re-rendering a Plus user's game/practice rows. JournalView
+/// creates one per view and refreshes `handler` in place each pass.
+final class JournalReelTap {
+    var handler: (JournalEntry) -> Void = { _ in }
+    func play(_ entry: JournalEntry) { handler(entry) }
 }
