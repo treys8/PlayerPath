@@ -149,8 +149,11 @@ struct JournalView: View {
     /// as new and shows the welcome state, not an empty pill-less feed). Live
     /// games/practices are excluded here: they appear only in the pinned live
     /// strip, never as a duplicate feed row — so they never inflate the pills or
-    /// the content check. Computed once per body.
-    private func buildFeed() -> [JournalEntry] {
+    /// the content check. Scheduled ones are excluded the same way: they live in
+    /// the Up Next strip (`JournalUpcoming` is the one rule for both). `now` is
+    /// shared with the strip so an item crossing its start time mid-render can't
+    /// land in both or neither. Computed once per body.
+    private func buildFeed(now: Date) -> [JournalEntry] {
         // Resolve coach-feedback notifications to local clips up front so we can
         // both surface them as distinct cards AND suppress the plain orphan-clip
         // card for the same clip (the feedback card is the richer surface). Runs
@@ -164,8 +167,8 @@ struct JournalView: View {
             .filter { !clipsWithFeedback.contains($0.id) }
 
         return JournalFeedBuilder.build(
-            games: games.filter { !$0.isLive },
-            practices: practices.filter { !$0.isLive },
+            games: games.filter { !$0.isLive && !JournalUpcoming.isScheduled($0, now: now) },
+            practices: practices.filter { !$0.isLive && !JournalUpcoming.isScheduled($0, now: now) },
             orphanClips: orphanClips,
             orphanPhotos: orphanPhotos,
             coachFeedback: feedbackItems,
@@ -271,7 +274,13 @@ struct JournalView: View {
         let livePractices = practices.filter { $0.isLive && sportMatches($0.season?.sport) }
         let hasLiveActivity = !liveGames.isEmpty || !livePractices.isEmpty
 
-        let feed = buildFeed()
+        let now = Date()
+        let upcoming = JournalUpcoming.items(
+            games: games.filter { sportMatches($0.season?.sport) },
+            practices: practices.filter { sportMatches($0.season?.sport) },
+            now: now
+        )
+        let feed = buildFeed(now: now)
         let hasContent = !feed.isEmpty
         let visibleEntries = feed.filter { filter.matches($0) }
         let filters = availableFilters(from: feed)
@@ -299,6 +308,14 @@ struct JournalView: View {
 
                 if hasLiveActivity {
                     liveStrip(games: liveGames, practices: livePractices)
+                }
+
+                if !upcoming.isEmpty {
+                    JournalUpNextStrip(
+                        items: upcoming,
+                        isGolfProfile: activeSport == .golf,
+                        onStart: startScheduledGame
+                    )
                 }
 
                 // Pills only earn their place once there's something to filter.
@@ -465,6 +482,17 @@ struct JournalView: View {
             day: Calendar.current.startOfDay(for: day),
             sport: photos.compactMap { $0.season?.sport }.first
         )
+    }
+
+    // MARK: - Up Next
+
+    /// Same path as GameDetailView's Start button (`GameService.start`): it ends
+    /// any other live game, stamps liveStartDate, syncs, and schedules the
+    /// end-game reminder. Once `isLive` flips, the game leaves Up Next and shows
+    /// up in the Live Now strip on its own.
+    private func startScheduledGame(_ game: Game) {
+        let service = GameService(modelContext: modelContext)
+        Task { await service.start(game) }
     }
 
     // MARK: - Log-event flow
