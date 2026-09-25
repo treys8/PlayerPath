@@ -781,6 +781,11 @@ struct VideoPlayerView: View {
         }
         .onDisappear {
             player?.pause()
+            // Presenting the Trim fullScreenCover fires onDisappear on this
+            // view. Tearing down here would leave a cancelled trim with no
+            // annotation listener or auto-show observer (a saved trim bumps
+            // clip.version and .task rebuilds both anyway).
+            guard !showingRetrimFlow else { return }
             stopAutoShowObserver()
             coachAnnotationsListener?.remove()
             coachAnnotationsListener = nil

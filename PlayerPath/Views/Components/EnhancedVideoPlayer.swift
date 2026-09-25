@@ -523,8 +523,10 @@ struct EnhancedVideoPlayer: View {
     }
 
     private func cleanup() {
+        // Pause only — VideoPlayerView owns this player, and releasing its
+        // @State frees it. Clearing the item here left a dead player when a
+        // fullScreenCover (Trim) fired onDisappear and was then cancelled.
         player.pause()
-        player.replaceCurrentItem(with: nil)
         durationTask?.cancel()
         durationTask = nil
         if let observer = timeObserver {
