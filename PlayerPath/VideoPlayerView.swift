@@ -71,6 +71,9 @@ struct VideoPlayerView: View {
     @State private var shownDrawingIDs: Set<String> = []
     @State private var hasTriggeredInitialAutoShow = false
     @State private var autoShowTimeObserver: Any?
+    /// Playhead time at the auto-show observer's last playing tick — tells a
+    /// normal 1s advance apart from a scrub or skip.
+    @State private var lastAutoShowTick: Double?
     @State private var videoAspectRatioResolved = false
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.modelContext) private var modelContext
@@ -378,13 +381,18 @@ struct VideoPlayerView: View {
     private func showDrawing(for annotation: VideoAnnotation) {
         guard let data = annotation.drawingPKData else { return }
         player?.pause()
+        // Marker taps count as seen too — otherwise the auto-show observer
+        // re-pops the same drawing right after the user dismisses it.
+        if let id = annotation.id { shownDrawingIDs.insert(id) }
+        // The observer's next tick measures from the drawing's own frame, so
+        // the seek below doesn't read as a playback jump.
+        lastAutoShowTick = annotation.timestamp
         // Show the drawing on the frame it was drawn on, matching
         // CoachVideoPlayerViewModel.showDrawingOverlay (which also seeks for
         // its initial auto-show, so opening a clip lands on the first
         // drawing's frame in both players). The auto-show observer ticks once
         // a second, so without this the drawing can sit over a frame up to
-        // ~1s past its own. Already-shown IDs stay in shownDrawingIDs, so
-        // seeking back can't re-trigger auto-show.
+        // ~1s past its own.
         player?.seek(
             to: CMTime(seconds: annotation.timestamp, preferredTimescale: 600),
             toleranceBefore: .zero,
@@ -431,18 +439,30 @@ struct VideoPlayerView: View {
     /// it crosses a not-yet-shown drawing's timestamp. The 0.25s lookahead
     /// matches the tick rate so we never miss a drawing between ticks.
     /// Drawings with undecodable data are skipped silently.
+    ///
+    /// Only drawings CROSSED during continuous playback fire. A drawing left
+    /// behind by a scrub/skip forward is marked seen instead — showDrawing
+    /// seeks to its frame, so firing it would yank the playhead back to it.
     private func startAutoShowObserver() {
         // Defensive teardown — the previous observer's token may be stale if
         // setupPlayer replaced `self.player` (e.g., clip.version change or
         // Try Again retry). Without this, the guard below would short-circuit
         // and the new player would never get a fresh observer.
         stopAutoShowObserver()
+        lastAutoShowTick = nil
         guard let player else { return }
         let interval = CMTime(seconds: 1.0, preferredTimescale: 600)
         autoShowTimeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { time in
             guard player.timeControlStatus == .playing else { return }
             guard activeDrawingOverlay == nil else { return }
             let currentTime = time.seconds
+            let previous = lastAutoShowTick ?? max(0, currentTime - 1.0)
+            lastAutoShowTick = currentTime
+            // One tick of playback covers ~1s × rate; anything beyond that
+            // (or backwards) is a scrub/skip, and only its landing point counts.
+            let jumped = currentTime < previous
+                || currentTime - previous > Double(max(player.rate, 1)) + 0.5
+            let windowStart = (jumped ? currentTime : previous) - 0.25
             let candidates = coachAnnotations
                 .filter { $0.isDrawing }
                 .filter { ann in
@@ -452,11 +472,8 @@ struct VideoPlayerView: View {
                 .sorted { $0.timestamp < $1.timestamp }
             for drawing in candidates {
                 guard let id = drawing.id else { continue }
-                guard drawing.drawingPKData != nil else {
-                    shownDrawingIDs.insert(id)
-                    continue
-                }
                 shownDrawingIDs.insert(id)
+                guard drawing.timestamp >= windowStart, drawing.drawingPKData != nil else { continue }
                 showDrawing(for: drawing)
                 return
             }

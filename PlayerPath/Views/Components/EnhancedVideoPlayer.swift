@@ -120,6 +120,16 @@ struct EnhancedVideoPlayer: View {
         .onAppear { setupPlayer(); showControlsTemporarily() }
         .onDisappear { cleanup() }
         .onChange(of: scenePhase) { _, newPhase in handleScenePhaseChange(newPhase) }
+        // VideoPlayerView can swap in a new AVPlayer without this view leaving
+        // the hierarchy (its nil→new swap never suspends, so SwiftUI only sees
+        // the final player). onAppear won't re-run, so re-attach here: the
+        // time observer moves to the new player and defaultRate is reapplied.
+        .onChange(of: ObjectIdentifier(player)) { _, _ in
+            isAtEnd = false
+            currentTime = 0
+            durationTask?.cancel()
+            setupPlayer()
+        }
         .onChange(of: suppressZoom) { _, suppressed in
             if suppressed { resetZoom() }
         }
