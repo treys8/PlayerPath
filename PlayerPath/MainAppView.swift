@@ -14,7 +14,6 @@ import os
 /// - switchTab: Pass an Int tab index as object to switch the main TabView.
 /// - presentVideoRecorder: Ask Videos module to present its recorder UI.
 /// - showAthleteSelection: Request athlete selection UI to be shown.
-/// - recordedHitResult: Post with object ["hitType": String] to update highlights and stats.
 
 // MARK: - Main Tab Enum
 enum MainTab: Int {

@@ -485,14 +485,6 @@ struct DirectCameraRecorderView: View {
                     practice: practice
                 )
 
-                // Post notification for stats update in tab view
-                if let resultType = playResult {
-                    NotificationCenter.default.post(
-                        name: .recordedHitResult,
-                        object: ["hitType": resultType.displayName]
-                    )
-                }
-
                 // Save succeeded — now dismiss (success haptic already fired optimistically on tap)
                 VideoFileManager.cleanup(url: videoURL)
                 if let trimmed = trimmedVideoURL {

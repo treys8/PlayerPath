@@ -15,7 +15,6 @@ extension Notification.Name {
     static let presentVideoRecorder = Notification.Name("presentVideoRecorder")
     static let showAthleteSelection = Notification.Name("showAthleteSelection")
     static let switchAthlete = Notification.Name("switchAthlete")
-    static let recordedHitResult = Notification.Name("recordedHitResult")
     static let videosManageOwnControls = Notification.Name("videosManageOwnControls")
     static let presentAddGame = Notification.Name("presentAddGame")
     static let presentFullscreenVideo = Notification.Name("presentFullscreenVideo")

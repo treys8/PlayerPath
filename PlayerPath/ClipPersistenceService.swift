@@ -413,36 +413,8 @@ final class ClipPersistenceService {
                     playType: playResultType,
                     role: role
                 )
-
-            if let game = game {
-                // For game videos: Only update game statistics
-                // Athlete stats will be aggregated when the game ends
-                if game.gameStats == nil {
-                    let gameStats = GameStatistics()
-                    gameStats.game = game
-                    game.gameStats = gameStats
-                    context.insert(gameStats)
-                }
-                if let gameStats = game.gameStats {
-                    // Manual-entry games are the stats source of truth — video tags
-                    // don't fold into counters. The playResult still lives on the
-                    // VideoClip itself, so a future mode switch can rebuild from it.
-                    if !gameStats.hasManualEntry {
-                        gameStats.addPlayResult(playResultType, pitchType: pitchType, pitchSpeed: pitchSpeed)
-                    }
-                }
-            } else {
-                // For practice/standalone videos: Update athlete statistics directly
-                if athlete.statistics == nil {
-                    let stats = AthleteStatistics()
-                    stats.athlete = athlete
-                    athlete.statistics = stats
-                    context.insert(stats)
-                }
-                if let statistics = athlete.statistics {
-                    statistics.addPlayResult(playResultType, pitchType: pitchType, pitchSpeed: pitchSpeed)
-                }
-            }
+            // Stats are NOT touched here — they're rebuilt from saved clips after
+            // the save below succeeds, so a failed save leaves nothing to undo.
         }
 
         // Inherit the event's own season so a clip recorded into a past-season
@@ -500,6 +472,24 @@ final class ClipPersistenceService {
                 try? fileManager.removeItem(atPath: absoluteThumbnailPath)
             }
             throw error
+        }
+
+        // Rebuild game + career + season stats from the saved clips. Rebuild, not
+        // increment: the old incremental path plus the `.recordedHitResult`
+        // notification double-counted and mapped pitching results onto batting
+        // stats by display name. Untagged clips with a pitch speed still feed the
+        // velocity aggregates. Failures here must not fail the save — the clip is
+        // already persisted, and any later recalc repairs the counters.
+        if playResult != nil || pitchSpeed != nil {
+            do {
+                if let game {
+                    // Skips manual-entry games itself (their counters are the source of truth).
+                    try StatisticsService.shared.recalculateGameStatistics(for: game, context: context)
+                }
+                try StatisticsService.shared.recalculateAthleteStatistics(for: athlete, context: context)
+            } catch {
+                ErrorHandlerService.shared.handle(error, context: "ClipPersistence.recalcStats", showAlert: false)
+            }
         }
 
         // Save to Photos Library if enabled in user preferences

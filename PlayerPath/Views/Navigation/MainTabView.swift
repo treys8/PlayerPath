@@ -205,26 +205,6 @@ struct MainTabView: View {
     // NotificationCenter observer management using StateObject for lifecycle safety
     @StateObject private var notificationManager = NotificationObserverManager()
 
-    private func applyRecordedHitResult(_ info: [String: Any]) {
-        guard let hitType = info["hitType"] as? String else { 
-            return 
-        }
-        
-        #if DEBUG
-        print("⚾️ Recording hit result: \(hitType) for athlete: \(selectedAthlete.name)")
-        #endif
-
-        // Synchronous on purpose: deferring into a Task opened a window where the
-        // athlete model could be invalidated before the counters were touched —
-        // SwiftData traps (EXC_BREAKPOINT in the .modify accessor, build 185 crash).
-        // record() is sync and we're already on the main actor.
-        guard !selectedAthlete.isDeleted, selectedAthlete.modelContext != nil else { return }
-        StatisticsHelpers.record(hitType: hitType, for: selectedAthlete, in: modelContext)
-
-        // Provide haptic feedback for successful stat recording
-        Haptics.success()
-    }
-    
     // MARK: - Dashboard actions
     private func toggleGameLive(_ game: Game) {
         Haptics.light()
@@ -481,14 +461,6 @@ struct MainTabView: View {
             MainActor.assumeIsolated {
                 selectedTab = MainTab.videos.rawValue
                 Haptics.light()
-            }
-        }
-
-        notificationManager.observe(name: Notification.Name.recordedHitResult) { notification in
-            MainActor.assumeIsolated {
-                if let info = notification.object as? [String: Any] {
-                    applyRecordedHitResult(info)
-                }
             }
         }
 
