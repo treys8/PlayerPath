@@ -34,6 +34,9 @@ struct VideoClipPagerView: View {
     let clipIDs: [UUID]
 
     @State private var currentID: UUID
+    /// One speed for the whole prev/next session — each clip gets a fresh
+    /// player (`.id(clip.id)`), so it can't live in the player's own @State.
+    @State private var playbackSpeed: PlaybackSpeed = .normal
     @Environment(\.dismiss) private var dismiss
 
     init(athlete: Athlete, session: VideoPlayerSession) {
@@ -68,7 +71,8 @@ struct VideoClipPagerView: View {
                     total: clipIDs.count,
                     onPrevious: previous.map { id in { currentID = id } },
                     onNext: next.map { id in { currentID = id } }
-                ) : nil
+                ) : nil,
+                playbackSpeed: $playbackSpeed
             )
             // A fresh identity per clip rebuilds the player's @State, runs its
             // onDisappear teardown (pause + listener removal), and re-runs its

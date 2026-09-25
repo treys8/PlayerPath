@@ -26,6 +26,8 @@ struct VideoPlayerView: View {
     /// Prev/next through a list, supplied by `VideoClipPagerView`. nil for a
     /// standalone clip (no counter or chevrons shown).
     var navigation: ClipNavigation? = nil
+    /// Speed shared across the pager session; nil for a standalone clip.
+    var playbackSpeed: Binding<PlaybackSpeed>? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var player: AVPlayer?
     @State private var errorMessage = ""
@@ -357,7 +359,8 @@ struct VideoPlayerView: View {
                 // Must track whatever gates loadCoachAnnotationsIfNeeded(): a
                 // portrait clip on a portrait phone otherwise renders
                 // .resizeAspectFill and the drawing lands offset from the video.
-                forceAspectFit: coachFeedbackVideoID != nil
+                forceAspectFit: coachFeedbackVideoID != nil,
+                sharedSpeed: playbackSpeed
             )
                 .accessibilityLabel("Video player")
 

@@ -29,6 +29,10 @@ struct EnhancedVideoPlayer: View {
     /// overlay (which fits to the clip's true aspect) must stay aligned with the
     /// rendered video rect.
     var forceAspectFit: Bool = false
+    /// Speed shared across a prev/next session (`VideoClipPagerView`), so
+    /// moving to the next clip keeps 0.25× instead of snapping back to 1×.
+    /// nil = this player's speed is its own.
+    var sharedSpeed: Binding<PlaybackSpeed>? = nil
     @State private var isPlaying = false
     @State private var currentTime: Double = 0
     @State private var duration: Double = 0
@@ -418,7 +422,7 @@ struct EnhancedVideoPlayer: View {
                 .monospacedDigit()
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
-                .background(ppAccent)
+                .background(playbackSpeed == .normal ? Color.white.opacity(0.2) : ppAccent)
                 .foregroundColor(.white)
                 .clipShape(Capsule())
         }
@@ -434,6 +438,12 @@ struct EnhancedVideoPlayer: View {
         // Play through the silent switch — clip / coach audio (including spoken
         // cues baked into the clip) should be audible on this review surface.
         AudioSessionManager.configureForPlayback()
+
+        if let sharedSpeed { playbackSpeed = sharedSpeed.wrappedValue }
+        // Every play() starts at defaultRate, so the chosen speed also survives
+        // the resumes this view doesn't own (VideoPlayerView's drawing dismiss
+        // and scene-phase resume).
+        player.defaultRate = Float(playbackSpeed.value)
 
         // Use pre-loaded duration if available; otherwise load asynchronously.
         if let preloaded = preloadedDuration, preloaded > 0 {
@@ -491,25 +501,14 @@ struct EnhancedVideoPlayer: View {
     private func togglePlayPause() {
         if isPlaying {
             player.pause()
+        } else if isAtEnd {
+            // Replay from the start; play() uses defaultRate, so slow-mo holds.
+            isAtEnd = false
+            player.seek(to: .zero) { _ in
+                Task { @MainActor in self.player.play() }
+            }
         } else {
-            // If the video has ended, seek to the beginning and replay
-            if isAtEnd {
-                isAtEnd = false
-                player.seek(to: .zero) { _ in
-                    Task { @MainActor in
-                        self.player.play()
-                        if self.playbackSpeed != .normal {
-                            self.player.rate = Float(self.playbackSpeed.value)
-                        }
-                    }
-                }
-                Haptics.light()
-                return
-            }
             player.play()
-            if playbackSpeed != .normal {
-                player.rate = Float(playbackSpeed.value)
-            }
         }
         Haptics.light()
     }
@@ -541,6 +540,8 @@ struct EnhancedVideoPlayer: View {
 
     private func setPlaybackSpeed(_ speed: PlaybackSpeed) {
         playbackSpeed = speed
+        sharedSpeed?.wrappedValue = speed
+        player.defaultRate = Float(speed.value)
         if isPlaying {
             player.rate = Float(speed.value)
         }
