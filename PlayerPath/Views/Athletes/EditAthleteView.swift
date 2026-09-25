@@ -2,8 +2,8 @@
 //  EditAthleteView.swift
 //  PlayerPath
 //
-//  Edits a single athlete's settings. Currently exposes the stat-tracking
-//  toggle. Callers provide the NavigationStack — presented as a sheet from
+//  Edits a single athlete's settings — name, sports, recruiting, stat tracking.
+//  Callers provide the NavigationStack — presented as a sheet from
 //  AthleteProfileRow's info button and the Stats tab banner, and pushed from
 //  the Profile tab's "Athlete Settings" link.
 //
@@ -33,6 +33,8 @@ struct EditAthleteView: View {
 
     var body: some View {
         Form {
+            AthleteNameSection(athlete: athlete)
+
             Section {
                 HStack(spacing: 8) {
                     ForEach(currentSports, id: \.self) { sport in
