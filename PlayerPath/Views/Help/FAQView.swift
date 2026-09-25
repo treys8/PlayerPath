@@ -101,7 +101,7 @@ struct FAQView: View {
         ),
         (
             question: "Can I share videos with my coach?",
-            answer: "Yes! With a Pro subscription, you can create Shared Folders and invite coaches by email. Coaches can view your videos and leave notes and drawings directly on them. Go to More → Shared Folders to get started."
+            answer: "Yes — on any plan. Create a Shared Folder and invite your coach by email. Coaches can view your videos and leave notes and drawings directly on them. Go to More → Shared Folders to get started."
         ),
         (
             question: "How much storage do videos use?",

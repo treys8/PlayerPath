@@ -292,6 +292,18 @@ struct ImprovedPaywallView: View {
                 checkIcon(included: true)
             }
 
+            // Pro-only. Hidden with the rest of recruiting when the compile-time
+            // flag is off (RecruitingFeature.swift) — never advertise a hidden feature.
+            if RecruitingFeature.isEnabled {
+                tableRow(feature: "Recruiting Profile") {
+                    checkIcon(included: false)
+                } plus: {
+                    checkIcon(included: false)
+                } pro: {
+                    checkIcon(included: true)
+                }
+            }
+
             // Coach sharing is free at every tier (the coach's seat covers the
             // connection) — shown so athletes know it's included, not missing.
             tableRow(feature: "Coach Sharing") {
