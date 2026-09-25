@@ -350,21 +350,11 @@ struct VideoPlayerView: View {
                 // portrait clip on a portrait phone otherwise renders
                 // .resizeAspectFill and the drawing lands offset from the video.
                 forceAspectFit: coachFeedbackVideoID != nil,
-                sharedSpeed: playbackSpeed
+                sharedSpeed: playbackSpeed,
+                annotationMarkers: activeDrawingOverlay == nil ? coachAnnotations : [],
+                onTapDrawingMarker: { annotation in showDrawing(for: annotation) }
             )
                 .accessibilityLabel("Video player")
-
-            // Tappable timeline markers for coach annotations (drawings only
-            // are interactive; text annotations render as inert markers).
-            if activeDrawingOverlay == nil,
-               !coachAnnotations.isEmpty,
-               let duration = videoDuration, duration > 0 {
-                AnnotationMarkersOverlay(
-                    annotations: coachAnnotations,
-                    duration: duration,
-                    onTapDrawing: { annotation in showDrawing(for: annotation) }
-                )
-            }
 
             // Read-only drawing overlay — shown when user taps a drawing marker
             // or when auto-show fires. Dismiss resumes playback so the lesson
@@ -387,6 +377,18 @@ struct VideoPlayerView: View {
     private func showDrawing(for annotation: VideoAnnotation) {
         guard let data = annotation.drawingPKData else { return }
         player?.pause()
+        // Show the drawing on the frame it was drawn on, matching
+        // CoachVideoPlayerViewModel.showDrawingOverlay (which also seeks for
+        // its initial auto-show, so opening a clip lands on the first
+        // drawing's frame in both players). The auto-show observer ticks once
+        // a second, so without this the drawing can sit over a frame up to
+        // ~1s past its own. Already-shown IDs stay in shownDrawingIDs, so
+        // seeking back can't re-trigger auto-show.
+        player?.seek(
+            to: CMTime(seconds: annotation.timestamp, preferredTimescale: 600),
+            toleranceBefore: .zero,
+            toleranceAfter: .zero
+        )
         let size: CGSize? = {
             guard let w = annotation.drawingCanvasWidth,
                   let h = annotation.drawingCanvasHeight,

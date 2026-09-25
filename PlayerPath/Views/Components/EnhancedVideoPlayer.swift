@@ -31,6 +31,13 @@ struct EnhancedVideoPlayer: View {
     /// moving to the next clip keeps 0.25× instead of snapping back to 1×.
     /// nil = this player's speed is its own.
     var sharedSpeed: Binding<PlaybackSpeed>? = nil
+    /// Coach annotations drawn as a marker row directly above the scrubber, so
+    /// each marker sits where the scrubber thumb will be at that moment. They
+    /// live inside the controls bar, so they fade with it and can never sit on
+    /// top of the speed chip. Empty = no row.
+    var annotationMarkers: [VideoAnnotation] = []
+    /// Tap on a drawing marker. nil = markers are inert.
+    var onTapDrawingMarker: ((VideoAnnotation) -> Void)? = nil
     @State private var isPlaying = false
     @State private var currentTime: Double = 0
     @State private var duration: Double = 0
@@ -236,8 +243,23 @@ struct EnhancedVideoPlayer: View {
 
     // MARK: - Timeline View
 
+    /// Horizontal inset of the marker row so t=0 / t=end line up with the
+    /// slider thumb's CENTER at its travel limits (the thumb never reaches
+    /// the track's edges). Half the system thumb width — tuned in the sim.
+    private static let markerTrackInset: CGFloat = 14
+
     private var timelineView: some View {
         VStack(spacing: 4) {
+            if !annotationMarkers.isEmpty, durationLoaded, duration > 0 {
+                AnnotationMarkersOverlay(
+                    annotations: annotationMarkers,
+                    duration: duration,
+                    onTapDrawing: onTapDrawingMarker
+                )
+                .frame(height: 30)
+                .padding(.horizontal, Self.markerTrackInset)
+            }
+
             Slider(
                 value: $currentTime,
                 in: 0...max(duration, 1),
