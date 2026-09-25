@@ -131,8 +131,12 @@ struct EnhancedVideoPlayer: View {
         }
         .onReceive(player.publisher(for: \.timeControlStatus)) { status in
             let nowPlaying = status == .playing
+            // Edge-triggered: a re-subscribe replays the current status, and
+            // rescheduling on every replay would keep pushing the auto-hide
+            // back so the controls never fade.
+            let started = nowPlaying && !isPlaying
             isPlaying = nowPlaying
-            if nowPlaying && showControls { scheduleControlsHide() }
+            if started && showControls { scheduleControlsHide() }
         }
         .onReceive(NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime, object: player.currentItem)) { _ in
             isAtEnd = true
@@ -211,8 +215,9 @@ struct EnhancedVideoPlayer: View {
             player.pause()
             isPlaying = false
         } else if shouldResumeOnActive {
+            // isPlaying follows timeControlStatus; setting it here would
+            // swallow the paused→playing edge that schedules the auto-hide.
             player.play()
-            isPlaying = true
             shouldResumeOnActive = false
         }
     }
@@ -507,7 +512,7 @@ struct EnhancedVideoPlayer: View {
 
         // Add time observer (guard against double-add if onAppear fires twice)
         if timeObserver == nil {
-            let interval = CMTime(seconds: 0.5, preferredTimescale: 600)
+            let interval = CMTime(seconds: 0.1, preferredTimescale: 600)
             timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { time in
                 if !isDragging {
                     currentTime = CMTimeGetSeconds(time)
@@ -566,16 +571,17 @@ struct EnhancedVideoPlayer: View {
         Haptics.light()
     }
 
+    // Pause FIRST: stepping a playing item is overridden by playback.
     private func stepForward() {
-        player.currentItem?.step(byCount: 1)
         player.pause()
+        player.currentItem?.step(byCount: 1)
         Haptics.light()
     }
 
     private func stepBackward() {
         isAtEnd = false
-        player.currentItem?.step(byCount: -1)
         player.pause()
+        player.currentItem?.step(byCount: -1)
         Haptics.light()
     }
 
@@ -619,11 +625,17 @@ struct EnhancedVideoPlayer: View {
         }
     }
 
+    /// m:ss, plus tenths for clips under a minute — the swing/pitch clips this
+    /// player mostly shows, where a whole-second readout doesn't move while
+    /// frame-stepping. Truncates (never rounds), so 59.96s can't print "0:60.0".
     private func formatTime(_ seconds: Double) -> String {
-        let totalSeconds = Int(max(0, seconds))
-        let minutes = totalSeconds / 60
-        let remainingSeconds = totalSeconds % 60
-        return String(format: "%d:%02d", minutes, remainingSeconds)
+        let clamped = max(0, seconds)
+        if duration < 60 {
+            let tenths = Int((clamped * 10).rounded(.down))
+            return String(format: "%d:%02d.%d", tenths / 600, (tenths % 600) / 10, tenths % 10)
+        }
+        let total = Int(clamped)
+        return String(format: "%d:%02d", total / 60, total % 60)
     }
 }
 
