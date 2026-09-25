@@ -287,6 +287,10 @@ extension PlayResultAccumulator {
         return Double(strikes) / Double(totalPitches)
     }
 
+    /// True when there's any batting line worth surfacing. A pitching-only manual
+    /// entry creates the stats row with every batting counter at 0.
+    var hasBattingData: Bool { atBats > 0 || walks > 0 || hitByPitches > 0 }
+
     // MARK: - Derived Pitching Statistics
 
     /// True when there's any pitching data worth surfacing — pitch-tagged clips or a

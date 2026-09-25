@@ -181,24 +181,28 @@ struct GameDetailView: View {
         List {
             // Game Info Section
             Section(header: Text(isGolf ? "Round Details" : "Game Details").smallCapsLabel()) {
+                // No Opponent/Course row — the navigation title already carries it.
                 VStack(alignment: .leading, spacing: 10) {
-                    HStack {
-                        Text(isGolf ? "Course" : "Opponent")
-                            .font(.headingMedium)
-                        Spacer()
-                        Text(game.opponent)
-                            .foregroundColor(.secondary)
-                    }
-
                     HStack {
                         Text("Date")
                             .font(.headingMedium)
                         Spacer()
                         if let date = game.date {
-                            Text(date, format: .dateTime.month().day().hour().minute())
+                            // Year included — past seasons are browsed from search.
+                            Text(date, format: .dateTime.month().day().year().hour().minute())
                                 .foregroundColor(.secondary)
                         } else {
                             Text("Unknown Date")
+                                .foregroundColor(.secondary)
+                        }
+                    }
+
+                    if let season = game.season {
+                        HStack {
+                            Text("Season")
+                                .font(.headingMedium)
+                            Spacer()
+                            Text(season.displayName)
                                 .foregroundColor(.secondary)
                         }
                     }
@@ -346,10 +350,14 @@ struct GameDetailView: View {
             // (Record / Start / Score Hole) right under the details so the
             // primary action is reachable without scrolling past content.
             // Completed games are watch-first — their CTA block sits at the
-            // bottom instead (see below). All editorial/destructive actions
-            // live only in the `•••` toolbar menu either way.
+            // bottom instead (see below) — except a PAST game that was never
+            // finalized, whose Add Results / Mark Complete go up here since
+            // finalizing is the point of the visit. All editorial/destructive
+            // actions live only in the `•••` toolbar menu either way.
             if game.displayStatus != .completed {
                 contextualActions
+            } else if needsResults {
+                needsResultsSection
             }
 
             // Video Clips Section
@@ -404,7 +412,9 @@ struct GameDetailView: View {
             }
 
             // Game Statistics — hidden for golf (scoring lives in the Score section above)
-            if !isGolf, let stats = game.gameStats {
+            // Gated on batting data: a pitching-only entry creates this row with
+            // every batting counter at 0.
+            if !isGolf, let stats = game.gameStats, stats.hasBattingData {
                 Section(header: Text("Game Statistics").smallCapsLabel()) {
                     HStack {
                         Text("At Bats")
@@ -452,7 +462,7 @@ struct GameDetailView: View {
                         HStack {
                             Text("Batting Average")
                             Spacer()
-                            Text(String(format: "%.3f", Double(stats.hits) / Double(stats.atBats)))
+                            Text(StatisticsService.shared.formatBattingAverage(Double(stats.hits) / Double(stats.atBats)))
                                 .font(.headingMedium)
                                 .foregroundColor(ppAccent)
                         }
@@ -470,7 +480,9 @@ struct GameDetailView: View {
                             .font(.headingMedium)
                             .foregroundColor(.green)
                     }
-                    if stats.outsRecorded > 0 {
+                    // Same ≥1-inning gate as the Stats tab — one out and one ER
+                    // would otherwise read "ERA 27.00".
+                    if stats.hasPitchingRateSample {
                         HStack {
                             Text("ERA")
                             Spacer()
@@ -524,7 +536,7 @@ struct GameDetailView: View {
             }
         }
         .ppDetailBackground()
-        .navigationTitle("\(isGolf ? "at" : "vs") \(game.opponent)")
+        .navigationTitle(game.opponentLabel)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { primaryActionMenu }
         .alert(isGolf ? "End Round" : "End Game", isPresented: $showingEndGame) {
@@ -543,19 +555,7 @@ struct GameDetailView: View {
                 deleteGame()
             }
         } message: {
-            if game.isComplete, !videoClips.isEmpty || game.gameStats != nil {
-                let clipCount = videoClips.count
-                let hasStats = !isGolf && game.gameStats != nil
-                if clipCount > 0 && hasStats {
-                    Text("This \(unitNounLower) has \(clipCount) video clip\(clipCount == 1 ? "" : "s") and recorded statistics. Deleting it will permanently remove all data and recalculate career stats.")
-                } else if clipCount > 0 {
-                    Text("This \(unitNounLower) has \(clipCount) video clip\(clipCount == 1 ? "" : "s"). Deleting it will permanently remove all data.")
-                } else {
-                    Text("This \(unitNounLower) has recorded statistics. Deleting it will permanently remove all data and recalculate career stats.")
-                }
-            } else {
-                Text("Are you sure you want to delete this \(unitNounLower)? This action cannot be undone.")
-            }
+            Text(deleteWarning)
         }
         .sheet(isPresented: $showingScoreEntry) {
             EnterScoreSheet(game: game)
@@ -754,13 +754,10 @@ struct GameDetailView: View {
                     Label("Record Video", systemImage: "video.badge.plus")
                 }
             case .completed:
+                // Mark Complete for an unfinalized PAST game lives in
+                // `needsResultsSection` at the top, not here.
                 Button(action: { importTrigger = true }) {
                     Label("Upload Video", systemImage: "square.and.arrow.down.on.square")
-                }
-                if !game.isComplete {
-                    Button(action: { completeGame() }) {
-                        Label("Mark Complete", systemImage: "checkmark.circle")
-                    }
                 }
             }
 
@@ -768,6 +765,58 @@ struct GameDetailView: View {
             addPhotoMenu
         }
         .labelStyle(ActionRowLabelStyle())
+    }
+
+    /// Past-dated, never finalized. `displayStatus` reports `.completed`, but the
+    /// finalizing actions are the point of the page, so they go up top.
+    /// Same semantics as `GameRow.needsResults`.
+    private var needsResults: Bool {
+        game.displayStatus == .completed && !game.isComplete
+    }
+
+    /// Top-of-page block for `needsResults` games. Saving either manual entry
+    /// sheet sets `isComplete`, so the block clears itself once results land.
+    @ViewBuilder
+    private var needsResultsSection: some View {
+        Section(header: Text("Needs Results").smallCapsLabel()) {
+            // Golf's Score section already carries Enter Score / Scorecard.
+            let hasResults = game.gameStats.map { $0.hasBattingData || $0.hasPitchingData } ?? false
+            if !isGolf, !hasResults {
+                Menu {
+                    Button(action: { showingManualStats = true }) {
+                        Label("Batting", systemImage: "chart.bar.doc.horizontal")
+                    }
+                    Button(action: { showingPitchingStats = true }) {
+                        Label("Pitching", systemImage: "figure.baseball")
+                    }
+                } label: {
+                    Label("Add Results", systemImage: "chart.bar.doc.horizontal")
+                }
+            }
+            Button(action: { completeGame() }) {
+                Label("Mark Complete", systemImage: "checkmark.circle")
+            }
+        }
+        .labelStyle(ActionRowLabelStyle())
+    }
+
+    /// Lists what `GameService.deleteGameDeep` actually removes, so the warning
+    /// never undersells a delete (mirrors PracticeDetailView's message).
+    private var deleteWarning: String {
+        var parts: [String] = []
+        let clips = videoClips.count
+        let photos = gamePhotos.count
+        if clips > 0 { parts.append("\(clips) video\(clips == 1 ? "" : "s")") }
+        if photos > 0 { parts.append("\(photos) photo\(photos == 1 ? "" : "s")") }
+        if isGolf, !holeScores.isEmpty { parts.append("hole scores") }
+        let hasStats = !isGolf && game.gameStats != nil
+        if hasStats { parts.append("recorded stats") }
+        guard !parts.isEmpty else {
+            return "Are you sure you want to delete this \(unitNounLower)? This action cannot be undone."
+        }
+        let list = ListFormatter.localizedString(byJoining: parts)
+        return "This will permanently delete this \(unitNounLower) and its \(list)."
+            + (hasStats ? " Career stats will be recalculated." : "")
     }
 
     private var addPhotoMenu: some View {
