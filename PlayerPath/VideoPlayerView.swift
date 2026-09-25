@@ -352,7 +352,8 @@ struct VideoPlayerView: View {
                 forceAspectFit: coachFeedbackVideoID != nil,
                 sharedSpeed: playbackSpeed,
                 annotationMarkers: activeDrawingOverlay == nil ? coachAnnotations : [],
-                onTapDrawingMarker: { annotation in showDrawing(for: annotation) }
+                onTapDrawingMarker: { annotation in showDrawing(for: annotation) },
+                suppressZoom: activeDrawingOverlay != nil
             )
                 .accessibilityLabel("Video player")
 

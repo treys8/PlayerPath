@@ -38,6 +38,10 @@ struct EnhancedVideoPlayer: View {
     var annotationMarkers: [VideoAnnotation] = []
     /// Tap on a drawing marker. nil = markers are inert.
     var onTapDrawingMarker: ((VideoAnnotation) -> Void)? = nil
+    /// True while a coach drawing is on screen. The drawing overlay is laid
+    /// out against the UNZOOMED video rect, so zoom snaps back to 1× the
+    /// moment it appears.
+    var suppressZoom: Bool = false
     @State private var isPlaying = false
     @State private var currentTime: Double = 0
     @State private var duration: Double = 0
@@ -93,6 +97,10 @@ struct EnhancedVideoPlayer: View {
                 )
                     .scaleEffect(zoomScale, anchor: .center)
                     .offset(panOffset)
+                    // Keep a zoomed frame inside the player. Placed before
+                    // ignoresSafeArea, which lays its child out in the
+                    // full-bleed bounds, so landscape clips to the edges.
+                    .clipped()
                     // Edge-to-edge in landscape: the video fills the physical
                     // screen (notch + home-indicator regions). Controls below
                     // stay inside the safe area so nothing tucks under the
@@ -112,6 +120,9 @@ struct EnhancedVideoPlayer: View {
         .onAppear { setupPlayer(); showControlsTemporarily() }
         .onDisappear { cleanup() }
         .onChange(of: scenePhase) { _, newPhase in handleScenePhaseChange(newPhase) }
+        .onChange(of: suppressZoom) { _, suppressed in
+            if suppressed { resetZoom() }
+        }
         .onChange(of: preloadedDuration) { _, newDuration in
             if let d = newDuration, d > 0 {
                 duration = d; durationLoaded = true
@@ -130,6 +141,24 @@ struct EnhancedVideoPlayer: View {
         }
     }
 
+    private func resetZoom() {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+            zoomScale = 1.0; panOffset = .zero; lastPanOffset = .zero
+        }
+    }
+
+    /// Keeps the pan inside the zoomed content at the CURRENT scale — also
+    /// re-applied while pinching out, or a pan made at 4× leaves black bars
+    /// at 2×.
+    private func clampedPan(_ offset: CGSize, in size: CGSize) -> CGSize {
+        let maxX = (zoomScale - 1) * size.width / 2
+        let maxY = (zoomScale - 1) * size.height / 2
+        return CGSize(
+            width: min(max(offset.width, -maxX), maxX),
+            height: min(max(offset.height, -maxY), maxY)
+        )
+    }
+
     // MARK: - Gesture Layer
 
     private func gestureLayer(geometry: GeometryProxy) -> some View {
@@ -139,39 +168,33 @@ struct EnhancedVideoPlayer: View {
                 SimultaneousGesture(
                     MagnificationGesture()
                         .onChanged { value in
+                            guard !suppressZoom else { return }
                             let delta = value / lastZoomScale
                             lastZoomScale = value
                             zoomScale = min(max(zoomScale * delta, 1.0), 4.0)
+                            panOffset = clampedPan(panOffset, in: geometry.size)
                         }
                         .onEnded { _ in
                             lastZoomScale = 1.0
-                            if zoomScale <= 1.0 {
-                                withAnimation(.spring()) {
-                                    zoomScale = 1.0; panOffset = .zero; lastPanOffset = .zero
-                                }
-                            }
+                            lastPanOffset = panOffset
+                            if zoomScale <= 1.0 { resetZoom() }
                         },
                     DragGesture()
                         .onChanged { value in
                             guard zoomScale > 1.0 else { return }
-                            let maxX = (zoomScale - 1) * geometry.size.width / 2
-                            let maxY = (zoomScale - 1) * geometry.size.height / 2
-                            let newWidth = lastPanOffset.width + value.translation.width
-                            let newHeight = lastPanOffset.height + value.translation.height
-                            panOffset = CGSize(
-                                width: min(max(newWidth, -maxX), maxX),
-                                height: min(max(newHeight, -maxY), maxY)
+                            panOffset = clampedPan(
+                                CGSize(
+                                    width: lastPanOffset.width + value.translation.width,
+                                    height: lastPanOffset.height + value.translation.height
+                                ),
+                                in: geometry.size
                             )
                             showControlsTemporarily()
                         }
                         .onEnded { _ in lastPanOffset = panOffset }
                 )
             )
-            .onTapGesture(count: 2) {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                    zoomScale = 1.0; panOffset = .zero; lastPanOffset = .zero
-                }
-            }
+            .onTapGesture(count: 2) { resetZoom() }
             .onTapGesture { togglePlayPause(); showControlsTemporarily() }
     }
 
