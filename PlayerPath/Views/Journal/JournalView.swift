@@ -281,7 +281,12 @@ struct JournalView: View {
             now: now
         )
         let feed = buildFeed(now: now)
-        let hasContent = !feed.isEmpty
+        // `hasFeed` drives the pills and rows; `hasContent` drives the first-run
+        // screen and the nav title. A brand-new athlete who has started a game or
+        // scheduled one isn't new anymore — they must not get the ghosted example
+        // page (with its own "The Journal." title) under their live/Up Next card.
+        let hasFeed = !feed.isEmpty
+        let hasContent = hasFeed || hasLiveActivity || !upcoming.isEmpty
         let visibleEntries = feed.filter { filter.matches($0) }
         let filters = availableFilters(from: feed)
         let milestonesByGame = milestoneIndex()
@@ -322,33 +327,38 @@ struct JournalView: View {
                 // A brand-new athlete sees the welcome state instead — no point
                 // offering a "Golf" filter over an empty page.
                 if hasContent {
-                    PPFilterPillRow(
-                        options: filters,
-                        title: pillTitle,
-                        selection: $filter
-                    )
+                    if hasFeed {
+                        PPFilterPillRow(
+                            options: filters,
+                            title: pillTitle,
+                            selection: $filter
+                        )
 
-                    if visibleEntries.isEmpty {
-                        filteredEmptyState
-                    } else {
-                        ForEach(sections) { section in
-                            sectionHeader(section.title)
-                            ForEach(section.entries) { entry in
-                                // O(1) lookup of this row's milestone — no per-row scan.
-                                entryCell(entry, milestone: entry.gameID.flatMap { milestonesByGame[$0] })
-                                    .onAppear {
-                                        // Infinite scroll: grow the window when one of
-                                        // the last ~10 loaded rows appears.
-                                        if loadMoreTriggerIDs.contains(entry.id) {
-                                            displayLimit += Self.pageSize
+                        if visibleEntries.isEmpty {
+                            filteredEmptyState
+                        } else {
+                            ForEach(sections) { section in
+                                sectionHeader(section.title)
+                                ForEach(section.entries) { entry in
+                                    // O(1) lookup of this row's milestone — no per-row scan.
+                                    entryCell(entry, milestone: entry.gameID.flatMap { milestonesByGame[$0] })
+                                        .onAppear {
+                                            // Infinite scroll: grow the window when one of
+                                            // the last ~10 loaded rows appears.
+                                            if loadMoreTriggerIDs.contains(entry.id) {
+                                                displayLimit += Self.pageSize
+                                            }
                                         }
-                                    }
+                                }
+                            }
+                            if hasMore {
+                                ProgressView()
+                                    .padding(.vertical, .spacingMedium)
                             }
                         }
-                        if hasMore {
-                            ProgressView()
-                                .padding(.vertical, .spacingMedium)
-                        }
+                    } else {
+                        // Only live/scheduled activity so far — nothing finished.
+                        feedPlaceholder
                     }
                 } else {
                     JournalEmptyState(
@@ -742,6 +752,27 @@ struct JournalView: View {
         .ppCard()
         .padding(.horizontal, 18)
         .padding(.top, 40)
+    }
+
+    /// Shown under the Live Now / Up Next strips before anything has finished.
+    /// Deliberately independent of `filter`: `.onChange(of: filters)` resets a
+    /// stranded pill to All only AFTER the render, so reusing
+    /// `filteredEmptyState` would flash e.g. "No photos yet." for one frame when
+    /// the last feed item disappears under a non-All pill.
+    private var feedPlaceholder: some View {
+        VStack(spacing: .spacingSmall) {
+            Image(systemName: "book.closed")
+                .font(.system(size: 28))
+                .foregroundStyle(Theme.textTertiary)
+            Text("Clips, photos, and finished \(eventNoun.lowercased())s collect here.")
+                .font(.ppSubheadline)
+                .foregroundStyle(Theme.textSecondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, .spacingXLarge)
+        .padding(.horizontal, 18)
+        .padding(.top, 24)
     }
 
     /// Shown when the athlete HAS content but the active filter excluded all of
