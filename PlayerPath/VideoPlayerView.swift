@@ -243,7 +243,7 @@ struct VideoPlayerView: View {
                 Spacer()
 
                 if let navigation {
-                    clipNavigationControl(navigation, onDark: true)
+                    clipNavigationControl(navigation)
                     Spacer()
                 }
 
@@ -256,8 +256,10 @@ struct VideoPlayerView: View {
         }
     }
 
-    /// ‹ 3 of 42 › — portrait toolbar and landscape overlay.
-    private func clipNavigationControl(_ navigation: ClipNavigation, onDark: Bool) -> some View {
+    /// ‹ 3 of 42 › — portrait toolbar (dark bar) and landscape overlay (over
+    /// video); both are dark, so it's always white. Disabled chevrons dim by
+    /// hand: an explicit foregroundStyle opts out of the automatic dimming.
+    private func clipNavigationControl(_ navigation: ClipNavigation) -> some View {
         HStack(spacing: 14) {
             Button {
                 Haptics.selection()
@@ -267,6 +269,7 @@ struct VideoPlayerView: View {
                     .font(.body.weight(.semibold))
             }
             .disabled(navigation.onPrevious == nil)
+            .opacity(navigation.onPrevious == nil ? 0.35 : 1)
             .accessibilityLabel("Previous video")
 
             Text("\(navigation.position) of \(navigation.total)")
@@ -282,10 +285,11 @@ struct VideoPlayerView: View {
                     .font(.body.weight(.semibold))
             }
             .disabled(navigation.onNext == nil)
+            .opacity(navigation.onNext == nil ? 0.35 : 1)
             .accessibilityLabel("Next video")
         }
-        .foregroundStyle(onDark ? Color.white : Theme.textPrimary)
-        .shadow(color: onDark ? .black.opacity(0.5) : .clear, radius: 4, x: 0, y: 2)
+        .foregroundStyle(Color.white)
+        .shadow(color: .black.opacity(0.5), radius: 4, x: 0, y: 2)
     }
 
     // MARK: - Computed Properties
@@ -753,6 +757,12 @@ struct VideoPlayerView: View {
             .background(Theme.surface)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(vSizeClass == .compact ? .hidden : .visible, for: .navigationBar)
+            // The video's navy backing runs up under the bar; paint the bar the
+            // same navy and scope it dark so the status bar, pager label and
+            // glyphs read light. Bar only — the detail panel below stays cream.
+            .toolbarBackground(Theme.tileNavyDark, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Menu {
@@ -765,7 +775,7 @@ struct VideoPlayerView: View {
 
                 if let navigation {
                     ToolbarItem(placement: .principal) {
-                        clipNavigationControl(navigation, onDark: false)
+                        clipNavigationControl(navigation)
                     }
                 }
 
