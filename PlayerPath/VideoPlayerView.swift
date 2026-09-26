@@ -769,6 +769,7 @@ struct VideoPlayerView: View {
                         playerMenuItems
                     } label: {
                         Image(systemName: ToolbarSymbol.more)
+                            .foregroundStyle(.white)
                             .accessibilityLabel("More actions")
                     }
                 }
@@ -780,7 +781,14 @@ struct VideoPlayerView: View {
                 }
 
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    closeButton
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: ToolbarSymbol.close)
+                            .symbolRenderingMode(.hierarchical)
+                            .foregroundStyle(.white)
+                    }
+                    .accessibilityLabel("Close video player")
                 }
             }
         }

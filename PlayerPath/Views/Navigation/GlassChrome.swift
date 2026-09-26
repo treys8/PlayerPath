@@ -19,6 +19,12 @@ enum ToolbarSymbol {
         return "ellipsis.circle"
     }
 
+    /// Close button on a full-screen cover's toolbar.
+    static var close: String {
+        if #available(iOS 26, *) { return "xmark" }
+        return "xmark.circle.fill"
+    }
+
     /// Filter menu. The filled circle stays as the "a filter is on" signal on
     /// every OS — it reads as a badge, not as a doubled outline.
     static func filter(active: Bool) -> String {
