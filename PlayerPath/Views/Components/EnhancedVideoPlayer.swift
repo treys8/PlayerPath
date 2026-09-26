@@ -342,6 +342,14 @@ struct EnhancedVideoPlayer: View {
 
     // MARK: - Playback Controls
 
+    /// ±5s only earns its slot on a clip long enough to skip within — on a
+    /// 3s swing either button just slams to an end; frame-step is the tool.
+    /// Hidden until the duration is known so a short clip never flashes them.
+    private static let minDurationForSkip: Double = 10
+    private var showsSkipButtons: Bool {
+        durationLoaded && duration >= Self.minDurationForSkip
+    }
+
     private var playbackControlsView: some View {
         HStack(spacing: isWideLayout ? 24 : 32) {
             // Frame backward
@@ -356,15 +364,17 @@ struct EnhancedVideoPlayer: View {
             .accessibilityLabel("Step back one frame")
 
             // Skip back 5 seconds
-            Button {
-                skip(by: -5.0)
-                showControlsTemporarily()
-            } label: {
-                Image(systemName: "gobackward.5")
-                    .font(isWideLayout ? .title3 : .title)
-                    .foregroundColor(.white)
+            if showsSkipButtons {
+                Button {
+                    skip(by: -5.0)
+                    showControlsTemporarily()
+                } label: {
+                    Image(systemName: "gobackward.5")
+                        .font(isWideLayout ? .title3 : .title)
+                        .foregroundColor(.white)
+                }
+                .accessibilityLabel("Skip back 5 seconds")
             }
-            .accessibilityLabel("Skip back 5 seconds")
 
             // Play/Pause/Replay
             Button {
@@ -379,15 +389,17 @@ struct EnhancedVideoPlayer: View {
             .accessibilityLabel(isPlaying ? "Pause" : isAtEnd ? "Replay" : "Play")
 
             // Skip forward 5 seconds
-            Button {
-                skip(by: 5.0)
-                showControlsTemporarily()
-            } label: {
-                Image(systemName: "goforward.5")
-                    .font(isWideLayout ? .title3 : .title)
-                    .foregroundColor(.white)
+            if showsSkipButtons {
+                Button {
+                    skip(by: 5.0)
+                    showControlsTemporarily()
+                } label: {
+                    Image(systemName: "goforward.5")
+                        .font(isWideLayout ? .title3 : .title)
+                        .foregroundColor(.white)
+                }
+                .accessibilityLabel("Skip forward 5 seconds")
             }
-            .accessibilityLabel("Skip forward 5 seconds")
 
             // Frame forward
             Button {
