@@ -930,6 +930,10 @@ struct VideoPlayerView: View {
             // falls back to the device until loadVideoAspectRatio re-runs, rather
             // than reporting the prior clip's orientation during the rebuild.
             videoAspectRatioResolved = false
+            // Same for duration: a re-trim changes it, and the prior value
+            // would reach the rebuilt player as `preloadedDuration` — mis-scaling
+            // the scrubber and showing ±5s skips on a now-short clip.
+            videoDuration = nil
         }
 
         guard !Task.isCancelled else {
