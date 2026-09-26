@@ -26,6 +26,7 @@ import SwiftData
 struct ManualPitchingEntryView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.ppAccent) private var ppAccent
     let game: Game
 
     @State private var inningsWhole: String = ""
@@ -92,17 +93,17 @@ struct ManualPitchingEntryView: View {
             Form {
                 Section(header: Text("Game Information").smallCapsLabel()) {
                     HStack {
-                        Text("Opponent:").font(.headingMedium)
+                        Text("Opponent").font(.ppBody).foregroundColor(Theme.textPrimary)
                         Spacer()
-                        Text(game.opponent).foregroundColor(.secondary)
+                        Text(game.opponent).foregroundColor(Theme.textSecondary)
                     }
                     HStack {
-                        Text("Date:").font(.headingMedium)
+                        Text("Date").font(.ppBody).foregroundColor(Theme.textPrimary)
                         Spacer()
                         if let date = game.date {
-                            Text(date, style: .date).foregroundColor(.secondary)
+                            Text(date, style: .date).foregroundColor(Theme.textSecondary)
                         } else {
-                            Text("Unknown Date").foregroundColor(.secondary)
+                            Text("Unknown Date").foregroundColor(Theme.textSecondary)
                         }
                     }
                 }
@@ -110,7 +111,7 @@ struct ManualPitchingEntryView: View {
                 Section(header: Text("Innings Pitched").smallCapsLabel()) {
                     HStack {
                         Image(systemName: "circle.dashed")
-                            .foregroundColor(.purple)
+                            .foregroundColor(ppAccent)
                             .frame(width: 25)
                         Text("Full Innings").font(.labelLarge)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -130,20 +131,20 @@ struct ManualPitchingEntryView: View {
                 }
 
                 Section(header: Text("Pitching Line").smallCapsLabel()) {
-                    PitchNumberRow(title: "Hits Allowed", value: $hitsAllowed, icon: "baseball.fill", color: .red, focus: $keyboardActive)
-                    PitchNumberRow(title: "Runs", value: $runs, icon: "figure.run", color: .orange, focus: $keyboardActive)
-                    PitchNumberRow(title: "Earned Runs", value: $earnedRuns, icon: "flame.fill", color: .red, focus: $keyboardActive)
-                    PitchNumberRow(title: "Home Runs Allowed", value: $homeRunsAllowed, icon: "arrow.up.forward.circle.fill", color: .red, focus: $keyboardActive)
-                    PitchNumberRow(title: "Walks (BB)", value: $walks, icon: "figure.walk", color: .cyan, focus: $keyboardActive)
-                    PitchNumberRow(title: "Strikeouts (K)", value: $strikeouts, icon: "k.circle.fill", color: .green, focus: $keyboardActive)
-                    PitchNumberRow(title: "Hit By Pitch", value: $hitByPitches, icon: "exclamationmark.circle.fill", color: .purple, focus: $keyboardActive)
-                    PitchNumberRow(title: "Wild Pitches", value: $wildPitches, icon: "tornado", color: .red, focus: $keyboardActive)
+                    PitchNumberRow(title: "Hits Allowed", value: $hitsAllowed, icon: "baseball.fill", focus: $keyboardActive)
+                    PitchNumberRow(title: "Runs", value: $runs, icon: "figure.run", focus: $keyboardActive)
+                    PitchNumberRow(title: "Earned Runs", value: $earnedRuns, icon: "flame.fill", focus: $keyboardActive)
+                    PitchNumberRow(title: "Home Runs Allowed", value: $homeRunsAllowed, icon: "4.circle.fill", focus: $keyboardActive)
+                    PitchNumberRow(title: "Walks (BB)", value: $walks, icon: "figure.walk", focus: $keyboardActive)
+                    PitchNumberRow(title: "Strikeouts (K)", value: $strikeouts, icon: "k.circle.fill", focus: $keyboardActive)
+                    PitchNumberRow(title: "Hit By Pitch", value: $hitByPitches, icon: "figure.fall", focus: $keyboardActive)
+                    PitchNumberRow(title: "Wild Pitches", value: $wildPitches, icon: "tornado", focus: $keyboardActive)
                 }
 
                 Section(header: Text("Optional Detail").smallCapsLabel()) {
-                    PitchNumberRow(title: "Batters Faced", value: $battersFaced, icon: "person.2.fill", color: Theme.tileNavy, focus: $keyboardActive)
-                    PitchNumberRow(title: "Pitch Count", value: $pitchCount, icon: "number.circle.fill", color: .purple, focus: $keyboardActive)
-                    PitchNumberRow(title: "Strikes", value: $strikes, icon: "scope", color: .green, focus: $keyboardActive)
+                    PitchNumberRow(title: "Batters Faced", value: $battersFaced, icon: "person.2.fill", focus: $keyboardActive)
+                    PitchNumberRow(title: "Pitch Count", value: $pitchCount, icon: "number.circle.fill", focus: $keyboardActive)
+                    PitchNumberRow(title: "Strikes", value: $strikes, icon: "scope", focus: $keyboardActive)
                 }
 
                 if let stats = existingGameStats, stats.hasPitchingData {
@@ -151,12 +152,12 @@ struct ManualPitchingEntryView: View {
                         HStack {
                             Text("Innings Pitched").font(.labelLarge)
                             Spacer()
-                            Text(ip(stats.outsRecorded)).font(.ppStatSmall).monospacedDigit().foregroundColor(.purple)
+                            Text(ip(stats.outsRecorded)).font(.ppStatSmall).monospacedDigit().foregroundColor(Theme.textPrimary)
                         }
-                        CurrentStatRow(title: "Strikeouts", current: stats.pitchingStrikeouts, color: .green)
-                        CurrentStatRow(title: "Walks", current: stats.pitchingWalks, color: .cyan)
-                        CurrentStatRow(title: "Hits Allowed", current: stats.hitsAllowed, color: .red)
-                        CurrentStatRow(title: "Earned Runs", current: stats.earnedRuns, color: .red)
+                        CurrentStatRow(title: "Strikeouts", current: stats.pitchingStrikeouts)
+                        CurrentStatRow(title: "Walks", current: stats.pitchingWalks)
+                        CurrentStatRow(title: "Hits Allowed", current: stats.hitsAllowed)
+                        CurrentStatRow(title: "Earned Runs", current: stats.earnedRuns)
                     }
                 }
 
@@ -165,17 +166,17 @@ struct ManualPitchingEntryView: View {
                         HStack {
                             Text("Innings Pitched").font(.labelLarge)
                             Spacer()
-                            Text(ip(totalOuts)).font(.ppStatSmall).monospacedDigit().foregroundColor(.purple)
+                            Text(ip(totalOuts)).font(.ppStatSmall).monospacedDigit().foregroundColor(ppAccent)
                         }
                         HStack {
                             Text("ERA").font(.labelLarge)
                             Spacer()
-                            Text(String(format: "%.2f", previewERA)).font(.ppStatSmall).monospacedDigit().foregroundColor(.green)
+                            Text(String(format: "%.2f", previewERA)).font(.ppStatSmall).monospacedDigit().foregroundColor(ppAccent)
                         }
                         HStack {
                             Text("WHIP").font(.labelLarge)
                             Spacer()
-                            Text(String(format: "%.2f", previewWHIP)).font(.ppStatSmall).monospacedDigit().foregroundColor(.green)
+                            Text(String(format: "%.2f", previewWHIP)).font(.ppStatSmall).monospacedDigit().foregroundColor(ppAccent)
                         }
                     }
                 }
@@ -246,7 +247,8 @@ struct ManualPitchingEntryView: View {
             // it — flip the flag so it reads "COMPLETED" and the recalc below
             // includes it. Silent: completion side effects belong to
             // GameService.complete / "Mark Complete".
-            if !game.isLive && !game.isComplete && game.displayStatus == .completed {
+            // Plain date check, not displayStatus — see ManualStatisticsEntryView.
+            if !game.isLive && !game.isComplete && (game.date.map { $0 <= Date() } ?? false) {
                 game.isComplete = true
             }
 
@@ -288,8 +290,8 @@ private struct PitchNumberRow: View {
     let title: String
     @Binding var value: String
     let icon: String
-    let color: Color
     var focus: FocusState<Bool>.Binding
+    @Environment(\.ppAccent) private var ppAccent
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     private var fieldWidth: CGFloat { horizontalSizeClass == .regular ? 100 : 60 }
@@ -297,7 +299,7 @@ private struct PitchNumberRow: View {
     var body: some View {
         HStack {
             Image(systemName: icon)
-                .foregroundColor(color)
+                .foregroundColor(ppAccent)
                 .frame(width: 25)
             Text(title)
                 .font(.labelLarge)

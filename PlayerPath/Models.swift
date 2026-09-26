@@ -263,12 +263,32 @@ final class Game {
     /// when `isComplete == false` — first-time users adding historical games
     /// for the journal/scrapbook flow shouldn't see "Scheduled" on a date
     /// that has already passed. `isComplete` itself is left untouched so
-    /// `countsTowardStats` keeps gating real stat aggregation.
+    /// `countsTowardStats` keeps gating real stat aggregation. A game that is
+    /// merely running late (`isAwaitingStart`) stays `.scheduled` so Start is
+    /// still offered.
     var displayStatus: DisplayStatus {
         if isLive { return .live }
         if isComplete { return .completed }
-        if let date, date < Date() { return .completed }
+        if let date, date < Date(), !isAwaitingStart() { return .completed }
         return .scheduled
+    }
+
+    /// Past its start time today but never started or touched — the athlete is
+    /// running late, so the game still reads as scheduled (Start stays offered)
+    /// until midnight. Anything with media, entered stats, or a golf score was
+    /// logged after the fact and is past instead. Single source for
+    /// `displayStatus`, the Games tab buckets, and the Journal's Up Next strip.
+    /// (Every game gets a GameStatistics at creation, so "has stats" is
+    /// `countsTowardStats`, not `gameStats != nil`.)
+    func isAwaitingStart(now: Date = .now, calendar: Calendar = .current) -> Bool {
+        // Cheap checks first — this runs per row via displayStatus, and only a
+        // today-dated past game ever reaches the relationship reads below.
+        guard !isLive, !isComplete, let date, date <= now,
+              calendar.isDate(date, inSameDayAs: now) else { return false }
+        return (videoClips ?? []).isEmpty
+            && (photos ?? []).isEmpty
+            && !countsTowardStats
+            && effectiveTotalScore == nil
     }
 
     // MARK: - Firestore Conversion

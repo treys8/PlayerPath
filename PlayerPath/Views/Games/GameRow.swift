@@ -60,7 +60,7 @@ struct GameRow: View {
         /// Mirrors GamesViewModel's `pastGames` bucket.
         private var needsResults: Bool {
             guard !game.isLive, !game.isComplete, let date = game.date else { return false }
-            return date <= Date()
+            return date <= Date() && !game.isAwaitingStart()
         }
 
         var body: some View {

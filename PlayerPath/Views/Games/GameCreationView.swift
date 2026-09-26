@@ -77,7 +77,7 @@ struct GameCreationView: View {
     private var validationSubject: String { isGolf ? "Course" : "Opponent" }
     private var liveLabel: String { isGolf ? "Start as Live Round" : "Start as Live Game" }
     private var liveInfo: String { isGolf ? "Round becomes active for recording" : "Game becomes active for recording" }
-    private var liveDisabledInfo: String { isGolf ? "Live mode isn't available for past seasons." : "Live mode isn't available for past seasons." }
+    private let liveDisabledInfo = "Live mode isn't available for past seasons."
 
     private var hasMultipleSeasons: Bool {
         (athlete?.seasons?.count ?? 0) > 1
@@ -285,6 +285,8 @@ struct GameCreationView: View {
                 Section(isGolf ? "Round Options" : "Game Options") {
                     Toggle(liveLabel, isOn: $makeGameLive)
                         .disabled(selectedSeason?.isActive == false)
+                        // Live = happening now; still editable to backdate.
+                        .onChange(of: makeGameLive) { _, isOn in if isOn { date = .now } }
 
                     if makeGameLive {
                         Label {

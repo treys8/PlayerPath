@@ -73,6 +73,13 @@ struct PreUploadTrimmerView: View {
     @State private var exportError: String?
     @State private var currentTime: Double = 0
     @State private var isPlaying = true
+
+    /// Nothing to save until a handle has moved — otherwise "Save Trimmed"
+    /// re-encodes the full clip for no change. 0.05 absorbs the 0.1 slider step.
+    private var canSaveTrim: Bool {
+        guard !isExporting, endTime - startTime >= 0.5 else { return false }
+        return startTime > 0.05 || endTime < duration - 0.05
+    }
     @State private var timeObserver: Any?
     @State private var showContent = false
     @State private var videoEndObserver: NSObjectProtocol?
@@ -124,23 +131,21 @@ struct PreUploadTrimmerView: View {
         }
     }
 
-    // MARK: - Back button
+    // MARK: - Cancel button
 
+    /// Every caller treats `onCancel` as cancel/discard (never a step back), so
+    /// it reads "Cancel" like the app's other sheets.
     private var backButtonView: some View {
         Button {
             Haptics.warning()
             onCancel()
         } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "chevron.left")
-                    .font(.body.weight(.semibold))
-                Text("Back")
-                    .font(.bodyLarge)
-            }
-            .foregroundColor(.white)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .ppOverlayGlass(in: Capsule(), interactive: true)
+            Text("Cancel")
+                .font(.bodyLarge)
+                .foregroundColor(.white)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .ppOverlayGlass(in: Capsule(), interactive: true)
         }
     }
 
@@ -225,11 +230,11 @@ struct PreUploadTrimmerView: View {
 
             // Time indicators
             HStack {
-                TrimTimeBadge(label: "START", time: formatTime(startTime), color: .green)
+                TrimTimeBadge(label: "START", time: formatTime(startTime), color: .white)
                 Spacer()
                 TrimTimeBadge(label: "DURATION", time: formatTime(endTime - startTime), color: .white)
                 Spacer()
-                TrimTimeBadge(label: "END", time: formatTime(endTime), color: .red)
+                TrimTimeBadge(label: "END", time: formatTime(endTime), color: .white)
             }
             .padding(.horizontal, 4)
             .opacity(showContent ? 1 : 0)
@@ -244,10 +249,10 @@ struct PreUploadTrimmerView: View {
                     HStack(spacing: 12) {
                         Image(systemName: "arrow.right.to.line")
                             .font(.system(size: 12, weight: .bold))
-                            .foregroundColor(.green)
+                            .foregroundColor(.white.opacity(0.7))
                             .frame(width: 20)
                         Slider(value: $startTime, in: 0...startSliderMax, step: 0.1)
-                            .tint(.green)
+                            .tint(ppAccent)
                             .accessibilityLabel("Start time")
                             .onChange(of: startTime) { _, newValue in
                                 seekTo(time: newValue)
@@ -257,10 +262,10 @@ struct PreUploadTrimmerView: View {
                     HStack(spacing: 12) {
                         Image(systemName: "arrow.left.to.line")
                             .font(.system(size: 12, weight: .bold))
-                            .foregroundColor(.red)
+                            .foregroundColor(.white.opacity(0.7))
                             .frame(width: 20)
                         Slider(value: $endTime, in: endSliderMin...duration, step: 0.1)
-                            .tint(.red)
+                            .tint(ppAccent)
                             .accessibilityLabel("End time")
                             .onChange(of: endTime) { _, newValue in
                                 seekTo(time: newValue)
@@ -311,8 +316,8 @@ struct PreUploadTrimmerView: View {
                     )
                     .shadow(color: ppAccent.opacity(0.4), radius: 8, x: 0, y: 4)
                 }
-                .disabled(isExporting || endTime - startTime < 0.5)
-                .opacity(isExporting || endTime - startTime < 0.5 ? 0.6 : 1)
+                .disabled(!canSaveTrim)
+                .opacity(canSaveTrim ? 1 : 0.6)
 
                 if !hideSkipButton {
                     Button {

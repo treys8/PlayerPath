@@ -223,7 +223,7 @@ struct VideoClipsView: View {
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     Haptics.light()
-                    showingRecorder = true
+                    openRecorderBoundToLive()
                 } label: {
                     Image(systemName: "video.badge.plus")
                 }
@@ -369,8 +369,9 @@ struct VideoClipsView: View {
                 livePracticeContext = athlete.practices?.first { $0.id == uuid }
                 liveGameContext = nil
             } else {
-                liveGameContext = nil
-                livePracticeContext = nil
+                // Plain record request (Journal "+", Siri with nothing live):
+                // bind to whatever is live so the clip lands in it.
+                bindLiveContext()
             }
             showingRecorder = true
             Haptics.light()
@@ -623,6 +624,19 @@ struct VideoClipsView: View {
         showingBulkToast = true
     }
 
+    /// Binds the recorder to whatever is live on this profile (game first, then
+    /// practice) — without this a Record tap mid-game saved the clip gameless,
+    /// and golf re-routed it into today's practice session instead of the round.
+    private func bindLiveContext() {
+        liveGameContext = athlete.currentLiveGame
+        livePracticeContext = liveGameContext == nil ? athlete.currentLivePractice : nil
+    }
+
+    private func openRecorderBoundToLive() {
+        bindLiveContext()
+        showingRecorder = true
+    }
+
     private var emptyStateView: some View {
         EmptyStateView(
             systemImage: "video.slash",
@@ -631,7 +645,7 @@ struct VideoClipsView: View {
             actionTitle: "Record Video",
             action: {
                 Haptics.light()
-                showingRecorder = true
+                openRecorderBoundToLive()
             },
             secondaryActionTitle: "Import from Photos",
             secondaryAction: {

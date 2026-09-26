@@ -30,6 +30,40 @@ struct LiveScoreTarget: Identifiable {
     let holeNumber: Int
 }
 
+/// The one wording for "end a live activity?", used by every End confirmation
+/// (Live Now accessory, Journal cards, Games swipe, detail screens) so they can
+/// never disagree about what ending does.
+enum LiveEndPrompt {
+    static func title(isGolf: Bool) -> String { isGolf ? "End Round?" : "End Game?" }
+    static func button(isGolf: Bool) -> String { isGolf ? "End Round" : "End Game" }
+    /// True on both counts: ending finalizes stats, and Restart (detail `•••`
+    /// menu, shown once `isComplete`) undoes it.
+    static func message(isGolf: Bool) -> String {
+        "This finalizes its \(isGolf ? "score" : "stats"). Ended by mistake? Restart it from the \(isGolf ? "round" : "game")'s ••• menu."
+    }
+
+    static func practiceTitle(isRangeSession: Bool) -> String { isRangeSession ? "End Session?" : "End Round?" }
+    static func practiceButton(isRangeSession: Bool) -> String { isRangeSession ? "End Session" : "End Round" }
+    /// Unlike games, practices stay fully editable after ending — ending only
+    /// stops the live strip and live-hole clip attribution.
+    static let practiceMessage = "This ends the live session. You can still add videos, photos, and notes afterward."
+}
+
+/// An End confirmation awaiting the user's answer. The strings are resolved
+/// when End is tapped, NOT while the dialog renders: a sync or athlete delete
+/// can remove the model while the dialog is up, and reading `season` off a
+/// deleted @Model to build a title traps. The action side re-guards instead.
+struct PendingLiveEnd {
+    enum Target {
+        case game(Game)
+        case practice(Practice)
+    }
+    let target: Target
+    let title: String
+    let button: String
+    let message: String
+}
+
 @MainActor
 @Observable
 final class LiveActivityController {
@@ -51,10 +85,53 @@ final class LiveActivityController {
     var recordingGame: Game?
     var recordingPractice: Practice?
 
+    /// End confirmation shown by MainTabView's single dialog. Nil = closed.
+    var pendingEnd: PendingLiveEnd?
+
     func isEnding(_ game: Game) -> Bool { endingGameIDs.contains(game.id) }
     func isEnding(_ practice: Practice) -> Bool { endingPracticeIDs.contains(practice.id) }
 
     // MARK: - End
+
+    /// Ask before ending — ending finalizes stats, so it's never one tap from a
+    /// card or the tab-bar accessory. `isGolf` comes from the caller, which knows
+    /// the profile-sport fallback for a seasonless game.
+    func requestEnd(_ game: Game, isGolf: Bool) {
+        pendingEnd = PendingLiveEnd(
+            target: .game(game),
+            title: LiveEndPrompt.title(isGolf: isGolf),
+            button: LiveEndPrompt.button(isGolf: isGolf),
+            message: LiveEndPrompt.message(isGolf: isGolf)
+        )
+    }
+
+    func requestEnd(_ practice: Practice) {
+        let isRange = practice.practiceType == PracticeType.rangeSession.rawValue
+        pendingEnd = PendingLiveEnd(
+            target: .practice(practice),
+            title: LiveEndPrompt.practiceTitle(isRangeSession: isRange),
+            button: LiveEndPrompt.practiceButton(isRangeSession: isRange),
+            message: LiveEndPrompt.practiceMessage
+        )
+    }
+
+    /// Takes the dialog's own value rather than re-reading `pendingEnd`: the
+    /// dialog's dismissal can clear that before the button action runs, which
+    /// would make End a silent no-op.
+    func confirmPendingEnd(_ pending: PendingLiveEnd, in modelContext: ModelContext) {
+        pendingEnd = nil
+        switch pending.target {
+        case .game(let game):
+            // Held for the whole dialog: a sync remote-delete or athlete delete
+            // may have removed it, and endGame reads game.id before its own
+            // guard — a deleted @Model read traps (build 177/185).
+            guard !game.isDeleted, game.modelContext != nil else { return }
+            endGame(game, in: modelContext)
+        case .practice(let practice):
+            guard !practice.isDeleted, practice.modelContext != nil else { return }
+            endPractice(practice, in: modelContext)
+        }
+    }
 
     /// End a live game from its card. Delegates to `GameService` so end-of-game
     /// side effects (stats recalc, milestone/banner/clip-nudge, sync) stay in one
@@ -71,6 +148,9 @@ final class LiveActivityController {
             // delete can land in it, and end() writes `isLive` first — writing a
             // deleted @Model traps. Same guard PracticeService.deleteDeep uses.
             guard !game.isDeleted, game.modelContext != nil else { return }
+            // Already ended elsewhere while the confirmation was up — a second
+            // end() would re-fire the milestone/banner/clip-nudge effects.
+            guard game.isLive else { return }
             await GameService(modelContext: modelContext).end(game)
         }
     }
@@ -86,6 +166,7 @@ final class LiveActivityController {
             defer { endingPracticeIDs.remove(practiceID) }
             // See endGame: guard the post-hop write against a deleted model.
             guard !practice.isDeleted, practice.modelContext != nil else { return }
+            guard practice.isLive else { return }
             await PracticeService(modelContext: modelContext).end(practice)
         }
     }

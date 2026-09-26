@@ -9,6 +9,7 @@
 //
 
 import SwiftUI
+import SwiftData
 
 // MARK: - Builders
 
@@ -46,7 +47,11 @@ enum RecruitingShareTools {
     /// `mailto:` with a coach-ready subject and body — the athlete only adds
     /// the recipient. Built from the same RecruitingInfo display helpers the
     /// page uses, so the subject line matches what the coach will open.
-    static func coachEmailURL(athleteName: String, info: RecruitingInfo, sport: Sport, url: URL) -> URL? {
+    ///
+    /// `hasGolfStats`: whether the live page carries a golf stat band — read off
+    /// the published doc, since golf stats aren't in the bio blob.
+    static func coachEmailURL(athleteName: String, info: RecruitingInfo, sport: Sport, url: URL,
+                              hasGolfStats: Bool) -> URL? {
         var subjectParts = [athleteName]
         if let subline = info.subline(sport: sport) { subjectParts.append(subline) }
         subjectParts.append("Game Film")
@@ -58,7 +63,19 @@ enum RecruitingShareTools {
         intro += " and I'm interested in your program."
         lines.append(intro)
         lines.append("")
-        lines.append("My game film, measurables, and contact info are here:")
+        // Only name what the page actually shows. This line used to promise
+        // measurables and contact info unconditionally — on a golf page (no
+        // measurables) or one with no reply channel (under 13, no grad year, or
+        // nothing opted in), the coach clicked through looking for something
+        // that wasn't there.
+        var contents = ["game film"]
+        if sport == .golf {
+            if hasGolfStats { contents.append("scoring stats") }
+        } else if !info.measurableItems.isEmpty {
+            contents.append("measurables")
+        }
+        if info.hasPublicReplyChannel { contents.append("contact info") }
+        lines.append("My \(contents.formatted(.list(type: .and))) \(contents.count == 1 ? "is" : "are") here:")
         // Tagged here rather than at the call site: this builder OWNS the email
         // channel, so the marker can't be forgotten by a future caller.
         lines.append(taggedURL(url, channel: .mail).absoluteString)
@@ -120,6 +137,7 @@ struct RecruitingPublishSuccessView: View {
     /// Clips the athlete picked that couldn't be published (file missing from
     /// cloud storage). Surfaced here instead of a competing alert.
     let skippedClipCount: Int
+    let hasGolfStats: Bool
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.ppAccent) private var ppAccent
@@ -171,27 +189,28 @@ struct RecruitingPublishSuccessView: View {
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
 
-                    if let emailURL = coachEmailURL {
-                        Button {
-                            // No mail app configured → open() fails silently;
-                            // fall back to copying the link so the tap always
-                            // does SOMETHING on the peak-motivation sheet.
-                            UIApplication.shared.open(emailURL, options: [:]) { opened in
-                                if !opened {
-                                    // Still the email channel — that was the intent,
-                                    // and the athlete pastes it into a mail app.
-                                    UIPasteboard.general.string =
-                                        RecruitingShareTools.taggedURL(url, channel: .mail).absoluteString
-                                    emailUnavailable = true
-                                }
-                            }
-                        } label: {
-                            Label("Email a College Coach", systemImage: "envelope")
-                                .frame(maxWidth: .infinity)
+                    Button {
+                        // Built on tap rather than in `body` — it reads the
+                        // recruiting blob. No mail app configured → open() fails
+                        // silently; fall back to copying the link so the tap always
+                        // does SOMETHING on the peak-motivation sheet.
+                        let fallback = {
+                            // Still the email channel — that was the intent, and
+                            // the athlete pastes it into a mail app.
+                            UIPasteboard.general.string =
+                                RecruitingShareTools.taggedURL(url, channel: .mail).absoluteString
+                            emailUnavailable = true
                         }
-                        .buttonStyle(.bordered)
-                        .controlSize(.large)
+                        guard let emailURL = coachEmailURL else { fallback(); return }
+                        UIApplication.shared.open(emailURL, options: [:]) { opened in
+                            if !opened { fallback() }
+                        }
+                    } label: {
+                        Label("Email a College Coach", systemImage: "envelope")
+                            .frame(maxWidth: .infinity)
                     }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
                     if emailUnavailable {
                         Text("No mail app is set up on this device — your profile link was copied instead.")
                             .font(.caption)
@@ -213,6 +232,12 @@ struct RecruitingPublishSuccessView: View {
                             RecruitingShareTools.taggedURL(url, channel: .copy).absoluteString
                         Haptics.light()
                         copied = true
+                        // Reverts like the Share Profile card's Copy, so a second
+                        // copy still gets its confirmation.
+                        Task {
+                            try? await Task.sleep(for: .seconds(2))
+                            copied = false
+                        }
                     } label: {
                         Label(copied ? "Copied" : "Copy Link", systemImage: copied ? "checkmark" : "doc.on.doc")
                             .frame(maxWidth: .infinity)
@@ -241,11 +266,13 @@ struct RecruitingPublishSuccessView: View {
     }
 
     private var coachEmailURL: URL? {
-        RecruitingShareTools.coachEmailURL(
+        guard !athlete.isDeleted, athlete.modelContext != nil else { return nil }
+        return RecruitingShareTools.coachEmailURL(
             athleteName: athlete.name,
             info: athlete.recruiting,
             sport: athlete.sport ?? .baseball,
-            url: url
+            url: url,
+            hasGolfStats: hasGolfStats
         )
     }
 }

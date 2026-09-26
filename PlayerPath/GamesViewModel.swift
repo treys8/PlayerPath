@@ -75,12 +75,13 @@ final class GamesViewModel: ObservableObject {
         upcomingGames = sortedGames.filter { game in
             guard !game.isLive, !game.isComplete else { return false }
             guard let d = game.date else { return true } // nil date → treat as upcoming
-            return d > now
+            // A running-late game (today, untouched) stays startable here.
+            return d > now || game.isAwaitingStart(now: now)
         }
         pastGames = sortedGames.filter { game in
             guard !game.isLive, !game.isComplete else { return false }
             guard let d = game.date else { return false }
-            return d <= now
+            return d <= now && !game.isAwaitingStart(now: now)
         }
         
         gamesLog.debug("Sections updated — live: \(self.liveGames.count), completed: \(self.completedGames.count), upcoming: \(self.upcomingGames.count), past: \(self.pastGames.count)")

@@ -80,6 +80,9 @@ struct GamesView: View {
     // Delete confirmation
     @State private var gameToDelete: Game?
     @State private var showingDeleteGameConfirmation = false
+    // Ending finalizes stats — the swipe asks first, like every other End.
+    @State private var gameToEnd: Game?
+    @State private var showingEndGameConfirmation = false
 
     // Row tap → push game detail. Driving the push with navigationDestination(item:)
     // means the rows are plain Buttons, not NavigationLinks, so the List never adds
@@ -322,19 +325,16 @@ struct GamesView: View {
         // Live Games Section
         if !cachedLiveGames.isEmpty {
             Section(header: sectionHeader("Live")) {
+                // No .onDelete: a live game isn't deletable (the detail
+                // screen hides Delete too) — end it first.
                 ForEach(cachedLiveGames) { game in
                     gameNavigationRow(game)
                     .swipeActions(edge: .trailing) {
                         Button("End") {
-                            endGame(game)
+                            gameToEnd = game
+                            showingEndGameConfirmation = true
                         }
                         .tint(.red)
-                    }
-                }
-                .onDelete { indexSet in
-                    if let index = indexSet.first, index < cachedLiveGames.count {
-                        gameToDelete = cachedLiveGames[index]
-                        showingDeleteGameConfirmation = true
                     }
                 }
             }
@@ -646,6 +646,7 @@ struct GamesView: View {
             .onReceive(NotificationCenter.default.publisher(for: .presentAddGame)) { _ in
                 handleAddGame()
             }
+            .onGameLifecycleChange { refreshSections() }
             .confirmationDialog(
                 isGolf ? "Delete Round" : "Delete Game",
                 isPresented: $showingDeleteGameConfirmation,
@@ -656,6 +657,23 @@ struct GamesView: View {
                 }
             } message: { _ in
                 Text("This will permanently delete this \(unitNoun) and all its video clips, photos, and statistics.")
+            }
+            .confirmationDialog(
+                LiveEndPrompt.title(isGolf: isGolf),
+                isPresented: $showingEndGameConfirmation,
+                titleVisibility: .visible,
+                presenting: gameToEnd
+            ) { game in
+                Button(LiveEndPrompt.button(isGolf: isGolf)) {
+                    // Ended elsewhere while the dialog was up → nothing to do.
+                    if !game.isDeleted, game.modelContext != nil, game.isLive {
+                        endGame(game)
+                    }
+                    gameToEnd = nil
+                }
+                Button("Cancel", role: .cancel) { gameToEnd = nil }
+            } message: { _ in
+                Text(LiveEndPrompt.message(isGolf: isGolf))
             }
     }
 
@@ -668,18 +686,17 @@ struct GamesView: View {
             activeAlert = .error
             return
         }
+        // No refresh here: the change lands in GameService's Task, after this
+        // returns. The .gameBecameLive / .gameEnded observers re-bucket once saved.
         viewModelHolder.viewModel?.start(game)
-        refreshGames()
     }
     
     private func endGame(_ game: Game) {
         viewModelHolder.viewModel?.end(game)
-        refreshGames()
     }
     
     private func completeGame(_ game: Game) {
         viewModelHolder.viewModel?.complete(game)
-        refreshGames()
     }
 
     private func deleteGame(_ game: Game) {
@@ -747,9 +764,27 @@ struct GamesView: View {
         viewModelHolder.viewModel?.update(allGames: allGames)
     }
 
+    /// Re-bucket AND refresh the cached section arrays. Needed for property-only
+    /// changes (start/end/complete): `onChange(of: allGames)` doesn't fire for
+    /// them because the array holds the same games.
+    private func refreshSections() {
+        viewModelHolder.viewModel?.update(allGames: allGames)
+        updateFilteredGames()
+    }
+
     private func showError(_ message: String) {
         errorMessage = message
         activeAlert = .error
     }
 }
 
+private extension View {
+    /// GameService posts these after its save (start/restart/create-live, and
+    /// end/complete), from any surface — Games swipe, detail screen, Journal
+    /// card, Live Now bar. One modifier (not two inline) keeps GamesView's long
+    /// body chain under the type-checker's time limit.
+    func onGameLifecycleChange(_ action: @escaping () -> Void) -> some View {
+        onReceive(NotificationCenter.default.publisher(for: .gameBecameLive)) { _ in action() }
+            .onReceive(NotificationCenter.default.publisher(for: .gameEnded)) { _ in action() }
+    }
+}

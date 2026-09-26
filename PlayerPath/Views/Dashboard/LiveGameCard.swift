@@ -106,11 +106,26 @@ struct LiveGameCard: View {
         }
     }
 
-    private var date: Date? {
+    /// When the activity went live — nil on legacy rows that predate the stamp.
+    private var liveStart: Date? {
         switch parent {
-        case .game(let g):          return g.date
-        case .practiceRound(let p): return p.date
+        case .game(let g):          return g.liveStartDate
+        case .practiceRound(let p): return p.liveStartDate
         }
+    }
+
+    private static let startedFormatter: RelativeDateTimeFormatter = {
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .short
+        return f
+    }()
+
+    /// "Started just now" / "Started 7 min. ago". The just-now branch also
+    /// absorbs a start slightly in the FUTURE — `liveStartDate` syncs from other
+    /// devices, and a fast clock there would otherwise read "Started in 5 sec. ago".
+    private static func startedText(_ start: Date, now: Date) -> String {
+        if now.timeIntervalSince(start) < 60 { return "Started just now" }
+        return "Started \(startedFormatter.localizedString(for: start, relativeTo: now))"
     }
 
     private var iconName: String { isGolf ? "figure.golf" : "baseball.fill" }
@@ -263,14 +278,19 @@ struct LiveGameCard: View {
                                 .monospacedDigit()
                         }
                         .foregroundColor(.secondary)
-                    } else if let date = date {
-                        HStack(spacing: 4) {
-                            Image(systemName: "clock.fill")
-                                .font(.caption2)
-                            Text(date, format: .dateTime.hour().minute())
-                                .font(.bodySmall)
+                    } else if let start = liveStart {
+                        // How long it's been live, NOT the scheduled time — a game
+                        // started early read "9:38 PM" at 9:45 AM. Per-minute ticks
+                        // (same as LiveNowAccessory) keep the card calm.
+                        TimelineView(.periodic(from: .now, by: 60)) { context in
+                            HStack(spacing: 4) {
+                                Image(systemName: "clock.fill")
+                                    .font(.caption2)
+                                Text(Self.startedText(start, now: context.date))
+                                    .font(.bodySmall)
+                            }
+                            .foregroundColor(.secondary)
                         }
-                        .foregroundColor(.secondary)
                     }
                 }
 

@@ -39,15 +39,17 @@ struct RecruitingProfileView: View {
                     card { measurablesBand }
                 }
 
-                if !info.visibleContactItems.isEmpty {
-                    card { contactBand }
-                }
-
+                // About before Contact, and "Contact" as the heading — the page's
+                // order and wording (recruitingProfile.ts body + contactSection).
                 if let bio = info.bio, !bio.isEmpty {
                     card {
                         Text("About").font(.headingMedium)
                         Text(bio).font(.bodyMedium).foregroundColor(.primary)
                     }
+                }
+
+                if !info.visibleContactItems.isEmpty {
+                    card { contactBand }
                 }
             }
             .padding(16)
@@ -56,6 +58,8 @@ struct RecruitingProfileView: View {
         .navigationTitle("Preview")
         .navigationBarTitleDisplayMode(.inline)
         .ppAccent(for: athlete.sport)
+        // Matches the editor, so pushes between the three don't flicker the bar.
+        .toolbar(.hidden, for: .tabBar)
     }
 
     // MARK: - Header
@@ -106,7 +110,7 @@ struct RecruitingProfileView: View {
 
     private var contactBand: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Contact & Academics").font(.headingMedium)
+            Text("Contact").font(.headingMedium)
             ForEach(info.visibleContactItems, id: \.kind) { item in
                 HStack {
                     Text(item.label).font(.labelMedium).foregroundColor(.secondary)

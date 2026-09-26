@@ -11,6 +11,7 @@ import SwiftData
 // MARK: - Manual Statistics Entry View
 struct ManualStatisticsEntryView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.ppAccent) private var ppAccent
     @Environment(\.dismiss) private var dismiss
     let game: Game
 
@@ -65,54 +66,56 @@ struct ManualStatisticsEntryView: View {
             Form {
                 Section(header: Text("Game Information").smallCapsLabel()) {
                     HStack {
-                        Text("Opponent:")
-                            .font(.headingMedium)
+                        Text("Opponent")
+                            .font(.ppBody)
+                            .foregroundColor(Theme.textPrimary)
                         Spacer()
                         Text(game.opponent)
-                            .foregroundColor(.secondary)
+                            .foregroundColor(Theme.textSecondary)
                     }
 
                     HStack {
-                        Text("Date:")
-                            .font(.headingMedium)
+                        Text("Date")
+                            .font(.ppBody)
+                            .foregroundColor(Theme.textPrimary)
                         Spacer()
                         if let date = game.date {
                             Text(date, style: .date)
-                                .foregroundColor(.secondary)
+                                .foregroundColor(Theme.textSecondary)
                         } else {
                             Text("Unknown Date")
-                                .foregroundColor(.secondary)
+                                .foregroundColor(Theme.textSecondary)
                         }
                     }
                 }
 
                 Section(header: Text("Batting Statistics").smallCapsLabel()) {
-                    StatEntryRow(title: "Singles", value: $singles, icon: "1.circle.fill", color: .green, field: .singles, focusedField: $focusedStatField)
-                    StatEntryRow(title: "Doubles", value: $doubles, icon: "2.circle.fill", color: Theme.tileNavy, field: .doubles, focusedField: $focusedStatField)
-                    StatEntryRow(title: "Triples", value: $triples, icon: "3.circle.fill", color: .orange, field: .triples, focusedField: $focusedStatField)
-                    StatEntryRow(title: "Home Runs", value: $homeRuns, icon: "4.circle.fill", color: .gold, field: .homeRuns, focusedField: $focusedStatField)
+                    StatEntryRow(title: "Singles", value: $singles, icon: "1.circle.fill", field: .singles, focusedField: $focusedStatField)
+                    StatEntryRow(title: "Doubles", value: $doubles, icon: "2.circle.fill", field: .doubles, focusedField: $focusedStatField)
+                    StatEntryRow(title: "Triples", value: $triples, icon: "3.circle.fill", field: .triples, focusedField: $focusedStatField)
+                    StatEntryRow(title: "Home Runs", value: $homeRuns, icon: "4.circle.fill", field: .homeRuns, focusedField: $focusedStatField)
                 }
 
-                Section(header: Text("Offensive Statistics").smallCapsLabel()) {
-                    StatEntryRow(title: "Runs", value: $runs, icon: "figure.run", color: .purple, field: .runs, focusedField: $focusedStatField)
-                    StatEntryRow(title: "RBIs", value: $rbis, icon: "arrow.up.right.circle.fill", color: .pink, field: .rbis, focusedField: $focusedStatField)
+                Section(header: Text("Run Production").smallCapsLabel()) {
+                    StatEntryRow(title: "Runs", value: $runs, icon: "figure.run", field: .runs, focusedField: $focusedStatField)
+                    StatEntryRow(title: "RBIs", value: $rbis, icon: "arrow.up.right.circle.fill", field: .rbis, focusedField: $focusedStatField)
                 }
 
                 Section(header: Text("Plate Appearance Outcomes").smallCapsLabel()) {
-                    StatEntryRow(title: "Strikeouts (K's)", value: $strikeouts, icon: "k.circle.fill", color: .red, field: .strikeouts, focusedField: $focusedStatField)
-                    StatEntryRow(title: "Ground Outs", value: $groundOuts, icon: "arrow.down.circle.fill", color: .red, field: .groundOuts, focusedField: $focusedStatField)
-                    StatEntryRow(title: "Fly Outs", value: $flyOuts, icon: "arrow.up.circle.fill", color: .red, field: .flyOuts, focusedField: $focusedStatField)
-                    StatEntryRow(title: "Walks (BB's)", value: $walks, icon: "figure.walk", color: .cyan, field: .walks, focusedField: $focusedStatField)
-                    StatEntryRow(title: "Hit By Pitch", value: $hitByPitches, icon: "exclamationmark.circle.fill", color: .orange, field: .hitByPitches, focusedField: $focusedStatField)
+                    StatEntryRow(title: "Strikeouts (K's)", value: $strikeouts, icon: "k.circle.fill", field: .strikeouts, focusedField: $focusedStatField)
+                    StatEntryRow(title: "Ground Outs", value: $groundOuts, icon: "arrow.down.circle.fill", field: .groundOuts, focusedField: $focusedStatField)
+                    StatEntryRow(title: "Fly Outs", value: $flyOuts, icon: "arrow.up.circle.fill", field: .flyOuts, focusedField: $focusedStatField)
+                    StatEntryRow(title: "Walks (BB's)", value: $walks, icon: "figure.walk", field: .walks, focusedField: $focusedStatField)
+                    StatEntryRow(title: "Hit By Pitch", value: $hitByPitches, icon: "figure.fall", field: .hitByPitches, focusedField: $focusedStatField)
                 }
 
                 Section(header: Text("Current Game Statistics").smallCapsLabel()) {
-                    CurrentStatRow(title: "Hits", current: existingGameStats?.hits ?? 0, color: Theme.tileNavy)
-                    CurrentStatRow(title: "At Bats", current: existingGameStats?.atBats ?? 0, color: Theme.tileNavy)
-                    CurrentStatRow(title: "Runs", current: existingGameStats?.runs ?? 0, color: .purple)
-                    CurrentStatRow(title: "RBIs", current: existingGameStats?.rbis ?? 0, color: .pink)
-                    CurrentStatRow(title: "Strikeouts", current: existingGameStats?.strikeouts ?? 0, color: .red)
-                    CurrentStatRow(title: "Walks", current: existingGameStats?.walks ?? 0, color: .cyan)
+                    CurrentStatRow(title: "Hits", current: existingGameStats?.hits ?? 0)
+                    CurrentStatRow(title: "At Bats", current: existingGameStats?.atBats ?? 0)
+                    CurrentStatRow(title: "Runs", current: existingGameStats?.runs ?? 0)
+                    CurrentStatRow(title: "RBIs", current: existingGameStats?.rbis ?? 0)
+                    CurrentStatRow(title: "Strikeouts", current: existingGameStats?.strikeouts ?? 0)
+                    CurrentStatRow(title: "Walks", current: existingGameStats?.walks ?? 0)
 
                     if let stats = existingGameStats, stats.atBats > 0 {
                         HStack {
@@ -121,7 +124,7 @@ struct ManualStatisticsEntryView: View {
                             Spacer()
                             Text(StatisticsService.shared.formatBattingAverage(Double(stats.hits) / Double(stats.atBats)))
                                 .font(.headingMedium)
-                                .foregroundColor(.green)
+                                .foregroundColor(Theme.textPrimary)
                         }
                     }
                 }
@@ -143,11 +146,9 @@ struct ManualStatisticsEntryView: View {
                                 Text(StatisticsService.shared.formatBattingAverage(Double(totalHits) / Double(totalAtBats)))
                                     .font(.ppStatSmall)
                                     .monospacedDigit()
-                                    .foregroundColor(.green)
+                                    .foregroundColor(ppAccent)
                             }
                             .padding(.vertical, 4)
-                            .background(Color.green.opacity(0.1))
-                            .cornerRadius(.cornerMedium)
                         }
                     }
                 }
@@ -232,7 +233,10 @@ struct ManualStatisticsEntryView: View {
             // it — flip the flag so it reads "COMPLETED" and the recalc below
             // includes it (covers the zero-at-bat case, e.g. runs/RBIs only).
             // Silent: completion side effects belong to GameService.complete.
-            if !game.isLive && !game.isComplete && game.displayStatus == .completed {
+            // Plain date check, not displayStatus: a today game with only
+            // runs/RBIs still reads as running late (countsTowardStats ignores
+            // them), which would skip this completion.
+            if !game.isLive && !game.isComplete && (game.date.map { $0 <= Date() } ?? false) {
                 game.isComplete = true
             }
 
@@ -280,17 +284,17 @@ struct StatEntryRow: View {
     let title: String
     @Binding var value: String
     let icon: String
-    let color: Color
     var field: ManualStatisticsEntryView.StatField? = nil
     var focusedField: FocusState<ManualStatisticsEntryView.StatField?>.Binding? = nil
 
+    @Environment(\.ppAccent) private var ppAccent
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     private var fieldWidth: CGFloat { horizontalSizeClass == .regular ? 100 : 60 }
 
     var body: some View {
         HStack {
             Image(systemName: icon)
-                .foregroundColor(color)
+                .foregroundColor(ppAccent)
                 .frame(width: 25)
 
             Text(title)
@@ -318,7 +322,6 @@ struct StatEntryRow: View {
 struct CurrentStatRow: View {
     let title: String
     let current: Int
-    let color: Color
 
     var body: some View {
         HStack {
@@ -328,7 +331,7 @@ struct CurrentStatRow: View {
             Text("\(current)")
                 .font(.ppStatSmall)
                 .monospacedDigit()
-                .foregroundColor(color)
+                .foregroundColor(Theme.textPrimary)
         }
     }
 }
@@ -338,6 +341,7 @@ struct PreviewStatRow: View {
     let current: Int
     let new: Int
     let total: Int
+    @Environment(\.ppAccent) private var ppAccent
 
     var body: some View {
         HStack {
@@ -349,15 +353,15 @@ struct PreviewStatRow: View {
             if new > 0 {
                 Text("\(current) + \(new) = ")
                     .font(.bodySmall)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(Theme.textSecondary)
 
                 Text("\(total)")
                     .font(.ppStatSmall)
                     .monospacedDigit()
-                    .foregroundColor(.green)
+                    .foregroundColor(ppAccent)
             } else {
                 Text("\(current)")
-                    .foregroundColor(.secondary)
+                    .foregroundColor(Theme.textSecondary)
             }
         }
     }

@@ -19,29 +19,27 @@ struct RecruitingHighlightPicker: View {
     let athlete: Athlete
     @Binding var selection: [UUID]
 
-    @Environment(\.dismiss) private var dismiss
     @Environment(\.ppAccent) private var ppAccent
 
-    /// All highlight clips, newest first — including ones still uploading.
-    private var allHighlights: [VideoClip] {
-        athlete.recruitingHighlights
-            .sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
-    }
-
-    private var publishable: [VideoClip] { allHighlights.filter(\.hasPublishableUpload) }
-    private var pending: [VideoClip] { allHighlights.filter { !$0.hasPublishableUpload } }
-
-    /// Selected clips in the athlete's chosen order (the page's display order).
-    /// Keyed once — `publishable` re-derives the highlight set, so a per-id lookup
-    /// into it would repeat that work for every selected clip.
-    private var selectedClips: [VideoClip] {
-        let byID = Dictionary(publishable.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        return selection.compactMap { byID[$0] }
-    }
+    /// The clip open in the full-screen player. Picking the hero clip from a
+    /// 72-point thumbnail and a caption was guesswork.
+    @State private var playingClip: VideoClip?
 
     private var atCap: Bool { selection.count >= RecruitingProfileService.maxHighlights }
 
     var body: some View {
+        // Everything derives from ONE read of `recruitingHighlights` per render.
+        // These used to be computed properties that each re-read it — on a golf
+        // athlete that's a SwiftData fetch (the birdie-reel union) apiece, four-plus
+        // times per redraw.
+        let allHighlights = athlete.recruitingHighlights
+            .sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
+        let publishable = allHighlights.filter(\.hasPublishableUpload)
+        let pending = allHighlights.filter { !$0.hasPublishableUpload }
+        // Selected clips in the athlete's chosen order (the page's display order).
+        let byID = Dictionary(publishable.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let selectedClips = selection.compactMap { byID[$0] }
+
         List {
             if !selectedClips.isEmpty {
                 Section {
@@ -106,12 +104,16 @@ struct RecruitingHighlightPicker: View {
             // every section into edit state and swallow the taps that toggle
             // selection. Tap to pick; tap Edit to drag. Same shape as
             // TournamentDetailView, the app's other .onMove list.
+            //
+            // No separate "Done" to leave: this screen is pushed, so Back does
+            // that — and while editing, EditButton ALSO reads "Done", which put two
+            // identical buttons on screen doing different things.
             if selection.count > 1 {
-                ToolbarItem(placement: .navigationBarLeading) { EditButton() }
+                ToolbarItem(placement: .topBarTrailing) { EditButton() }
             }
-            ToolbarItem(placement: .confirmationAction) {
-                Button("Done") { dismiss() }
-            }
+        }
+        .fullScreenCover(item: $playingClip) { clip in
+            VideoPlayerView(clip: clip)
         }
     }
 
@@ -120,10 +122,13 @@ struct RecruitingHighlightPicker: View {
     private func clipRow(_ clip: VideoClip, isOn: Bool, isPending: Bool = false) -> some View {
         // At the cap, unselected rows stop responding rather than silently no-op.
         let isDisabled = isPending || (!isOn && atCap)
-        return Button {
-            toggle(clip)
-        } label: {
-            HStack(spacing: 12) {
+        return HStack(spacing: 12) {
+            // Its own button so any clip can be watched — including still-uploading
+            // and at-cap ones, which can't be toggled. Both buttons are .plain so a
+            // List row doesn't hand every tap to the first one.
+            Button {
+                playingClip = clip
+            } label: {
                 VideoThumbnailView(
                     clip: clip,
                     size: CGSize(width: 72, height: 40),
@@ -136,32 +141,46 @@ struct RecruitingHighlightPicker: View {
                     fillsContainer: false
                 )
                 .frame(width: 72, height: 40)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(clip.recruitingLabel.isEmpty ? "Clip" : clip.recruitingLabel)
-                        .font(.bodyMedium)
-                        .foregroundStyle(Theme.textPrimary)
-                        .lineLimit(1)
-                    if isPending {
-                        Label("Uploading…", systemImage: "arrow.up.circle")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                Spacer()
-
-                if !isPending {
-                    Image(systemName: isOn ? "checkmark.circle.fill" : "circle")
-                        .font(.title3)
-                        .foregroundStyle(isOn ? ppAccent : Theme.textTertiary)
+                .overlay {
+                    Image(systemName: "play.fill")
+                        .font(.caption)
+                        .foregroundStyle(.white)
+                        .shadow(radius: 2)
                 }
             }
-            .contentShape(Rectangle())
-            .opacity(isDisabled ? 0.45 : 1)
+            .buttonStyle(.plain)
+            .accessibilityLabel("Play clip")
+
+            Button {
+                toggle(clip)
+            } label: {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(clip.recruitingLabel.isEmpty ? "Clip" : clip.recruitingLabel)
+                            .font(.bodyMedium)
+                            .foregroundStyle(Theme.textPrimary)
+                            .lineLimit(1)
+                        if isPending {
+                            Label("Uploading…", systemImage: "arrow.up.circle")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    Spacer()
+
+                    if !isPending {
+                        Image(systemName: isOn ? "checkmark.circle.fill" : "circle")
+                            .font(.title3)
+                            .foregroundStyle(isOn ? ppAccent : Theme.textTertiary)
+                    }
+                }
+                .contentShape(Rectangle())
+                .opacity(isDisabled ? 0.45 : 1)
+            }
+            .buttonStyle(.plain)
+            .disabled(isDisabled)
         }
-        .buttonStyle(.plain)
-        .disabled(isDisabled)
     }
 
     // MARK: - Mutation

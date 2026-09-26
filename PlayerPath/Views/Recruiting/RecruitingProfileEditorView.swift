@@ -25,6 +25,7 @@ struct RecruitingProfileEditorView: View {
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @Environment(\.modelContext) private var modelContext
     @Environment(\.ppAccent) private var ppAccent
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var working: RecruitingInfo
     @State private var headshotItem: PhotosPickerItem?
@@ -35,6 +36,10 @@ struct RecruitingProfileEditorView: View {
     // Surfaces view counts one level up from RecruitingPublishView, where the
     // full activity tiles live. Single getDocument, silent-fail.
     @State private var status: RecruitingPublishStatus?
+    /// True once a status read has SUCCEEDED (a nil status then really means "no
+    /// page"). Until then the status card stays hidden — a failed read must never
+    /// render as "Not published yet" over a page that's live.
+    @State private var statusKnown = false
     /// Publishable highlights that aren't on the live page yet.
     ///
     /// Stored rather than computed in `body`: the count reads
@@ -78,16 +83,48 @@ struct RecruitingProfileEditorView: View {
             seeded.includeContactEmail = false
             seeded.includeContactPhone = false
         }
+        // Collapses free-text states typed before the picker existed ("MISSISSIPPI",
+        // "ms") to the code the picker tags, so they select the right row instead of
+        // showing as an unknown extra. Same dirty-once-on-exit trade as above.
+        seeded.state = USState.normalized(seeded.state)
         _working = State(initialValue: seeded)
         _seededAthleteID = State(initialValue: athlete.id)
     }
 
     private var isGolf: Bool { (athlete.sport ?? .baseball) == .golf }
     private var isPro: Bool { authManager.currentTier >= .pro }
+    private var isPublished: Bool { status?.isPublished == true }
+
+    /// Edits here that the live page doesn't show yet. Computed off `working` (in
+    /// memory, no blob decode) against the doc `status` fetched.
+    private var hasUnpublishedChanges: Bool {
+        guard isPublished, isPro, let status else { return false }
+        return RecruitingProfileService.hasUnpublishedChanges(
+            published: status.publishedFields, info: working,
+            name: athlete.name, sport: athlete.sport ?? .baseball
+        )
+    }
 
     var body: some View {
         Form {
-            if !isPro { upsellSection }
+            // Not for a lapsed PUBLISHED page — "you'll need Pro to put it online"
+            // is wrong there, and the status card below says what actually
+            // happened (offline, renew).
+            if !isPro && !isPublished { upsellSection }
+            if statusKnown {
+                RecruitingStatusCard(
+                    status: status,
+                    isPro: isPro,
+                    hasUnpublishedChanges: hasUnpublishedChanges,
+                    staleHighlightCount: staleHighlightCount,
+                    liveSinceText: status?.publishedAt.map {
+                        liveSinceText(publishedAt: $0, updatedAt: status?.updatedAt)
+                    },
+                    isBusy: isUploadingHeadshot,
+                    onOpenShare: openShare,
+                    onRenew: { showingPaywall = true }
+                )
+            }
             headshotSection
             basicsSection
             aboutSection
@@ -108,9 +145,12 @@ struct RecruitingProfileEditorView: View {
             Section {
                 NavigationLink {
                     // Curated IDs, so the preview shows the clips actually on the
-                    // published page rather than the newest 8.
+                    // published page rather than the newest 8 — or, if the athlete
+                    // re-picked clips on Share Profile this session without
+                    // publishing, those picks.
                     RecruitingProfileView(athlete: athlete, info: working,
-                                          curatedClipIDs: working.publishedClipIDs)
+                                          curatedClipIDs: RecruitingProfileService.shared.draftSelection(for: athlete.id)
+                                              ?? working.publishedClipIDs)
                 } label: {
                     Label("Preview Profile", systemImage: "eye")
                 }
@@ -121,48 +161,27 @@ struct RecruitingProfileEditorView: View {
                 // seconds later, so nothing ever tells the athlete their live page
                 // is missing it.
                 .disabled(isUploadingHeadshot)
-                // Persist before pushing rather than relying on this view's
-                // .onDisappear firing first — the publish snapshot reads the
-                // saved blob, so an unsaved edit would publish stale bio text.
-                Button {
-                    persistIfChanged()
-                    showingPublish = true
-                } label: {
-                    Label("Share Profile", systemImage: "square.and.arrow.up")
+                // View counts, live-since and the out-of-date nudges moved to the
+                // status card at the top — see RecruitingStatusCard.
+                Button(action: openShare) {
+                    // "Share" promises a link that doesn't exist yet on a profile
+                    // that has never been published.
+                    Label(isPublished ? "Share Profile" : "Publish Profile",
+                          systemImage: isPublished ? "square.and.arrow.up" : "paperplane")
                 }
                 .disabled(isUploadingHeadshot)
-                // Pro-gated to match the publish screen's Profile Activity section:
-                // a lapsed subscription leaves isPublished true while the CF serves
-                // a dark page, so live-looking view counts there would be a lie.
-                if isPro, let status, status.isPublished {
-                    Label {
-                        Text("\(status.viewCount) total view\(status.viewCount == 1 ? "" : "s") · \(status.viewsThisWeek) this week")
-                    } icon: {
-                        Image(systemName: "eye.fill")
-                    }
-                    .font(.bodySmall)
-                    .foregroundStyle(.secondary)
-                    if let publishedAt = status.publishedAt {
-                        Label {
-                            Text(liveSinceText(publishedAt: publishedAt,
-                                               updatedAt: status.updatedAt))
-                        } icon: {
-                            Image(systemName: "clock")
-                        }
-                        .font(.bodySmall)
-                        .foregroundStyle(.secondary)
-                    }
-                }
-                if staleHighlightCount > 0 {
-                    staleHighlightsRow
-                }
             } footer: {
-                Text("This is what a college coach will see. Your changes save automatically.")
+                // Was "Your changes save automatically", which read as though the
+                // public page updated too. It only changes on Update.
+                Text("Preview shows what a college coach will see. Changes save in the app — your public page updates when you tap Update on Share Profile.")
             }
         }
         .tint(ppAccent)
         .navigationTitle("Recruiting Profile")
         .navigationBarTitleDisplayMode(.inline)
+        // Hidden across editor, Preview and Share so pushes between them don't
+        // flicker the bar in and out; at rest it covered the bio field.
+        .toolbar(.hidden, for: .tabBar)
         .ppAccent(for: athlete.sport)
         .navigationDestination(isPresented: $showingPublish) {
             RecruitingPublishView(athlete: athlete)
@@ -177,7 +196,7 @@ struct RecruitingProfileEditorView: View {
             Task { await uploadHeadshot(newItem) }
         }
         .task {
-            status = try? await RecruitingProfileService.shared.fetchStatus(athleteId: athlete.id)
+            await refreshStatus(athleteId: athlete.id)
             refreshStaleHighlightCount()
         }
         .onChange(of: showingPublish) { _, isShowing in
@@ -220,7 +239,7 @@ struct RecruitingProfileEditorView: View {
             // on an invalidated model traps.
             let athleteId = athlete.id
             Task {
-                status = try? await RecruitingProfileService.shared.fetchStatus(athleteId: athleteId)
+                await refreshStatus(athleteId: athleteId)
                 // Publishing is exactly what clears this nudge, so it has to be
                 // recomputed on the way back — and AFTER status lands, since it
                 // gates on isPublished.
@@ -238,6 +257,15 @@ struct RecruitingProfileEditorView: View {
             )
         }
         .onDisappear(perform: persistIfChanged)
+        // Backgrounding doesn't fire .onDisappear, so a bio typed here and then
+        // left while iOS terminates the app in the background was simply lost —
+        // despite the footer's "saves automatically". Guarded like the
+        // showingPublish handler: persistIfChanged reads athlete.id first, and a
+        // deleted @Model traps on any property read.
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .background, !athlete.isDeleted, athlete.modelContext != nil else { return }
+            persistIfChanged()
+        }
     }
 
     // MARK: - Sections
@@ -315,7 +343,7 @@ struct RecruitingProfileEditorView: View {
     }
 
     private var basicsSection: some View {
-        Section("Basics") {
+        Section {
             Picker("Grad Year", selection: gradYearBinding) {
                 Text("—").tag(Int?.none)
                 ForEach(gradYearOptions, id: \.self) { year in
@@ -328,14 +356,20 @@ struct RecruitingProfileEditorView: View {
                     Text("\(inches / 12)'\(inches % 12)\"").tag(Int?.some(inches))
                 }
             }
-            RecruitingNumberField("Weight", unit: "lbs", value: weightBinding, isInteger: true)
+            RecruitingNumberField("Weight", unit: "lbs", value: weightBinding, isInteger: true,
+                                  validRange: RecruitingInputRange.weight)
             RecruitingTextField("City", prompt: "Austin", text: $working.city.orEmpty())
-            RecruitingTextField("State", prompt: "TX", text: $working.state.orEmpty(),
-                                autocapitalization: .characters, autocorrect: false)
-            RecruitingTextField("High school", prompt: "Austin High",
+            RecruitingStatePicker(state: $working.state)
+            RecruitingTextField("High School", prompt: "Austin High",
                                 text: $working.highSchool.orEmpty())
-            RecruitingTextField("Club team", prompt: "Texas Thunder 16U",
+            RecruitingTextField("Club Team", prompt: "Texas Thunder 16U",
                                 text: $working.clubTeam.orEmpty())
+        } header: {
+            Text("Basics")
+        } footer: {
+            if RecruitingInputRange.isFlagged(working.weightLbs.map(Double.init), RecruitingInputRange.weight) {
+                Text(RecruitingInputRange.flaggedNote)
+            }
         }
     }
 
@@ -375,7 +409,8 @@ struct RecruitingProfileEditorView: View {
         )
     }
 
-    /// Grad-year choices: this year through +6, plus any already-saved year that
+    /// Grad-year choices: last year through +6 (last year keeps post-grad and
+    /// JUCO-transfer athletes selectable), plus any already-saved year that
     /// falls outside that window (so editing an older profile can't drop it).
     private var gradYearOptions: [Int] {
         let currentYear = Calendar.current.component(.year, from: Date())
@@ -475,41 +510,34 @@ struct RecruitingProfileEditorView: View {
         return base + " · updated \(DateFormatter.mediumDate.string(from: updatedAt))"
     }
 
-    /// The staleness nudge. `highlights` and `golfStats` are publish-time
+    /// Persist before pushing rather than relying on this view's .onDisappear
+    /// firing first — the publish snapshot reads the saved blob, so an unsaved
+    /// edit would publish stale bio text.
+    private func openShare() {
+        persistIfChanged()
+        showingPublish = true
+    }
+
+    /// Re-reads publish state, keeping what we have when the read FAILS — the same
+    /// rule as RecruitingPublishView.refreshStatus. `try?` flattened a failure
+    /// into nil, i.e. "no page", which the status card would render as "Not
+    /// published yet" over a page that's live.
+    private func refreshStatus(athleteId: UUID) async {
+        do {
+            status = try await RecruitingProfileService.shared.fetchStatus(athleteId: athleteId)
+            statusKnown = true
+        } catch {
+            ErrorHandlerService.shared.handle(error, context: "RecruitingProfileEditorView.refreshStatus",
+                                              showAlert: false)
+        }
+    }
+
+    /// The staleness nudge's count. `highlights` and `golfStats` are publish-time
     /// snapshots and the picker never self-heals — `load()` seeds the selection
     /// from the persisted curation, so newly flagged highlights stay unselected
     /// forever. Publish in February with 3 clips, flag 17 more by June, and the
-    /// same link still serves February. Nothing else in the app says so: the only
-    /// mention of republishing is a footer on the publish screen itself.
-    private var staleHighlightsRow: some View {
-        Button {
-            persistIfChanged()
-            showingPublish = true
-        } label: {
-            HStack(spacing: 12) {
-                Image(systemName: "arrow.triangle.2.circlepath")
-                    .foregroundStyle(Theme.warning)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(staleHighlightCount == 1
-                         ? "1 new highlight isn't on your page yet"
-                         : "\(staleHighlightCount) new highlights aren't on your page yet")
-                        .font(.bodySmall)
-                        .multilineTextAlignment(.leading)
-                    Text("Update to put your best film in front of coaches.")
-                        .font(.bodySmall)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.leading)
-                }
-                Spacer(minLength: 8)
-                Text("Update")
-                    .font(.bodySmall.weight(.semibold))
-                    .foregroundStyle(ppAccent)
-            }
-        }
-        .buttonStyle(.plain)
-        .disabled(isUploadingHeadshot)
-    }
-
+    /// same link still serves February. Shown in RecruitingStatusCard.
+    ///
     /// Recomputes the nudge count. Silent (0) unless we can say something TRUE:
     /// the page must be live, and the curation must be known — a profile published
     /// before `publishedClipIDs` was persisted has unknown page contents, and

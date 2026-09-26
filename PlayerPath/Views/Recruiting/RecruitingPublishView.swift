@@ -41,6 +41,13 @@ struct RecruitingPublishView: View {
     @State private var statusLoadFailed = false
     @State private var isWorking = false
     @State private var errorMessage: String?
+    /// Non-error notices (e.g. "no mail app — link copied"). Kept apart from
+    /// `errorMessage` so they don't arrive under "Something went wrong".
+    @State private var infoMessage: String?
+    /// Local edits the live page doesn't show yet — see
+    /// RecruitingProfileService.hasUnpublishedChanges. @State for the same reason
+    /// as `readiness`: computing it reads the blob.
+    @State private var hasUnpublishedChanges = false
     @State private var consentAcknowledged = false
     @State private var showingUnpublishConfirm = false
     @State private var showingResetConfirm = false
@@ -101,6 +108,9 @@ struct RecruitingPublishView: View {
         let id = UUID()
         let url: URL
         let skipped: Int
+        /// Whether the page carries a golf stat band, so the coach email only
+        /// promises what's there.
+        let hasGolfStats: Bool
     }
 
     private var isPro: Bool { authManager.currentTier >= .pro }
@@ -192,6 +202,8 @@ struct RecruitingPublishView: View {
         }
         .navigationTitle("Share Profile")
         .navigationBarTitleDisplayMode(.inline)
+        // Matches the editor, so pushes between the three don't flicker the bar.
+        .toolbar(.hidden, for: .tabBar)
         .listSectionSpacing(.compact)
         .tint(ppAccent)
         .ppAccent(for: athlete.sport)
@@ -216,6 +228,16 @@ struct RecruitingPublishView: View {
         } message: {
             Text(errorMessage ?? "")
         }
+        .alert("Link Copied", isPresented: .constant(infoMessage != nil)) {
+            Button("OK") { infoMessage = nil }
+        } message: {
+            Text(infoMessage ?? "")
+        }
+        // Survives backing out to the editor without publishing — see
+        // RecruitingProfileService.draftClipSelections.
+        .onChange(of: selection) { _, newValue in
+            RecruitingProfileService.shared.setDraftSelection(newValue, for: seededAthleteID)
+        }
         .sheet(isPresented: $showingQR) {
             if let url = status?.shareURL {
                 // A scanned code is its own channel — the showcase-table case.
@@ -229,7 +251,8 @@ struct RecruitingPublishView: View {
         .sheet(item: $publishSuccess) { success in
             RecruitingPublishSuccessView(athlete: athlete,
                                          url: success.url,
-                                         skippedClipCount: success.skipped)
+                                         skippedClipCount: success.skipped,
+                                         hasGolfStats: success.hasGolfStats)
         }
         .onChange(of: showingPaywall) { _, isShowing in
             if !isShowing, let pending = pendingSuccess {
@@ -272,22 +295,9 @@ struct RecruitingPublishView: View {
                 isPro: isPro,
                 sport: athlete.sport,
                 onShowQR: { showingQR = true },
-                onEmail: coachEmailURL(url: url).map { emailURL in
-                    {
-                        // No mail app configured → open() fails with no UI at
-                        // all. Falling back to the pasteboard beats a button
-                        // that does nothing.
-                        UIApplication.shared.open(emailURL, options: [:]) { opened in
-                            if !opened {
-                                // Still the mail channel: that was the intent, and
-                                // the athlete pastes this into a mail app.
-                                UIPasteboard.general.string =
-                                    RecruitingShareTools.taggedURL(url, channel: .mail).absoluteString
-                                errorMessage = "No mail app is set up on this device — your profile link was copied instead."
-                            }
-                        }
-                    }
-                }
+                // Built on TAP, not per render: the email reads the recruiting
+                // blob, and this card re-renders with the whole Form.
+                onEmail: { openCoachEmail(url: url) }
             )
         }
     }
@@ -465,7 +475,9 @@ struct RecruitingPublishView: View {
                 // athlete is looking at, so name it explicitly.
                 Text("Add a graduation year to publish. It's the recruiting class coaches filter on, and it's how we know which details are safe to show publicly.")
             } else if isPublished {
-                Text("Republishing refreshes your stats and clips. Your link stays the same.")
+                Text(hasUnpublishedChanges
+                     ? "You have changes that aren't on your page yet. Update to show them to coaches — your link stays the same."
+                     : "Republishing refreshes your stats and clips. Your link stays the same.")
             }
         }
     }
@@ -593,9 +605,17 @@ struct RecruitingPublishView: View {
             .prefix(RecruitingProfileService.maxHighlights)
             .map(\.id)
 
+        // An unpublished pick made earlier this session wins over both — backing
+        // out to the editor mid-curation must not throw the picks away.
+        let draft = (RecruitingProfileService.shared.draftSelection(for: athleteId) ?? [])
+            .filter { publishableIDs.contains($0) }
+
         await refreshStatus(athleteId: athleteId)
+        // Again, now that `status` holds the live doc: the unpublished-changes
+        // check compares against it, and the call above ran before it arrived.
+        refreshPublishGates()
         if selection.isEmpty {
-            selection = curated.isEmpty ? defaultSelection : curated
+            selection = !draft.isEmpty ? draft : (curated.isEmpty ? defaultSelection : curated)
         }
     }
 
@@ -634,6 +654,11 @@ struct RecruitingPublishView: View {
         let info = athlete.recruiting
         readiness = RecruitingReadiness.items(for: info, sport: athlete.sport ?? .baseball)
         hasConsentStamp = info.publishConsentAt != nil
+        hasUnpublishedChanges = isPro && isPublished && status.map {
+            RecruitingProfileService.hasUnpublishedChanges(published: $0.publishedFields, info: info,
+                                                           name: athlete.name,
+                                                           sport: athlete.sport ?? .baseball)
+        } == true
 
         let updated = info.newlyPublicContactKinds
         // Only on an actual CHANGE, so pull-to-refresh can't clear a box the
@@ -788,8 +813,13 @@ struct RecruitingPublishView: View {
             // the readiness checklist are both stale — leaving them would keep
             // "This update shares something new" on screen after the update landed.
             refreshPublishGates()
+            RecruitingProfileService.shared.clearDraftSelection(for: athleteId)
             await refreshStatus(athleteId: athleteId)
-            let success = PublishSuccess(url: result.url, skipped: result.skippedClipCount)
+            // Again after the status refresh, so the unpublished-changes check
+            // compares against the doc this publish just wrote.
+            refreshPublishGates()
+            let success = PublishSuccess(url: result.url, skipped: result.skippedClipCount,
+                                         hasGolfStats: status?.publishedFields["golfStats"] != nil)
             // A publish resumed from the paywall can finish before its sheet is
             // off screen — park the result until then (see pendingSuccess).
             if showingPaywall {
@@ -853,6 +883,7 @@ struct RecruitingPublishView: View {
         do {
             try await RecruitingProfileService.shared.unpublish(athleteId: athleteId, sport: sport)
             await refreshStatus(athleteId: athleteId)
+            refreshPublishGates()
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription
                 ?? "Couldn't unpublish. Check your connection and try again."
@@ -963,7 +994,9 @@ struct RecruitingPublishView: View {
                     // rather than keeping the pre-reset value, which would make
                     // the editor's "updated" date older than an action the athlete
                     // just took.
-                    updatedAt: Date()
+                    updatedAt: Date(),
+                    // A reset swaps only the token; the page content is unchanged.
+                    publishedFields: current.publishedFields
                 )
             }
             Haptics.light()
@@ -971,6 +1004,23 @@ struct RecruitingPublishView: View {
             errorMessage = (error as? LocalizedError)?.errorDescription
                 ?? "Couldn't reset your link. Check your connection and try again."
             ErrorHandlerService.shared.handle(error, context: "RecruitingPublishView.resetLink", showAlert: false)
+        }
+    }
+
+    /// Opens the pre-written coach email. No mail app configured → open() fails
+    /// with no UI at all, so fall back to copying the link rather than a button
+    /// that does nothing.
+    private func openCoachEmail(url: URL) {
+        let fallback = {
+            // Still the mail channel: that was the intent, and the athlete pastes
+            // this into a mail app.
+            UIPasteboard.general.string = RecruitingShareTools.taggedURL(url, channel: .mail).absoluteString
+            infoMessage = "No mail app is set up on this device — your profile link was copied instead."
+        }
+        guard !athlete.isDeleted, athlete.modelContext != nil,
+              let emailURL = coachEmailURL(url: url) else { fallback(); return }
+        UIApplication.shared.open(emailURL, options: [:]) { opened in
+            if !opened { fallback() }
         }
     }
 
@@ -984,7 +1034,8 @@ struct RecruitingPublishView: View {
             athleteName: athlete.name,
             info: athlete.recruiting,
             sport: athlete.sport ?? .baseball,
-            url: url
+            url: url,
+            hasGolfStats: status?.publishedFields["golfStats"] != nil
         )
     }
 }

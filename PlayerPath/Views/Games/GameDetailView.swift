@@ -60,6 +60,12 @@ struct GameDetailView: View {
     }
 
     private var isGolf: Bool { game.season?.sport == .golf }
+
+    /// Today, past its start time, untouched. The screen can't tell "running
+    /// late" from "already played, footage coming tonight", so it offers both
+    /// paths: Start stays up (displayStatus is `.scheduled`) AND the
+    /// after-the-game actions (Upload, Mark Complete) that `.completed` has.
+    private var isAwaitingStart: Bool { game.isAwaitingStart() }
     // A single golf game is a "Round" — "Tournament" now means the multi-round
     // GolfTournament container (SchemaV27).
     private var unitNoun: String { isGolf ? "Round" : "Game" }
@@ -238,7 +244,9 @@ struct GameDetailView: View {
                                     .background(Color.gray)
                                     .cornerRadius(4)
                             case .scheduled:
-                                Text("SCHEDULED")
+                                // A morning game still reading "SCHEDULED" at 7 PM
+                                // reads wrong — it's today's, not a future one.
+                                Text(isAwaitingStart ? "TODAY" : "SCHEDULED")
                                     .foregroundColor(.white)
                                     .padding(.horizontal, 8)
                                     .padding(.vertical, 4)
@@ -375,6 +383,12 @@ struct GameDetailView: View {
                             Label("Record your first video", systemImage: "video.badge.plus")
                         }
                         .labelStyle(ActionRowLabelStyle())
+                        if isAwaitingStart {
+                            Button(action: { importTrigger = true }) {
+                                Label("Upload your first video", systemImage: "square.and.arrow.down.on.square")
+                            }
+                            .labelStyle(ActionRowLabelStyle())
+                        }
                     }
                 } else {
                     if reelEligible {
@@ -539,14 +553,16 @@ struct GameDetailView: View {
         .navigationTitle(game.opponentLabel)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { primaryActionMenu }
-        .alert(isGolf ? "End Round" : "End Game", isPresented: $showingEndGame) {
+        // Shared wording with every other End surface (LiveEndPrompt). Not
+        // destructive: Restart undoes it.
+        .alert(LiveEndPrompt.title(isGolf: isGolf), isPresented: $showingEndGame) {
             Button("Cancel", role: .cancel) { }
-            Button("End", role: .destructive) {
+            Button(LiveEndPrompt.button(isGolf: isGolf)) {
                 Haptics.heavy()
                 endGame()
             }
         } message: {
-            Text("Are you sure you want to end this \(unitNounLower)? You won't be able to record more videos for it.")
+            Text(LiveEndPrompt.message(isGolf: isGolf))
         }
         .alert(isGolf ? "Delete Round" : "Delete Game", isPresented: $showingDeleteConfirmation) {
             Button("Cancel", role: .cancel) { }
@@ -644,6 +660,14 @@ struct GameDetailView: View {
                     Button(action: { startGame() }) {
                         Label(isGolf ? "Start Round" : "Start Game", systemImage: "play.circle")
                     }
+                    if isAwaitingStart {
+                        Button(action: { importTrigger = true }) {
+                            Label("Upload Video", systemImage: "square.and.arrow.down.on.square")
+                        }
+                        Button(action: { completeGame() }) {
+                            Label("Mark Complete", systemImage: "checkmark.circle")
+                        }
+                    }
                 case .live:
                     if isGolf, let next = nextHoleNumber {
                         Button(action: {
@@ -728,43 +752,83 @@ struct GameDetailView: View {
     /// in `primaryActionMenu` (the `•••` toolbar menu), which already mirrors
     /// the full set. Placed under details for live/scheduled, at the bottom for
     /// completed games (see `body`).
+    ///
+    /// An empty Video Clips / Photos section already carries its own action row,
+    /// so this block omits whatever those empty states show — otherwise the page
+    /// lists "Upload Video" and "Add Photos" twice.
     @ViewBuilder
     private var contextualActions: some View {
-        Section {
-            switch game.displayStatus {
-            case .scheduled:
-                Button(action: { showingVideoRecorder = true }) {
-                    Label("Record Video", systemImage: "video.badge.plus")
-                }
-                Button(action: { startGame() }) {
-                    Label(isGolf ? "Start Round" : "Start Game", systemImage: "play.circle")
-                }
-            case .live:
-                // Score Hole is promoted above Record Video for golf live
-                // rounds — entering a score is the primary action on each hole,
-                // and clip attribution depends on it.
-                if isGolf, let next = nextHoleNumber {
-                    Button(action: {
-                        scoreHoleTarget = ScoreHoleTarget(holeNumber: next)
-                    }) {
-                        Label("Score Hole \(next)", systemImage: "flag.checkered")
+        if hasContextualActions {
+            Section {
+                switch game.displayStatus {
+                case .scheduled:
+                    if !clipsEmptyOffersRecord {
+                        Button(action: { showingVideoRecorder = true }) {
+                            Label("Record Video", systemImage: "video.badge.plus")
+                        }
+                    }
+                    Button(action: { startGame() }) {
+                        Label(isGolf ? "Start Round" : "Start Game", systemImage: "play.circle")
+                    }
+                    if isAwaitingStart, !clipsEmptyOffersUpload {
+                        Button(action: { importTrigger = true }) {
+                            Label("Upload Video", systemImage: "square.and.arrow.down.on.square")
+                        }
+                    }
+                case .live:
+                    // Score Hole is promoted above Record Video for golf live
+                    // rounds — entering a score is the primary action on each hole,
+                    // and clip attribution depends on it.
+                    if isGolf, let next = nextHoleNumber {
+                        Button(action: {
+                            scoreHoleTarget = ScoreHoleTarget(holeNumber: next)
+                        }) {
+                            Label("Score Hole \(next)", systemImage: "flag.checkered")
+                        }
+                    }
+                    if !clipsEmptyOffersRecord {
+                        Button(action: { showingVideoRecorder = true }) {
+                            Label("Record Video", systemImage: "video.badge.plus")
+                        }
+                    }
+                case .completed:
+                    // Mark Complete for an unfinalized PAST game lives in
+                    // `needsResultsSection` at the top, not here.
+                    if !clipsEmptyOffersUpload {
+                        Button(action: { importTrigger = true }) {
+                            Label("Upload Video", systemImage: "square.and.arrow.down.on.square")
+                        }
                     }
                 }
-                Button(action: { showingVideoRecorder = true }) {
-                    Label("Record Video", systemImage: "video.badge.plus")
-                }
-            case .completed:
-                // Mark Complete for an unfinalized PAST game lives in
-                // `needsResultsSection` at the top, not here.
-                Button(action: { importTrigger = true }) {
-                    Label("Upload Video", systemImage: "square.and.arrow.down.on.square")
+
+                // Add Photos is additive content on every status.
+                if !gamePhotos.isEmpty {
+                    addPhotoMenu
                 }
             }
-
-            // Add Photos is additive content on every status.
-            addPhotoMenu
+            .labelStyle(ActionRowLabelStyle())
         }
-        .labelStyle(ActionRowLabelStyle())
+    }
+
+    /// Mirrors the Video Clips empty state: record for live/scheduled games.
+    private var clipsEmptyOffersRecord: Bool {
+        videoClips.isEmpty && game.displayStatus != .completed
+    }
+
+    /// Mirrors the Video Clips empty state: upload for completed games and
+    /// for scheduled games awaiting start today.
+    private var clipsEmptyOffersUpload: Bool {
+        videoClips.isEmpty && (game.displayStatus == .completed || isAwaitingStart)
+    }
+
+    /// False when every row would be deduped away, so no empty Section renders.
+    private var hasContextualActions: Bool {
+        let hasMedia = !videoClips.isEmpty || !gamePhotos.isEmpty
+        switch game.displayStatus {
+        case .scheduled: return true  // Start Game always shows
+        case .live: return (isGolf && nextHoleNumber != nil) || hasMedia
+        case .completed: return hasMedia
+        }
     }
 
     /// Past-dated, never finalized. `displayStatus` reports `.completed`, but the

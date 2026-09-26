@@ -1082,7 +1082,18 @@ export const serveRecruitingProfile = functions
         doc.id
       );
     }
-    const headshot = await signPath(bucket, ownedPath(data.headshotPath, ownerUID));
+    // Existence-checked like the clips: the editor's Remove deletes the object
+    // immediately, but the page keeps its headshotPath until the next republish.
+    // Signing never asks GCS, so without this the page rendered a broken <img>
+    // and og:image pointed at an /avatar that 404s. Missing → no headshot, and
+    // og:image falls back to the hero poster below. objectMissing treats a thrown
+    // error as present, so a GCS blip can't blank a real headshot.
+    const headshotStoragePath = ownedPath(data.headshotPath, ownerUID);
+    const [headshotMissing, signedHeadshot] = await Promise.all([
+      headshotStoragePath ? objectMissing(bucket, headshotStoragePath) : Promise.resolve(true),
+      signPath(bucket, headshotStoragePath),
+    ]);
+    const headshot = headshotMissing ? null : signedHeadshot;
     // The <img> gets the signed URL (same request, so it can't expire in time);
     // og:image gets the stable proxy, because unfurl caches outlive the signature.
     //

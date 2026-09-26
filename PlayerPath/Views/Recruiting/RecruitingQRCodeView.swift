@@ -19,6 +19,16 @@ struct RecruitingQRCodeView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.ppAccent) private var ppAccent
+    @Environment(\.scenePhase) private var scenePhase
+
+    /// Rendered once. As a computed property it rebuilt the CIFilter and a
+    /// CIContext on every body pass.
+    @State private var qrImage: UIImage?
+    /// Distinguishes "not generated yet" from "generation failed", so the URL
+    /// fallback doesn't flash for a frame before the code appears.
+    @State private var qrAttempted = false
+    /// Brightness before this sheet raised it — restored on the way out.
+    @State private var savedBrightness: CGFloat?
 
     var body: some View {
         NavigationStack {
@@ -42,7 +52,7 @@ struct RecruitingQRCodeView: View {
                         // otherwise unreachable to a screen reader.
                         .accessibilityLabel("QR code for \(athleteName)'s recruiting profile")
                         .accessibilityValue(RecruitingShareTools.displayLink(url))
-                } else {
+                } else if qrAttempted {
                     // CIFilter failing on a static string doesn't happen in
                     // practice, but a blank sheet with no explanation is worse
                     // than a fallback the athlete can still act on.
@@ -50,6 +60,8 @@ struct RecruitingQRCodeView: View {
                         .font(.bodyMedium)
                         .textSelection(.enabled)
                         .padding()
+                } else {
+                    Color.clear.frame(width: 320, height: 320)
                 }
 
                 VStack(spacing: 6) {
@@ -81,12 +93,50 @@ struct RecruitingQRCodeView: View {
                 }
             }
         }
+        .task {
+            guard !qrAttempted else { return }
+            qrImage = Self.makeQRImage(for: url)
+            qrAttempted = true
+        }
+        // Full brightness while the code is up: this sheet is for handing the
+        // phone across a showcase table, often outdoors, and a dim screen is the
+        // usual reason a scanner won't lock on. Wallet passes do the same.
+        .onAppear(perform: raiseBrightness)
+        .onDisappear(perform: restoreBrightness)
+        // Also on leaving the foreground, so the phone is never left at full
+        // brightness if the app is backgrounded with this sheet up.
+        .onChange(of: scenePhase) { _, phase in
+            phase == .active ? raiseBrightness() : restoreBrightness()
+        }
+    }
+
+    /// The foreground scene's screen — `UIScreen.main` is deprecated on iOS 26.
+    private var screen: UIScreen? {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive }?
+            .screen
+    }
+
+    private func raiseBrightness() {
+        guard savedBrightness == nil, let screen else { return }
+        savedBrightness = screen.brightness
+        screen.brightness = 1.0
+    }
+
+    private func restoreBrightness() {
+        guard let saved = savedBrightness else { return }
+        // No active scene while backgrounding — fall back to any window scene.
+        let target = screen ?? UIApplication.shared.connectedScenes
+            .compactMap { ($0 as? UIWindowScene)?.screen }.first
+        target?.brightness = saved
+        savedBrightness = nil
     }
 
     /// QR at native module resolution, upscaled 12× so it renders sharp at any
     /// screen size. Black-on-white deliberately — dark mode inverts UI colors,
     /// but scanners want maximum contrast and quiet-zone convention.
-    private var qrImage: UIImage? {
+    private static func makeQRImage(for url: URL) -> UIImage? {
         let filter = CIFilter.qrCodeGenerator()
         filter.message = Data(url.absoluteString.utf8)
         filter.correctionLevel = "M"

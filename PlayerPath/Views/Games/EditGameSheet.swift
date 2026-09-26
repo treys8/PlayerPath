@@ -14,6 +14,7 @@ struct EditGameSheet: View {
     @Bindable var game: Game
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.ppAccent) private var ppAccent
 
     @State private var opponent: String = ""
     @State private var date: Date = Date()
@@ -56,10 +57,33 @@ struct EditGameSheet: View {
         selectedTournament?.id != game.tournament?.id
     }
 
+    /// Live/completed status, quiet under the details card. Live keeps red — it's
+    /// the universal "on air" signal; completed takes the accent.
+    @ViewBuilder
+    private var statusFooter: some View {
+        if game.isLive {
+            Label {
+                Text(isGolf ? "This round is currently live" : "This game is currently live")
+                    .foregroundStyle(Theme.textSecondary)
+            } icon: {
+                Image(systemName: "circle.fill").foregroundStyle(.red)
+            }
+            .font(.ppFootnote)
+        } else if game.isComplete {
+            Label {
+                Text(isGolf ? "This round has been completed" : "This game has been completed")
+                    .foregroundStyle(Theme.textSecondary)
+            } icon: {
+                Image(systemName: "checkmark.circle.fill").foregroundStyle(ppAccent)
+            }
+            .font(.ppFootnote)
+        }
+    }
+
     var body: some View {
         NavigationStack {
             Form {
-                Section(header: Text(sectionTitle).smallCapsLabel()) {
+                Section {
                     TextField(primaryLabel, text: $opponent)
                         .focused($focusedField, equals: .opponent)
                         .submitLabel(.next)
@@ -73,15 +97,19 @@ struct EditGameSheet: View {
                             .foregroundColor(Theme.warning)
                     }
 
-                    DatePicker("Date & Time", selection: $date)
-                }
-
-                Section(header: Text("Location (Optional)").smallCapsLabel()) {
-                    TextField("Location", text: $location)
+                    // Location lives in this card, not its own section — a
+                    // one-row section renders as a pill on iOS 26.
+                    TextField("Location (optional)", text: $location)
                         .focused($focusedField, equals: .location)
                         .submitLabel(.next)
                         .onSubmit { focusedField = .notes }
                         .textInputAutocapitalization(.words)
+
+                    DatePicker("Date & Time", selection: $date)
+                } header: {
+                    Text(sectionTitle).smallCapsLabel()
+                } footer: {
+                    statusFooter
                 }
 
                 Section(header: Text("Notes (Optional)").smallCapsLabel()) {
@@ -101,20 +129,6 @@ struct EditGameSheet: View {
                                 Text(tournament.name).tag(GolfTournament?.some(tournament))
                             }
                         }
-                    }
-                }
-
-                if game.isLive {
-                    Section {
-                        Label(isGolf ? "This round is currently live" : "This game is currently live", systemImage: "circle.fill")
-                            .foregroundColor(.red)
-                            .font(.bodySmall)
-                    }
-                } else if game.isComplete {
-                    Section {
-                        Label(isGolf ? "This round has been completed" : "This game has been completed", systemImage: "checkmark.circle.fill")
-                            .foregroundColor(.green)
-                            .font(.bodySmall)
                     }
                 }
             }

@@ -357,9 +357,9 @@ struct UserMainFlow: View {
             // tab; VideoClipsView resolves the id in userInfo and binds context.
             guard let athlete = selectedAthlete ?? athletesForUser.first else { return }
             var userInfo: [String: String]? = nil
-            if let gameID = athlete.games?.first(where: { $0.isLive })?.id {
+            if let gameID = athlete.currentLiveGame?.id {
                 userInfo = ["gameId": gameID.uuidString]
-            } else if let practiceID = athlete.practices?.first(where: { $0.isLive })?.id {
+            } else if let practiceID = athlete.currentLivePractice?.id {
                 userInfo = ["practiceId": practiceID.uuidString]
             }
             NotificationCenter.default.post(name: .presentVideoRecorder, object: nil, userInfo: userInfo)

@@ -52,36 +52,37 @@ struct PlayResultEditorView: View {
                     // Current result
                     VStack(spacing: 12) {
                         Text("Current Play Result")
-                            .font(.headingMedium)
-                            .foregroundColor(.secondary)
+                            .smallCapsLabel()
 
                         if let currentResult = clip.playResult?.type {
                             HStack {
                                 Image(systemName: currentResult.iconName)
                                     .font(.title)
-                                    .foregroundColor(currentResult.color)
+                                    .foregroundColor(ppAccent)
                                 Text(currentResult.displayName)
                                     .font(.displayMedium)
+                                    .foregroundColor(Theme.textPrimary)
                             }
                             .padding()
                             .background(
                                 RoundedRectangle(cornerRadius: 12)
-                                    .fill(currentResult.color.opacity(0.1))
+                                    .fill(Theme.card)
                             )
                         } else {
                             Text("No result recorded")
                                 .font(.headingLarge)
-                                .foregroundColor(.secondary)
+                                .foregroundColor(Theme.textSecondary)
                                 .padding()
                                 .background(
                                     RoundedRectangle(cornerRadius: 12)
-                                        .fill(Color.gray.opacity(0.1))
+                                        .fill(Theme.card)
                                 )
                         }
                     }
                     .padding(.top)
 
                     Divider()
+                        .overlay(Theme.divider)
 
                     // New result selection
                     VStack(spacing: 16) {
@@ -146,6 +147,7 @@ struct PlayResultEditorView: View {
             .padding(.horizontal)
             }
             .scrollDismissesKeyboard(.interactively)
+            .ppDetailBackground()
             .navigationTitle(isTagging ? "Tag Play Result" : "Edit Play Result")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -260,8 +262,7 @@ struct PlayResultEditorView: View {
 
     private func sectionHeader(_ title: String) -> some View {
         Text(title)
-            .font(.custom("Inter18pt-Bold", size: 12, relativeTo: .caption))
-            .foregroundColor(.secondary)
+            .smallCapsLabel()
             .padding(.horizontal, 4)
     }
 
@@ -388,6 +389,7 @@ struct PlayResultEditButton: View {
     let isCurrent: Bool
     var fullWidth: Bool = false
     let action: () -> Void
+    @Environment(\.ppAccent) private var ppAccent
 
     var body: some View {
         Button(action: action) {
@@ -399,7 +401,7 @@ struct PlayResultEditButton: View {
                 if isCurrent {
                     Image(systemName: "checkmark.seal.fill")
                         .font(.caption)
-                        .foregroundColor(.green)
+                        .foregroundColor(isSelected ? .white : ppAccent)
                 }
 
                 if isSelected {
@@ -413,16 +415,16 @@ struct PlayResultEditButton: View {
             .frame(maxWidth: fullWidth ? .infinity : nil)
             .background(
                 RoundedRectangle(cornerRadius: 10)
-                    .fill(isSelected ? result.color : result.color.opacity(0.1))
+                    .fill(isSelected ? ppAccent : Theme.card)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 10)
                     .strokeBorder(
-                        isCurrent ? Color.green.opacity(0.5) : Color.clear,
-                        lineWidth: 2
+                        isCurrent ? ppAccent.opacity(0.5) : Theme.divider,
+                        lineWidth: isCurrent ? 2 : 1
                     )
             )
-            .foregroundColor(isSelected ? .white : result.color)
+            .foregroundColor(isSelected ? .white : Theme.textPrimary)
         }
         .buttonStyle(.plain)
     }

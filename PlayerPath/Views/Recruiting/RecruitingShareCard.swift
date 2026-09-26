@@ -33,8 +33,12 @@ struct RecruitingActionTile: View {
     var body: some View {
         Button(action: action) {
             VStack(spacing: 5) {
+                // Fixed glyph height: "doc.on.doc" is taller than "qrcode" or
+                // "envelope", so tiles sized to their icon came out uneven — and
+                // Copy's height jumped when its icon swapped to a checkmark.
                 Image(systemName: systemImage)
                     .font(.system(size: 17, weight: .semibold))
+                    .frame(height: 22)
                 Text(title)
                     .font(.labelMedium)
                     .lineLimit(1)
@@ -44,6 +48,9 @@ struct RecruitingActionTile: View {
             .padding(.vertical, 8)
         }
         .buttonStyle(.bordered)
+        // iOS 26's default bordered shape is a capsule, which turns an
+        // icon-over-label tile into a fat pill. Tiles read as a set.
+        .buttonBorderShape(.roundedRectangle(radius: 14))
     }
 }
 
@@ -181,7 +188,7 @@ struct RecruitingActivityTiles: View {
             }
 
             if let lastViewedAt {
-                Text("Last viewed \(lastViewedAt.formatted(.relative(presentation: .named)))")
+                Text("Last viewed \(lastViewedAt.formatted(.relative(presentation: .numeric)))")
                     .font(.labelSmall)
                     .foregroundStyle(.secondary)
             }

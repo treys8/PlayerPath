@@ -156,7 +156,14 @@ extension SyncCoordinator {
                 // No deleteRule on Game.holeScores — the default nullify would
                 // orphan the rows (and their cascading Shot children) locally.
                 for hole in localGame.holeScores ?? [] { context.delete(hole) }
+                // Cancel this device's per-game pushes, as deleteGameDeep does
+                // locally. The game_reminder_ reschedule below only runs on
+                // date changes / new future games, never for deletions.
+                let gameID = localGame.id
                 context.delete(localGame)
+                PushNotificationService.shared.cancelNotifications(withIdentifiers: ["game_reminder_\(gameID.uuidString)"])
+                GameAlertService.shared.cancelEndGameReminder(forGameID: gameID)
+                ClipTaggingReminderService.shared.cancelNudge(eventID: gameID)
             }
         }
 
@@ -271,7 +278,12 @@ extension SyncCoordinator {
                     var changed = false
                     if local.opponent != remoteGame.opponent { local.opponent = remoteGame.opponent; changed = true }
                     if local.date != remoteGame.date { local.date = remoteGame.date; changed = true; gameSchedulesChanged = true }
-                    if local.isLive != remoteGame.isLive { local.isLive = remoteGame.isLive; changed = true }
+                    if local.isLive != remoteGame.isLive {
+                        local.isLive = remoteGame.isLive; changed = true
+                        // Ended on another device — drop this device's pending
+                        // stale-game reminder too (parity with practices).
+                        if !remoteGame.isLive { GameAlertService.shared.cancelEndGameReminder(forGameID: local.id) }
+                    }
                     if local.liveStartDate != remoteGame.liveStartDate { local.liveStartDate = remoteGame.liveStartDate; changed = true }
                     if local.isComplete != remoteGame.isComplete { local.isComplete = remoteGame.isComplete; changed = true }
                     if local.year != remoteGame.year { local.year = remoteGame.year; changed = true }

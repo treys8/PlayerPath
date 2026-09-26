@@ -164,6 +164,9 @@ class GameService {
     }
 
     func createGame(for athlete: Athlete, opponent: String, date: Date, isLive: Bool, season: Season? = nil, allowWithoutSeason: Bool = false, allowDuplicate: Bool = false, golfDetails: GolfRoundDetails? = nil, location: String? = nil, tournament: GolfTournament? = nil) async -> Result<Game, GameCreationError> {
+        // A live game is happening now — never dated later. The create sheets
+        // snap the date on the toggle; this backstops a date moved afterward.
+        let date = (isLive && date > Date()) ? Date() : date
         // Resolve target season: caller-supplied override wins, otherwise active.
         let resolvedSeason = season ?? athlete.activeSeason
         let hasSeason = resolvedSeason != nil
@@ -410,10 +413,15 @@ class GameService {
             practice.isLive = false
             practice.liveStartDate = nil
             practice.needsSync = true
+            GameAlertService.shared.cancelEndPracticeReminder(for: practice)
         }
     }
 
     func start(_ game: Game) async {
+        // Callers hop through a Task (GamesViewModel, GameDetailView) — a sync
+        // remote-delete or athlete delete can land in that turn, and every read
+        // or write below traps on a deleted @Model (build 177/185).
+        guard !game.isDeleted, game.modelContext != nil else { return }
         guard let athlete = game.athlete else {
             logger.warning("start() called but game.athlete is nil — no action taken")
             return
@@ -432,9 +440,22 @@ class GameService {
             endLivePractices(for: athlete)
         }
 
+        // Started early → it's happening NOW, not at the scheduled time (the
+        // live card read "9:38 PM" at 9:45 AM). Keep `year` in step: it's only
+        // set in Game.init and is the fallback grouping for seasonless games.
+        let now = Date()
+        if let scheduled = game.date, scheduled > now {
+            game.date = now
+            game.year = Calendar.current.component(.year, from: now)
+        }
+        // A "starts in 30 min" push is wrong once the game is live.
+        PushNotificationService.shared.cancelNotifications(
+            withIdentifiers: ["game_reminder_\(game.id.uuidString)"]
+        )
+
         // Start this game
         game.isLive = true
-        game.liveStartDate = Date()
+        game.liveStartDate = now
 
         // Mark for Firestore sync (Phase 2)
         game.needsSync = true
@@ -466,6 +487,10 @@ class GameService {
     }
 
     func end(_ game: Game) async {
+        // Callers hop through a Task (GamesViewModel, GameDetailView) — a sync
+        // remote-delete or athlete delete can land in that turn, and every read
+        // or write below traps on a deleted @Model (build 177/185).
+        guard !game.isDeleted, game.modelContext != nil else { return }
         game.isLive = false
         game.isComplete = true
         game.liveStartDate = nil
@@ -555,6 +580,10 @@ class GameService {
     }
 
     func restart(_ game: Game) async {
+        // Callers hop through a Task (GamesViewModel, GameDetailView) — a sync
+        // remote-delete or athlete delete can land in that turn, and every read
+        // or write below traps on a deleted @Model (build 177/185).
+        guard !game.isDeleted, game.modelContext != nil else { return }
         guard let athlete = game.athlete else {
             logger.warning("restart() called but game.athlete is nil — no action taken")
             return
@@ -603,6 +632,10 @@ class GameService {
     }
 
     func complete(_ game: Game) async {
+        // Callers hop through a Task (GamesViewModel, GameDetailView) — a sync
+        // remote-delete or athlete delete can land in that turn, and every read
+        // or write below traps on a deleted @Model (build 177/185).
+        guard !game.isDeleted, game.modelContext != nil else { return }
         game.isComplete = true
         // Completing also clears the live flags. In practice "Mark Complete" is
         // only offered on a non-live game (`displayStatus` prefers `.live`), but

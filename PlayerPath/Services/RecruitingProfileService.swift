@@ -39,6 +39,9 @@ struct RecruitingPublishStatus {
     /// resetLink), so it also moves when the page went DARK, not just when it
     /// changed content.
     let updatedAt: Date?
+    /// The page's display fields as last published (`publishedDisplayKeys`), so
+    /// the editor can tell when local edits haven't reached the page yet.
+    var publishedFields: [String: Any] = [:]
 
     var shareURL: URL? { RecruitingProfileService.shareURL(for: shareToken) }
 }
@@ -121,6 +124,20 @@ final class RecruitingProfileService {
     /// live, point this at the project's default `<project>.web.app` host — the
     /// links work identically, and this constant is the only thing that changes.
     static let publicBaseURL = "https://profiles.playerpath.net"
+
+    // MARK: - Draft clip selection
+
+    /// Clip picks made on the Share screen that haven't been published yet, per
+    /// athlete. Without this, curating then backing out to the editor threw the
+    /// picks away — the selection lived only in that screen's @State.
+    ///
+    /// Session-only on purpose: a draft that outlived a relaunch could override a
+    /// curation published later from another device.
+    private var draftClipSelections: [UUID: [UUID]] = [:]
+
+    func draftSelection(for athleteId: UUID) -> [UUID]? { draftClipSelections[athleteId] }
+    func setDraftSelection(_ ids: [UUID], for athleteId: UUID) { draftClipSelections[athleteId] = ids }
+    func clearDraftSelection(for athleteId: UUID) { draftClipSelections[athleteId] = nil }
 
     /// Max clips on a published page — bounds page weight and signed-URL egress.
     /// Mirrored by the `highlights.size() <= 8` check in firestore.rules.
@@ -568,8 +585,36 @@ final class RecruitingProfileService {
             viewsThisWeek: Self.viewsThisWeek(from: data["dailyViews"] as? [String: Any]),
             lastViewedAt: (data["lastViewedAt"] as? Timestamp)?.dateValue(),
             publishedAt: (data["publishedAt"] as? Timestamp)?.dateValue(),
-            updatedAt: (data["updatedAt"] as? Timestamp)?.dateValue()
+            updatedAt: (data["updatedAt"] as? Timestamp)?.dateValue(),
+            publishedFields: data.filter { Self.publishedDisplayKeys.contains($0.key) || $0.key == "golfStats" }
         )
+    }
+
+    /// The bio-derived keys a publish writes — everything the editor can change
+    /// that shows on the page, minus clips (the stale-highlights nudge covers
+    /// those) and golf stats (recomputed fresh on every republish).
+    private static let publishedDisplayKeys: Set<String> = [
+        "name", "gradYear", "subline", "physicalLine", "schoolLine", "bio",
+        "measurables", "contact", "headshotPath"
+    ]
+
+    /// Whether publishing now would change what the page shows.
+    ///
+    /// Builds the same fields `publish()` writes, with the same `applyBio`, and
+    /// compares them to the live doc — so it can't drift from what a republish
+    /// would actually produce. A page published under older display wording
+    /// correctly reads as out of date. The headshot is compared by presence only:
+    /// its path is derived from the athlete, never edited.
+    static func hasUnpublishedChanges(published: [String: Any],
+                                      info: RecruitingInfo,
+                                      name: String,
+                                      sport: Sport) -> Bool {
+        var fresh: [String: Any] = ["name": name]
+        applyBio(info, sport: sport, to: &fresh)
+        let bioKeys = publishedDisplayKeys.subtracting(["headshotPath"])
+        let live = published.filter { bioKeys.contains($0.key) }
+        if !NSDictionary(dictionary: fresh).isEqual(to: live) { return true }
+        return (info.headshotCloudURL != nil) != (published["headshotPath"] != nil)
     }
 
     /// Sums the trailing 7 days of the CF-written `dailyViews` map. Keys are
@@ -700,7 +745,8 @@ final class RecruitingProfileService {
 extension VideoClip {
     /// Caption shown under a clip on the published page — pre-formatted here so
     /// the Cloud Function never needs to understand PlayResult, Club, or scoring.
-    /// "Triple · vs Eagles · Mar 12" / "Birdie · Hole 14 · Jun 14" / "Driver · Jun 14".
+    /// "Triple · vs Eagles · Mar 12" / "Strikeout (pitching) · vs Eagles · Mar 12" /
+    /// "Birdie · Hole 14 · Jun 14" / "Driver · Jun 14".
     var recruitingLabel: String {
         let isGolf = (athlete?.sport ?? .baseball) == .golf
         var parts: [String] = []
@@ -710,8 +756,8 @@ extension VideoClip {
         // rewatch, "Driver" is trivia. Club stays as the fallback wherever there's
         // no outcome worth naming — a range clip, or a hole the athlete didn't
         // score under par.
-        if let result = playResult?.type.displayName, !result.isEmpty {
-            parts.append(result)
+        if let type = playResult?.type, !type.displayName.isEmpty {
+            parts.append(Self.recruitingResultName(type))
         } else if let golfOutcome {
             parts.append(golfOutcome)
         } else if let club {
@@ -730,6 +776,16 @@ extension VideoClip {
             parts.append(DateFormatter.monthDay.string(from: date))
         }
         return parts.joined(separator: " · ")
+    }
+
+    /// A play result as a college coach should read it. `displayName` is shared
+    /// between the batting and pitching sides — both strikeouts say "Strikeout",
+    /// and a pitcher's hit allowed says "Home Run" — so on a two-way player's
+    /// page "Strikeout" couldn't say whether the athlete struck out or struck
+    /// someone out. Batting results are the default reading and stay bare.
+    static func recruitingResultName(_ type: PlayResultType) -> String {
+        guard type.isPitchingResult else { return type.displayName }
+        return type.isHitAllowed ? "\(type.displayName) Allowed" : "\(type.displayName) (pitching)"
     }
 
     /// When this clip was played, for recruiting display. Shared by the caption

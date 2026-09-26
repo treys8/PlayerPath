@@ -50,7 +50,6 @@ struct MainTabView: View {
     // presentations at the tab root, so the two surfaces can never open two
     // cameras for the same game.
     @State private var liveActivity = LiveActivityController()
-    @State private var showingLiveEndConfirm = false
 
     // Per-tab athlete IDs. All four are updated together when the athlete
     // changes. Updating only the active tab (the prior approach) left zombie
@@ -83,24 +82,10 @@ struct MainTabView: View {
     }
 
     private var liveItem: LiveItem? {
-        // Relationship arrays (unlike JournalView's @Query) can still hold rows
-        // deleted by a sync remote-delete, an athlete delete cascade, or the
-        // sign-out wipe — and reading any attribute of a deleted @Model traps
-        // (build 177/185). This runs in the ROOT view, so guard before touching
-        // anything: athlete first, then each row.
-        guard !selectedAthlete.isDeleted, selectedAthlete.modelContext != nil else { return nil }
-        let sport = selectedAthlete.sportType
-        func matches(_ s: Season.SportType?) -> Bool { s == nil || s == sport }
-        if let game = (selectedAthlete.games ?? []).first(where: {
-            !$0.isDeleted && $0.modelContext != nil && $0.isLive && matches($0.season?.sport)
-        }) {
-            return .game(game)
-        }
-        if let practice = (selectedAthlete.practices ?? []).first(where: {
-            !$0.isDeleted && $0.modelContext != nil && $0.isLive && matches($0.season?.sport)
-        }) {
-            return .practice(practice)
-        }
+        // The shared resolvers guard deleted rows (this runs in the ROOT view,
+        // where a deleted @Model read traps) and apply the sport scoping.
+        if let game = selectedAthlete.currentLiveGame { return .game(game) }
+        if let practice = selectedAthlete.currentLivePractice { return .practice(practice) }
         return nil
     }
 
@@ -111,10 +96,14 @@ struct MainTabView: View {
         (game.season?.sport ?? selectedAthlete.sportType) == .golf
     }
 
-    /// Switch to the Journal at its root (where the live strip is), not onto
-    /// whatever detail screen was last pushed there.
-    private func openJournalRoot() {
-        homePath = NavigationPath()
+    /// Open the live activity's detail on the Journal stack — exactly [route],
+    /// so a repeat tap never stacks duplicates and it works from every tab
+    /// (opening the Journal root was a no-op when already there). JournalView
+    /// resolves the route; re-tapping the Journal tab still pops to the feed.
+    private func openLiveItem(_ route: JournalRoute) {
+        var path = NavigationPath()
+        path.append(route)
+        homePath = path
         selectedTab = MainTab.home.rawValue
     }
 
@@ -141,19 +130,19 @@ struct MainTabView: View {
                 title: "\(isGolf ? "at" : "vs") \(game.opponent.isEmpty ? "Unknown" : game.opponent)",
                 actionTitle: roundFullyScored ? "End" : (isGolf ? "Score" : "Record"),
                 actionIcon: roundFullyScored ? "stop.fill" : (isGolf ? "flag" : "video.fill"),
-                // `Game.liveStartDate` isn't synced (practices' is), so on a second
-                // device it's nil — fall back to the game's date so a forgotten
-                // game still goes stale there instead of reading "Live" forever.
+                // `liveStartDate` syncs, but a row that went live before it did
+                // has none — fall back to the game's date so a forgotten game
+                // still goes stale instead of reading "Live" forever.
                 staleAt: staleAt(start: game.liveStartDate ?? game.date, isRound: isGolf),
-                openHint: "Opens the Journal",
+                openHint: isGolf ? "Opens the round" : "Opens the game",
                 isEnding: liveActivity.isEnding(game),
-                onOpen: { openJournalRoot() },
+                onOpen: { openLiveItem(.game(game.id)) },
                 onAction: {
-                    if roundFullyScored { showingLiveEndConfirm = true }
+                    if roundFullyScored { liveActivity.requestEnd(game, isGolf: isGolf) }
                     else if isGolf { liveActivity.presentScoreHole(for: game) }
                     else { liveActivity.recordInto(game: game, context: "TabAccessoryRecord") }
                 },
-                onEnd: { showingLiveEndConfirm = true }
+                onEnd: { liveActivity.requestEnd(game, isGolf: isGolf) }
             )
         case .practice(let practice):
             LiveNowAccessory(
@@ -165,32 +154,14 @@ struct MainTabView: View {
                 actionIcon: "video.fill",
                 staleAt: staleAt(start: practice.liveStartDate,
                                  isRound: practice.practiceType == PracticeType.practiceRound.rawValue),
-                openHint: "Opens the Journal",
+                openHint: practice.practiceType == PracticeType.rangeSession.rawValue ? "Opens the session" : "Opens the round",
                 isEnding: liveActivity.isEnding(practice),
-                onOpen: { openJournalRoot() },
+                onOpen: { openLiveItem(.practice(practice.id)) },
                 onAction: { liveActivity.recordInto(practice: practice, context: "TabAccessoryRecord") },
-                onEnd: { showingLiveEndConfirm = true }
+                onEnd: { liveActivity.requestEnd(practice) }
             )
         case nil:
             EmptyView()
-        }
-    }
-
-    private var liveEndConfirmTitle: String {
-        switch liveItem {
-        case .game(let game): return isGolfGame(game) ? "End Round" : "End Game"
-        case .practice: return "End Session"
-        case nil: return "End"
-        }
-    }
-
-    /// Resolves the live item at confirm time (not when the dialog opened), so a
-    /// game ended elsewhere in the meantime is a no-op rather than a double end.
-    private func endLiveItem() {
-        switch liveItem {
-        case .game(let game): liveActivity.endGame(game, in: modelContext)
-        case .practice(let practice): liveActivity.endPractice(practice, in: modelContext)
-        case nil: break
         }
     }
 
@@ -204,15 +175,6 @@ struct MainTabView: View {
     
     // NotificationCenter observer management using StateObject for lifecycle safety
     @StateObject private var notificationManager = NotificationObserverManager()
-
-    // MARK: - Dashboard actions
-    private func toggleGameLive(_ game: Game) {
-        Haptics.light()
-        game.isLive.toggle()
-        Task { do { try modelContext.save() } catch { ErrorHandlerService.shared.handle(error, context: "MainTabView.toggleGameLive", showAlert: false) } }
-    }
-
-    // Removed toggleTournamentActive(_:) as tournaments are removed
 
     var body: some View {
         tabViewContent
@@ -394,12 +356,24 @@ struct MainTabView: View {
                 }
                 .ppAccent(forGolf: true)
             }
-            // Ending recalculates stats — never one tap from a bar on every tab.
-            .confirmationDialog(liveEndConfirmTitle + "?", isPresented: $showingLiveEndConfirm, titleVisibility: .visible) {
-                Button(liveEndConfirmTitle) { endLiveItem() }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("Ending finalizes its stats.")
+            // Ending recalculates stats — never one tap from a card or a bar on
+            // every tab. ONE dialog for both live surfaces (Journal cards +
+            // accessory); its strings were resolved when End was tapped. The
+            // action uses the dialog's passed value and re-guards deleted rows;
+            // a game ended elsewhere meanwhile is a no-op (endGame's isLive guard).
+            .confirmationDialog(
+                liveActivity.pendingEnd?.title ?? "",
+                isPresented: Binding(
+                    get: { liveActivity.pendingEnd != nil },
+                    set: { if !$0 { liveActivity.pendingEnd = nil } }
+                ),
+                titleVisibility: .visible,
+                presenting: liveActivity.pendingEnd
+            ) { pending in
+                Button(pending.button) { liveActivity.confirmPendingEnd(pending, in: modelContext) }
+                Button("Cancel", role: .cancel) { liveActivity.pendingEnd = nil }
+            } message: { pending in
+                Text(pending.message)
             }
             .onReceive(NotificationCenter.default.publisher(for: .showSubscriptionPaywall)) { _ in
                 showingPaywall = true

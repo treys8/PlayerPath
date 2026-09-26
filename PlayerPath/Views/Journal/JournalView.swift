@@ -678,7 +678,9 @@ struct JournalView: View {
                         onRecord: game.season?.sport == .golf
                             ? nil
                             : { live.recordInto(game: game, context: "JournalLiveRecord") },
-                        onEnd: { live.endGame(game, in: modelContext) }
+                        // Confirmed by MainTabView's shared dialog. Profile-sport
+                        // fallback matches the Live Now bar for seasonless rounds.
+                        onEnd: { live.requestEnd(game, isGolf: (game.season?.sport ?? athlete.sportType) == .golf) }
                     )
                     .padding(.horizontal, 18)
                     .contentShape(Rectangle())
@@ -706,7 +708,7 @@ struct JournalView: View {
                                 practice: practice,
                                 isEnding: live.isEnding(practice),
                                 onRecord: { live.recordInto(practice: practice, context: "JournalRangeRecord") },
-                                onEnd: { live.endPractice(practice, in: modelContext) }
+                                onEnd: { live.requestEnd(practice) }
                             )
                         } else {
                             LiveGameCard(
@@ -719,7 +721,7 @@ struct JournalView: View {
                                 // scoring one — the range card has offered this
                                 // since it shipped; rounds were the gap.
                                 onRecord: { live.recordInto(practice: practice, context: "JournalRoundRecord") },
-                                onEnd: { live.endPractice(practice, in: modelContext) }
+                                onEnd: { live.requestEnd(practice) }
                             )
                         }
                     }

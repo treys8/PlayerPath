@@ -342,10 +342,8 @@ struct PracticeDetailView: View {
                 endLiveSession()
             }
         } message: {
-            // Unlike games, practices stay fully editable after ending — you
-            // can keep adding clips/photos/notes; ending only stops the live
-            // strip and live-hole clip attribution.
-            Text("This ends the live session. You can still add videos, photos, and notes afterward.")
+            // Shared with the Journal card / accessory confirmation.
+            Text(LiveEndPrompt.practiceMessage)
         }
     }
 

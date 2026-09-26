@@ -43,18 +43,11 @@ enum JournalUpcoming {
     /// createdAt), not in a strip ordered by a date it doesn't have.
     static func isScheduled(_ game: Game, now: Date = .now, calendar: Calendar = .current) -> Bool {
         guard !game.isLive, !game.isComplete, let date = game.date else { return false }
-        if date > now { return true }
         // Past its start time today but never started or touched: the athlete is
         // probably running late, so keep the Start button up until midnight
-        // instead of dropping an empty card into the feed. Anything with media,
-        // entered stats, or a golf score was logged after the fact and belongs in
-        // the feed. (Every game gets a GameStatistics at creation, so "has stats"
-        // is `countsTowardStats`, not `gameStats != nil`.)
-        return calendar.isDate(date, inSameDayAs: now)
-            && (game.videoClips ?? []).isEmpty
-            && (game.photos ?? []).isEmpty
-            && !game.countsTowardStats
-            && game.effectiveTotalScore == nil
+        // instead of dropping an empty card into the feed. The rule lives on
+        // Game so the Games tab and the detail screen agree with this strip.
+        return date > now || game.isAwaitingStart(now: now, calendar: calendar)
     }
 
     /// Practices have no completed flag, and are often logged the same day

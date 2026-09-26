@@ -268,12 +268,14 @@ struct DirectCameraRecorderView: View {
     @ViewBuilder
     private func liveGameBadge(for game: Game) -> some View {
         HStack(spacing: 8) {
+            // Sport accent like every other live marker. Resolved directly, not
+            // via @Environment(\.ppAccent): this view SETS the accent on its own
+            // body, so reading it here would return the parent's (wrong for golf).
             Circle()
-                .fill(Color.red)
+                .fill(Theme.accent(forGolf: clipSport == .golf))
                 .frame(width: 8, height: 8)
             Text("LIVE")
-                .font(.caption)
-                .fontWeight(.bold)
+                .font(.ppCaptionBold)
                 .foregroundColor(.white)
             Text(game.opponentLabel)
                 .font(.caption)

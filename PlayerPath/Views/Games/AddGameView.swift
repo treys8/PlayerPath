@@ -79,6 +79,8 @@ struct AddGameView: View {
                 Section {
                     Toggle("Start as Live Game", isOn: $startAsLive)
                         .disabled(selectedSeason?.isActive == false)
+                        // Live = happening now; still editable to backdate.
+                        .onChange(of: startAsLive) { _, isOn in if isOn { date = .now } }
                 }
             }
             .ppDetailBackground()

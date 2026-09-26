@@ -29,6 +29,15 @@ extension Binding where Value == String? {
 struct RecruitingBaseballSection: View {
     @Binding var info: RecruitingInfo
 
+    private var measurablesFlagged: Bool {
+        info.showMeasurables && (
+            RecruitingInputRange.isFlagged(info.sixtyYardDash, RecruitingInputRange.sixty)
+            || RecruitingInputRange.isFlagged(info.exitVelo, RecruitingInputRange.exitVelo)
+            || RecruitingInputRange.isFlagged(info.throwingVelo, RecruitingInputRange.throwVelo)
+            || RecruitingInputRange.isFlagged(info.pitchVelo, RecruitingInputRange.pitchVelo)
+        )
+    }
+
     var body: some View {
         Section("Position & Handedness") {
             RecruitingTextField("Primary", prompt: "SS",
@@ -51,17 +60,25 @@ struct RecruitingBaseballSection: View {
         }
 
         Section {
-            Toggle("Show measurables", isOn: $info.showMeasurables)
+            Toggle("Show Measurables", isOn: $info.showMeasurables)
             if info.showMeasurables {
-                RecruitingNumberField("60-yard dash", unit: "sec", value: $info.sixtyYardDash)
-                RecruitingNumberField("Exit velo", unit: "mph", value: $info.exitVelo)
-                RecruitingNumberField("Throwing velo", unit: "mph", value: $info.throwingVelo)
-                RecruitingNumberField("Pitch velo", unit: "mph", value: $info.pitchVelo)
+                RecruitingNumberField("60-Yard Dash", unit: "sec", value: $info.sixtyYardDash,
+                                      validRange: RecruitingInputRange.sixty)
+                RecruitingNumberField("Exit Velo", unit: "mph", value: $info.exitVelo,
+                                      validRange: RecruitingInputRange.exitVelo)
+                // "Throw Velo", not "Throwing Velo": the page's label
+                // (RecruitingInfo.measurableItems), so the editor names it the same.
+                RecruitingNumberField("Throw Velo", unit: "mph", value: $info.throwingVelo,
+                                      validRange: RecruitingInputRange.throwVelo)
+                RecruitingNumberField("Pitch Velo", unit: "mph", value: $info.pitchVelo,
+                                      validRange: RecruitingInputRange.pitchVelo)
             }
         } header: {
             Text("Measurables")
         } footer: {
-            Text("Self-reported by the athlete. Shown on your profile as athlete-entered, not verified.")
+            Text(measurablesFlagged
+                 ? "\(RecruitingInputRange.flaggedNote) Self-reported by the athlete — shown on your profile as athlete-entered, not verified."
+                 : "Self-reported by the athlete. Shown on your profile as athlete-entered, not verified.")
         }
     }
 }
@@ -94,6 +111,8 @@ struct RecruitingPIISection: View {
     /// drives only the sentence that names an age.
     private var blocked: Bool { info.contactPublishingBlocked }
     private var under13: Bool { info.gradYearImpliesUnder13 }
+    private var gpaFlagged: Bool { RecruitingInputRange.isFlagged(info.gpa, RecruitingInputRange.gpa) }
+    private var emailFlagged: Bool { hasEmail && !Validation.isPlausibleEmail(info.contactEmail ?? "") }
 
     /// Explains why the contact/GPA toggles are off, or nil when they're available.
     private var blockedReason: String? {
@@ -105,8 +124,8 @@ struct RecruitingPIISection: View {
 
     var body: some View {
         Section {
-            RecruitingNumberField("GPA", value: $info.gpa)
-            Toggle("Show GPA on profile", isOn: $info.includeGPA)
+            RecruitingNumberField("GPA", value: $info.gpa, validRange: RecruitingInputRange.gpa)
+            Toggle("Show GPA on Profile", isOn: $info.includeGPA)
                 .disabled(!hasGPA || blocked)
         } header: {
             Text("Academics")
@@ -114,7 +133,7 @@ struct RecruitingPIISection: View {
             Text(blocked
                  ? (under13 ? "GPA isn't published for an athlete under 13."
                             : "Add a graduation year to publish GPA.")
-                 : "Optional. Off by default.")
+                 : (gpaFlagged ? RecruitingInputRange.flaggedNote : "Optional. Off by default."))
         }
         .onChange(of: info.gpa) { _, newValue in
             if newValue == nil { info.includeGPA = false }
@@ -124,21 +143,24 @@ struct RecruitingPIISection: View {
             RecruitingTextField("Email", prompt: "you@example.com",
                                 text: $info.contactEmail.orEmpty(),
                                 keyboard: .emailAddress,
-                                autocapitalization: .never, autocorrect: false)
-            Toggle("Show email on profile", isOn: $info.includeContactEmail)
+                                autocapitalization: .never, autocorrect: false,
+                                isValid: !emailFlagged)
+            Toggle("Show Email on Profile", isOn: $info.includeContactEmail)
                 .disabled(!hasEmail || blocked)
 
             RecruitingTextField("Phone", prompt: "(555) 555-5555",
                                 text: $info.contactPhone.orEmpty(),
                                 keyboard: .phonePad,
                                 autocapitalization: .never, autocorrect: false)
-            Toggle("Show phone on profile", isOn: $info.includeContactPhone)
+            Toggle("Show Phone on Profile", isOn: $info.includeContactPhone)
                 .disabled(!hasPhone || blocked)
         } header: {
             Text("Contact")
         } footer: {
             Text(blockedReason
-                 ?? "Each field appears on your profile only when its toggle is on. For a minor, the account owner controls what's shared.")
+                 ?? (emailFlagged
+                     ? "That email doesn't look complete — check it before a coach tries to use it."
+                     : "Each field appears on your profile only when its toggle is on. For a minor, the account owner controls what's shared."))
         }
         .onChange(of: info.contactEmail) { _, newValue in
             if newValue?.isEmpty != false { info.includeContactEmail = false }
