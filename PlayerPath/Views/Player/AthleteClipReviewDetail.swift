@@ -244,7 +244,6 @@ struct AthleteClipReviewDetail: View {
             }
         }
         .padding(.vertical, .spacingSmall)
-        .background(Theme.card)
         .overlay(alignment: .top) { Rectangle().fill(Theme.divider).frame(height: 1) }
     }
 
