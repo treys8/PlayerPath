@@ -67,10 +67,7 @@ struct ComprehensiveSignInView: View {
                                 Task { await authManager.cancelEmailVerification() }
                                 dismiss()
                             } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .font(.title3)
-                                    .symbolRenderingMode(.hierarchical)
-                                    .foregroundStyle(Theme.textSecondary)
+                                closeButtonLabel
                             }
                         }
                     }
@@ -108,10 +105,7 @@ struct ComprehensiveSignInView: View {
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
                         Button { dismiss() } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.title3)
-                                .symbolRenderingMode(.hierarchical)
-                                .foregroundStyle(Theme.textSecondary)
+                            closeButtonLabel
                         }
                     }
                 }
@@ -138,6 +132,15 @@ struct ComprehensiveSignInView: View {
                 }
             }
         }
+    }
+
+    /// iOS 26 wraps toolbar buttons in glass, so a filled circle would draw a
+    /// circle inside the capsule — `ToolbarSymbol.close` drops to a plain X there.
+    private var closeButtonLabel: some View {
+        Image(systemName: ToolbarSymbol.close)
+            .symbolRenderingMode(.hierarchical)
+            .foregroundStyle(Theme.textSecondary)
+            .accessibilityLabel("Close")
     }
 
     // MARK: - Body Sections
@@ -182,16 +185,16 @@ struct ComprehensiveSignInView: View {
         VStack(spacing: 16) {
             if isSignUpMode {
                 VStack(alignment: .leading, spacing: 6) {
-                    ModernTextField(placeholder: selectedRole == .athlete ? "Your name (account holder)" : "Your name (optional)", text: $displayName, icon: "person.fill", textContentType: .name, autocapitalization: .words, validationState: displayNameValidationState, submitLabel: .next, onSubmit: { emailFocused = true }, focusedBinding: $nameFocused)
+                    ModernTextField(placeholder: "Your name (optional)", text: $displayName, icon: "person.fill", textContentType: .name, autocapitalization: .words, validationState: displayNameValidationState, submitLabel: .next, onSubmit: { emailFocused = true }, focusedBinding: $nameFocused)
                         .id("nameField")
-                        .accessibilityLabel("Account holder name")
+                        .accessibilityLabel(selectedRole == .athlete ? "Account holder name, optional" : "Your name, optional")
                         .accessibilityHint(selectedRole == .athlete ? "Enter the account holder's name. You'll add your athlete's name next." : "Enter your preferred display name")
 
                     // The account holder isn't necessarily the player (e.g. a
                     // parent), so clarify that the athlete's name comes next —
                     // this is where users otherwise enter the wrong name.
                     if selectedRole == .athlete {
-                        Text("You'll add your athlete's name in the next step.")
+                        Text("This is the account holder's name. You'll add your athlete's name in the next step.")
                             .font(.bodySmall)
                             .foregroundColor(Theme.textSecondary)
                             .padding(.leading, 4)
@@ -200,12 +203,12 @@ struct ComprehensiveSignInView: View {
                 }
             }
 
-            ModernTextField(placeholder: "you@example.com", text: $email, icon: "envelope.fill", keyboardType: .emailAddress, textContentType: .emailAddress, autocapitalization: .never, validationState: emailValidationState, submitLabel: .next, onSubmit: { passwordFocused = true }, focusedBinding: $emailFocused)
+            ModernTextField(placeholder: "you@example.com", text: $email, icon: "envelope.fill", keyboardType: .emailAddress, textContentType: .username, autocapitalization: .never, validationState: emailValidationState, submitLabel: .next, onSubmit: { passwordFocused = true }, focusedBinding: $emailFocused)
                 .id("emailField")
                 .accessibilityLabel("Email address")
                 .accessibilityHint("Enter your email address")
 
-            ModernTextField(placeholder: "Password", text: $password, icon: "lock.fill", isSecure: true, textContentType: .password, autocapitalization: .never, validationState: passwordValidationState, submitLabel: .go, onSubmit: { if canSubmitForm() && !authManager.isLoading { performAuth() } }, focusedBinding: $passwordFocused)
+            ModernTextField(placeholder: "Password", text: $password, icon: "lock.fill", isSecure: true, textContentType: isSignUpMode ? .newPassword : .password, autocapitalization: .never, validationState: passwordValidationState, submitLabel: .go, onSubmit: { if canSubmitForm() && !authManager.isLoading { performAuth() } }, focusedBinding: $passwordFocused)
                 .accessibilityLabel("Password")
                 .accessibilityHint("Enter your password")
 
@@ -308,6 +311,15 @@ struct ComprehensiveSignInView: View {
             if !isSignUpMode {
                 Button { Haptics.light(); showingResetPasswordSheet = true } label: {
                     Text("Forgot Password?").font(.labelLarge).foregroundColor(ppAccent)
+                }
+            }
+
+            if !isSignUpMode, onSwitchToSignUp != nil {
+                HStack(spacing: 4) {
+                    Text("New to PlayerPath?").font(.bodyMedium).foregroundColor(Theme.textSecondary)
+                    Button { Haptics.light(); dismiss(); onSwitchToSignUp?() } label: {
+                        Text("Create an account").font(.labelLarge).foregroundColor(ppAccent)
+                    }
                 }
             }
 
