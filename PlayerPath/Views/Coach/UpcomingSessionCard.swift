@@ -9,6 +9,8 @@
 import SwiftUI
 
 struct UpcomingSessionCard: View {
+    @Environment(\.ppAccent) private var ppAccent
+
     let session: CoachSession
     var isStarting: Bool = false
     var onStart: (() -> Void)?
@@ -20,11 +22,11 @@ struct UpcomingSessionCard: View {
             // Calendar icon
             ZStack {
                 Circle()
-                    .fill(Color.blue.opacity(0.15))
+                    .fill(ppAccent.opacity(0.15))
                     .frame(width: 44, height: 44)
                 Image(systemName: "calendar.badge.clock")
                     .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(.blue)
+                    .foregroundColor(ppAccent)
                     .symbolRenderingMode(.hierarchical)
             }
 
@@ -73,7 +75,7 @@ struct UpcomingSessionCard: View {
                             Text("Add notes")
                                 .font(.caption)
                         }
-                        .foregroundColor(.blue.opacity(0.7))
+                        .foregroundColor(ppAccent.opacity(0.7))
                     }
                     .buttonStyle(.plain)
                 }
@@ -116,14 +118,14 @@ struct UpcomingSessionCard: View {
             RoundedRectangle(cornerRadius: 14)
                 .fill(
                     LinearGradient(
-                        colors: [Color.blue.opacity(0.08), Color.blue.opacity(0.03)],
+                        colors: [ppAccent.opacity(0.08), ppAccent.opacity(0.03)],
                         startPoint: .topLeading, endPoint: .bottomTrailing
                     )
                 )
         )
         .overlay(
             RoundedRectangle(cornerRadius: 14)
-                .stroke(Color.blue.opacity(0.3), lineWidth: 1)
+                .stroke(ppAccent.opacity(0.3), lineWidth: 1)
         )
         .contextMenu {
             if let onStart {
@@ -170,6 +172,6 @@ struct UpcomingSessionCard: View {
                 .font(.caption)
                 .fontWeight(isImminent ? .bold : .regular)
         }
-        .foregroundColor(isImminent ? .red : .blue)
+        .foregroundColor(isImminent ? .red : ppAccent)
     }
 }

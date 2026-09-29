@@ -60,6 +60,11 @@ struct CoachDashboardView: View {
         isRegularWidth ? 32 : 16
     }
 
+    /// New coach with no athletes and no sessions — shows Getting Started.
+    private var isEmptyState: Bool {
+        sharedFolderManager.coachFolders.isEmpty && sessionManager.sessions.isEmpty
+    }
+
     @State private var cachedRecentFolders: [SharedFolder] = []
     @State private var cachedRecentAthleteCards: [RecentAthleteCard] = []
     @State private var cachedThisMonthSessionCount = 0
@@ -86,7 +91,10 @@ struct CoachDashboardView: View {
                         nextScheduledDate: sessionManager.scheduledSessions
                             .compactMap(\.scheduledDate)
                             .filter { $0 > Date() }
-                            .min()
+                            .min(),
+                        isEmptyState: isEmptyState,
+                        hasSentInvite: invitationManager.pendingSentCount > 0,
+                        hasReceivedInvite: invitationManager.pendingInvitationsCount > 0
                     )
 
                     // Received invitations (athletes inviting this coach) — the
@@ -131,13 +139,15 @@ struct CoachDashboardView: View {
                         )
                     }
 
-                    // Quick Actions
-                    quickActionsSection
-
-                    if sharedFolderManager.coachFolders.isEmpty && sessionManager.sessions.isEmpty {
-                        // Empty state for new coaches
+                    if isEmptyState {
+                        // Empty state for new coaches — owns its own single CTA.
+                        // Quick Actions is hidden here: with no athletes, "New
+                        // Session" only dead-ends into an invite prompt.
                         gettingStartedSection
                     } else {
+                        // Quick Actions
+                        quickActionsSection
+
                         // Recent Athletes
                         if !cachedRecentFolders.isEmpty {
                             recentAthletesSection
@@ -164,6 +174,7 @@ struct CoachDashboardView: View {
             // In-app notification banner is handled by UserMainFlow's overlay
             // to avoid duplicate banners.
         }
+        .background(Theme.surface)
         .tabRootNavigationBar(title: "Dashboard")
         .alert("Cancel Session?", isPresented: $showingCancelConfirmation) {
             Button("Cancel Session", role: .destructive) {
@@ -392,9 +403,12 @@ struct CoachDashboardView: View {
                                 .fontWeight(.semibold)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 10)
-                                .background(Color(.secondarySystemBackground))
-                                .foregroundColor(.primary)
-                                .cornerRadius(10)
+                                .background(Theme.card, in: RoundedRectangle(cornerRadius: 10))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .strokeBorder(Theme.divider, lineWidth: 1)
+                                )
+                                .foregroundColor(Theme.textPrimary)
                         }
                         .disabled(isCompletingSession)
                     }
@@ -588,7 +602,7 @@ struct CoachDashboardView: View {
                 }
 
                 QuickActionButton(
-                    icon: "person.badge.plus",
+                    icon: "person.crop.circle.fill.badge.plus",
                     title: "Invite Athlete",
                     color: ppAccent
                 ) {
@@ -654,7 +668,7 @@ struct CoachDashboardView: View {
                     Text("\(card.totalVideos)")
                 }
                 .font(.caption)
-                .foregroundColor(.secondary)
+                .foregroundColor(Theme.textSecondary)
 
                 if card.unreadCount > 0 {
                     HStack(spacing: 3) {
@@ -668,8 +682,7 @@ struct CoachDashboardView: View {
             .frame(width: fixedWidth ? 120 : nil)
             .frame(maxWidth: fixedWidth ? nil : .infinity, alignment: .leading)
             .padding()
-            .background(Color(.secondarySystemBackground))
-            .cornerRadius(12)
+            .ppCard(cornerRadius: 12)
         }
         .buttonStyle(.plain)
     }
@@ -744,12 +757,24 @@ struct CoachDashboardView: View {
         VStack(spacing: 16) {
             DashboardSectionHeader(title: "Getting Started", icon: "sparkles", color: ppAccent)
 
+            QuickActionButton(
+                icon: "person.crop.circle.fill.badge.plus",
+                title: "Invite Your First Athlete",
+                color: ppAccent
+            ) {
+                showingInviteAthlete = true
+            }
+
             VStack(spacing: 12) {
+                let inviteSent = invitationManager.pendingSentCount > 0
                 gettingStartedStep(
                     number: 1,
                     title: "Invite an Athlete",
-                    description: "Tap \"Invite Athlete\" above to send an invitation to a player or parent.",
-                    icon: "person.badge.plus"
+                    description: inviteSent
+                        ? "Invitation sent — waiting for them to accept."
+                        : "Send an invitation to a player or parent.",
+                    icon: "person.badge.plus",
+                    isDone: inviteSent
                 )
 
                 gettingStartedStep(
@@ -769,31 +794,31 @@ struct CoachDashboardView: View {
         }
     }
 
-    private func gettingStartedStep(number: Int, title: String, description: String, icon: String) -> some View {
+    private func gettingStartedStep(number: Int, title: String, description: String, icon: String, isDone: Bool = false) -> some View {
         HStack(spacing: 14) {
             ZStack {
                 Circle()
-                    .fill(ppAccent.opacity(0.1))
+                    .fill(ppAccent.opacity(isDone ? 1 : 0.1))
                     .frame(width: 44, height: 44)
-                Image(systemName: icon)
-                    .font(.title3)
-                    .foregroundColor(ppAccent)
+                Image(systemName: isDone ? "checkmark" : icon)
+                    .font(isDone ? .title3.weight(.bold) : .title3)
+                    .foregroundColor(isDone ? .white : ppAccent)
             }
 
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(number). \(title)")
                     .font(.subheadline)
                     .fontWeight(.semibold)
+                    .foregroundColor(Theme.textPrimary)
                 Text(description)
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(Theme.textSecondary)
             }
 
             Spacer()
         }
         .padding(12)
-        .background(Color(.secondarySystemBackground))
-        .cornerRadius(12)
+        .ppCard(cornerRadius: 12)
     }
 
     // MARK: - Lessons Summary (This Month)
@@ -1091,16 +1116,15 @@ private struct CoachSummaryCard: View {
             Text(value)
                 .font(.title2)
                 .fontWeight(.bold)
+                .foregroundColor(Theme.textPrimary)
 
             Text(title)
                 .font(.caption)
-                .foregroundColor(.secondary)
+                .foregroundColor(Theme.textSecondary)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 16)
-        .background(Color(.secondarySystemBackground))
-        .cornerRadius(12)
-        .shadow(color: .black.opacity(0.06), radius: 4, x: 0, y: 2)
+        .ppCard(cornerRadius: 12)
     }
 }
 

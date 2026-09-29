@@ -293,8 +293,8 @@ private struct CoachHowItWorksPage: View {
 
     private var steps: [(icon: String, color: Color, title: String, detail: String)] {
         [
-            ("envelope.fill",         ppAccent, "Athlete Sends an Invite",   "An athlete adds your email address to share their folder with you."),
-            ("checkmark.seal.fill",   ppAccent, "You Accept the Invitation", "Open your Dashboard and tap the invitation to accept. You're in."),
+            ("envelope.fill",         ppAccent, "Connect With an Athlete",   "An athlete invites you by email, or you invite them."),
+            ("checkmark.seal.fill",   ppAccent, "The Invite Is Accepted",    "Accept theirs from your Dashboard, or wait for them to accept yours."),
             ("video.fill",            ppAccent, "Review Their Videos",        "Browse game and practice clips organized by the athlete."),
             ("bubble.left.fill",      ppAccent, "Leave Coaching Feedback",    "Mark up videos with drawings and written notes athletes can act on."),
         ]
@@ -319,7 +319,7 @@ private struct CoachHowItWorksPage: View {
                         .font(.displayMedium)
                         .foregroundColor(Theme.textPrimary)
 
-                    Text("Athletes invite you — you coach.")
+                    Text("Connect with athletes — then coach.")
                         .font(.bodyMedium)
                         .foregroundColor(Theme.textSecondary)
                 }
@@ -358,6 +358,7 @@ private struct CoachHowItWorksPage: View {
                                     .font(.bodySmall)
                                     .foregroundColor(Theme.textSecondary)
                                     .lineSpacing(2)
+                                    .fixedSize(horizontal: false, vertical: true)
                                 if index < steps.count - 1 {
                                     Spacer().frame(height: 20)
                                 }
@@ -383,7 +384,7 @@ private struct CoachHowItWorksPage: View {
                     Image(systemName: "lightbulb.fill")
                         .foregroundColor(ppAccent)
                         .font(.subheadline)
-                    Text("Athletes can invite you, or you can invite athletes directly from your Dashboard. All invitations appear under My Athletes.")
+                    Text("Pending invitations — sent and received — show up on your Dashboard and Athletes tabs.")
                         .font(.bodySmall)
                         .foregroundColor(Theme.textSecondary)
                         .lineSpacing(2)
@@ -427,7 +428,7 @@ private struct CoachHowItWorksPage: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Continue")
-                .accessibilityHint("See next steps for your Dashboard")
+                .accessibilityHint("Learn how athlete seats work")
                 .accessibilitySortPriority(1)
                 .padding(.horizontal, 24)
                 .padding(.bottom, 80)
@@ -515,6 +516,7 @@ private struct CoachSeatsPage: View {
                                     .font(.bodySmall)
                                     .foregroundColor(Theme.textSecondary)
                                     .lineSpacing(2)
+                                    .fixedSize(horizontal: false, vertical: true)
                                 if index < steps.count - 1 {
                                     Spacer().frame(height: 20)
                                 }
@@ -540,7 +542,7 @@ private struct CoachSeatsPage: View {
                     Image(systemName: "lightbulb.fill")
                         .foregroundColor(ppAccent)
                         .font(.subheadline)
-                    Text("Start free with 2 athletes. When you're ready for more, upgrade anytime from your Profile.")
+                    Text("Start free with 2 athletes. When you're ready for more, upgrade anytime from the More tab.")
                         .font(.bodySmall)
                         .foregroundColor(Theme.textSecondary)
                         .lineSpacing(2)
@@ -584,7 +586,7 @@ private struct CoachSeatsPage: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Continue")
-                .accessibilityHint("See next steps for your Dashboard")
+                .accessibilityHint("See what to do first")
                 .accessibilitySortPriority(1)
                 .padding(.horizontal, 24)
                 .padding(.bottom, 80)
@@ -613,15 +615,17 @@ private struct CoachReadyPage: View {
         return trimmed.isEmpty ? "An athlete" : trimmed
     }
 
-    private let checklist: [(icon: String, text: String)] = [
-        ("tray.and.arrow.down.fill", "Check your Dashboard for athlete invitations"),
-        ("video.badge.checkmark",    "Watch and annotate shared video clips"),
-        ("bubble.left.and.text.bubble.right.fill", "Leave coaching notes athletes can act on"),
-        // Names the permission prompt that CoachTabView fires the moment this
-        // page's CTA lands them on the Dashboard, so the system dialog arrives
-        // one beat after they've read why it's being asked for.
-        ("bell.badge.fill",          "We'll ask to send notifications so you know when athletes upload new footage"),
-    ]
+    /// First actions, all reachable from the Dashboard. The "accept" row is
+    /// dropped when the waiting-invite card is showing — it already says it.
+    private var checklist: [(icon: String, text: String)] {
+        var items: [(icon: String, text: String)] = []
+        if waiting.isEmpty {
+            items.append(("tray.and.arrow.down.fill", "Accept any invitations waiting for you"))
+        }
+        items.append(("person.badge.plus", "Invite your first athlete"))
+        items.append(("record.circle", "Start a live session to record a lesson"))
+        return items
+    }
 
     var body: some View {
         GeometryReader { proxy in
@@ -750,6 +754,24 @@ private struct CoachReadyPage: View {
                     }
                 }
                 .padding(.horizontal, 24)
+
+                // Names the permission prompt that CoachTabView fires the moment this
+                // page's CTA lands them on the Dashboard, so the system dialog arrives
+                // one beat after they've read why it's being asked for.
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "bell.badge.fill")
+                        .font(.bodySmall)
+                        .foregroundColor(ppAccent)
+                    Text("We'll ask to send notifications so you know when athletes upload new footage.")
+                        .font(.bodySmall)
+                        .foregroundColor(Theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.horizontal, 32)
+                .padding(.top, 16)
+                .accessibilityElement(children: .combine)
+                .opacity(appeared ? 1 : 0)
+                .animation(.spring(response: 0.5, dampingFraction: 0.8).delay(0.45), value: appeared)
 
                 Spacer()
 

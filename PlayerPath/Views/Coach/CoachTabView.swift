@@ -56,9 +56,9 @@ struct CoachTabView: View {
 
             // Coaches who never visit Profile → Notifications would otherwise stay
             // .notDetermined, never register for APNs/FCM, and silently drop every
-            // server push. A fresh signup was primed by CoachOnboardingFlow's last
-            // page and answered the dialog on the way in, so this only presents for
-            // a coach whose onboarding is behind them — a new device or a reinstall.
+            // server push. CoachOnboardingFlow's last page only announces the prompt;
+            // this primer is what actually asks — for a fresh signup landing here from
+            // onboarding, and for a new device or a reinstall alike.
             if await NotificationPermissionPrimer.shouldPresent() {
                 showingNotificationPrimer = true
             }
