@@ -25,6 +25,7 @@ struct ComprehensiveSignInView: View {
     @State private var selectedRole: UserRole = .athlete
 
     @State private var confirmedAge = false
+    @State private var showingAppleAgeConfirm = false
     @State private var showingTerms = false
     @State private var showingPrivacyPolicy = false
     @StateObject private var appleSignInManager = AppleSignInManager()
@@ -76,11 +77,14 @@ struct ComprehensiveSignInView: View {
                     ScrollView {
                         VStack(spacing: 28) {
                             headerSection
-                            if isSignUpMode { roleSelectionSection }
+                            if isSignUpMode {
+                                roleSelectionSection
+                                appleSignUpSection
+                            }
                             formFieldsSection
                             if isSignUpMode { ageAndTermsSection }
                             actionButtonsSection
-                            authErrorSection
+                            authErrorSection.id("authError")
                             if appleSignInManager.accountCreationBlocked { appleNoAccountSection }
                         }
                         .padding(.horizontal, 20)
@@ -96,6 +100,11 @@ struct ComprehensiveSignInView: View {
                     }
                     .onChange(of: passwordFocused) { _, focused in
                         if focused { withAnimation(.easeInOut(duration: 0.3)) { proxy.scrollTo("actionButtons", anchor: .bottom) } }
+                    }
+                    // Apple sign-up starts at the top of the form; its errors land
+                    // at the bottom, so bring them into view.
+                    .onChange(of: appleSignInManager.errorMessage) { _, message in
+                        if message != nil { withAnimation(.easeInOut(duration: 0.3)) { proxy.scrollTo("authError", anchor: .center) } }
                     }
                 }
                 .background(Theme.surface)
@@ -124,6 +133,17 @@ struct ComprehensiveSignInView: View {
         .sheet(isPresented: $showingResetPasswordSheet) { ResetPasswordSheet(email: email) }
         .sheet(isPresented: $showingTerms) { TermsOfServiceView() }
         .sheet(isPresented: $showingPrivacyPolicy) { PrivacyPolicyView() }
+        // Apple sign-up sits above the age checkbox, so an unchecked box is
+        // confirmed here instead of leaving the button dimmed with no reason.
+        .alert("Before You Continue", isPresented: $showingAppleAgeConfirm) {
+            Button("Cancel", role: .cancel) { }
+            Button("I Confirm") {
+                confirmedAge = true
+                startAppleSignIn()
+            }
+        } message: {
+            Text("I confirm that I am at least 18 years old, or a parent/guardian creating this account on behalf of my child.\n\nBy continuing, you agree to our Terms of Use (EULA) and Privacy Policy.")
+        }
         .onChange(of: authManager.isSignedIn) { _, isSignedIn in
             if isSignedIn {
                 Task { @MainActor in
@@ -171,7 +191,7 @@ struct ComprehensiveSignInView: View {
             Text("Account type")
                 .font(.headingSmall).foregroundColor(Theme.textSecondary)
             HStack(spacing: 12) {
-                RoleSelectionButton(role: .athlete, isSelected: selectedRole == .athlete, icon: "figure.baseball", title: "Athlete", description: "Track my progress") {
+                RoleSelectionButton(role: .athlete, isSelected: selectedRole == .athlete, icon: "figure.run", title: "Athlete", description: "Players & parents") {
                     Haptics.light(); selectedRole = .athlete
                 }
                 RoleSelectionButton(role: .coach, isSelected: selectedRole == .coach, icon: "person.2.fill", title: "Coach", description: "Work with athletes") {
@@ -285,27 +305,10 @@ struct ComprehensiveSignInView: View {
             .buttonStyle(ScaleButtonStyle())
             .disabled(!canSubmitForm() || authManager.isLoading || appleSignInManager.isLoading)
 
-            // Divider
-            HStack {
-                Rectangle().frame(height: 1).foregroundColor(Theme.divider)
-                Text("or").font(.bodyMedium).foregroundColor(Theme.textSecondary)
-                Rectangle().frame(height: 1).foregroundColor(Theme.divider)
-            }
-
-            // Sign in with Apple (required by App Store Guideline 4.8)
-            if appleSignInManager.isLoading {
-                ProgressView()
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 50)
-            } else {
-                SignInWithAppleButton(isSignUp: isSignUpMode) {
-                    appleSignInManager.pendingRole = selectedRole
-                    appleSignInManager.allowsAccountCreation = isSignUpMode && confirmedAge
-                    authManager.clearError()
-                    appleSignInManager.signInWithApple()
-                }
-                .disabled(authManager.isLoading || (isSignUpMode && !confirmedAge))
-                .opacity(isSignUpMode && !confirmedAge ? 0.5 : 1)
+            // Sign-up shows Apple above the form (appleSignUpSection).
+            if !isSignUpMode {
+                orDivider("or")
+                appleButton
             }
 
             if !isSignUpMode {
@@ -332,6 +335,48 @@ struct ComprehensiveSignInView: View {
                 }
             }
         }
+    }
+
+    /// Sign-up only: the one-tap path goes first, before the long email form.
+    private var appleSignUpSection: some View {
+        VStack(spacing: 16) {
+            appleButton
+            orDivider("or sign up with email")
+        }
+    }
+
+    // Sign in with Apple (required by App Store Guideline 4.8)
+    @ViewBuilder
+    private var appleButton: some View {
+        if appleSignInManager.isLoading {
+            ProgressView()
+                .frame(maxWidth: .infinity)
+                .frame(height: 50)
+        } else {
+            SignInWithAppleButton(isSignUp: isSignUpMode) {
+                if isSignUpMode && !confirmedAge {
+                    showingAppleAgeConfirm = true
+                } else {
+                    startAppleSignIn()
+                }
+            }
+            .disabled(authManager.isLoading)
+        }
+    }
+
+    private func orDivider(_ label: String) -> some View {
+        HStack {
+            Rectangle().frame(height: 1).foregroundColor(Theme.divider)
+            Text(label).font(.bodyMedium).foregroundColor(Theme.textSecondary).fixedSize()
+            Rectangle().frame(height: 1).foregroundColor(Theme.divider)
+        }
+    }
+
+    private func startAppleSignIn() {
+        appleSignInManager.pendingRole = selectedRole
+        appleSignInManager.allowsAccountCreation = isSignUpMode && confirmedAge
+        authManager.clearError()
+        appleSignInManager.signInWithApple()
     }
 
     @ViewBuilder
