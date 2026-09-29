@@ -209,7 +209,7 @@ struct ClipQueueCard: View {
                 .foregroundColor(.secondary)
         }
         .padding(10)
-        .background(Color(.secondarySystemBackground))
+        .background(Theme.card)
         .cornerRadius(10)
     }
 }

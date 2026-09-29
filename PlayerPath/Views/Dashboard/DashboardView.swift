@@ -769,15 +769,14 @@ struct DashboardSectionHeader: View {
     let color: Color
 
     var body: some View {
-        HStack(spacing: 8) {
-            // Icon with gradient
+        // Small-caps overline so section labels sit clearly below the greeting.
+        HStack(spacing: 6) {
             Image(systemName: icon)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: 12, weight: .semibold))
                 .foregroundColor(color)
 
             Text(title)
-                .font(.headingLarge)
-                .foregroundColor(.primary)
+                .smallCapsLabel()
 
             Spacer()
         }

@@ -9,23 +9,29 @@
 import SwiftUI
 
 struct DashboardGreetingHeader: View {
+    @Environment(\.ppAccent) private var ppAccent
+
     let displayName: String?
     let needsReviewCount: Int
     let draftCount: Int
     let isLiveSession: Bool
     let isReviewingSession: Bool
     let nextScheduledDate: Date?
+    /// New coach with no athletes or sessions yet.
+    var isEmptyState: Bool = false
+    /// Empty-state refinements so the subtitle tracks invite progress.
+    var hasSentInvite: Bool = false
+    var hasReceivedInvite: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(greeting)
-                .font(.title2)
-                .fontWeight(.bold)
-                .foregroundColor(.primary)
+                .font(.ppTitle2)
+                .foregroundStyle(Theme.textPrimary)
 
             Text(subtitle)
-                .font(.subheadline)
-                .foregroundColor(subtitleColor)
+                .font(.ppSubheadline)
+                .foregroundStyle(subtitleColor)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -64,10 +70,15 @@ struct DashboardGreetingHeader: View {
         if draftCount > 0 {
             return "\(draftCount) draft\(draftCount == 1 ? "" : "s") to review"
         }
+        if isEmptyState {
+            if hasReceivedInvite { return "An athlete invited you — accept above" }
+            if hasSentInvite { return "Invite sent — waiting for them to accept" }
+            return "Invite your first athlete to get started"
+        }
         return "Ready when you are"
     }
 
     private var subtitleColor: Color {
-        needsReviewCount > 0 ? Theme.accent : .secondary
+        needsReviewCount > 0 ? ppAccent : Theme.textSecondary
     }
 }
