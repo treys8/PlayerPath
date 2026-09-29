@@ -91,13 +91,25 @@ final class UserPreferences {
                     context.delete(extra)
                 }
                 do { try context.save() } catch { prefsLog.error("Failed to save after deduplicating preferences: \(error.localizedDescription)") }
+                backfillAutoUploadMode(keep, in: context)
                 return keep
             }
+            backfillAutoUploadMode(first, in: context)
             return first
         }
         let prefs = UserPreferences()
         context.insert(prefs)
         return prefs
+    }
+
+    /// Rows from before 2026-01-29 (4d3a4cf7 replaced the stored Bool with this
+    /// optional) can be nil. `autoUploadToCloud` already reads nil as ON and
+    /// `allowCellularUploads` reads it as Wi-Fi-only, so `.wifiOnly` IS the live
+    /// behavior — this only makes Settings stop claiming "Off".
+    private static func backfillAutoUploadMode(_ prefs: UserPreferences, in context: ModelContext) {
+        guard prefs.autoUploadMode == nil else { return }
+        prefs.autoUploadMode = .wifiOnly
+        do { try context.save() } catch { prefsLog.error("Failed to save autoUploadMode backfill: \(error.localizedDescription)") }
     }
 }
 

@@ -10,12 +10,17 @@ import SwiftUI
 struct EmailVerificationView: View {
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @Environment(\.ppAccent) private var ppAccent
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var isCheckingVerification = false
     @State private var isResending = false
     @State private var statusMessage: String?
     @State private var isError = false
     @State private var pollTimer: Timer?
+    // Guards startPolling() so an in-flight scenePhase check that completes
+    // after the view has gone away (e.g. "Use a Different Account" or X)
+    // can't resurrect a Timer nothing will ever invalidate.
+    @State private var isVisible = false
 
     var body: some View {
         VStack(spacing: 28) {
@@ -41,8 +46,9 @@ struct EmailVerificationView: View {
             VStack(spacing: 10) {
                 Text("Verify Your Email")
                     .font(.displayMedium)
+                    .foregroundColor(Theme.textPrimary)
                 Text("We sent a verification link to:")
-                    .font(.bodyMedium).foregroundColor(.secondary)
+                    .font(.bodyMedium).foregroundColor(Theme.textSecondary)
                 Text(authManager.userEmail ?? "your email")
                     .font(.headingSmall)
                     .foregroundColor(ppAccent)
@@ -56,20 +62,31 @@ struct EmailVerificationView: View {
             }
             .padding(.horizontal, 8)
 
+            if authManager.verificationEmailSendFailed && statusMessage == nil {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundColor(Theme.warning)
+                    Text("We couldn't send the email. Tap Resend below.")
+                        .font(.bodySmall).foregroundColor(Theme.warning)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(RoundedRectangle(cornerRadius: 10).fill(Theme.warning.opacity(0.1)))
+            }
+
             // Status message
             if let statusMessage {
                 HStack(spacing: 8) {
                     Image(systemName: isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
-                        .foregroundColor(isError ? .red : .green)
+                        .foregroundColor(isError ? Theme.warning : Theme.success)
                     Text(statusMessage)
                         .font(.bodySmall)
-                        .foregroundColor(isError ? .red : .green)
+                        .foregroundColor(isError ? Theme.warning : Theme.success)
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
                 .background(
                     RoundedRectangle(cornerRadius: 10)
-                        .fill((isError ? Color.red : Color.green).opacity(0.1))
+                        .fill((isError ? Theme.warning : Theme.success).opacity(0.1))
                 )
             }
 
@@ -128,7 +145,7 @@ struct EmailVerificationView: View {
                 } label: {
                     Text("Use a Different Account")
                         .font(.labelLarge)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(Theme.textSecondary)
                 }
                 .disabled(isCheckingVerification || isResending)
             }
@@ -136,8 +153,33 @@ struct EmailVerificationView: View {
             Spacer()
         }
         .padding(.horizontal, 20)
-        .onAppear { startPolling() }
-        .onDisappear { stopPolling() }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.surface)
+        .onAppear {
+            isVisible = true
+            startPolling()
+        }
+        .onDisappear {
+            isVisible = false
+            stopPolling()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                // Coming back from Mail/Safari is the moment they verified —
+                // check now instead of waiting up to 5s for the next tick.
+                // Check FIRST, then resume polling, so ordering alone avoids an
+                // immediate double tick; checkEmailVerification() itself coalesces
+                // any remaining overlap (e.g. a timer tick already in flight when
+                // the app backgrounded) so isHandlingVerification and the success
+                // path only ever run once.
+                Task {
+                    let verified = await authManager.checkEmailVerification()
+                    if !verified { startPolling() }
+                }
+            } else {
+                stopPolling()
+            }
+        }
     }
 
     // MARK: - Helpers
@@ -150,7 +192,7 @@ struct EmailVerificationView: View {
                 .frame(width: 28)
             Text(text)
                 .font(.bodyMedium)
-                .foregroundColor(.primary)
+                .foregroundColor(Theme.textPrimary)
             Spacer()
         }
     }
@@ -183,6 +225,10 @@ struct EmailVerificationView: View {
 
     /// Polls Firebase every 5 seconds to auto-detect verification.
     private func startPolling() {
+        stopPolling()
+        // The view may have disappeared while an awaited check (e.g. from the
+        // scenePhase handler) was in flight; don't schedule a timer for a gone view.
+        guard isVisible else { return }
         pollTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { _ in
             Task { @MainActor in
                 let verified = await authManager.checkEmailVerification()

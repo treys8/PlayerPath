@@ -59,12 +59,13 @@ struct ResetPasswordSheet: View {
                 VStack(spacing: 10) {
                     Text(showingSuccess ? "Check Your Email" : "Reset Password")
                         .font(.displayMedium)
+                        .foregroundColor(Theme.textPrimary)
 
                     Text(showingSuccess
                          ? "If an account with that email has a password, we've sent a reset link. It can take a few minutes — be sure to check your spam folder."
                          : "Enter your email address and we'll send you a link to reset your password.")
                         .font(.bodyMedium)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(Theme.textSecondary)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 8)
                 }
@@ -74,16 +75,17 @@ struct ResetPasswordSheet: View {
                         HStack(alignment: .top, spacing: 10) {
                             Image(systemName: "apple.logo")
                                 .font(.body)
-                                .foregroundColor(.secondary)
+                                .foregroundColor(Theme.textSecondary)
                             Text("Signed up with Apple? You don't have a password to reset — go back and tap **Sign in with Apple** instead.")
                                 .font(.bodySmall)
-                                .foregroundColor(.secondary)
+                                .foregroundColor(Theme.textSecondary)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                         .padding(14)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color(.secondarySystemBackground))
+                        .background(Theme.card)
                         .cornerRadius(12)
+                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.divider, lineWidth: 1))
 
                         Button {
                             dismiss()
@@ -127,10 +129,10 @@ struct ResetPasswordSheet: View {
                     if let errorMessage {
                         HStack(spacing: 6) {
                             Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundColor(.red)
+                                .foregroundColor(Theme.warning)
                             Text(errorMessage)
                                 .font(.bodySmall)
-                                .foregroundColor(.red)
+                                .foregroundColor(Theme.warning)
                         }
                     }
 
@@ -156,7 +158,7 @@ struct ResetPasswordSheet: View {
                             LinearGradient(
                                 colors: isValidEmail && !isLoading
                                     ? [ppAccent, ppAccent.opacity(0.85)]
-                                    : [Color(.systemGray4), Color(.systemGray4)],
+                                    : [Theme.textTertiary, Theme.textTertiary],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
                             )
@@ -177,10 +179,10 @@ struct ResetPasswordSheet: View {
                         Image(systemName: "apple.logo")
                             .font(.caption)
                         Text("Signed up with Apple? You won't have a password — close this and tap Sign in with Apple.")
-                            .font(.caption)
+                            .font(.bodySmall)
                             .fixedSize(horizontal: false, vertical: true)
                     }
-                    .foregroundColor(.secondary)
+                    .foregroundColor(Theme.textSecondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .padding(.horizontal, 20)
@@ -200,7 +202,7 @@ struct ResetPasswordSheet: View {
                         Image(systemName: "xmark.circle.fill")
                             .font(.title3)
                             .symbolRenderingMode(.hierarchical)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Theme.textSecondary)
                     }
                 }
             }

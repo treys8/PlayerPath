@@ -30,13 +30,13 @@ struct AuthenticatedFlow: View {
             if isLoading {
                 LoadingView(title: "Setting up your profile...", subtitle: "This will only take a moment")
             } else if let user = currentUser {
-                // Coaches are the only role with a dedicated onboarding flow, and
-                // they see it until they finish it — isNewUser alone is not
-                // sufficient, since a coach who signs out mid-onboarding has
-                // isNewUser reset to false but still needs to finish.
-                // Athletes have no separate flow: loadUser() marks them complete
-                // below and their setup steps are branches of UserMainFlow, which
-                // is also the correct landing spot if that marking is ever skipped.
+                // Coaches are the only role with a dedicated onboarding flow.
+                // A relaunch or re-sign-in mid-onboarding re-arms isNewUser from
+                // the pending-onboarding marker (restorePendingOnboardingIfNeeded)
+                // before isSignedIn flips, so loadUser()'s `!isNewUser` branch —
+                // which marks onboarding complete — never catches an unfinished
+                // coach. Athletes have no separate flow: loadUser() marks them
+                // complete and their setup steps are branches of UserMainFlow.
                 if !hasCompletedOnboarding && authManager.userRole == .coach {
                     CoachOnboardingFlow(user: user)
                 } else {

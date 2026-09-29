@@ -78,7 +78,7 @@ struct UserPreferencesView: View {
     private func videoRecordingSection() -> some View {
         Section {
             Picker("Auto-Upload Videos", selection: Binding<AutoUploadMode>(
-                get: { viewModel.preferences?.autoUploadMode ?? .off },
+                get: { viewModel.preferences?.autoUploadMode ?? .wifiOnly },
                 set: { viewModel.update(\.autoUploadMode, to: $0) }
             )) {
                 ForEach(AutoUploadMode.allCases, id: \.self) { mode in

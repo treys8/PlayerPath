@@ -604,6 +604,15 @@ private struct CoachReadyPage: View {
     @Environment(\.ppAccent) private var ppAccent
     @State private var appeared = false
 
+    private var waiting: [CoachInvitation] { CoachInvitationManager.shared.pendingInvitations }
+
+    /// Trimmed name of the single waiting invite, falling back when it's blank
+    /// so the card never renders "already invited you" with nothing before it.
+    private var waitingAthleteDisplayName: String {
+        let trimmed = waiting.first?.athleteName.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? "An athlete" : trimmed
+    }
+
     private let checklist: [(icon: String, text: String)] = [
         ("tray.and.arrow.down.fill", "Check your Dashboard for athlete invitations"),
         ("video.badge.checkmark",    "Watch and annotate shared video clips"),
@@ -677,6 +686,35 @@ private struct CoachReadyPage: View {
                 }
 
                 Spacer().frame(height: 36)
+
+                if !waiting.isEmpty {
+                    HStack(spacing: 14) {
+                        Image(systemName: "person.crop.circle.badge.checkmark")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(width: 40, height: 40)
+                            .background(ppAccent)
+                            .clipShape(Circle())
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(waiting.count == 1
+                                 ? "\(waitingAthleteDisplayName) already invited you"
+                                 : "\(waiting.count) athletes already invited you")
+                                .font(.headingMedium)
+                                .foregroundColor(Theme.textPrimary)
+                            Text("Accept from your Dashboard to start coaching.")
+                                .font(.bodyMedium)
+                                .foregroundColor(Theme.textSecondary)
+                        }
+                        Spacer()
+                    }
+                    .padding(14)
+                    .background(ppAccent.opacity(0.1))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(ppAccent.opacity(0.35), lineWidth: 1))
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 12)
+                    .accessibilityElement(children: .combine)
+                }
 
                 // Checklist
                 VStack(spacing: 12) {

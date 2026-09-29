@@ -60,7 +60,7 @@ struct PlayerPathMainView: View {
                                     Image(systemName: "xmark.circle.fill")
                                         .font(.title3)
                                         .symbolRenderingMode(.hierarchical)
-                                        .foregroundStyle(.secondary)
+                                        .foregroundStyle(Theme.textSecondary)
                                 }
                             }
                         }

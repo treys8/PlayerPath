@@ -52,11 +52,11 @@ struct RoleSelectionButton: View {
                 VStack(spacing: 4) {
                     Text(title)
                         .font(.headingSmall)
-                        .foregroundColor(isSelected ? .white : .primary)
+                        .foregroundColor(isSelected ? .white : Theme.textPrimary)
 
                     Text(description)
                         .font(.labelSmall)
-                        .foregroundColor(isSelected ? .white : .secondary)
+                        .foregroundColor(isSelected ? .white : Theme.textSecondary)
                 }
             }
             .frame(maxWidth: .infinity)
@@ -72,7 +72,7 @@ struct RoleSelectionButton: View {
                                 endPoint: .bottomTrailing
                             )
                             : LinearGradient(
-                                colors: [Color(.systemBackground), Color(.systemBackground)],
+                                colors: [Theme.card, Theme.card],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
                             )
@@ -87,7 +87,7 @@ struct RoleSelectionButton: View {
             .overlay(
                 RoundedRectangle(cornerRadius: 16)
                     .stroke(
-                        isSelected ? Color.clear : Color(.systemGray4),
+                        isSelected ? Color.clear : Theme.pillBorder,
                         lineWidth: 1
                     )
             )

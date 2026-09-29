@@ -133,13 +133,14 @@ final class ComprehensiveAuthManager: ObservableObject {
     /// True while `checkEmailVerification()` is in flight. Prevents the listener
     /// from racing with verification (user.reload() can fire the listener).
     var isHandlingVerification = false
+    /// In-flight email-verification check. checkEmailVerification() joins it
+    /// instead of starting a second reload (timer tick + foreground return +
+    /// manual button can all fire together).
+    var verificationCheckTask: Task<Bool, Never>?
     /// Stored Apple credential-revoked observer so we can remove it on deinit.
     var appleCredentialObserver: NSObjectProtocol?
 
-    // MARK: - Coach signup carryover
-    /// Pending shared-folder invitations discovered during coach signup.
-    /// Surfaced to the coach onboarding flow after email verification.
-    @Published var pendingCoachInvitations: [CoachInvitation] = []
+    // MARK: - Email verification state
     /// True when the verification email could not be sent during signup.
     /// UI should show a "couldn't send — tap Resend" hint when true.
     @Published var verificationEmailSendFailed: Bool = false
@@ -234,6 +235,9 @@ final class ComprehensiveAuthManager: ObservableObject {
 
     func resetNewUserFlag() {
         isNewUser = false
+        // Both onboarding finish lines (OnboardingBackupView for athletes,
+        // completeOnboarding for coaches) come through here.
+        clearPendingOnboarding()
     }
 
     // Method to allow external sign-in managers (like Apple Sign In) to update the user.
@@ -249,6 +253,7 @@ final class ComprehensiveAuthManager: ObservableObject {
         // Only set isSignedIn immediately for new users (role is already known).
         // Returning users need the auth state listener to load their profile first.
         if isNewUser {
+            markOnboardingPending(uid: user.uid)
             isSignedIn = true
         }
     }
@@ -306,7 +311,7 @@ final class ComprehensiveAuthManager: ObservableObject {
         case AuthErrorCode.wrongPassword.rawValue:
             return AuthConstants.ErrorMessages.wrongPassword
         case AuthErrorCode.invalidCredential.rawValue:
-            return "Invalid email or password. Please try again."
+            return AuthConstants.ErrorMessages.invalidCredential
         case AuthErrorCode.networkError.rawValue:
             return AuthConstants.ErrorMessages.networkError
         case AuthErrorCode.tooManyRequests.rawValue:
