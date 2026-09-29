@@ -147,7 +147,9 @@ struct ImprovedPaywallView: View {
             Text("Unlock PlayerPath")
                 .font(.displayMedium)
 
-            Text("Share film with your coach. Track every at-bat.")
+            // Sport-neutral, and never sells coach sharing — it's free on every
+            // plan (Pricing Model V2), as the table below says.
+            Text("More athletes, more storage, and highlights that build themselves.")
                 .font(.bodyMedium)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -290,6 +292,18 @@ struct ImprovedPaywallView: View {
                 checkIcon(included: true)
             } pro: {
                 checkIcon(included: true)
+            }
+
+            // Pro-only. Hidden with the rest of recruiting when the compile-time
+            // flag is off (RecruitingFeature.swift) — never advertise a hidden feature.
+            if RecruitingFeature.isEnabled {
+                tableRow(feature: "Recruiting Profile") {
+                    checkIcon(included: false)
+                } plus: {
+                    checkIcon(included: false)
+                } pro: {
+                    checkIcon(included: true)
+                }
             }
 
             // Coach sharing is free at every tier (the coach's seat covers the

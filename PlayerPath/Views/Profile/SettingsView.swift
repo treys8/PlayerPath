@@ -2,111 +2,49 @@
 //  SettingsView.swift
 //  PlayerPath
 //
-//  Account, storage, and preferences settings screen.
+//  "Account & Sign-In": who you are and how you sign in. Storage, App
+//  Preferences, and Redeem Code live on the More tab itself (2026-09 layout
+//  pass) so nothing sits three levels deep; golf scoring defaults live in
+//  App Preferences.
 //
 
 import SwiftUI
 import SwiftData
 import FirebaseAuth
 
-// MARK: - Settings Views
-
 struct SettingsView: View {
     let user: User
 
     @Environment(\.ppAccent) private var ppAccent
 
-    @AppStorage(GolfPrefs.trackDetailedStats) private var trackDetailedGolfStats = false
-    @AppStorage(GolfPrefs.preferredShotByShot) private var preferShotByShot = false
-
-    /// Only surface the golf detailed-stats toggle to users who actually have a
-    /// golf athlete — it's clutter for baseball-only accounts.
-    private var hasGolfAthlete: Bool {
-        user.athletes?.contains { $0.sport == .golf } ?? false
-    }
-
     var body: some View {
         Form {
-            Section("Account") {
-                HStack {
-                    Text("Name")
-                    Spacer()
-                    Text(user.username)
-                        .foregroundColor(.secondary)
-                }
-
-                HStack {
-                    Text("Email")
-                    Spacer()
-                    Text(user.email)
-                        .foregroundColor(.secondary)
-                }
-
+            Section("Profile") {
+                // One row instead of separate Username / Email rows plus an
+                // "Edit Information" link — the same Apple-ID-style pattern iOS uses.
                 NavigationLink {
                     EditAccountView(user: user)
                 } label: {
-                    Label("Edit Information", systemImage: "pencil")
-                }
-            }
-
-            Section("Storage") {
-                NavigationLink {
-                    StorageSettingsView()
-                } label: {
-                    Label("Manage Storage", systemImage: "internaldrive")
-                }
-            }
-
-            Section {
-                RedeemOfferCodeRow()
-            } header: {
-                Text("Subscription")
-            } footer: {
-                Text("Have a PlayerPath promo code? Redeem it here to apply a free or discounted plan.")
-            }
-
-            Section("Preferences") {
-                NavigationLink {
-                    UserPreferencesView()
-                } label: {
-                    Label("App Preferences", systemImage: "slider.horizontal.3")
-                }
-            }
-
-            if hasGolfAthlete {
-                Section {
-                    Toggle(isOn: $trackDetailedGolfStats) {
-                        Label("Track Detailed Stats", systemImage: "flag.fill")
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(user.username)
+                            .foregroundColor(.primary)
+                        Text(user.email)
+                            .font(.bodySmall)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
                     }
-                } header: {
-                    Text("Golf")
-                } footer: {
-                    Text("Adds fairway, green-in-regulation, and penalty inputs when scoring a round.")
                 }
-
-                Section {
-                    Toggle(isOn: $preferShotByShot) {
-                        Label("Default to Shot-by-Shot", systemImage: "scope")
-                    }
-                } footer: {
-                    Text("New rounds open the shot-by-shot card when you score a hole. You can still switch to Quick on any hole.")
-                }
+                .accessibilityLabel("Edit Information, \(user.username)")
+                .accessibilityHint("Change your username, email, or profile picture")
             }
 
             let provider = Auth.auth().currentUser?.providerData.first?.providerID ?? "email"
             Section("Sign-In Method") {
-                HStack {
-                    Label(
-                        provider == "apple.com" ? "Sign in with Apple" : "Email & Password",
-                        systemImage: provider == "apple.com" ? "apple.logo" : "envelope.fill"
-                    )
-                    Spacer()
-                    Text(user.email)
-                        .font(.bodySmall)
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
+                Label(
+                    provider == "apple.com" ? "Sign in with Apple" : "Email & Password",
+                    systemImage: provider == "apple.com" ? "apple.logo" : "envelope.fill"
+                )
 
                 if provider != "apple.com" {
                     NavigationLink {
@@ -117,11 +55,12 @@ struct SettingsView: View {
                 }
             }
         }
+        // Screen name kept as "Settings" so the analytics history stays continuous.
         .onAppear { AnalyticsService.shared.trackScreenView(screenName: "Settings", screenClass: "ProfileView") }
         .scrollContentBackground(.hidden)
         .background(Theme.surface)
         .tint(ppAccent)
-        .navigationTitle("Settings")
+        .navigationTitle("Account & Sign-In")
         .navigationBarTitleDisplayMode(.inline)
     }
 }

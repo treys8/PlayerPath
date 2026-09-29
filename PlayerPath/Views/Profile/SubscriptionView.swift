@@ -83,14 +83,21 @@ struct SubscriptionView: View {
     }
 
     private var tierFeaturesSection: some View {
-        Section("Your \(authManager.currentTier.displayName) Features") {
+        Section {
             SubscriptionFeatureRow(icon: "person.2.fill", title: "\(authManager.currentTier.athleteLimit) Athlete\(authManager.currentTier.athleteLimit == 1 ? "" : "s")", description: "Track up to \(authManager.currentTier.athleteLimit) athlete\(authManager.currentTier.athleteLimit == 1 ? "" : "s")")
             SubscriptionFeatureRow(icon: "internaldrive.fill", title: "\(authManager.currentTier.storageLimitGB) GB Storage", description: "Cloud backup and sync")
             SubscriptionFeatureRow(icon: "square.and.arrow.up", title: "Export Reports", description: "CSV and PDF statistics export")
             SubscriptionFeatureRow(icon: "star.fill", title: "Auto Highlights", description: "Automatically generated highlight reels")
-            if authManager.currentTier == .pro {
-                SubscriptionFeatureRow(icon: "person.badge.shield.checkmark.fill", title: "Coach Sharing", description: "Share videos and get coach feedback")
+            SubscriptionFeatureRow(icon: "chart.bar.xaxis", title: "Season Comparison", description: "Compare stats across seasons")
+            if authManager.currentTier == .pro && RecruitingFeature.isEnabled {
+                SubscriptionFeatureRow(icon: "graduationcap.fill", title: "Recruiting Profile", description: "A public page to share with college coaches")
             }
+        } header: {
+            Text("Your \(authManager.currentTier.displayName) Features")
+        } footer: {
+            // Pricing Model V2: the coach's seat pays for the connection, so
+            // sharing is never a reason to upgrade. Say so rather than list it.
+            Text("Sharing clips with a coach is included on every plan.")
         }
     }
 
@@ -137,7 +144,9 @@ struct SubscriptionView: View {
                 Text("Unlock Plus & Pro")
                     .font(.displayMedium)
 
-                Text("More athletes, cloud storage, highlights, and coach sharing. See full plan details and current pricing below.")
+                Text(RecruitingFeature.isEnabled
+                     ? "More athletes, more cloud storage, auto highlights, and stats export — plus a recruiting profile on Pro. Coach sharing is already included on every plan."
+                     : "More athletes, more cloud storage, auto highlights, and stats export. Coach sharing is already included on every plan.")
                     .font(.bodyMedium)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)

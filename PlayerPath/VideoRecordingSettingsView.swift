@@ -48,13 +48,16 @@ struct VideoRecordingSettingsView: View {
             frameRateSection
             additionalSettingsSection
             cloudUploadSection
+            if role == .athlete {
+                deviceCopySection
+            }
             workflowSection
             resetSection
         }
         .scrollContentBackground(.hidden)
         .background(Theme.surface)
         .tint(ppAccent)
-        .navigationTitle("Recording Settings")
+        .navigationTitle("Recording & Uploads")
         .navigationBarTitleDisplayMode(.inline)
         .alert("Reset Settings", isPresented: $showingResetConfirmation) {
             Button("Cancel", role: .cancel) { }
@@ -230,21 +233,6 @@ struct VideoRecordingSettingsView: View {
 
                         cellularToggle(for: prefs)
                     }
-
-                    // Outside the auto-upload gate: UploadQueueManager deletes the
-                    // local copy after ANY successful upload, manual ones included,
-                    // so this must stay reachable when auto-upload is off.
-                    Toggle(isOn: Binding(
-                        get: { prefs.autoDeleteAfterUpload },
-                        set: { prefs.autoDeleteAfterUpload = $0; ErrorHandlerService.shared.saveContext(modelContext, caller: "RecordingSettings.autoDelete") }
-                    )) {
-                        SettingLabel(
-                            icon: "trash",
-                            iconColor: prefs.autoDeleteAfterUpload ? Theme.warning : .secondary,
-                            title: "Auto-delete After Upload",
-                            subtitle: "Removes the copy on this phone once it's safely in the cloud"
-                        )
-                    }
                 } else {
                     // Coach: only the cellular toggle applies — the other three
                     // options are athlete-only and have no effect on coach uploads.
@@ -304,6 +292,44 @@ struct VideoRecordingSettingsView: View {
         let minutes = Double(capMB) / max(settings.estimatedFileSizePerMinute, 1)
         let amount = minutes < 1 ? "under 1" : "≈ \(Int(minutes))"
         return "\(amount) min per clip at current settings"
+    }
+
+    /// Athlete-only: what happens to the copy on this iPhone. Coach recordings
+    /// don't go through ClipPersistenceService or the athlete upload queue, so
+    /// neither toggle applies to them. Remove After Upload sits here, outside the
+    /// auto-upload gate: UploadQueueManager deletes the local copy after ANY
+    /// successful upload, manual ones included.
+    @ViewBuilder
+    private var deviceCopySection: some View {
+        if let prefs = preferences {
+            Section {
+                Toggle(isOn: Binding(
+                    get: { prefs.saveToPhotosLibrary },
+                    set: { prefs.saveToPhotosLibrary = $0; ErrorHandlerService.shared.saveContext(modelContext, caller: "RecordingSettings.saveToPhotos") }
+                )) {
+                    SettingLabel(icon: "photo.on.rectangle", iconColor: ppAccent, title: "Save to Photos Library")
+                }
+
+                Toggle(isOn: Binding(
+                    get: { prefs.autoDeleteAfterUpload },
+                    set: { prefs.autoDeleteAfterUpload = $0; ErrorHandlerService.shared.saveContext(modelContext, caller: "RecordingSettings.autoDelete") }
+                )) {
+                    SettingLabel(
+                        icon: "iphone.slash",
+                        iconColor: prefs.autoDeleteAfterUpload ? Theme.warning : .secondary,
+                        title: "Remove After Upload",
+                        subtitle: "Frees space on this iPhone"
+                    )
+                }
+            } header: {
+                Text("On This iPhone")
+            } footer: {
+                // Honest about the trade-off: VideoPlayerView re-downloads on play,
+                // but the reel stitcher only uses clips present on this device.
+                Text("Removed clips download again when you play them. Highlight reels can only include clips that are still on this iPhone.")
+                    .font(.ppFootnote)
+            }
+        }
     }
 
     private var workflowSection: some View {

@@ -10,6 +10,7 @@ import SwiftData
 
 struct NotificationSettingsView: View {
     @Environment(\.ppAccent) private var ppAccent
+    @EnvironmentObject private var authManager: ComprehensiveAuthManager
     let athleteId: String?
 
     // notif_weeklyStats is single-source (UserDefaults only; WeeklySummaryScheduler
@@ -37,11 +38,11 @@ struct NotificationSettingsView: View {
     @State private var authorizationStatus: UNAuthorizationStatus = .notDetermined
     @Environment(\.scenePhase) private var scenePhase
 
-    /// Coach context is signaled by a nil athleteId at the call site
-    /// (`CoachProfileView` passes `athleteId: nil`). Game Reminders and
+    /// Role, not `athleteId == nil`: an athlete account with no selected athlete
+    /// also passes nil, and used to get the coach layout. Game Reminders and
     /// Weekly Statistics are athlete-scoped and dead/no-op for coaches —
-    /// gated off below to avoid showing irrelevant or broken toggles.
-    private var isCoach: Bool { athleteId == nil }
+    /// gated off below.
+    private var isCoach: Bool { authManager.userRole == .coach }
 
     private var isGolfAthlete: Bool {
         guard let athleteId, let uuid = UUID(uuidString: athleteId) else { return false }
@@ -195,18 +196,16 @@ struct NotificationSettingsView: View {
                 Section {
                     Toggle("Weekly Statistics", isOn: $weeklyStats)
                         .onChange(of: weeklyStats) { _, enabled in
-                            guard let athleteId else { return }
-                            if enabled {
-                                Task { @MainActor in
-                                    if let athlete = findAthlete(id: athleteId) {
-                                        await WeeklySummaryScheduler.schedule(for: athlete)
+                            // One global toggle, one pending request PER athlete
+                            // (`weekly_summary_<id>`). Act on all of them — cancelling only
+                            // the selected athlete left siblings' summaries firing on Sunday.
+                            Task { @MainActor in
+                                if enabled {
+                                    if let user = try? modelContext.fetch(FetchDescriptor<User>()).first {
+                                        await WeeklySummaryScheduler.scheduleAll(for: user)
                                     }
-                                }
-                            } else {
-                                Task { @MainActor in
-                                    PushNotificationService.shared.cancelNotifications(
-                                        withIdentifiers: ["weekly_summary_\(athleteId)"]
-                                    )
+                                } else {
+                                    await WeeklySummaryScheduler.cancelAll()
                                 }
                             }
                         }
