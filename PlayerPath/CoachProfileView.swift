@@ -73,14 +73,14 @@ struct CoachProfileView: View {
                 // Subscription Section
                 Section("Subscription") {
                     HStack {
-                        Label("Plan", systemImage: "star.fill")
+                        Label("Plan", systemImage: "star")
                         Spacer()
                         Text(authManager.currentCoachTier.displayName)
                             .foregroundColor(.secondary)
                     }
 
                     HStack {
-                        Label("Athletes", systemImage: "person.3.fill")
+                        Label("Athletes", systemImage: "person.2")
                         Spacer()
                         let limit = authManager.coachAthleteLimit
                         if limit == Int.max {
@@ -117,7 +117,7 @@ struct CoachProfileView: View {
                 // Stats Section
                 Section("Overview") {
                     HStack {
-                        Label("Shared Folders", systemImage: "folder.fill")
+                        Label("Shared Folders", systemImage: "folder")
                         Spacer()
                         Text("\(sharedFolderManager.coachFolders.count)")
                             .foregroundColor(.secondary)
@@ -176,7 +176,6 @@ struct CoachProfileView: View {
                             }
                         }
                     }
-                    .foregroundStyle(.primary)
                 }
 
                 // Invitations Section
@@ -185,7 +184,12 @@ struct CoachProfileView: View {
                         showingInvitations = true
                     } label: {
                         HStack {
-                            Label("Pending Invitations", systemImage: "envelope.badge.fill")
+                            // Text-only .primary so the icon keeps the accent tint.
+                            Label {
+                                Text("Pending Invitations").foregroundStyle(.primary)
+                            } icon: {
+                                Image(systemName: "envelope.badge")
+                            }
                             Spacer()
                             if invitationManager.pendingInvitationsCount > 0 {
                                 Text("\(invitationManager.pendingInvitationsCount)")
@@ -196,12 +200,13 @@ struct CoachProfileView: View {
                                     .foregroundStyle(.white)
                                     .clipShape(Capsule())
                             }
-                            Image(systemName: "chevron.right")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.tertiary)
+                            // Mimics the NavigationLink disclosure chevron on
+                            // neighboring rows (this row opens a sheet).
+                            Image(systemName: "chevron.forward")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(Color(.tertiaryLabel))
                         }
                     }
-                    .foregroundStyle(.primary)
                 }
 
                 // Settings Section
@@ -299,6 +304,8 @@ struct CoachProfileView: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(Theme.surface)
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search settings...")
             .tabRootNavigationBar(title: "More")
             .onAppear {
