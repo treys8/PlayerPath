@@ -66,8 +66,7 @@ struct AthleteSection: View {
                         .foregroundColor(.gray)
                 }
                 .padding()
-                .background(Color(.secondarySystemBackground))
-                .cornerRadius(.cornerLarge)
+                .ppCard(cornerRadius: .cornerLarge)
             }
             .buttonStyle(.plain)
             .accessibilityLabel(athleteName)
@@ -164,8 +163,7 @@ struct CoachFolderRowView: View {
                 .foregroundColor(.gray)
         }
         .padding()
-        .background(Color(.tertiarySystemBackground))
-        .cornerRadius(10)
+        .ppCard(cornerRadius: 10)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(folder.name)
     }
@@ -210,11 +208,11 @@ struct CoachEmptyStateView: View {
             }
 
             VStack(spacing: 12) {
-                Text("Welcome, Coach!")
+                Text("No athletes yet")
                     .font(.title)
                     .fontWeight(.bold)
 
-                Text("Connect with athletes to view their game videos, send practice drills, and provide feedback.")
+                Text("Invite athletes to review their clips, leave feedback, and run lessons.")
                     .font(.body)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
@@ -249,14 +247,14 @@ struct CoachEmptyStateView: View {
                     HStack(spacing: 10) {
                         Image(systemName: "envelope.open")
                             .font(.title3)
+                            .foregroundStyle(ppAccent)
                         Text("Check Pending Invitations")
                             .fontWeight(.medium)
                     }
                     .frame(maxWidth: .infinity)
                     .frame(height: 54)
-                    .background(Color(.systemGray6))
                     .foregroundColor(.primary)
-                    .cornerRadius(14)
+                    .ppCard(cornerRadius: 14)
                 }
                 .buttonStyle(.plain)
             }

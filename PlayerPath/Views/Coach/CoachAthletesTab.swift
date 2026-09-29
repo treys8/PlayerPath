@@ -47,6 +47,8 @@ struct CoachAthletesTab: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.surface)
         .tabRootNavigationBar(title: "Athletes")
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
@@ -98,7 +100,12 @@ struct CoachAthletesTab: View {
                 }
             }
         }
-        .searchable(text: $searchText, prompt: "Search athletes")
+        // No search bar until there's something to search. Sheets and tasks
+        // attach below this, so they keep identity when the branch flips
+        // (e.g. accepting an invite from the auto-opened invitations sheet).
+        .if(!sharedFolderManager.coachFolders.isEmpty) {
+            $0.searchable(text: $searchText, prompt: "Search athletes")
+        }
         .refreshable {
             await reloadData()
         }
@@ -221,8 +228,7 @@ struct CoachAthletesTab: View {
                                 .foregroundColor(.secondary)
                         }
                         .padding()
-                        .background(Color(.secondarySystemBackground))
-                        .cornerRadius(.cornerLarge)
+                        .ppCard(cornerRadius: .cornerLarge)
                     }
                     .buttonStyle(.plain)
 
