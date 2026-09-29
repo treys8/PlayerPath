@@ -85,50 +85,58 @@ struct SeasonsView: View {
     @ViewBuilder
     private var activeSeasonBanner: some View {
         if let activeSeason = athlete.activeSeason {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Active Season")
-                            .smallCapsLabel(color: ppAccent)
+            Button {
+                selectedSeason = activeSeason
+            } label: {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Active Season")
+                                .smallCapsLabel(color: ppAccent)
 
-                        Text(activeSeason.displayName)
-                            .font(.ppTitle)
-                            .foregroundStyle(Theme.textPrimary)
+                            Text(activeSeason.displayName)
+                                .font(.ppTitle)
+                                .foregroundStyle(Theme.textPrimary)
+
+                            if let range = activeSeason.dateRangeText {
+                                Text(range)
+                                    .font(.ppCaption)
+                                    .foregroundStyle(Theme.textSecondary)
+                            }
+                        }
+
+                        Spacer()
+
+                        Image(systemName: "chevron.right")
+                            .font(.footnote)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(Theme.textTertiary)
                     }
 
-                    Spacer()
-
-                    Image(systemName: "chevron.right")
-                        .font(.footnote)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(Theme.textTertiary)
+                    HStack(alignment: .top, spacing: 20) {
+                        SeasonStatBadge(
+                            value: activeSeason.playedGames,
+                            label: activeSeason.gameUnitNoun(count: activeSeason.playedGames),
+                            icon: activeSeason.gameUnitIcon
+                        )
+                        SeasonStatBadge(
+                            value: activeSeason.totalVideos,
+                            label: plural(activeSeason.totalVideos, "Video", "Videos"),
+                            icon: "video"
+                        )
+                        SeasonStatBadge(
+                            value: activeSeason.practicesCount,
+                            label: plural(activeSeason.practicesCount, "Practice", "Practices"),
+                            icon: "figure.run"
+                        )
+                    }
                 }
-
-                HStack(alignment: .top, spacing: 20) {
-                    SeasonStatBadge(
-                        value: activeSeason.playedGames,
-                        label: activeSeason.gameUnitNounPlural,
-                        icon: activeSeason.gameUnitIcon
-                    )
-                    SeasonStatBadge(
-                        value: activeSeason.totalVideos,
-                        label: "Videos",
-                        icon: "video"
-                    )
-                    SeasonStatBadge(
-                        value: activeSeason.practicesCount,
-                        label: "Practices",
-                        icon: "figure.run"
-                    )
-                }
+                .padding()
+                .ppCard()
             }
-            .padding()
-            .ppCard()
+            .buttonStyle(PressableCardButtonStyle())
+            .accessibilityLabel(seasonAccessibilitySummary(activeSeason))
             .padding(.horizontal)
-            .contentShape(RoundedRectangle(cornerRadius: .cornerXLarge, style: .continuous))
-            .onTapGesture { selectedSeason = activeSeason }
-            .accessibilityAddTraits(.isButton)
-            .accessibilityLabel("Active Season: \(activeSeason.displayName)")
         }
     }
 
@@ -149,7 +157,8 @@ struct SeasonsView: View {
                     } label: {
                         SeasonRow(season: season)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(PressableCardButtonStyle())
+                    .accessibilityLabel(seasonAccessibilitySummary(season))
                 }
             }
         }
@@ -175,6 +184,28 @@ struct SeasonsView: View {
     }
 }
 
+private func plural(_ count: Int, _ one: String, _ many: String) -> String {
+    count == 1 ? one : many
+}
+
+/// One VoiceOver sentence per season card/row — e.g. "Fall 2026, active,
+/// Aug 1, 2026 – In Progress, 1 game, 2 videos, 1 practice".
+private func seasonAccessibilitySummary(_ season: Season) -> String {
+    let games = season.playedGames
+    let videos = season.totalVideos
+    let practices = season.practicesCount
+    let parts: [String?] = [
+        season.displayName,
+        season.status.displayName.lowercased(),
+        season.seasonTypeValue?.displayName,
+        season.dateRangeText,
+        "\(games) \(season.gameUnitNoun(count: games).lowercased())",
+        "\(videos) \(plural(videos, "video", "videos"))",
+        "\(practices) \(plural(practices, "practice", "practices"))"
+    ]
+    return parts.compactMap { $0 }.joined(separator: ", ")
+}
+
 struct SeasonRow: View {
     let season: Season
     @Environment(\.ppAccent) private var ppAccent
@@ -193,13 +224,13 @@ struct SeasonRow: View {
                         .font(.ppHeadline)
                         .foregroundStyle(Theme.textPrimary)
 
-                    // Status Badge
+                    // Status Badge — quiet tint; the leading icon already encodes status
                     Text(season.status.displayName.uppercased())
                         .font(.ppCaptionBold)
-                        .foregroundStyle(Theme.surface)
+                        .foregroundStyle(Theme.textSecondary)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 2)
-                        .background(seasonStatusColor)
+                        .background(Theme.textSecondary.opacity(0.12))
                         .clipShape(Capsule())
 
                     // Type badge — optional season category (Spring/Travel/…)
@@ -212,6 +243,12 @@ struct SeasonRow: View {
                             .background(Theme.textSecondary.opacity(0.12))
                             .clipShape(Capsule())
                     }
+                }
+
+                if let range = season.dateRangeText {
+                    Text(range)
+                        .font(.ppCaption)
+                        .foregroundStyle(Theme.textSecondary)
                 }
 
                 HStack(spacing: 12) {
@@ -273,9 +310,12 @@ struct SeasonStatBadge: View {
 
     var body: some View {
         VStack(spacing: 4) {
+            // Fixed height: SF Symbols differ in height (figure.run is taller),
+            // which otherwise pushes that column's number and label down.
             Image(systemName: icon)
                 .font(.caption)
                 .foregroundStyle(Theme.textSecondary)
+                .frame(height: 16)
 
             Text("\(value)")
                 .font(.ppStatSmall)

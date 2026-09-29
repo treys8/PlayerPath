@@ -13,25 +13,20 @@ final class UserPreferencesViewModel {
     }
 
     var preferences: UserPreferences?
-    var hasUnsavedChanges = false
 
     func load() async {
         guard let context = modelContext else { return }
-        hasUnsavedChanges = false
         // Delegate to the canonical fetch-or-create + dedup path so this and
         // UserPreferences.shared(in:) don't race on duplicate deletion.
         preferences = UserPreferences.shared(in: context)
     }
 
-    func save() async throws {
-        guard let context = modelContext, let _ = preferences else { return }
-        try context.save()
-        hasUnsavedChanges = false
-    }
-
+    /// Writes and saves immediately — matches VideoRecordingSettingsView, so a
+    /// preference never sits unsaved when the user backs out.
     func update<T>(_ keyPath: WritableKeyPath<UserPreferences, T>, to newValue: T) {
         preferences?[keyPath: keyPath] = newValue
-        hasUnsavedChanges = true
+        guard let context = modelContext else { return }
+        ErrorHandlerService.shared.saveContext(context, caller: "UserPreferences.update")
     }
 }
 

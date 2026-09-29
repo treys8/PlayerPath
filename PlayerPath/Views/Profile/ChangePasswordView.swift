@@ -27,9 +27,6 @@ struct ChangePasswordView: View {
                         .font(.largeTitle)
                         .foregroundColor(ppAccent)
 
-                    Text("Change Password")
-                        .font(.displayMedium)
-
                     Text("We'll send a password reset link to \(email). Follow the link to choose a new password.")
                         .font(.bodyMedium)
                         .foregroundColor(.secondary)
@@ -70,7 +67,11 @@ struct ChangePasswordView: View {
                         }
                     }
                     .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
                     .disabled(isSending)
+                    // Pill sits on the cream background, not inside a white card.
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets())
                 } footer: {
                     Text("The link expires after 1 hour. Check your spam folder if you don't see it.")
                 }

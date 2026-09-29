@@ -46,21 +46,12 @@ final class VideoRecordingSettings {
     /// Frame rate for recording
     var frameRate: FrameRate {
         didSet {
-            if !frameRate.supportsSlowMotion {
-                slowMotionEnabled = false
-            }
             saveSettings()
         }
     }
-    
-    /// Whether to enable slow-motion recording.
-    /// Callers should prefer `setSlowMotionEnabled(_:)` so frame rate is updated atomically;
-    /// mutating this flag directly only persists the flag without touching `frameRate`.
-    var slowMotionEnabled: Bool {
-        didSet {
-            saveSettings()
-        }
-    }
+
+    /// Slow-mo is simply recording at ≥120 fps — there is no separate flag.
+    var isSlowMotion: Bool { frameRate.supportsSlowMotion }
     
     /// Audio recording enabled
     var audioEnabled: Bool {
@@ -82,7 +73,6 @@ final class VideoRecordingSettings {
         static let quality = "videoRecordingQuality"
         static let format = "videoRecordingFormat"
         static let frameRate = "videoRecordingFrameRate"
-        static let slowMotionEnabled = "videoRecordingSlowMotion"
         static let audioEnabled = "videoRecordingAudio"
         static let stabilizationMode = "videoRecordingStabilization"
     }
@@ -111,8 +101,6 @@ final class VideoRecordingSettings {
         } else {
             self.frameRate = .fps30
         }
-        
-        self.slowMotionEnabled = UserDefaults.standard.bool(forKey: Keys.slowMotionEnabled)
 
         // Audio defaults to true
         if UserDefaults.standard.object(forKey: Keys.audioEnabled) == nil {
@@ -129,15 +117,11 @@ final class VideoRecordingSettings {
         }
 
         // Reconcile persisted state after all stored properties are initialized:
-        // clamp frame rate to what the loaded quality supports, and clear
-        // slow-mo if the resulting rate can't support it. Unsticks users whose
-        // stored state drifted into an inconsistent combination.
+        // clamp frame rate to what the device supports at the loaded quality.
+        // Unsticks users whose stored state drifted into an inconsistent combination.
         let compatible = compatibleFrameRates(for: self.quality)
         if !compatible.contains(self.frameRate), let fallback = compatible.last {
             self.frameRate = fallback
-        }
-        if !self.frameRate.supportsSlowMotion {
-            self.slowMotionEnabled = false
         }
 
         isInitializing = false
@@ -174,7 +158,6 @@ final class VideoRecordingSettings {
             UserDefaults.standard.set(quality.rawValue, forKey: Keys.quality)
             UserDefaults.standard.set(format.rawValue, forKey: Keys.format)
             UserDefaults.standard.set(frameRate.rawValue, forKey: Keys.frameRate)
-            UserDefaults.standard.set(slowMotionEnabled, forKey: Keys.slowMotionEnabled)
             UserDefaults.standard.set(audioEnabled, forKey: Keys.audioEnabled)
             UserDefaults.standard.set(stabilizationMode.rawValue, forKey: Keys.stabilizationMode)
 
@@ -190,45 +173,17 @@ final class VideoRecordingSettings {
         UserDefaults.standard.set(quality.rawValue, forKey: Keys.quality)
         UserDefaults.standard.set(format.rawValue, forKey: Keys.format)
         UserDefaults.standard.set(frameRate.rawValue, forKey: Keys.frameRate)
-        UserDefaults.standard.set(slowMotionEnabled, forKey: Keys.slowMotionEnabled)
         UserDefaults.standard.set(audioEnabled, forKey: Keys.audioEnabled)
         UserDefaults.standard.set(stabilizationMode.rawValue, forKey: Keys.stabilizationMode)
     }
     
     // MARK: - Invariants
 
-    /// Ensures `frameRate` is compatible with the current `quality`, and clears
-    /// `slowMotionEnabled` if the resulting rate no longer supports slow-mo.
-    /// Never auto-enables slow-mo — that must be an explicit user action.
+    /// Ensures `frameRate` is one the device can record at the current `quality`.
     private func reconcileFrameRateForQuality() {
         let compatible = compatibleFrameRates(for: quality)
         if !compatible.contains(frameRate), let fallback = compatible.last {
             frameRate = fallback
-        }
-        if !frameRate.supportsSlowMotion {
-            slowMotionEnabled = false
-        }
-    }
-
-    // MARK: - Slow Motion
-
-    /// Enables or disables slow motion, updating `frameRate` atomically.
-    /// Writing both properties from the UI layer (rather than via a sibling-mutating
-    /// `didSet`) avoids nested `withMutation` calls on `@Observable`, which were
-    /// dropping the visual update when the toggle was switched off.
-    func setSlowMotionEnabled(_ enabled: Bool) {
-        if enabled {
-            let compatible = compatibleFrameRates(for: quality)
-            guard let slowMoRate = compatible.first(where: { $0.fps >= 120 }) else {
-                return
-            }
-            frameRate = slowMoRate
-            slowMotionEnabled = true
-        } else {
-            if frameRate.fps >= 120 {
-                frameRate = .fps30
-            }
-            slowMotionEnabled = false
         }
     }
 
@@ -238,7 +193,6 @@ final class VideoRecordingSettings {
         quality = .high1080p
         format = .hevc
         frameRate = .fps30
-        slowMotionEnabled = false
         audioEnabled = true
         stabilizationMode = .auto
         
@@ -249,18 +203,18 @@ final class VideoRecordingSettings {
     
     // MARK: - Computed Properties
     
-    /// Estimated file size per minute of video (in MB)
+    /// Estimated file size per minute of video (in MB) at the current settings.
     var estimatedFileSizePerMinute: Double {
-        let baseSize = quality.estimatedMBPerMinute
-        let formatMultiplier = format == .hevc ? 0.7 : 1.0 // HEVC is ~30% more efficient
-        let frameRateMultiplier = frameRate.multiplier
-        
-        return baseSize * formatMultiplier * frameRateMultiplier
+        estimatedFileSizePerMinute(for: quality)
     }
-    
-    /// Whether slow-motion is available at the current quality level
-    var supportsSlowMotion: Bool {
-        return compatibleFrameRates(for: quality).contains(where: { $0.fps >= 120 })
+
+    /// Estimated MB per minute if `quality` were selected with the current format and
+    /// frame rate. Uses the rate you'd actually get: switching quality clamps an
+    /// unsupported rate to the highest compatible one (see reconcileFrameRateForQuality).
+    func estimatedFileSizePerMinute(for quality: RecordingQuality) -> Double {
+        let compatible = compatibleFrameRates(for: quality)
+        let effectiveRate = compatible.contains(frameRate) ? frameRate : (compatible.last ?? frameRate)
+        return quality.estimatedMBPerMinute * format.sizeMultiplier * effectiveRate.multiplier
     }
     
     /// Human-readable description of current settings
@@ -268,7 +222,7 @@ final class VideoRecordingSettings {
         var components: [String] = []
         components.append(quality.displayName)
         components.append(frameRate.displayName)
-        if slowMotionEnabled {
+        if isSlowMotion {
             components.append("Slow-Mo")
         }
         return components.joined(separator: " • ")
@@ -324,13 +278,15 @@ enum RecordingQuality: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Estimated file size in MB per minute of video
+    /// Estimated MB per minute of H.264 at 30 fps. Provisional figures, to be
+    /// calibrated against real recordings; `VideoFormat.sizeMultiplier` and
+    /// `FrameRate.multiplier` scale from here.
     var estimatedMBPerMinute: Double {
         switch self {
-        case .low480p: return 8.0
-        case .medium720p: return 25.0
-        case .high1080p: return 60.0
-        case .ultra4K: return 200.0
+        case .low480p: return 20.0
+        case .medium720p: return 45.0
+        case .high1080p: return 130.0
+        case .ultra4K: return 350.0
         }
     }
     
@@ -378,11 +334,12 @@ enum VideoFormat: String, CaseIterable, Identifiable {
     var fileExtension: String {
         return "mov" // Both codecs can use MOV container
     }
-    
-    var systemIcon: String {
+
+    /// File size relative to H.264 at the same resolution and frame rate.
+    var sizeMultiplier: Double {
         switch self {
-        case .hevc: return "arrow.down.circle"
-        case .h264: return "arrow.left.arrow.right.circle"
+        case .hevc: return 0.5
+        case .h264: return 1.0
         }
     }
     
@@ -417,19 +374,10 @@ enum FrameRate: String, CaseIterable, Identifiable {
         return CMTime(value: 1, timescale: CMTimeScale(fps))
     }
     
-    /// File size multiplier relative to 30fps
+    /// File size multiplier relative to 30fps. Sub-linear: encoders spend fewer
+    /// bits per frame as frames get closer together (60 fps ≈ 1.6×, 120 ≈ 2.6×).
     var multiplier: Double {
-        let baseFPS: Double = 30.0
-        return Double(fps) / baseFPS
-    }
-    
-    var systemIcon: String {
-        switch self {
-        case .fps24: return "film"
-        case .fps30: return "video"
-        case .fps60: return "video.badge.checkmark"
-        case .fps120, .fps240: return "video.badge.waveform"
-        }
+        pow(Double(fps) / 30.0, 0.7)
     }
     
     var description: String {
@@ -474,24 +422,6 @@ enum StabilizationMode: String, CaseIterable, Identifiable {
         case .auto: return .auto
         }
     }
-    
-    var systemIcon: String {
-        switch self {
-        case .off: return "camera"
-        case .standard: return "camera.viewfinder"
-        case .cinematic: return "camera.aperture"
-        case .auto: return "camera.metering.center.weighted"
-        }
-    }
-    
-    var description: String {
-        switch self {
-        case .off: return "No stabilization"
-        case .standard: return "Reduces shake"
-        case .cinematic: return "Smooth, movie-like"
-        case .auto: return "Automatic selection"
-        }
-    }
 }
 
 // MARK: - Helper Extensions
@@ -510,23 +440,42 @@ extension VideoRecordingSettings {
         return Self.capabilityCheckSession.canSetSessionPreset(quality.avPreset)
     }
     
-    /// Check if device supports the selected frame rate at current quality
-    func isFrameRateSupported(_ frameRate: FrameRate, for quality: RecordingQuality) -> Bool {
-        // Higher frame rates may not be available at 4K
-        if quality == .ultra4K && frameRate.fps > 60 {
-            return false
-        }
-        
-        // 240fps typically only available at lower resolutions
-        if frameRate == .fps240 && quality != .low480p {
-            return false
-        }
-        
-        return true
-    }
-    
-    /// Get compatible frame rates for the selected quality
+    /// Device camera formats never change at runtime, so each quality's answer is cached.
+    private static var frameRateCache: [RecordingQuality: [FrameRate]] = [:]
+
+    /// Frame rates the back camera can record at `quality`'s resolution. Mirrors the
+    /// recorder's format choice (`CameraViewModel.setupCamera`): exact size first, else
+    /// anything no larger — so a rate is only offered if it records at the resolution picked.
     func compatibleFrameRates(for quality: RecordingQuality) -> [FrameRate] {
+        if let cached = Self.frameRateCache[quality] { return cached }
+        guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else {
+            return Self.fallbackFrameRates(for: quality)
+        }
+
+        let targetW = Int(quality.resolution.width)
+        let targetH = Int(quality.resolution.height)
+        func dimensions(_ format: AVCaptureDevice.Format) -> (w: Int, h: Int) {
+            let d = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
+            return (Int(max(d.width, d.height)), Int(min(d.width, d.height)))
+        }
+
+        let exact = device.formats.filter { dimensions($0) == (targetW, targetH) }
+        let candidates = exact.isEmpty ? device.formats.filter { dimensions($0).w <= targetW } : exact
+        let rates = FrameRate.allCases.filter { rate in
+            candidates.contains { format in
+                format.videoSupportedFrameRateRanges.contains {
+                    $0.minFrameRate <= Double(rate.fps) && $0.maxFrameRate >= Double(rate.fps)
+                }
+            }
+        }
+
+        let result = rates.isEmpty ? [.fps30] : rates
+        Self.frameRateCache[quality] = result
+        return result
+    }
+
+    /// Used only when there is no camera (Simulator).
+    private static func fallbackFrameRates(for quality: RecordingQuality) -> [FrameRate] {
         switch quality {
         case .ultra4K:
             return [.fps24, .fps30, .fps60]

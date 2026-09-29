@@ -94,15 +94,15 @@ extension String {
     /// Validate username
     func validateUsername() -> ValidationResult {
         guard self.isNotEmpty else {
-            return .invalid("Username cannot be empty")
+            return .invalid("Name cannot be empty")
         }
         
-        guard self.count >= 3 else {
-            return .invalid("Username must be at least 3 characters")
+        guard self.count >= 2 else {
+            return .invalid("Name must be at least 2 characters")
         }
         
         guard self.count <= 30 else {
-            return .invalid("Username must be less than 30 characters")
+            return .invalid("Name must be 30 characters or fewer")
         }
         
         return .valid

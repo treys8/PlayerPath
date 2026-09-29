@@ -15,11 +15,15 @@ struct NotificationInboxView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if let listenerError = service.listenerError {
+            // With nothing cached, the error gets the full-screen retry state
+            // instead (inboxContent) — never a banner over "All caught up".
+            if let listenerError = service.listenerError, !service.recentNotifications.isEmpty {
                 listenerErrorBanner(listenerError)
             }
             inboxContent
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.surface)
         // Note: opening the inbox no longer marks everything read — doing so
         // wiped the unread state before the user could scan it. Rows mark
         // themselves read on tap (handleTap); "Mark All Read" is the explicit
@@ -41,12 +45,23 @@ struct NotificationInboxView: View {
 
     @ViewBuilder
     private var inboxContent: some View {
-        if service.recentNotifications.isEmpty {
-            ContentUnavailableView(
-                "No notifications",
-                systemImage: "bell.slash",
-                description: Text("You're all caught up. New activity from coaches and athletes will appear here.")
+        if service.recentNotifications.isEmpty, service.listenerError != nil {
+            EmptyStateView(
+                systemImage: "wifi.exclamationmark",
+                title: "Couldn't load notifications",
+                message: "Check your connection and try again.",
+                actionTitle: "Try Again",
+                buttonIcon: "arrow.clockwise",
+                action: { service.noteAppDidBecomeActive() }
             )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if service.recentNotifications.isEmpty {
+            EmptyStateView(
+                systemImage: "bell.slash",
+                title: "All caught up",
+                message: emptyMessage
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             List {
                 ForEach(service.recentNotifications) { notification in
@@ -56,10 +71,21 @@ struct NotificationInboxView: View {
                         NotificationInboxRow(notification: notification)
                     }
                     .buttonStyle(.plain)
+                    .listRowBackground(Theme.surface)
+                    .listRowSeparatorTint(Theme.divider)
                 }
             }
             .listStyle(.plain)
+            .scrollContentBackground(.hidden)
         }
+    }
+
+    /// Worded for what each role actually receives (see ActivityNotificationRouter).
+    private var emptyMessage: String {
+        if authManager.userRole == .coach {
+            return "When athletes share clips or respond to your invites, you'll see it here."
+        }
+        return "When a coach leaves feedback or sends you an invite, you'll see it here."
     }
 
     /// Surfaces a real-time listener failure (which leaves the unread counts
@@ -141,7 +167,10 @@ private struct NotificationInboxRow: View {
                     .lineLimit(3)
 
                 if let createdAt = notification.createdAt {
-                    Text(createdAt, style: .relative)
+                    // Static "5 minutes ago" — `style: .relative` ticks every
+                    // second like a timer. Clamp so slight server clock skew
+                    // never reads "in 2 seconds".
+                    Text(min(createdAt, Date()).formatted(.relative(presentation: .named)))
                         .font(.labelSmall)
                         .foregroundColor(.secondary)
                 }

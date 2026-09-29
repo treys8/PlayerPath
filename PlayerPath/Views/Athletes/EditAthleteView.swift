@@ -5,7 +5,8 @@
 //  Edits a single athlete's settings — name, sports, recruiting, stat tracking.
 //  Callers provide the NavigationStack — presented as a sheet from
 //  AthleteProfileRow's info button and the Stats tab banner, and pushed from
-//  the Profile tab's "Athlete Settings" link.
+//  the Profile tab's "Athlete Settings" link (which passes
+//  `showsDoneButton: false` — the back arrow is the exit there).
 //
 
 import SwiftUI
@@ -13,23 +14,21 @@ import SwiftData
 
 struct EditAthleteView: View {
     @Bindable var athlete: Athlete
+    /// Sheet presentations need Done; pushed ones already have a back arrow.
+    var showsDoneButton: Bool = true
+    /// When set, shows "Delete Athlete". The view only reports the confirmed
+    /// intent and dismisses — the presenter deletes after the sheet is gone,
+    /// so this view never renders a deleted @Model.
+    var onDeleteRequested: (() -> Void)? = nil
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Environment(\.ppAccent) private var ppAccent
     @State private var showingAddSportProfile = false
     @State private var showingSplit = false
+    @State private var showingDeleteConfirm = false
+    @State private var isDeleting = false
 
-    /// Sports this athlete tracks — distinct seasons' sports, falling back to
-    /// the athlete's primary-sport hint. Mirrors AthleteCard.athleteSports.
-    private var currentSports: [Season.SportType] {
-        let set = Set((athlete.seasons ?? []).map { $0.sport ?? .baseball })
-        let sorted = set.sorted { $0.rawValue < $1.rawValue }
-        if !sorted.isEmpty { return sorted }
-        if let hint = Season.SportType(rawValue: (athlete.sport ?? .baseball).rawValue.capitalized) {
-            return [hint]
-        }
-        return [.baseball]
-    }
+    private var currentSports: [Season.SportType] { athlete.trackedSports }
 
     var body: some View {
         Form {
@@ -57,7 +56,7 @@ struct EditAthleteView: View {
             } header: {
                 Text("Sports")
             } footer: {
-                Text("Each profile tracks one sport. Adding a sport creates a separate linked profile — it shares your subscription slot, with its own seasons and stats.")
+                Text("Each sport gets its own linked profile with separate seasons and stats — it doesn't use another athlete slot.")
             }
 
             if athlete.isLegacySplittable {
@@ -100,8 +99,31 @@ struct EditAthleteView: View {
             } header: {
                 Text("Statistics")
             } footer: {
-                Text("When off, new recordings save without play-result tagging and won't add to stats. Existing stats stay visible and resume updating if you turn tracking back on.")
+                if athlete.sportType == .golf {
+                    Text("When off, new recordings save without shot tagging. Your scorecards aren't affected.")
+                } else {
+                    Text("When off, new recordings save without play-result tagging and won't add to stats. Existing stats stay visible and resume updating if you turn tracking back on.")
+                }
             }
+
+            if onDeleteRequested != nil {
+                Section {
+                    Button("Delete Athlete", role: .destructive) {
+                        Haptics.warning()
+                        showingDeleteConfirm = true
+                    }
+                }
+            }
+        }
+        .confirmationDialog("Delete \(athlete.name)?", isPresented: $showingDeleteConfirm, titleVisibility: .visible) {
+            Button("Delete", role: .destructive) {
+                Haptics.heavy()
+                isDeleting = true
+                onDeleteRequested?()
+                dismiss()
+            }
+        } message: {
+            Text("This will delete the athlete and related data. This action cannot be undone.")
         }
         .scrollContentBackground(.hidden)
         .background(Theme.surface)
@@ -132,16 +154,17 @@ struct EditAthleteView: View {
             // the view can go away — matches iOS Settings-style "changes
             // apply immediately" behavior without depending on Done.
             ErrorHandlerService.shared.saveContext(modelContext, caller: "EditAthleteView.onDisappear")
-            if athlete.needsSync, let user = athlete.user {
+            // A delete is about to run — syncing now would race it (touch the
+            // deleted row, or re-upload the doc it tombstones).
+            if !isDeleting, athlete.needsSync, let user = athlete.user {
                 Task { try? await SyncCoordinator.shared.syncAthletes(for: user) }
             }
         }
         .toolbar {
-            // Done serves as the explicit dismiss control in sheet
-            // presentations. In push context the back arrow handles it;
-            // the extra button is harmless but visible.
-            ToolbarItem(placement: .confirmationAction) {
-                Button("Done") { dismiss() }
+            if showsDoneButton {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
             }
         }
     }

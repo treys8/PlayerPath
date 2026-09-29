@@ -257,7 +257,7 @@ struct ProfileView: View {
         items.append(SearchResult(
             title: "Video Recording",
             icon: "video.fill",
-            keywords: ["video", "recording", "4k", "quality", "camera", "resolution", "fps"],
+            keywords: ["video", "recording", "4k", "quality", "camera", "resolution", "fps", "upload", "auto-upload", "cellular", "cloud"],
             link: AnyView(
                 NavigationLink {
                     VideoRecordingSettingsView()
@@ -435,7 +435,7 @@ struct ProfileView: View {
                 keywords: ["athlete", "settings", "edit", "profile", "name", "sport"],
                 link: AnyView(
                     NavigationLink {
-                        EditAthleteView(athlete: selectedAthlete)
+                        EditAthleteView(athlete: selectedAthlete, showsDoneButton: false)
                     } label: {
                         Label("Athlete Settings", systemImage: "slider.horizontal.3")
                     }
@@ -494,7 +494,7 @@ struct ProfileView: View {
         items.append(SearchResult(
             title: "App Preferences",
             icon: "slider.horizontal.3",
-            keywords: ["app", "preferences", "haptics", "tips", "auto-upload", "analytics", "interface"],
+            keywords: ["app", "preferences", "haptics", "tips", "analytics", "interface"],
             link: AnyView(
                 NavigationLink {
                     UserPreferencesView()
@@ -541,7 +541,7 @@ struct ProfileView: View {
 
             if let selectedAthlete = selectedAthlete {
                 NavigationLink {
-                    EditAthleteView(athlete: selectedAthlete)
+                    EditAthleteView(athlete: selectedAthlete, showsDoneButton: false)
                 } label: {
                     Label("Athlete Settings", systemImage: "slider.horizontal.3")
                 }
@@ -601,7 +601,8 @@ struct ProfileView: View {
             ForEach(sortedAthletes) { athlete in
                 AthleteProfileRow(
                     athlete: athlete,
-                    isSelected: athlete.id == selectedAthlete?.id
+                    isSelected: athlete.id == selectedAthlete?.id,
+                    onDelete: { delete(athlete: athlete) }
                 ) {
                     selectedAthlete = athlete
 
@@ -898,21 +899,16 @@ struct AthleteProfileRow: View {
     /// already the section header, so each linked profile reads as its sport
     /// ("Baseball" / "Golf") rather than repeating the name on every row.
     var titleOverride: String? = nil
+    /// When set, the settings sheet offers "Delete Athlete". Called only after
+    /// the sheet has fully dismissed, so no live view is holding the row.
+    var onDelete: (() -> Void)? = nil
     let onSelect: () -> Void
 
     @State private var showingEdit = false
-    @State private var showingAddSport = false
+    @State private var deleteAfterDismiss = false
     @Environment(\.ppAccent) private var ppAccent
 
-    private var athleteSports: [Season.SportType] {
-        let set = Set((athlete.seasons ?? []).map { $0.sport ?? .baseball })
-        let sorted = set.sorted { $0.rawValue < $1.rawValue }
-        if !sorted.isEmpty { return sorted }
-        if let hint = Season.SportType(rawValue: (athlete.sport ?? .baseball).rawValue.capitalized) {
-            return [hint]
-        }
-        return [.baseball]
-    }
+    private var athleteSports: [Season.SportType] { athlete.trackedSports }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -940,8 +936,9 @@ struct AthleteProfileRow: View {
 
                         let gamesCount = (athlete.games ?? []).count
                         let videosCount = (athlete.videoClips ?? []).count
+                        let isGolf = athlete.sportType == .golf
                         HStack {
-                            Text("\(gamesCount) \(gamesCount == 1 ? "game" : "games")")
+                            Text("\(gamesCount) \(gamesCount == 1 ? (isGolf ? "round" : "game") : (isGolf ? "rounds" : "games"))")
                             Text("•")
                             Text("\(videosCount) \(videosCount == 1 ? "clip" : "clips")")
                             if !athlete.trackStatsEnabled {
@@ -959,7 +956,6 @@ struct AthleteProfileRow: View {
                     if isSelected {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundColor(ppAccent)
-                            .accessibilityLabel("Selected")
                             .accessibilityHidden(true)
                     }
                 }
@@ -968,22 +964,6 @@ struct AthleteProfileRow: View {
             .buttonStyle(.plain)
             .accessibilityHint("Select this athlete")
             .accessibilityValue(isSelected ? "Selected" : "Not selected")
-
-            if athlete.canAddSportProfile {
-                Button {
-                    Haptics.light()
-                    showingAddSport = true
-                } label: {
-                    Image(systemName: "plus.circle")
-                        .font(.title3)
-                        .foregroundColor(ppAccent)
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Add a sport for \(athlete.name)")
-                .accessibilityHint("Add a separate linked profile in a new sport")
-            }
 
             Button {
                 Haptics.light()
@@ -1007,15 +987,17 @@ struct AthleteProfileRow: View {
             }
             .tint(ppAccent)
         }
-        .sheet(isPresented: $showingEdit) {
-            NavigationStack { EditAthleteView(athlete: athlete) }
-        }
-        .sheet(isPresented: $showingAddSport) {
+        .sheet(isPresented: $showingEdit, onDismiss: {
+            guard deleteAfterDismiss else { return }
+            deleteAfterDismiss = false
+            onDelete?()
+        }) {
             NavigationStack {
-                AddSportProfileSheet(sourceAthlete: athlete)
+                EditAthleteView(
+                    athlete: athlete,
+                    onDeleteRequested: onDelete == nil ? nil : { deleteAfterDismiss = true }
+                )
             }
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
         }
     }
 }

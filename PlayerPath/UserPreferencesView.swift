@@ -11,6 +11,7 @@ import TipKit
 
 struct UserPreferencesView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.ppAccent) private var ppAccent
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @State private var viewModel = UserPreferencesViewModel()
     @State private var showingResetTipsConfirm = false
@@ -27,13 +28,11 @@ struct UserPreferencesView: View {
                 Form {
                     if !isCoach {
                         videoRecordingSection()
+                        uploadSettingsLinkSection()
                     } else {
                         generalSection()
                     }
                     uiPreferencesSection()
-                    if !isCoach {
-                        cloudSyncSection()
-                    }
                     privacyAnalyticsSection()
                 }
             } else {
@@ -41,35 +40,14 @@ struct UserPreferencesView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .navigationTitle("Settings")
+        .scrollContentBackground(.hidden)
+        .background(Theme.surface)
+        .tint(ppAccent)
+        .navigationTitle("App Preferences")
         .navigationBarTitleDisplayMode(.inline)
         .task {
             viewModel.attach(modelContext: modelContext)
             await viewModel.load()
-        }
-        .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                if viewModel.hasUnsavedChanges {
-                    Button("Save") {
-                        Task {
-                            do {
-                                try await viewModel.save()
-                            } catch {
-                                ErrorHandlerService.shared.handle(error, context: "UserPreferences.save", showAlert: true)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        .onDisappear {
-            // Auto-save on navigating away to prevent losing changes
-            if viewModel.hasUnsavedChanges {
-                Task {
-                    do { try await viewModel.save() }
-                    catch { ErrorHandlerService.shared.handle(error, context: "UserPreferences.autoSave", showAlert: false) }
-                }
-            }
         }
     }
 
@@ -77,15 +55,6 @@ struct UserPreferencesView: View {
 
     private func videoRecordingSection() -> some View {
         Section {
-            Picker("Auto-Upload Videos", selection: Binding<AutoUploadMode>(
-                get: { viewModel.preferences?.autoUploadMode ?? .wifiOnly },
-                set: { viewModel.update(\.autoUploadMode, to: $0) }
-            )) {
-                ForEach(AutoUploadMode.allCases, id: \.self) { mode in
-                    Label(mode.displayName, systemImage: mode.icon).tag(mode)
-                }
-            }
-
             Toggle("Save to Photos Library", isOn: Binding(
                 get: { viewModel.preferences?.saveToPhotosLibrary ?? false },
                 set: { viewModel.update(\.saveToPhotosLibrary, to: $0) }
@@ -93,11 +62,22 @@ struct UserPreferencesView: View {
 
             Toggle("Haptic Feedback", isOn: $hapticFeedbackEnabled)
         } header: {
-            Text("Video Recording")
-        } footer: {
-            if let mode = viewModel.preferences?.autoUploadMode {
-                Text(mode.description)
+            Text("General")
+        }
+    }
+
+    /// Upload settings (auto-upload, cellular, highlights-only, file-size cap,
+    /// auto-delete) live only in VideoRecordingSettingsView — one home, one
+    /// save model. This row points there.
+    private func uploadSettingsLinkSection() -> some View {
+        Section {
+            NavigationLink {
+                VideoRecordingSettingsView()
+            } label: {
+                Label("Upload & Recording", systemImage: "icloud.and.arrow.up")
             }
+        } footer: {
+            Text("Auto-upload, cellular, and file-size settings live in Video Recording.")
         }
     }
 
@@ -137,38 +117,6 @@ struct UserPreferencesView: View {
             Button("Cancel", role: .cancel) { }
         } message: {
             Text("Hints you've already dismissed will show again the next time you visit each tab.")
-        }
-    }
-
-    private func cloudSyncSection() -> some View {
-        Section {
-            Toggle("Sync Highlights Only", isOn: Binding(
-                get: { viewModel.preferences?.syncHighlightsOnly ?? false },
-                set: { viewModel.update(\.syncHighlightsOnly, to: $0) }
-            ))
-
-            HStack {
-                Text("Max File Size")
-                Spacer()
-                Text("\(viewModel.preferences?.maxVideoFileSize ?? 500) MB")
-                    .foregroundColor(.secondary)
-            }
-
-            Slider(
-                value: Binding<Double>(
-                    get: { Double(viewModel.preferences?.maxVideoFileSize ?? 500) },
-                    set: { viewModel.update(\.maxVideoFileSize, to: Int($0)) }
-                ),
-                in: 50...2000,
-                step: 50
-            )
-
-            Toggle("Auto-delete After Upload", isOn: Binding(
-                get: { viewModel.preferences?.autoDeleteAfterUpload ?? false },
-                set: { viewModel.update(\.autoDeleteAfterUpload, to: $0) }
-            ))
-        } header: {
-            Text("Cloud Storage")
         }
     }
 

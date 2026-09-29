@@ -29,11 +29,11 @@ struct AthleteFoldersListView: View {
     }
     
     enum SheetType: Identifiable {
-        case createFolder
-        
+        case inviteCoach
+
         var id: String {
             switch self {
-            case .createFolder: return "createFolder"
+            case .inviteCoach: return "inviteCoach"
             }
         }
     }
@@ -59,7 +59,7 @@ struct AthleteFoldersListView: View {
     }
 
     private var showSortControl: Bool {
-        folderManager.athleteFolders.count >= 5
+        scopedFolders.count >= 5
     }
 
     private func unreadCount(for folder: SharedFolder) -> Int {
@@ -114,19 +114,25 @@ struct AthleteFoldersListView: View {
                         }
                     }
                 }
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        activeSheet = .createFolder
-                        Haptics.light()
-                    } label: {
-                        Image(systemName: "plus.circle.fill")
+                // Empty state has its own "Invite a Coach" button — don't double it.
+                if !scopedFolders.isEmpty {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button {
+                            activeSheet = .inviteCoach
+                            Haptics.light()
+                        } label: {
+                            Image(systemName: "plus")
+                        }
+                        .accessibilityLabel("Invite a coach")
                     }
                 }
             }
             .sheet(item: $activeSheet) { sheet in
                 switch sheet {
-                case .createFolder:
-                    CreateFolderView(athlete: athlete)
+                case .inviteCoach:
+                    // Invitation only — the folder is created server-side when the
+                    // coach accepts, so an unaccepted invite never leaves an orphan.
+                    InviteCoachSheet(athlete: athlete)
                 }
             }
             .alert("Folder Error", isPresented: $showingError) {
@@ -163,16 +169,21 @@ struct AthleteFoldersListView: View {
     // MARK: - Empty State
     
     private var emptyState: some View {
-        EmptyStateView(
-            systemImage: "folder.badge.person.crop",
-            title: "No Shared Folders Yet",
-            message: "Create a folder to share videos with your coach. They'll be able to upload videos and provide feedback.",
-            actionTitle: "Create Folder",
-            action: {
-                activeSheet = .createFolder
-            }
-        )
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // In a ScrollView so pull-to-refresh works and the iOS 26 minimized
+        // tab bar has scroll content to respond to.
+        ScrollView {
+            EmptyStateView(
+                systemImage: "folder.badge.person.crop",
+                title: "No Shared Folders Yet",
+                message: "Invite your coach to start sharing videos. Their folder appears here once they accept, and they can upload videos and leave feedback.",
+                actionTitle: "Invite a Coach",
+                buttonIcon: "person.badge.plus",
+                action: {
+                    activeSheet = .inviteCoach
+                }
+            )
+            .containerRelativeFrame([.horizontal, .vertical])
+        }
         .background(Theme.surface)
     }
     

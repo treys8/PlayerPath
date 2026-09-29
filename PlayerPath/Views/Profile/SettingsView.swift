@@ -29,7 +29,7 @@ struct SettingsView: View {
         Form {
             Section("Account") {
                 HStack {
-                    Text("Username")
+                    Text("Name")
                     Spacer()
                     Text(user.username)
                         .foregroundColor(.secondary)
@@ -57,12 +57,12 @@ struct SettingsView: View {
                 }
             }
 
-            Section("Subscription") {
+            Section {
                 RedeemOfferCodeRow()
-
+            } header: {
+                Text("Subscription")
+            } footer: {
                 Text("Have a PlayerPath promo code? Redeem it here to apply a free or discounted plan.")
-                    .font(.bodySmall)
-                    .foregroundColor(.secondary)
             }
 
             Section("Preferences") {
@@ -74,20 +74,22 @@ struct SettingsView: View {
             }
 
             if hasGolfAthlete {
-                Section("Golf") {
+                Section {
                     Toggle(isOn: $trackDetailedGolfStats) {
                         Label("Track Detailed Stats", systemImage: "flag.fill")
                     }
+                } header: {
+                    Text("Golf")
+                } footer: {
                     Text("Adds fairway, green-in-regulation, and penalty inputs when scoring a round.")
-                        .font(.bodySmall)
-                        .foregroundColor(.secondary)
+                }
 
+                Section {
                     Toggle(isOn: $preferShotByShot) {
                         Label("Default to Shot-by-Shot", systemImage: "scope")
                     }
+                } footer: {
                     Text("New rounds open the shot-by-shot card when you score a hole. You can still switch to Quick on any hole.")
-                        .font(.bodySmall)
-                        .foregroundColor(.secondary)
                 }
             }
 

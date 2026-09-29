@@ -18,10 +18,6 @@ struct StorageInfo {
     let percentageAvailable: Double
     let estimatedMinutesOfVideo: Int
     
-    var formattedAvailableSpace: String {
-        String(format: "%.1f GB", availableGB)
-    }
-    
     var isLowStorage: Bool {
         // Less than 500 MB is considered low
         availableBytes < StorageConstants.minimumFreeStorageBytes
@@ -35,7 +31,9 @@ struct StorageInfo {
     var storageLevel: StorageLevel {
         if isCriticallyLowStorage {
             return .critical
-        } else if isLowStorage {
+        } else if isLowStorage || estimatedMinutesOfVideo < 60 {
+            // Under an hour of recording is "low" for a video app, whatever the
+            // percentage — 1% of a 1 TB disk still reads as nearly full.
             return .low
         } else if percentageAvailable > 0.5 {
             return .good

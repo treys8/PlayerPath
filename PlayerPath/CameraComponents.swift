@@ -192,18 +192,6 @@ struct CameraSettingsView: View {
                 }
 
                 Section("Advanced") {
-                    Toggle("Slow Motion", isOn: Binding(
-                        get: { viewModel.settings.slowMotionEnabled },
-                        set: { viewModel.settings.setSlowMotionEnabled($0) }
-                    ))
-                    .disabled(!viewModel.settings.slowMotionEnabled && !viewModel.settings.supportsSlowMotion)
-
-                    if !viewModel.settings.supportsSlowMotion {
-                        Text("Requires 120fps or higher")
-                            .font(.bodySmall)
-                            .foregroundColor(.secondary)
-                    }
-
                     Toggle("Audio Recording", isOn: $viewModel.settings.audioEnabled)
 
                     Picker("Format", selection: $viewModel.settings.format) {

@@ -79,7 +79,7 @@ struct SeasonRecapView: View {
                 Text(season.displayName)
                     .font(.ppTitle)
                     .foregroundStyle(Theme.textPrimary)
-                if let range = dateRangeText {
+                if let range = season.dateRangeText {
                     Text(range)
                         .font(.ppSubheadline)
                         .foregroundStyle(Theme.textSecondary)
@@ -310,15 +310,6 @@ struct SeasonRecapView: View {
     }
 
     // MARK: - Formatting helpers
-
-    private var dateRangeText: String? {
-        guard let start = season.startDate else { return nil }
-        let startStr = start.formatted(date: .abbreviated, time: .omitted)
-        if let end = season.endDate {
-            return "\(startStr) – \(end.formatted(date: .abbreviated, time: .omitted))"
-        }
-        return season.isActive ? "\(startStr) – In Progress" : startStr
-    }
 
     /// Matches `SeasonDetailView`'s batting-average formatting.
     private func battingAvgDisplay(_ avg: Double) -> String {
