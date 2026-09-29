@@ -26,6 +26,15 @@ struct StorageSettingsView: View {
     private var cloudLimitBytes: Int64 {
         Int64(SubscriptionGate.effectiveAthleteTier.storageLimitGB) * StorageConstants.bytesPerGB
     }
+    /// Cloud limits are defined in binary GB (`StorageConstants.bytesPerGB`), so
+    /// format with `.binary` — `.file` style divides by 1000³ and shows a 100 GB
+    /// plan as "107.37 GB".
+    private static func cloudBytes(_ bytes: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useGB, .useMB, .useKB]
+        formatter.countStyle = .binary
+        return formatter.string(fromByteCount: bytes)
+    }
     private var cloudFraction: Double {
         cloudLimitBytes > 0 ? min(1.0, Double(cloudUsedBytes) / Double(cloudLimitBytes)) : 0
     }
@@ -69,27 +78,27 @@ struct StorageSettingsView: View {
                         // Storage details
                         VStack(alignment: .leading, spacing: 4) {
                             HStack {
-                                Text("Available:")
+                                Text("Available")
                                 Spacer()
-                                Text(info.formattedAvailableSpace)
+                                Text(StorageManager.formatBytes(info.availableBytes))
                                     .foregroundColor(.secondary)
                             }
 
                             HStack {
-                                Text("Total:")
+                                Text("Total")
                                 Spacer()
                                 Text(StorageManager.formatBytes(info.totalBytes))
                                     .foregroundColor(.secondary)
                             }
 
                             HStack {
-                                Text("Estimated Recording Time:")
+                                Text("Estimated Recording Time")
                                 Spacer()
                                 Text("\(info.estimatedMinutesOfVideo) min")
                                     .foregroundColor(.secondary)
                             }
                         }
-                        .font(.bodySmall)
+                        .font(.bodyMedium)
                     }
                 } else {
                     HStack {
@@ -166,12 +175,12 @@ struct StorageSettingsView: View {
                     .frame(height: 8)
 
                     HStack {
-                        Text("Used:")
+                        Text("Used")
                         Spacer()
-                        Text("\(StorageManager.formatBytes(cloudUsedBytes)) of \(StorageManager.formatBytes(cloudLimitBytes))")
+                        Text("\(Self.cloudBytes(cloudUsedBytes)) of \(Self.cloudBytes(cloudLimitBytes))")
                             .foregroundColor(.secondary)
                     }
-                    .font(.bodySmall)
+                    .font(.bodyMedium)
 
                     if cloudFraction >= 0.9 {
                         Text("You're near your plan's cloud limit — new videos and photos may stop uploading. Free up space or upgrade your plan.")

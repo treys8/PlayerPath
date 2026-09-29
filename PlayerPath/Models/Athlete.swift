@@ -126,6 +126,14 @@ final class Athlete {
         Season.SportType(rawValue: (sport ?? .baseball).rawValue.capitalized) ?? .baseball
     }
 
+    /// Sports this profile's own seasons cover, sorted — falling back to
+    /// `sportType` when there are no seasons yet. More than one entry only for a
+    /// legacy multi-sport row (see `isLegacySplittable`).
+    var trackedSports: [Season.SportType] {
+        let sports = Set((seasons ?? []).map { $0.sport ?? .baseball })
+        return sports.isEmpty ? [sportType] : sports.sorted { $0.rawValue < $1.rawValue }
+    }
+
     /// Distinct sports already covered by this person's linked profiles (same
     /// `personGroupID`, falling back to `id` for ungrouped singletons). Each
     /// profile is one sport, so multi-sport people are modeled as spinoff

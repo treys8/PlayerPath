@@ -208,7 +208,7 @@ struct ModernCameraView: View {
 
     @ViewBuilder
     private var slowMoBadge: some View {
-        if viewModel.settings.slowMotionEnabled {
+        if viewModel.settings.isSlowMotion {
             Text("SLOW-MO")
                 .font(.system(size: 11, weight: .bold))
                 .foregroundColor(.white)

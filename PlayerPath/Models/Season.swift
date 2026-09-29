@@ -221,6 +221,24 @@ final class Season {
         (sport ?? .baseball) == .golf ? "Rounds" : "Games"
     }
 
+    /// Count-aware noun for game-like events ("1 Game", "2 Rounds").
+    func gameUnitNoun(count: Int) -> String {
+        let isGolf = (sport ?? .baseball) == .golf
+        if count == 1 { return isGolf ? "Round" : "Game" }
+        return gameUnitNounPlural
+    }
+
+    /// "Mar 2, 2026 – Jul 18, 2026", "… – In Progress" for an open active season,
+    /// or just the start date. Nil when the season has no start date.
+    var dateRangeText: String? {
+        guard let start = startDate else { return nil }
+        let startStr = start.formatted(date: .abbreviated, time: .omitted)
+        if let end = endDate {
+            return "\(startStr) – \(end.formatted(date: .abbreviated, time: .omitted))"
+        }
+        return isActive ? "\(startStr) – In Progress" : startStr
+    }
+
     enum SportType: String, Codable, CaseIterable {
         case baseball = "Baseball"
         case softball = "Softball"

@@ -40,7 +40,7 @@ struct EditAccountView: View {
 
     var body: some View {
         Form {
-            Section("Profile Picture") {
+            Section {
                 HStack {
                     Spacer()
                     EditableProfileImageView(user: user, size: .profileLarge) { newPath in
@@ -57,23 +57,32 @@ struct EditAccountView: View {
                     Spacer()
                 }
                 .padding(.vertical, 8)
+                // Avatar floats on the cream background rather than in a card.
+                .listRowBackground(Color.clear)
             }
 
-            Section("Account Information") {
-                TextField("Username", text: $username)
-                    .focused($usernameFocused)
-                    .submitLabel(.next)
-                    .onSubmit { emailFocused = true }
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled(true)
+            Section("Account") {
+                LabeledContent("Name") {
+                    TextField("Name", text: $username)
+                        .multilineTextAlignment(.trailing)
+                        .focused($usernameFocused)
+                        .submitLabel(.next)
+                        .onSubmit { emailFocused = true }
+                        .textInputAutocapitalization(.words)
+                        .textContentType(.name)
+                }
 
-                TextField("Email", text: $email)
-                    .focused($emailFocused)
-                    .submitLabel(.done)
-                    .onSubmit { emailFocused = false }
-                    .keyboardType(.emailAddress)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled(true)
+                LabeledContent("Email") {
+                    TextField("Email", text: $email)
+                        .multilineTextAlignment(.trailing)
+                        .focused($emailFocused)
+                        .submitLabel(.done)
+                        .onSubmit { emailFocused = false }
+                        .keyboardType(.emailAddress)
+                        .textContentType(.emailAddress)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled(true)
+                }
 
                 if !email.isEmpty && !email.isValidEmail {
                     Label("Please enter a valid email address", systemImage: "exclamationmark.triangle.fill")
@@ -81,16 +90,17 @@ struct EditAccountView: View {
                         .foregroundColor(.warning)
                 }
             }
-
-            Section {
-                Button {
-                    Task {
-                        await save()
+        }
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                if isSaving {
+                    ProgressView()
+                } else {
+                    Button("Save") {
+                        Task { await save() }
                     }
-                } label: {
-                    LoadingButtonContent(text: "Save Changes", isLoading: isSaving)
+                    .disabled(!canSave)
                 }
-                .disabled(!canSave)
             }
         }
         .scrollDismissesKeyboard(.interactively)

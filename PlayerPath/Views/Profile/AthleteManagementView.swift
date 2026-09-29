@@ -218,7 +218,8 @@ struct AthleteManagementView: View {
                     ForEach(singletonAthletes) { athlete in
                         AthleteProfileRow(
                             athlete: athlete,
-                            isSelected: athlete.id == selectedAthlete?.id
+                            isSelected: athlete.id == selectedAthlete?.id,
+                            onDelete: { delete(athlete: athlete) }
                         ) {
                             selectedAthlete = athlete
                         }
@@ -241,7 +242,8 @@ struct AthleteManagementView: View {
                         AthleteProfileRow(
                             athlete: athlete,
                             isSelected: athlete.id == selectedAthlete?.id,
-                            titleOverride: athlete.sportType.displayName
+                            titleOverride: athlete.sportType.displayName,
+                            onDelete: { delete(athlete: athlete) }
                         ) {
                             selectedAthlete = athlete
                         }
@@ -275,11 +277,6 @@ struct AthleteManagementView: View {
         .tint(ppAccent)
         .navigationTitle("Manage Athletes")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                EditButton()
-            }
-        }
         .sheet(isPresented: $showingAddAthlete) {
             AddAthleteView(user: user, selectedAthlete: $selectedAthlete, isFirstAthlete: (user.athletes ?? []).isEmpty)
         }
