@@ -81,8 +81,8 @@ struct ImprovedPaywallView: View {
                         .disabled(isPurchasing)
                 }
             }
-            .sheet(isPresented: $showingTerms) { TermsOfServiceView() }
-            .sheet(isPresented: $showingPrivacyPolicy) { PrivacyPolicyView() }
+            .sheet(isPresented: $showingTerms) { LegalSheet { TermsOfServiceView() } }
+            .sheet(isPresented: $showingPrivacyPolicy) { LegalSheet { PrivacyPolicyView() } }
             .alert("Purchase Failed", isPresented: Binding(
                 get: { storeManager.error != nil },
                 set: { if !$0 { storeManager.clearError() } }

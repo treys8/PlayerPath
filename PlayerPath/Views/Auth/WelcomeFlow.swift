@@ -181,10 +181,10 @@ struct WelcomeFlow: View {
             .toolbar(.hidden, for: .navigationBar)
         }
         .sheet(isPresented: $showingTerms) {
-            TermsOfServiceView()
+            LegalSheet { TermsOfServiceView() }
         }
         .sheet(isPresented: $showingPrivacyPolicy) {
-            PrivacyPolicyView()
+            LegalSheet { PrivacyPolicyView() }
         }
         .sheet(item: $activeSheet) { sheet in
             switch sheet {

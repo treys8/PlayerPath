@@ -131,8 +131,8 @@ struct ComprehensiveSignInView: View {
             }
         }
         .sheet(isPresented: $showingResetPasswordSheet) { ResetPasswordSheet(email: email) }
-        .sheet(isPresented: $showingTerms) { TermsOfServiceView() }
-        .sheet(isPresented: $showingPrivacyPolicy) { PrivacyPolicyView() }
+        .sheet(isPresented: $showingTerms) { LegalSheet { TermsOfServiceView() } }
+        .sheet(isPresented: $showingPrivacyPolicy) { LegalSheet { PrivacyPolicyView() } }
         // Apple sign-up sits above the age checkbox, so an unchecked box is
         // confirmed here instead of leaving the button dimmed with no reason.
         .alert("Before You Continue", isPresented: $showingAppleAgeConfirm) {
