@@ -382,7 +382,7 @@ enum FrameRate: String, CaseIterable, Identifiable {
     
     var description: String {
         switch self {
-        case .fps24: return "Cinematic look"
+        case .fps24: return "Film look, choppy for fast motion"
         case .fps30: return "Standard video"
         case .fps60: return "Smooth motion"
         case .fps120: return "Slow-motion capable"
