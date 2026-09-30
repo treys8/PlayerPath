@@ -81,6 +81,7 @@ struct VideoRecordingSettingsView: View {
             ForEach(RecordingQuality.allCases) { quality in
                 QualityRow(
                     quality: quality,
+                    subtitle: qualityDescription(quality),
                     mbPerMinute: settings.estimatedFileSizePerMinute(for: quality),
                     isSelected: settings.quality == quality,
                     isSupported: settings.isQualitySupported(quality)
@@ -125,7 +126,8 @@ struct VideoRecordingSettingsView: View {
                 FrameRateRow(
                     frameRate: frameRate,
                     isSelected: settings.frameRate == frameRate,
-                    isCompatible: isCompatible
+                    isCompatible: isCompatible,
+                    unavailableText: isCompatible ? "" : unavailableLabel(for: frameRate)
                 ) {
                     // Model's `frameRate.didSet` persists; incompatible rows are disabled.
                     settings.frameRate = frameRate
@@ -137,8 +139,14 @@ struct VideoRecordingSettingsView: View {
         } header: {
             Text("Frame Rate")
         } footer: {
-            Text("120 fps and up records slow-motion. Higher frame rates make larger files, and the fastest rates aren't available at every resolution.")
-                .font(.ppFootnote)
+            Group {
+                if role == .coach {
+                    Text("120 fps and up records slow-motion. Higher frame rates make larger files. 60 fps or higher gives smoother frame-by-frame review of swings and throws.")
+                } else {
+                    Text("120 fps and up records slow-motion. Higher frame rates make larger files.")
+                }
+            }
+            .font(.ppFootnote)
         }
     }
 
@@ -159,10 +167,10 @@ struct VideoRecordingSettingsView: View {
                         .tag(mode)
                 }
             } label: {
-                SettingLabel(icon: "gyroscope", iconColor: ppAccent, title: "Stabilization")
+                SettingLabel(icon: "camera.viewfinder", iconColor: ppAccent, title: "Stabilization")
             }
         } header: {
-            Text("Additional Settings")
+            Text("Camera")
         } footer: {
             Text("Reduces camera shake. Auto picks the best mode for your resolution and frame rate.")
                 .font(.ppFootnote)
@@ -257,8 +265,8 @@ struct VideoRecordingSettingsView: View {
             set: { prefs.allowCellularUploads = $0; ErrorHandlerService.shared.saveContext(modelContext, caller: "RecordingSettings.cellularUploads") }
         )) {
             SettingLabel(
-                icon: prefs.allowCellularUploads ? "antenna.radiowaves.left.and.right" : "wifi",
-                iconColor: prefs.allowCellularUploads ? Theme.warning : ppAccent,
+                icon: "antenna.radiowaves.left.and.right",
+                iconColor: prefs.allowCellularUploads ? Theme.warning : .secondary,
                 title: "Allow Cellular Uploads",
                 subtitle: "May use significant mobile data"
             )
@@ -352,7 +360,7 @@ struct VideoRecordingSettingsView: View {
                         icon: "timer",
                         iconColor: ppAccent,
                         title: "Auto-Skip for Short Clips",
-                        subtitle: "Skip trimmer for videos under \(Int(TrimmerPrefKeys.shortClipThreshold)) seconds"
+                        subtitle: "Under \(Int(TrimmerPrefKeys.shortClipThreshold)) seconds"
                     )
                 }
                 .onChange(of: skipTrimmerForShortClips) { _, _ in
@@ -363,7 +371,14 @@ struct VideoRecordingSettingsView: View {
             Text("Recording Workflow")
         } footer: {
             Group {
-                if autoShowTrimmer {
+                // Coaches have no trim-after-save path, and coach clips are never tagged.
+                if role == .coach {
+                    if autoShowTrimmer {
+                        Text("The trimmer appears after every recording so you can cut clips before they're saved.")
+                    } else {
+                        Text("Clips under \(Int(TrimmerPrefKeys.shortClipThreshold)) seconds skip the trimmer. Trim before saving — clips can't be trimmed afterward.")
+                    }
+                } else if autoShowTrimmer {
                     Text("The video trimmer will appear after every recording, allowing you to precisely edit start and end points.")
                 } else {
                     Text("Clips under \(Int(TrimmerPrefKeys.shortClipThreshold)) seconds skip the trimmer so you can tag faster. You can still trim any clip later.")
@@ -383,6 +398,28 @@ struct VideoRecordingSettingsView: View {
                     .frame(maxWidth: .infinity, alignment: .center)
             }
         }
+    }
+
+    // MARK: - Row Copy
+
+    /// Coaches pick quality for reviewing mechanics, so their copy speaks to that.
+    /// Kept short: the row appends " · ~NN MB/min".
+    private func qualityDescription(_ quality: RecordingQuality) -> String {
+        guard role == .coach else { return quality.description }
+        switch quality {
+        case .low480p: return "Too soft for mechanics"
+        case .medium720p: return "Fine for quick feedback"
+        case .high1080p: return "Sharp detail, recommended"
+        case .ultra4K: return "Most detail, large uploads"
+        }
+    }
+
+    /// "Needs 720p" — the highest supported quality that offers this frame rate.
+    private func unavailableLabel(for rate: FrameRate) -> String {
+        let quality = RecordingQuality.allCases.reversed().first {
+            settings.isQualitySupported($0) && settings.compatibleFrameRates(for: $0).contains(rate)
+        }
+        return quality.map { "Needs \($0.rawValue)" } ?? "Not available"
     }
 
     // MARK: - Actions
@@ -447,6 +484,7 @@ private struct SettingLabel: View {
 
 struct QualityRow: View {
     let quality: RecordingQuality
+    let subtitle: String
     let mbPerMinute: Double
     let isSelected: Bool
     let isSupported: Bool
@@ -459,31 +497,31 @@ struct QualityRow: View {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(quality.displayName)
-                        .font(.bodyLarge)
+                        .font(.ppBody)
                         .foregroundStyle(isSupported ? .primary : .secondary)
 
-                    Text("\(quality.description) · ~\(Int(mbPerMinute.rounded())) MB/min")
-                        .font(.bodySmall)
+                    Text("\(subtitle) · ~\(Int(mbPerMinute.rounded())) MB/min")
+                        .font(.ppFootnote)
                         .foregroundStyle(.secondary)
                 }
 
                 Spacer()
 
-                if isSelected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(ppAccent)
-                        .font(.title3)
-                }
-
                 if !isSupported {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(Theme.warning)
-                        .font(.bodySmall)
+                    // Stays tappable — the tap explains why via an alert.
+                    Text("Not available")
+                        .font(.ppFootnote)
+                        .foregroundStyle(.secondary)
+                } else if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(ppAccent)
+                        .font(.title3)
                 }
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 
@@ -501,10 +539,10 @@ struct FormatRow: View {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(format.displayName)
-                        .font(.bodyLarge)
+                        .font(.ppBody)
 
                     Text(format.description)
-                        .font(.bodySmall)
+                        .font(.ppFootnote)
                         .foregroundStyle(.secondary)
                 }
 
@@ -512,13 +550,14 @@ struct FormatRow: View {
 
                 if isSelected {
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(ppAccent)
+                        .foregroundStyle(ppAccent)
                         .font(.title3)
                 }
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 
@@ -528,6 +567,8 @@ struct FrameRateRow: View {
     let frameRate: FrameRate
     let isSelected: Bool
     let isCompatible: Bool
+    /// Shown in place of the checkmark when incompatible, e.g. "Needs 720p".
+    let unavailableText: String
     let action: () -> Void
 
     @Environment(\.ppAccent) private var ppAccent
@@ -536,37 +577,30 @@ struct FrameRateRow: View {
         Button(action: action) {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 6) {
-                        Text(frameRate.displayName)
-                            .font(.bodyLarge)
-
-                        if frameRate.supportsSlowMotion {
-                            Image(systemName: "slowmo")
-                                .font(.bodySmall)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
+                    Text(frameRate.displayName)
+                        .font(.ppBody)
 
                     Text(frameRate.description)
-                        .font(.bodySmall)
+                        .font(.ppFootnote)
                         .foregroundStyle(.secondary)
                 }
 
                 Spacer()
 
                 if !isCompatible {
-                    Text("Not available")
-                        .font(.bodySmall)
+                    Text(unavailableText)
+                        .font(.ppFootnote)
                         .foregroundStyle(.secondary)
                 } else if isSelected {
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(ppAccent)
+                        .foregroundStyle(ppAccent)
                         .font(.title3)
                 }
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 
