@@ -6,7 +6,7 @@
 //  Every default is `true` (or a numeric default), so a typo'd raw-string key
 //  would silently re-enable a notification with no compiler error. Funneling all
 //  call sites through these constants removes that whole class of bug.
-//  (Coach review-reminder keys live separately in `ReviewReminderKeys`.)
+//  (Coach review-reminder keys live in `ReviewReminderKeys` below — default off.)
 //
 
 import Foundation
@@ -45,4 +45,13 @@ enum NotificationPrefKeys {
     /// New personal-best / milestone celebration nudge fired after a game ends.
     /// Default on. (`notif_weeklyStats` above is the weekly-recap nudge.)
     static let milestoneReminder = "notif_milestoneReminder"
+}
+
+/// Coach daily "clips waiting for review" reminder. Opt-in (default off), so it
+/// sits apart from the default-on toggles above. Read by `CoachReviewReminderRows`
+/// and `PushNotificationService`.
+enum ReviewReminderKeys {
+    static let enabled = "coachReviewRemindersEnabled"
+    static let hour = "coachReviewReminderHour"
+    static let minute = "coachReviewReminderMinute"
 }

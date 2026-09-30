@@ -174,23 +174,30 @@ struct NotificationSettingsView: View {
 
             if isCoach {
                 Section {
-                    Toggle("Athlete Activity", isOn: $athleteActivity)
+                    // `athleteActivity` gates only `new_video` pushes (push.ts +
+                    // the foreground banner), so "Uploads" is the honest label.
+                    Toggle("Athlete Uploads", isOn: $athleteActivity)
+                    CoachReviewReminderRows()
                 } header: {
-                    Text("Athlete Activity")
+                    Text("Activity")
                 } footer: {
-                    Text("Notifications when an athlete uploads a new video to your folder.")
+                    Text("Athlete Uploads alerts you when an athlete adds a video to your folder. Review reminders arrive daily, only when session clips are waiting.")
                 }
                 .disabled(authorizationStatus == .denied)
             }
 
-            Section {
-                Toggle("Upload Notifications", isOn: uploadNotificationsBinding)
-            } header: {
-                Text("Videos")
-            } footer: {
-                Text("Get notified when a video finishes uploading to the cloud.")
+            // Athlete-only: coach uploads take UploadQueueManager's
+            // processCoachUpload early-return and never read this pref.
+            if !isCoach {
+                Section {
+                    Toggle("Upload Notifications", isOn: uploadNotificationsBinding)
+                } header: {
+                    Text("Videos")
+                } footer: {
+                    Text("Get notified when a video finishes uploading to the cloud.")
+                }
+                .disabled(authorizationStatus == .denied)
             }
-            .disabled(authorizationStatus == .denied)
 
             if !isCoach {
                 Section {
@@ -265,21 +272,6 @@ struct NotificationSettingsView: View {
                     Text("Reminders")
                 } footer: {
                     Text("Optional nudges to tag your clips, celebrate new milestones, get set for a tournament weekend, and check back in after time away.")
-                }
-                .disabled(authorizationStatus == .denied)
-            }
-
-            if isCoach {
-                Section {
-                    NavigationLink {
-                        CoachReviewReminderSettingsView()
-                    } label: {
-                        Label("Review Reminders", systemImage: "bell.badge")
-                    }
-                } header: {
-                    Text("Coach Notifications")
-                } footer: {
-                    Text("Daily reminder to review session clips.")
                 }
                 .disabled(authorizationStatus == .denied)
             }
@@ -386,7 +378,7 @@ struct NotificationSettingsView: View {
                         .foregroundColor(Theme.warning)
                         .font(.headingSmall)
                     Text(isCoach
-                         ? "Enable notifications to receive review reminders, athlete activity, and upload alerts."
+                         ? "Enable notifications to receive athlete uploads and review reminders."
                          : "Enable notifications to receive game reminders, upload alerts, and weekly performance summaries.")
                         .font(.bodySmall)
                         .foregroundColor(.secondary)
