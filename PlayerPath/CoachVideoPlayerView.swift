@@ -180,19 +180,22 @@ struct CoachVideoPlayerView: View {
                 .accessibilityLabel(viewModel.alreadySavedToMyVideos ? "Already saved to your videos" : "Save to your videos")
             }
 
-            // Save to device button
-            Button {
-                Task { await viewModel.saveToPhotos() }
-            } label: {
-                if viewModel.isSaving {
-                    ProgressView().scaleEffect(0.8)
-                } else {
-                    Image(systemName: "square.and.arrow.down")
-                        .foregroundColor(ppAccent)
+            // Save to device button — hidden when the athlete turned off saving
+            // for this coach (see canSaveToDevice).
+            if canSaveToDevice {
+                Button {
+                    saveToDeviceTapped()
+                } label: {
+                    if viewModel.isSaving {
+                        ProgressView().scaleEffect(0.8)
+                    } else {
+                        Image(systemName: "square.and.arrow.down")
+                            .foregroundColor(ppAccent)
+                    }
                 }
+                .disabled(viewModel.isSaving || !viewModel.isPlayerReady)
+                .accessibilityLabel("Save video to device")
             }
-            .disabled(viewModel.isSaving || !viewModel.isPlayerReady)
-            .accessibilityLabel("Save video to device")
 
             // Playback speed button (hidden on iPad — uses inline sidebar control)
             if !isIPad {
@@ -999,6 +1002,39 @@ struct CoachVideoPlayerView: View {
     private var isFolderOwner: Bool {
         guard let userID = authManager.userID else { return false }
         return userID == folder.ownerAthleteID
+    }
+
+    /// Athlete-controlled `canDownload`. The owner and a coach saving a clip they
+    /// uploaded themselves are never gated; a missing permissions entry is a legacy
+    /// share and stays allowed (FolderPermissions.canDownload defaults to true).
+    private var canSaveToDevice: Bool {
+        guard let userID = authManager.userID else { return false }
+        if userID == folder.ownerAthleteID || video.uploadedBy == userID { return true }
+        return folder.getPermissions(for: userID)?.canDownload ?? true
+    }
+
+    /// `folder` is a snapshot from when the player opened, so re-read the live
+    /// permission before saving — the athlete may have turned it off since.
+    private func saveToDeviceTapped() {
+        guard let userID = authManager.userID,
+              userID != folder.ownerAthleteID,
+              video.uploadedBy != userID,
+              let folderID = folder.id else {
+            Task { await viewModel.saveToPhotos() }
+            return
+        }
+        Task {
+            do {
+                let latest = try await SharedFolderManager.shared.verifyFolderAccess(folderID: folderID, coachID: userID)
+                guard latest.getPermissions(for: userID)?.canDownload ?? true else {
+                    viewModel.saveError = "The athlete has turned off saving videos to your device."
+                    return
+                }
+                await viewModel.saveToPhotos()
+            } catch {
+                viewModel.saveError = "Unable to verify permissions. Please try again."
+            }
+        }
     }
 
     /// True when this is the current coach's own still-private draft clip —

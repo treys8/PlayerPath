@@ -84,6 +84,15 @@ struct InviteCoachView: View {
                                 .foregroundColor(.secondary)
                         }
                     }
+
+                    Toggle(isOn: $permissions.canDownload) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Label("Can Save Videos", systemImage: "square.and.arrow.down")
+                            Text("Coach can save videos to their Photos library")
+                                .font(.bodySmall)
+                                .foregroundColor(.secondary)
+                        }
+                    }
                 } header: {
                     Text("Permissions")
                 }

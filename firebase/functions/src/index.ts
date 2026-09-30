@@ -1786,7 +1786,7 @@ ${invitation.athleteName} has invited you to collaborate on PlayerPath!
 You've been invited to access the shared folder: "${invitation.folderName}"
 
 As a coach, you'll be able to:
-${invitation.permissions?.canUpload ? '✓ Upload videos\n' : ''}${invitation.permissions?.canComment ? '✓ Add comments and feedback\n' : ''}${invitation.permissions?.canDelete ? '✓ Manage videos\n' : ''}
+${invitation.permissions?.canUpload ? '✓ Upload videos\n' : ''}${invitation.permissions?.canComment ? '✓ Add comments and feedback\n' : ''}${invitation.permissions?.canDelete ? '✓ Manage videos\n' : ''}${invitation.permissions?.canDownload !== false ? '✓ Save videos to your device\n' : ''}
 To accept this invitation:
 
 1. Download PlayerPath from the App Store: ${APP_STORE_URL}
@@ -1818,6 +1818,7 @@ function generateHtmlEmail(
   if (invitation.permissions?.canUpload) permissions.push('Upload videos');
   if (invitation.permissions?.canComment) permissions.push('Add comments and feedback');
   if (invitation.permissions?.canDelete) permissions.push('Manage videos');
+  if (invitation.permissions?.canDownload !== false) permissions.push('Save videos to your device');
 
   return `
 <!DOCTYPE html>
@@ -2759,6 +2760,8 @@ export const acceptAthleteToCoachInvitation = functions.https.onCall(async (data
         canUpload: rawPerms.canUpload === true,
         canComment: rawPerms.canComment !== false,
         canDelete: rawPerms.canDelete === true,
+        // Save-to-device. Absent = allowed, matching the client's legacy default.
+        canDownload: rawPerms.canDownload !== false,
       };
       const coachDisplayName = coachDoc.data()?.displayName || coachEmail?.split('@')[0] || 'Coach';
       transaction.update(legacyFolderRef, {
@@ -2830,6 +2833,7 @@ export const acceptAthleteToCoachInvitation = functions.https.onCall(async (data
     canUpload: rawInvitePerms.canUpload !== false,
     canComment: rawInvitePerms.canComment !== false,
     canDelete: rawInvitePerms.canDelete === true,
+    canDownload: rawInvitePerms.canDownload !== false,
   };
   const coachDisplayName = coachDoc.data()?.displayName || coachEmail?.split('@')[0] || 'Coach';
 
@@ -3102,7 +3106,7 @@ export const acceptCoachToAthleteInvitation = functions.https.onCall(async (data
   // the coach typed when creating the invitation.
   const name = clientAthleteName || invData.athleteName || 'Athlete';
   const coachDisplayName = coachDoc.data()?.displayName || invData.coachName || invData.coachEmail?.split('@')[0] || 'Coach';
-  const defaultPerms = { canUpload: true, canComment: true, canDelete: false };
+  const defaultPerms = { canUpload: true, canComment: true, canDelete: false, canDownload: true };
 
   // Reuse the athlete's existing folders (and their clips) on re-invite; only
   // create the ones that don't already exist.

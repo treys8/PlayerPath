@@ -124,6 +124,17 @@ struct CoachDetailView: View {
                         }
                     }
                 }
+
+                if let coachID = coach.firebaseCoachID {
+                    CoachSavePermissionSection(
+                        coachID: coachID,
+                        coachName: coach.name,
+                        folders: folderManager.athleteFolders.filter {
+                            guard let id = $0.id else { return false }
+                            return coach.sharedFolderIDs.contains(id)
+                        }
+                    )
+                }
             }
 
             // Contact Information

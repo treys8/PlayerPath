@@ -13,6 +13,23 @@ extension FirestoreManager {
 
     // MARK: - Shared Folders
 
+    /// Athlete sets whether `coachID` may save this athlete's videos to their
+    /// device, across every listed folder in one batch. Owner-only (the owner
+    /// update branch in firestore.rules permits `permissions` edits). Writing the
+    /// nested key into a legacy folder with no entry for this coach grants nothing
+    /// else: canUpload stays absent → denied, canComment absent → allowed, as before.
+    func setCoachCanDownload(folderIDs: [String], coachID: String, allowed: Bool) async throws {
+        guard !folderIDs.isEmpty else { return }
+        let batch = db.batch()
+        for folderID in folderIDs {
+            batch.updateData([
+                "permissions.\(coachID).canDownload": allowed,
+                "updatedAt": FieldValue.serverTimestamp()
+            ], forDocument: db.collection(FC.sharedFolders).document(folderID))
+        }
+        try await batch.commit()
+    }
+
     /// Renames an existing shared folder. Caller must be the folder owner
     /// (enforced by Firestore security rules).
     func renameSharedFolder(folderID: String, newName: String) async throws {
