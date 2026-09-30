@@ -412,6 +412,7 @@ struct CoachProfileView: View {
 struct EditCoachProfileView: View {
     @EnvironmentObject private var authManager: ComprehensiveAuthManager
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.ppAccent) private var ppAccent
 
     @State private var displayName = ""
     @State private var email = ""
@@ -419,35 +420,70 @@ struct EditCoachProfileView: View {
     @State private var showError = false
     @State private var errorMessage = ""
     @State private var showEmailVerificationAlert = false
+    @FocusState private var focusedField: Field?
+
+    private enum Field { case name, email }
+
+    private var nameChanged: Bool {
+        displayName.trimmed != (authManager.userDisplayName ?? "")
+    }
+
+    private var emailChanged: Bool {
+        email.trimmed.lowercased() != (authManager.userEmail ?? "").lowercased()
+    }
+
+    /// Email is only validated when it changed — `userEmail` can be nil, and a
+    /// name-only edit must still save with an empty email field.
+    private var canSave: Bool {
+        !displayName.trimmed.isEmpty
+            && (nameChanged || emailChanged)
+            && (!emailChanged || email.trimmed.isValidEmail)
+            && !isSaving
+    }
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("Display Name") {
+                Section {
                     TextField("Your name", text: $displayName)
                         .textContentType(.name)
                         .autocorrectionDisabled()
+                        .focused($focusedField, equals: .name)
                         .submitLabel(.next)
+                        .onSubmit { focusedField = .email }
+                } header: {
+                    Text("Display Name")
+                } footer: {
+                    Text("Your display name is visible to athletes you coach.")
                 }
 
-                Section("Email") {
+                Section {
                     TextField("Email address", text: $email)
                         .textContentType(.emailAddress)
                         .keyboardType(.emailAddress)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
+                        .focused($focusedField, equals: .email)
                         .submitLabel(.done)
                         .onSubmit {
                             Task { await saveProfile() }
                         }
-                }
 
-                Section {
-                    Text("Your display name is visible to athletes you coach. Changing your email requires confirming a verification link.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                    if emailChanged && !email.isEmpty && !email.trimmed.isValidEmail {
+                        Label("Please enter a valid email address", systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundColor(Theme.warning)
+                    }
+                } header: {
+                    Text("Email")
+                } footer: {
+                    Text("Changing your email requires confirming a verification link.")
                 }
             }
+            .scrollDismissesKeyboard(.interactively)
+            .scrollContentBackground(.hidden)
+            .background(Theme.surface)
+            .tint(ppAccent)
             .navigationTitle("Edit Profile")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -455,10 +491,14 @@ struct EditCoachProfileView: View {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        Task { await saveProfile() }
+                    if isSaving {
+                        ProgressView()
+                    } else {
+                        Button("Save") {
+                            Task { await saveProfile() }
+                        }
+                        .disabled(!canSave)
                     }
-                    .disabled(displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSaving)
                 }
             }
             .alert("Save Failed", isPresented: $showError) {
@@ -469,7 +509,7 @@ struct EditCoachProfileView: View {
             .alert("Verify Your Email", isPresented: $showEmailVerificationAlert) {
                 Button("OK") { dismiss() }
             } message: {
-                Text("A verification link was sent to \(email.trimmingCharacters(in: .whitespacesAndNewlines)). Click it to confirm your new email address.")
+                Text("A verification link was sent to \(email.trimmed). Tap it to confirm your new email address.")
             }
             .onAppear {
                 displayName = authManager.userDisplayName ?? ""
@@ -479,13 +519,13 @@ struct EditCoachProfileView: View {
     }
 
     private func saveProfile() async {
-        let trimmedName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedName.isEmpty else { return }
+        // Also guards the email field's Return key against double-submit.
+        guard canSave else { return }
+        let trimmedName = displayName.trimmed
+        let trimmedEmail = email.trimmed
+        let emailChanged = self.emailChanged
         isSaving = true
         defer { isSaving = false }
-
-        let emailChanged = trimmedEmail.lowercased() != (authManager.userEmail ?? "").lowercased()
 
         // Email change goes through Firebase's verify-before-update flow (mirrors
         // the athlete EditAccountView). Firestore email syncs on next sign-in.

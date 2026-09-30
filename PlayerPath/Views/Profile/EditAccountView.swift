@@ -117,7 +117,7 @@ struct EditAccountView: View {
         .alert("Verify Your Email", isPresented: $showEmailVerificationAlert) {
             Button("OK") { dismiss() }
         } message: {
-            Text("A verification link was sent to \(email.trimmed). Click it to confirm your new email address.")
+            Text("A verification link was sent to \(email.trimmed). Tap it to confirm your new email address.")
         }
     }
 
