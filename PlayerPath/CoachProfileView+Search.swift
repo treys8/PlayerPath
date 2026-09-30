@@ -54,12 +54,8 @@ extension CoachProfileView {
                 StorageSettingsView()
             },
             searchItem("Notifications", icon: "bell",
-                       keywords: ["notifications", "alerts", "push"]) {
+                       keywords: ["notifications", "alerts", "push", "review", "reminders", "uploads"]) {
                 NotificationSettingsView(athleteId: nil)
-            },
-            searchItem("Review Reminders", icon: "bell.badge",
-                       keywords: ["review", "reminders", "clips", "feedback"]) {
-                CoachReviewReminderSettingsView()
             },
             searchItem("Activity", icon: "bell.badge",
                        keywords: ["activity", "inbox", "notifications", "updates", "feed"]) {
