@@ -833,6 +833,12 @@ struct CoachPermissionRow: View {
                     title: "Delete",
                     enabled: permissions.canDelete
                 )
+
+                PermissionBadge(
+                    icon: "square.and.arrow.down.fill",
+                    title: "Save",
+                    enabled: permissions.canDownload
+                )
             }
             .font(.bodySmall)
         }

@@ -129,6 +129,12 @@ struct InviteCoachSheet: View {
                                     icon: "bubble.left",
                                     isOn: $selectedPermissions.canComment
                                 )
+
+                                PermissionToggle(
+                                    title: "Save Videos to Their Device",
+                                    icon: "square.and.arrow.down",
+                                    isOn: $selectedPermissions.canDownload
+                                )
                             }
                             .padding()
                             .background(

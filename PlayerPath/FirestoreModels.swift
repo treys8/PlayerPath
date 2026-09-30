@@ -20,17 +20,35 @@ struct FolderPermissions: Codable, Equatable {
     var canUpload: Bool
     var canComment: Bool
     var canDelete: Bool
+    /// Coach may save the athlete's videos to their own Photos library. Absent in
+    /// Firestore = allowed (every share predating this key could already save).
+    /// Client-side gate only: playback streams the same bytes, so this governs the
+    /// in-app save, not screen recording. A coach's OWN uploads are always saveable.
+    var canDownload: Bool = true
 
     func toDictionary() -> [String: Bool] {
         return [
             "canUpload": canUpload,
             "canComment": canComment,
-            "canDelete": canDelete
+            "canDelete": canDelete,
+            "canDownload": canDownload
         ]
     }
 
     static nonisolated let `default` = FolderPermissions(canUpload: true, canComment: true, canDelete: false)
     static nonisolated let viewOnly = FolderPermissions(canUpload: false, canComment: true, canDelete: false)
+}
+
+extension FolderPermissions {
+    /// Synthesized Codable ignores the property default, so an invitation doc
+    /// written before canDownload existed would throw keyNotFound.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        canUpload = try c.decodeIfPresent(Bool.self, forKey: .canUpload) ?? false
+        canComment = try c.decodeIfPresent(Bool.self, forKey: .canComment) ?? true
+        canDelete = try c.decodeIfPresent(Bool.self, forKey: .canDelete) ?? false
+        canDownload = try c.decodeIfPresent(Bool.self, forKey: .canDownload) ?? true
+    }
 }
 
 // MARK: - Firestore Models
@@ -65,7 +83,8 @@ struct SharedFolder: Codable, Identifiable, Hashable {
         return FolderPermissions(
             canUpload: permDict["canUpload"] ?? false,
             canComment: permDict["canComment"] ?? true,
-            canDelete: permDict["canDelete"] ?? false
+            canDelete: permDict["canDelete"] ?? false,
+            canDownload: permDict["canDownload"] ?? true
         )
     }
 }
