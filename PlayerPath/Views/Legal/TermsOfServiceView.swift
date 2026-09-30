@@ -9,223 +9,192 @@ import SwiftUI
 
 struct TermsOfServiceView: View {
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                Text("Terms of Use (EULA)")
-                    .font(.displayLarge)
+        LegalDocumentView(title: "Terms of Use (EULA)", lastUpdated: "June 5, 2026") {
+            LegalSection(
+                title: "Acceptance of Terms",
+                content: """
+                By accessing and using PlayerPath ("the App"), you accept and agree to be bound by these Terms of Service. If you do not agree to these terms, please do not use the App.
+                """
+            )
 
-                Text("Last updated: June 5, 2026")
-                    .font(.bodyMedium)
-                    .foregroundColor(.secondary)
+            LegalSection(
+                title: "Description of Service",
+                content: """
+                PlayerPath is a mobile application designed to help athletes track their performance through video recording, play and round tagging, and statistical analysis. The App allows users to:
 
-                Divider()
+                • Record and store videos and photos of games, at-bats, swings, and practices
+                • Tag play results and scores (hits, outs, strokes, etc.)
+                • Track statistics and performance metrics
+                • Manage seasons, games, rounds, and practice sessions
+                • Sync data across devices (optional)
+                """
+            )
 
-                // Content sections
-                TermsSection(
-                    title: "Acceptance of Terms",
-                    content: """
-                    By accessing and using PlayerPath ("the App"), you accept and agree to be bound by these Terms of Service. If you do not agree to these terms, please do not use the App.
-                    """
-                )
+            LegalSection(
+                title: "User Accounts",
+                content: """
+                • You must create an account to use the App
+                • You are responsible for maintaining the confidentiality of your account credentials
+                • You are responsible for all activities that occur under your account
+                • You must provide accurate and complete information
+                • You must be at least 13 years old or have parental consent to create an account
+                • One person may not maintain more than one account
+                """
+            )
 
-                TermsSection(
-                    title: "Description of Service",
-                    content: """
-                    PlayerPath is a mobile application designed to help athletes track their performance through video recording, play and round tagging, and statistical analysis. The App allows users to:
+            LegalSection(
+                title: "Acceptable Use",
+                content: """
+                You agree to use the App only for lawful purposes. You will not:
 
-                    • Record and store videos and photos of games, at-bats, swings, and practices
-                    • Tag play results and scores (hits, outs, strokes, etc.)
-                    • Track statistics and performance metrics
-                    • Manage seasons, games, rounds, and practice sessions
-                    • Sync data across devices (optional)
-                    """
-                )
+                • Upload or record content that violates any laws or third-party rights
+                • Upload content that is offensive, threatening, or inappropriate
+                • Attempt to gain unauthorized access to the App or other users' data
+                • Use the App to harass, abuse, or harm others
+                • Reverse engineer, decompile, or disassemble the App
+                • Use automated systems or bots to access the App
+                • Violate any applicable laws or regulations
+                """
+            )
 
-                TermsSection(
-                    title: "User Accounts",
-                    content: """
-                    • You must create an account to use the App
-                    • You are responsible for maintaining the confidentiality of your account credentials
-                    • You are responsible for all activities that occur under your account
-                    • You must provide accurate and complete information
-                    • You must be at least 13 years old or have parental consent to create an account
-                    • One person may not maintain more than one account
-                    """
-                )
+            LegalSection(
+                title: "Content Ownership and Rights",
+                content: """
+                • You retain all rights to the videos and content you create
+                • By using the App, you grant us a limited license to store and process your content to provide the service
+                • You represent that you have the right to record and upload all content
+                • You are responsible for obtaining necessary permissions for recording individuals
+                • We do not claim ownership of your content
+                """
+            )
 
-                TermsSection(
-                    title: "Acceptable Use",
-                    content: """
-                    You agree to use the App only for lawful purposes. You will not:
+            LegalSection(
+                title: "Privacy and Data",
+                content: """
+                Your use of the App is also governed by our Privacy Policy. By using the App, you consent to our collection and use of data as described in the Privacy Policy.
 
-                    • Upload or record content that violates any laws or third-party rights
-                    • Upload content that is offensive, threatening, or inappropriate
-                    • Attempt to gain unauthorized access to the App or other users' data
-                    • Use the App to harass, abuse, or harm others
-                    • Reverse engineer, decompile, or disassemble the App
-                    • Use automated systems or bots to access the App
-                    • Violate any applicable laws or regulations
-                    """
-                )
+                • Video and photo files are stored locally on your device and uploaded to cloud storage for backup and cross-device access
+                • Metadata and statistics are synced to cloud storage
+                • We implement security measures to protect your data
+                • You can export or delete your data at any time
+                """
+            )
 
-                TermsSection(
-                    title: "Content Ownership and Rights",
-                    content: """
-                    • You retain all rights to the videos and content you create
-                    • By using the App, you grant us a limited license to store and process your content to provide the service
-                    • You represent that you have the right to record and upload all content
-                    • You are responsible for obtaining necessary permissions for recording individuals
-                    • We do not claim ownership of your content
-                    """
-                )
+            LegalSection(
+                title: "Service Availability",
+                content: """
+                • We strive to provide reliable service but cannot guarantee 100% uptime
+                • The App may be temporarily unavailable due to maintenance or technical issues
+                • We reserve the right to modify or discontinue features with or without notice
+                • We are not liable for any disruption or loss of data due to service interruptions
+                • Beta features are provided "as is" and may change or be removed
+                """
+            )
 
-                TermsSection(
-                    title: "Privacy and Data",
-                    content: """
-                    Your use of the App is also governed by our Privacy Policy. By using the App, you consent to our collection and use of data as described in the Privacy Policy.
+            LegalSection(
+                title: "Limitation of Liability",
+                content: """
+                TO THE MAXIMUM EXTENT PERMITTED BY LAW:
 
-                    • Video and photo files are stored locally on your device and uploaded to cloud storage for backup and cross-device access
-                    • Metadata and statistics are synced to cloud storage
-                    • We implement security measures to protect your data
-                    • You can export or delete your data at any time
-                    """
-                )
+                • The App is provided "AS IS" without warranties of any kind
+                • We are not responsible for lost, corrupted, or deleted data
+                • We are not liable for any indirect, incidental, or consequential damages
+                • Our total liability shall not exceed the amount you paid for the App (if any)
+                • You are responsible for backing up important data
+                • We are not responsible for the accuracy of statistics or calculations
+                """
+            )
 
-                TermsSection(
-                    title: "Service Availability",
-                    content: """
-                    • We strive to provide reliable service but cannot guarantee 100% uptime
-                    • The App may be temporarily unavailable due to maintenance or technical issues
-                    • We reserve the right to modify or discontinue features with or without notice
-                    • We are not liable for any disruption or loss of data due to service interruptions
-                    • Beta features are provided "as is" and may change or be removed
-                    """
-                )
+            LegalSection(
+                title: "Account Termination",
+                content: """
+                We reserve the right to suspend or terminate your account if:
 
-                TermsSection(
-                    title: "Limitation of Liability",
-                    content: """
-                    TO THE MAXIMUM EXTENT PERMITTED BY LAW:
+                • You violate these Terms of Service
+                • You engage in fraudulent or illegal activity
+                • Your account has been inactive for an extended period
+                • We are required to do so by law
 
-                    • The App is provided "AS IS" without warranties of any kind
-                    • We are not responsible for lost, corrupted, or deleted data
-                    • We are not liable for any indirect, incidental, or consequential damages
-                    • Our total liability shall not exceed the amount you paid for the App (if any)
-                    • You are responsible for backing up important data
-                    • We are not responsible for the accuracy of statistics or calculations
-                    """
-                )
+                You may terminate your account at any time using the "Delete Account" feature in the App.
+                """
+            )
 
-                TermsSection(
-                    title: "Account Termination",
-                    content: """
-                    We reserve the right to suspend or terminate your account if:
+            LegalSection(
+                title: "Subscriptions and Premium Features",
+                content: """
+                • Certain features require a paid subscription (Plus, Pro, or Coach plans)
+                • Subscription prices are displayed in the App before purchase and are charged through your Apple ID
+                • Subscriptions automatically renew unless cancelled at least 24 hours before the end of the current billing period
+                • Your account will be charged for renewal within 24 hours prior to the end of the current period at the same price
+                • You can manage or cancel your subscription at any time in Settings > Subscriptions on your device
+                • Subscription fees are non-refundable except as required by applicable law
+                • We may change pricing with advance notice to existing subscribers; price changes take effect at the start of the next billing period
+                • Free features may become premium features with notice
+                """
+            )
 
-                    • You violate these Terms of Service
-                    • You engage in fraudulent or illegal activity
-                    • Your account has been inactive for an extended period
-                    • We are required to do so by law
+            LegalSection(
+                title: "Intellectual Property",
+                content: """
+                • The App and its original content, features, and functionality are owned by PlayerPath
+                • The PlayerPath name, logo, and trademarks are our property
+                • You may not use our intellectual property without permission
+                • Third-party trademarks are property of their respective owners
+                """
+            )
 
-                    You may terminate your account at any time using the "Delete Account" feature in the App.
-                    """
-                )
+            LegalSection(
+                title: "Indemnification",
+                content: """
+                You agree to indemnify and hold harmless PlayerPath and its affiliates from any claims, damages, or expenses arising from:
 
-                TermsSection(
-                    title: "Subscriptions and Premium Features",
-                    content: """
-                    • Certain features require a paid subscription (Plus, Pro, or Coach plans)
-                    • Subscription prices are displayed in the App before purchase and are charged through your Apple ID
-                    • Subscriptions automatically renew unless cancelled at least 24 hours before the end of the current billing period
-                    • Your account will be charged for renewal within 24 hours prior to the end of the current period at the same price
-                    • You can manage or cancel your subscription at any time in Settings > Subscriptions on your device
-                    • Subscription fees are non-refundable except as required by applicable law
-                    • We may change pricing with advance notice to existing subscribers; price changes take effect at the start of the next billing period
-                    • Free features may become premium features with notice
-                    """
-                )
+                • Your use of the App
+                • Your violation of these Terms
+                • Your violation of any rights of another person or entity
+                • Content you upload or create
+                """
+            )
 
-                TermsSection(
-                    title: "Intellectual Property",
-                    content: """
-                    • The App and its original content, features, and functionality are owned by PlayerPath
-                    • The PlayerPath name, logo, and trademarks are our property
-                    • You may not use our intellectual property without permission
-                    • Third-party trademarks are property of their respective owners
-                    """
-                )
+            LegalSection(
+                title: "Dispute Resolution",
+                content: """
+                • These Terms are governed by the laws of the State of Mississippi, USA
+                • Any disputes shall be resolved through binding arbitration
+                • You waive the right to participate in class action lawsuits
+                • Small claims court remains available for qualifying disputes
+                """
+            )
 
-                TermsSection(
-                    title: "Indemnification",
-                    content: """
-                    You agree to indemnify and hold harmless PlayerPath and its affiliates from any claims, damages, or expenses arising from:
+            LegalSection(
+                title: "Changes to Terms",
+                content: """
+                We may update these Terms of Service from time to time. We will notify you of any material changes by:
 
-                    • Your use of the App
-                    • Your violation of these Terms
-                    • Your violation of any rights of another person or entity
-                    • Content you upload or create
-                    """
-                )
+                • Posting the new terms in the App
+                • Updating the "Last updated" date
+                • Sending an in-app notification (for significant changes)
 
-                TermsSection(
-                    title: "Dispute Resolution",
-                    content: """
-                    • These Terms are governed by the laws of the State of Mississippi, USA
-                    • Any disputes shall be resolved through binding arbitration
-                    • You waive the right to participate in class action lawsuits
-                    • Small claims court remains available for qualifying disputes
-                    """
-                )
+                Continued use of the App after changes constitutes acceptance of the updated terms.
+                """
+            )
 
-                TermsSection(
-                    title: "Changes to Terms",
-                    content: """
-                    We may update these Terms of Service from time to time. We will notify you of any material changes by:
+            LegalSection(
+                title: "Severability",
+                content: """
+                If any provision of these Terms is found to be unenforceable, the remaining provisions will remain in full effect.
+                """
+            )
 
-                    • Posting the new terms in the App
-                    • Updating the "Last updated" date
-                    • Sending an in-app notification (for significant changes)
+            LegalSection(
+                title: "Contact Information",
+                content: """
+                For questions about these Terms of Service, please contact us at:
 
-                    Continued use of the App after changes constitutes acceptance of the updated terms.
-                    """
-                )
+                Email: support@playerpath.net
 
-                TermsSection(
-                    title: "Severability",
-                    content: """
-                    If any provision of these Terms is found to be unenforceable, the remaining provisions will remain in full effect.
-                    """
-                )
-
-                TermsSection(
-                    title: "Contact Information",
-                    content: """
-                    For questions about these Terms of Service, please contact us at:
-
-                    Email: support@playerpath.net
-
-                    For technical support, use the Help & Support section in the App.
-                    """
-                )
-            }
-            .padding()
-        }
-        .navigationTitle("Terms of Use (EULA)")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-}
-
-struct TermsSection: View {
-    let title: String
-    let content: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.displayMedium)
-
-            Text(content)
-                .font(.bodyLarge)
-                .foregroundColor(.primary)
+                For technical support, use the Help & Support section in the App.
+                """
+            )
         }
     }
 }

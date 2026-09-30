@@ -131,8 +131,8 @@ struct ComprehensiveSignInView: View {
             }
         }
         .sheet(isPresented: $showingResetPasswordSheet) { ResetPasswordSheet(email: email) }
-        .sheet(isPresented: $showingTerms) { TermsOfServiceView() }
-        .sheet(isPresented: $showingPrivacyPolicy) { PrivacyPolicyView() }
+        .sheet(isPresented: $showingTerms) { LegalSheet { TermsOfServiceView() } }
+        .sheet(isPresented: $showingPrivacyPolicy) { LegalSheet { PrivacyPolicyView() } }
         // Apple sign-up sits above the age checkbox, so an unchecked box is
         // confirmed here instead of leaving the button dimmed with no reason.
         .alert("Before You Continue", isPresented: $showingAppleAgeConfirm) {
@@ -142,8 +142,11 @@ struct ComprehensiveSignInView: View {
                 startAppleSignIn()
             }
         } message: {
-            Text("I confirm that I am at least 18 years old, or a parent/guardian creating this account on behalf of my child.\n\nBy continuing, you agree to our Terms of Use (EULA) and Privacy Policy.")
+            Text("\(ageAttestation)\n\nBy continuing, you agree to our Terms of Use (EULA) and Privacy Policy.")
         }
+        // The box attests to role-specific wording; a tick given under the
+        // parent/guardian sentence must not carry over to the coach one.
+        .onChange(of: selectedRole) { _, _ in confirmedAge = false }
         .onChange(of: authManager.isSignedIn) { _, isSignedIn in
             if isSignedIn {
                 Task { @MainActor in
@@ -249,6 +252,13 @@ struct ComprehensiveSignInView: View {
         .animation(.easeInOut(duration: 0.2), value: passwordFocused)
     }
 
+    /// A child can't hold a coach account, so coaches attest to 18+ only.
+    private var ageAttestation: String {
+        selectedRole == .coach
+            ? "I confirm that I am at least 18 years old."
+            : "I confirm that I am at least 18 years old, or a parent/guardian creating this account on behalf of my child."
+    }
+
     private var ageAndTermsSection: some View {
         VStack(spacing: 16) {
             Button {
@@ -257,7 +267,7 @@ struct ComprehensiveSignInView: View {
                 HStack(alignment: .top, spacing: 10) {
                     Image(systemName: confirmedAge ? "checkmark.square.fill" : "square")
                         .foregroundColor(confirmedAge ? ppAccent : Theme.textTertiary).font(.title3)
-                    Text("I confirm that I am at least 18 years old, or a parent/guardian creating this account on behalf of my child.")
+                    Text(ageAttestation)
                         .font(.bodySmall).foregroundColor(Theme.textSecondary).multilineTextAlignment(.leading)
                 }
             }
