@@ -453,6 +453,20 @@ class StoreKitManager: ObservableObject {
     func coachProduct(for item: CoachSubscriptionProduct) -> Product? {
         products.first { $0.id == item.rawValue }
     }
+
+    // MARK: - Pricing Math
+
+    /// Whole-percent savings of an annual plan vs 12× its monthly price, rounded
+    /// DOWN so the badge never overstates. Goes through `doubleValue` because
+    /// `NSDecimalNumber.intValue` returns 0 for the long mantissa this division
+    /// produces (19.928…% → 0), which silently hid the "Save %" badge.
+    static func annualSavingsPercent(monthly: Product, annual: Product) -> Int? {
+        let yearlyAtMonthly = monthly.price * 12
+        guard yearlyAtMonthly > 0 else { return nil }
+        let savings = ((yearlyAtMonthly - annual.price) / yearlyAtMonthly * 100) as NSDecimalNumber
+        let percent = Int(savings.doubleValue.rounded(.down))
+        return percent > 0 ? percent : nil
+    }
 }
 
 // MARK: - Supporting Types (unchanged)

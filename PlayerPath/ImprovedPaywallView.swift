@@ -192,11 +192,7 @@ struct ImprovedPaywallView: View {
               let annual = storeManager.product(for: .plusAnnual) else {
             return nil
         }
-        let yearlyAtMonthly = monthly.price * 12
-        guard yearlyAtMonthly > 0 else { return nil }
-        let savings = ((yearlyAtMonthly - annual.price) / yearlyAtMonthly * 100) as NSDecimalNumber
-        let percent = savings.intValue
-        return percent > 0 ? percent : nil
+        return StoreKitManager.annualSavingsPercent(monthly: monthly, annual: annual)
     }
 
     private func billingPill(title: String, savingsPercent: Int?, selected: Bool, action: @escaping () -> Void) -> some View {
