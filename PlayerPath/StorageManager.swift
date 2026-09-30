@@ -50,6 +50,14 @@ struct StorageInfo {
     }
 }
 
+struct AppStorageUsage {
+    let videos: Int64
+    let photos: Int64
+    let thumbnails: Int64
+    let cache: Int64
+    var total: Int64 { videos + photos + thumbnails + cache }
+}
+
 struct StorageManager {
     
     // MARK: - Constants
@@ -99,23 +107,30 @@ struct StorageManager {
 
     // MARK: - App Storage Usage
 
-    /// Calculates total storage used by app videos and thumbnails
-    /// - Returns: Tuple of (videos size, thumbnails size) in bytes
-    static func calculateAppStorageUsage() async -> (videosSize: Int64, thumbnailsSize: Int64) {
-        guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
-            return (0, 0)
+    /// Calculates the on-disk footprint of everything PlayerPath stores locally.
+    /// Directory walks run detached — `StorageManager` is MainActor by default and
+    /// a large Clips folder would otherwise stall the UI.
+    static func calculateAppStorageUsage() async -> AppStorageUsage {
+        let fm = FileManager.default
+        guard let documentsURL = fm.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            return AppStorageUsage(videos: 0, photos: 0, thumbnails: 0, cache: 0)
         }
+        let cachesURL = fm.urls(for: .cachesDirectory, in: .userDomainMask).first
 
-        let clipsDirectory = documentsURL.appendingPathComponent("Clips", isDirectory: true)
-        let thumbnailsDirectory = documentsURL.appendingPathComponent("Thumbnails", isDirectory: true)
-
-        let videosSize = await calculateDirectorySize(at: clipsDirectory)
-        let thumbnailsSize = await calculateDirectorySize(at: thumbnailsDirectory)
-
-        return (videosSize, thumbnailsSize)
+        return await Task.detached(priority: .utility) {
+            func size(_ names: [String]) -> Int64 {
+                names.reduce(0) { $0 + calculateDirectorySize(at: documentsURL.appendingPathComponent($1, isDirectory: true)) }
+            }
+            return AppStorageUsage(
+                videos: size(["Clips", "coach_pending_uploads", "coach_failed_uploads"]),
+                photos: size(["Photos"]),
+                thumbnails: size(["Thumbnails", "PhotoThumbnails"]),
+                cache: cachesURL.map { calculateDirectorySize(at: $0) } ?? 0
+            )
+        }.value
     }
 
-    private static func calculateDirectorySize(at url: URL) async -> Int64 {
+    nonisolated private static func calculateDirectorySize(at url: URL) -> Int64 {
         guard FileManager.default.fileExists(atPath: url.path) else {
             return 0
         }
@@ -146,6 +161,11 @@ struct StorageManager {
 
     // MARK: - Orphaned File Cleanup
 
+    /// Files modified more recently than this are skipped — `saveClip` and bulk
+    /// import write into Clips/ before the VideoClip insert, so a young file is
+    /// usually mid-save, not orphaned.
+    static let orphanMinimumFileAge: TimeInterval = 600
+
     /// Finds videos with missing database entries (orphaned files)
     /// - Parameter context: SwiftData ModelContext
     /// - Returns: Array of file URLs that don't have corresponding database entries
@@ -164,9 +184,11 @@ struct StorageManager {
             // Get all video files on disk
             let videoFiles = try FileManager.default.contentsOfDirectory(
                 at: clipsDirectory,
-                includingPropertiesForKeys: [.isRegularFileKey],
+                includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey],
                 options: .skipsHiddenFiles
             ).filter { url in
+                let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+                guard Date().timeIntervalSince(modified) >= orphanMinimumFileAge else { return false }
                 // Keep in sync with OrphanedClipRecoveryService.findOrphanedVideoFiles
                 // — both services must scan the same extension set so an orphan
                 // visible in the recovery UI is also eligible for cleanup here.
@@ -208,6 +230,12 @@ struct StorageManager {
 
                 // Delete the file
                 try FileManager.default.removeItem(at: fileURL)
+
+                // And its thumbnail, if one was generated before the record was lost
+                let thumbURL = fileURL.deletingLastPathComponent().deletingLastPathComponent()
+                    .appendingPathComponent("Thumbnails", isDirectory: true)
+                    .appendingPathComponent("\(fileURL.deletingPathExtension().lastPathComponent)_thumb.jpg")
+                try? FileManager.default.removeItem(at: thumbURL)
 
                 filesDeleted += 1
                 bytesFreed += fileSize
@@ -271,6 +299,7 @@ struct StorageManager {
         let formatter = ByteCountFormatter()
         formatter.allowedUnits = [.useGB, .useMB, .useKB]
         formatter.countStyle = .file
+        formatter.allowsNonnumericFormatting = false // "0 KB", not "Zero KB"
         return formatter.string(fromByteCount: bytes)
     }
 }

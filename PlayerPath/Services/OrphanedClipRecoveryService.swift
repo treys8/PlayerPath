@@ -27,16 +27,20 @@ final class OrphanedClipRecoveryService {
 
     /// Call once after the model context and current athlete are available.
     /// Safe to call on every launch — it's fully idempotent.
-    func recoverIfNeeded(context: ModelContext, athletes: [Athlete]) async {
+    /// `minimumFileAge` skips files modified more recently than that (seconds) —
+    /// pass it when running mid-session so an in-flight save isn't adopted twice.
+    /// Returns the number of clips recovered and saved.
+    @discardableResult
+    func recoverIfNeeded(context: ModelContext, athletes: [Athlete], minimumFileAge: TimeInterval = 0) async -> Int {
         guard !athletes.isEmpty else {
             recoveryLog.debug("No athletes in DB — skipping recovery")
-            return
+            return 0
         }
 
-        let orphans = findOrphanedVideoFiles(context: context)
+        let orphans = findOrphanedVideoFiles(context: context, minimumFileAge: minimumFileAge)
         guard !orphans.isEmpty else {
             recoveryLog.debug("No orphaned video files found")
-            return
+            return 0
         }
 
         recoveryLog.info("Found \(orphans.count) orphaned video file(s) — recovering...")
@@ -45,7 +49,7 @@ final class OrphanedClipRecoveryService {
         // For single-athlete accounts this is the only one; for multi-athlete it's
         // the most likely active player. Sorted descending by createdAt.
         let sortedAthletes = athletes.sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
-        guard let targetAthlete = sortedAthletes.first else { return }
+        guard let targetAthlete = sortedAthletes.first else { return 0 }
         var recoveredCount = 0
         var clipsNeedingThumbnails: [(VideoClip, URL)] = []
 
@@ -77,14 +81,16 @@ final class OrphanedClipRecoveryService {
                 }
             } catch {
                 recoveryLog.error("Failed to save recovered clips: \(error.localizedDescription)")
+                return 0
             }
         }
+        return recoveredCount
     }
 
     // MARK: - Private helpers
 
     /// Returns video files in Documents/Clips that have no matching VideoClip record.
-    private func findOrphanedVideoFiles(context: ModelContext) -> [URL] {
+    private func findOrphanedVideoFiles(context: ModelContext, minimumFileAge: TimeInterval) -> [URL] {
         // Collect only file names from SwiftData to avoid loading full model objects.
         // All orphan candidates are in Documents/Clips, so comparing by fileName is sufficient.
         let descriptor = FetchDescriptor<VideoClip>()
@@ -106,12 +112,16 @@ final class OrphanedClipRecoveryService {
         do {
             let contents = try fileManager.contentsOfDirectory(
                 at: clipsURL,
-                includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey, .creationDateKey],
+                includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey, .creationDateKey, .contentModificationDateKey],
                 options: .skipsHiddenFiles
             )
+            let now = Date()
             return contents.filter { url in
-                videoExtensions.contains(url.pathExtension.lowercased()) &&
-                !trackedFileNames.contains(url.lastPathComponent)
+                guard videoExtensions.contains(url.pathExtension.lowercased()),
+                      !trackedFileNames.contains(url.lastPathComponent) else { return false }
+                guard minimumFileAge > 0 else { return true }
+                let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+                return now.timeIntervalSince(modified) >= minimumFileAge
             }
         } catch {
             recoveryLog.error("Failed to scan Clips directory: \(error.localizedDescription)")
