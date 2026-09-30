@@ -48,13 +48,15 @@ struct AccountDeletionView: View {
             Section("What Will Be Deleted") {
                 DeletionItem(icon: "person.fill.xmark", title: "Your Account", description: "Login credentials and profile")
                 if isCoach {
-                    DeletionItem(icon: "folder.badge.minus", title: "Shared Folders", description: "All folders you created and the videos inside them")
-                    DeletionItem(icon: "pencil.and.outline", title: "Video Annotations", description: "Notes, comments, and telestration drawings you authored")
+                    // Must match what cleanupUserDataOnDelete (functions index.ts) actually
+                    // does for a coach: coaches own no folders, and clips they
+                    // uploaded to an athlete's folder are orphaned, not deleted.
+                    DeletionItem(icon: "pencil.and.outline", title: "Notes & Drawings", description: "Comments, notes, and telestration drawings you added to athletes' videos")
                     DeletionItem(icon: "clipboard", title: "Drill Cards", description: "Drill cards you created across all videos")
-                    DeletionItem(icon: "record.circle", title: "Coach Sessions", description: "Recorded sessions and clips captured during them")
+                    DeletionItem(icon: "record.circle", title: "Session History", description: "Your coaching session records")
                     DeletionItem(icon: "text.bubble.fill", title: "Quick-Cue Templates", description: "Saved quick-cue and drill templates")
                     DeletionItem(icon: "envelope.badge", title: "Invitations", description: "Sent and received athlete-coach invitations")
-                    DeletionItem(icon: "cloud.slash", title: "Cloud Sync Data", description: "All data synced to Firestore")
+                    DeletionItem(icon: "person.2.slash", title: "Athlete Access", description: "You'll be removed from every athlete's shared folder")
                 } else {
                     DeletionItem(icon: "figure.baseball", title: "All Athletes", description: "All athlete profiles you created")
                     DeletionItem(icon: "calendar.badge.minus", title: "All Seasons", description: "Season data and settings")
@@ -72,15 +74,15 @@ struct AccountDeletionView: View {
 
                     VStack(alignment: .leading, spacing: 4) {
                         if isCoach {
-                            Text("Videos in shared folders you own will be permanently deleted.")
+                            Text("Clips you recorded or uploaded to an athlete's folder stay with that athlete. They belong to the athlete, not your account.")
                                 .font(.bodySmall)
                                 .foregroundColor(.secondary)
 
-                            Text("Athletes who saved clips to their own libraries keep their copies.")
+                            Text("Your notes and drawings on those clips are removed.")
                                 .font(.bodySmall)
                                 .foregroundColor(.secondary)
 
-                            Text("Videos in folders shared with you stay with the folder owner.")
+                            Text("Videos you saved to your Photos app are not affected.")
                                 .font(.labelMedium)
                                 .foregroundColor(.secondary)
                         } else {
@@ -116,7 +118,7 @@ struct AccountDeletionView: View {
                             }
                         }
                         if isCoach {
-                            RecommendationRow(number: 2, text: "Notify your athletes that shared folders will be deleted")
+                            RecommendationRow(number: 2, text: "Let your athletes know. Your notes and drawings will disappear from their clips.")
                             RecommendationRow(number: 3, text: "Save important annotations or drill cards externally")
                         } else {
                             RecommendationRow(number: 2, text: "Save important videos to Photos")
