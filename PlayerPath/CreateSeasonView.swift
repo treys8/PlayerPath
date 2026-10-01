@@ -148,7 +148,7 @@ struct CreateSeasonView: View {
                 } header: {
                     Text("Type (Optional)")
                 } footer: {
-                    Text("Categorize this season — helps organize seasons and adds context to a recruiting profile.")
+                    Text("Categorize this season to help keep your seasons organized.")
                 }
 
                 if athlete.activeSeason != nil {

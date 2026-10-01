@@ -58,6 +58,7 @@
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
 import { sendPushNotification } from './push';
+import { recruitingEnabled } from './recruitingSwitch';
 
 /** Docs per page. Bounds peak memory; nothing else depends on it. */
 const LAPSE_PAGE_SIZE = 300;
@@ -88,6 +89,10 @@ export const recruitingLapseNotice = functions
   .pubsub.schedule('0 3 * * *')
   .timeZone('UTC')
   .onRun(async () => {
+    if (!(await recruitingEnabled())) {
+      console.log('recruitingLapseNotice: recruiting is switched off — skipping');
+      return;
+    }
     const db = admin.firestore();
     const startedAt = Date.now();
 

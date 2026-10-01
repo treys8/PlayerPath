@@ -98,6 +98,8 @@ Playback: `VideoPlayerView.swift` with `PlayResultOverlayView` for tagging and c
 
 A Pro-gated athlete feature: publishes a shareable public web page for college coaches at `profiles.playerpath.net/p/{shareToken}`, served by the `serveRecruitingProfile` Cloud Function off Firebase Hosting.
 
+> **Hidden in the app as of 2026-10-01** (`RecruitingFeature.isEnabled = false`) pending more research. The server is dark too: `firebase/functions/src/recruitingSwitch.ts` fails closed, so pages 404 and the view-digest/lapse pushes skip unless `internalState/recruiting.enabled` is `true` (console edit, no deploy). Nothing is deleted, so links resume at the same URL. Don't advertise it in new copy.
+
 - **Entry point:** More tab → Profile → "Recruiting Profile" (`ProfileView.swift`) → `RecruitingProfileEditorView`. UI lives in `Views/Recruiting/` (editor sections, highlight picker, readiness checklist, publish view, QR/share tools).
 - **Publish path:** `RecruitingProfileService` upserts `recruitingProfiles/{athleteUUID}` — doc ID is the athlete's canonical UUID, so publish is an idempotent upsert with no lookup query. The share token lives in `recruitingTokens/{shareToken}` and is claimed once, then reused across republishes.
 - **Invariants (violate these and the page leaks or breaks):**
