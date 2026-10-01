@@ -47,6 +47,7 @@ import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
 import { createHash } from 'crypto';
 import { sendPushNotification } from './push';
+import { recruitingEnabled } from './recruitingSwitch';
 
 /**
  * Signed media URLs live long enough to survive a triage session, short enough
@@ -755,6 +756,18 @@ function unavailablePage(): string {
   });
 }
 
+/** Shown for every link while recruiting is switched off (recruitingSwitch.ts). */
+function pausedPage(): string {
+  return page({
+    title: 'Profile unavailable · PlayerPath',
+    description: 'This profile is not available right now.',
+    image: null,
+    body: `<div class="empty"><h1>Profile unavailable</h1>
+<p class="sub">This profile isn't available right now.</p>
+<footer><a href="${MARKETING_HREF}">PlayerPath</a></footer></div>`,
+  });
+}
+
 /**
  * Shown when the profile exists and is live but its film wouldn't load — almost
  * always a missing signBlob role. Distinct copy on purpose: telling an athlete
@@ -958,6 +971,18 @@ export const serveRecruitingProfile = functions
 
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     res.status(405).type('text/plain').send('Method Not Allowed');
+    return;
+  }
+
+  // Recruiting is switched off server-side (recruitingSwitch.ts): every page and
+  // image goes dark, before any profile lookup or view counting.
+  if (!(await recruitingEnabled())) {
+    const isImage = IMAGE_KINDS.has((req.path || '').split('/').filter(Boolean).pop() || '');
+    if (isImage) {
+      res.status(404).type('text/plain').send('Not found');
+    } else {
+      res.status(404).send(pausedPage());
+    }
     return;
   }
 
@@ -1371,6 +1396,10 @@ export const recruitingViewDigest = functions
   .pubsub.schedule('0 1 * * *')
   .timeZone('UTC')
   .onRun(async () => {
+    if (!(await recruitingEnabled())) {
+      console.log('recruitingViewDigest: recruiting is switched off — skipping');
+      return;
+    }
     const db = admin.firestore();
     const startedAt = Date.now();
     const windowStart = admin.firestore.Timestamp.fromMillis(

@@ -9,9 +9,12 @@ import Foundation
 
 /// Whether the recruiting profile is reachable from the UI.
 ///
-/// **ON as of 2026-08-09** — recruiting ships with this build. It was held off
-/// for a first submission that went out without a route to it; the server half
-/// has been live in prod since 2026-07-25 either way.
+/// **OFF as of 2026-10-01** — hidden again pending more research on the
+/// feature. It was ON from 2026-08-09; the server half (serveRecruitingProfile,
+/// recruitingViewDigest, recruitingLapseNotice) is held dark by its own switch,
+/// `firebase/functions/src/recruitingSwitch.ts` (`internalState/recruiting`).
+/// Turning recruiting back on means flipping BOTH: this flag (a resubmit) and
+/// that doc's `enabled` field.
 ///
 /// Keep this a compile-time constant. Do **not** drive it from Firestore
 /// `appConfig` the way `AppUpdateManager` does: revealing a feature App Review
@@ -29,5 +32,5 @@ import Foundation
 /// has a path back to the editor — which holds the only unpublish control —
 /// rather than dead-ending.
 enum RecruitingFeature {
-    static let isEnabled = true
+    static let isEnabled = false
 }
